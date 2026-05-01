@@ -1,0 +1,37 @@
+# 민감한 정보
+.env
+.env.*
+.camera_ip
+secrets.py
+config_secret.py
+*_key.py
+*token*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+venv311/
+
+# 로그 파일
+*.log
+nohup.out
+**/stream_log.txt
+**/latency_log/
+**/latency_log_hotspot.txt
+**/latency_log_router.txt
+**/tcp_log.txt
+**/logs/
+**/recordings/
+*.avi
+*.wav
+
+# Claude Code
+.claude/
+
+# 빌드
+build/
+*.o
+*.elf
+*.hex
