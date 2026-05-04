@@ -1,3 +1,4 @@
+import queue
 import select
 import socket
 import struct
@@ -11,7 +12,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QImage
 
 from config import (
-    CAMERA_FLIP_VERTICAL, FSM_STATES, BUTTON_ROIS,
+    CAMERA_FLIP_VERTICAL,
     CAMERA_TCP_HOST, CAMERA_TCP_PORT,
     TCP_RECV_TIMEOUT_SEC, TCP_RECONNECT_DELAY_SEC, TCP_MAX_FRAME_BYTES,
     YOLO_MODEL_PATH, YOLO_CALIBRATION_PATH,
@@ -30,7 +31,7 @@ except Exception:
     pass
 
 # =============================================================================
-# [YOLO] 모델을 모듈 수준에서 한 번만 로드해서 두 스레드가 공유
+# [YOLO]
 # =============================================================================
 YOLO_AVAILABLE = False
 _shared_yolo_model = None
@@ -125,34 +126,47 @@ def _update_tracks(tracks, detections):
 # =============================================================================
 def _load_undistort_map(path, w, h):
     if not os.path.exists(path):
-        return None
+        return None, 'missing'
     data = np.load(path)
+    if 'image_size' in data:
+        iw, ih = int(data['image_size'][0]), int(data['image_size'][1])
+        if iw != w or ih != h:
+            return None, 'mismatch'
     cam_mat = data['camera_matrix']
     dist    = data['dist_coeffs']
     new_mat, _ = cv2.getOptimalNewCameraMatrix(cam_mat, dist, (w, h), 1, (w, h))
     map1, map2 = cv2.initUndistortRectifyMap(cam_mat, dist, None, new_mat, (w, h), cv2.CV_16SC2)
-    return (map1, map2)
+    return (map1, map2), 'ok'
 
 
 # =============================================================================
 # [CameraThread] ESP32-S3 TCP 스트림
 # =============================================================================
 class CameraThread(QThread):
-    change_pixmap_signal   = pyqtSignal(QImage)
-    log_signal             = pyqtSignal(str)
-    finger_roi_signal      = pyqtSignal(str)
-    yolo_detections_signal = pyqtSignal(list)
+    change_pixmap_signal      = pyqtSignal(QImage)
+    log_signal                = pyqtSignal(str)
+    yolo_detections_signal    = pyqtSignal(list)
+    raw_frame_signal          = pyqtSignal(object)
+    calibration_needed_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
-        self._running   = True
-        self.sock       = None
-        self._host      = CAMERA_TCP_HOST
-        self._is_active = True
-        self._tracks               = []
-        self._undistort_map        = None
+        self._running            = True
+        self.sock                = None
+        self._host               = CAMERA_TCP_HOST
+        self._is_active          = True
+        self._tracks             = []
+        self._undistort_map      = None
+        self._lock               = threading.Lock()
+        self._calibration_active = False
+        self._last_frame_wh      = None
 
-        # MediaPipe
+        # 지연 개선: 수신 전용 스레드 → 최신 프레임만 유지
+        self._latest_raw   = None
+        self._raw_lock     = threading.Lock()
+        self._raw_event    = threading.Event()
+        self._recv_error   = False
+
         self._mediapipe_ok = False
         if MEDIAPIPE_AVAILABLE:
             try:
@@ -161,38 +175,58 @@ class CameraThread(QThread):
                 self._hands    = self._mp_hands.Hands(
                     static_image_mode=False,
                     max_num_hands=1,
-                    min_detection_confidence=0.7,
-                    min_tracking_confidence=0.5,
+                    model_complexity=1,
+                    min_detection_confidence=0.85,
+                    min_tracking_confidence=0.7,
                 )
                 self._mediapipe_ok = True
             except Exception as e:
                 print(f"[MediaPipe] init failed: {e}")
 
-        # YOLO (공유 모델 사용)
-
-        self._roi_lock          = threading.Lock()
-        self._correct_roi_id    = ""
-        self._roi_active        = False
-        self._current_fsm_state = "IDLE"
-
     def set_active(self, active):
-        with self._roi_lock:
+        with self._lock:
             self._is_active = active
         if not active:
             self._tracks = []
 
+    def set_host(self, host):
+        with self._lock:
+            self._host = host
+
+    # =========================================================================
+    # [캘리브레이션]
+    # =========================================================================
     def _init_calibration(self, w, h):
-        self._undistort_map = _load_undistort_map(YOLO_CALIBRATION_PATH, w, h)
-        if self._undistort_map:
-            self.log_signal.emit("[캘리브레이션] 왜곡 보정 로드 완료.")
+        maps, status = _load_undistort_map(YOLO_CALIBRATION_PATH, w, h)
+        self._undistort_map = maps
+        if status == 'missing':
+            self.log_signal.emit("[캘리브레이션] 파일 없음. 재캘리브레이션 필요.")
+            self.calibration_needed_signal.emit()
+        elif status == 'mismatch':
+            self.log_signal.emit("[캘리브레이션] 해상도 불일치. 재캘리브레이션 필요.")
+            self.calibration_needed_signal.emit()
         else:
-            self.log_signal.emit("[캘리브레이션] 파일 없음. 보정 미적용.")
+            self.log_signal.emit("[캘리브레이션] 왜곡 보정 로드 완료.")
+
+    def reload_calibration(self):
+        if self._last_frame_wh is None:
+            return
+        w, h = self._last_frame_wh
+        maps, status = _load_undistort_map(YOLO_CALIBRATION_PATH, w, h)
+        self._undistort_map = maps
+        if status == 'ok':
+            self.log_signal.emit("[캘리브레이션] 재로드 완료.")
+        else:
+            self.log_signal.emit(f"[캘리브레이션] 재로드 실패: {status}")
 
     def _undistort(self, frame):
         if self._undistort_map is None:
             return frame
         return cv2.remap(frame, self._undistort_map[0], self._undistort_map[1], cv2.INTER_LINEAR)
 
+    # =========================================================================
+    # [YOLO 드로잉]
+    # =========================================================================
     def _draw_yolo(self, frame, tracks):
         for t in tracks:
             cls_id = t['cls']
@@ -204,22 +238,18 @@ class CameraThread(QThread):
         return frame
 
     # =========================================================================
-    # [메인 스레드에서 호출]
+    # [수신 전용 스레드 — 최신 프레임을 _latest_raw에 계속 덮어씀]
     # =========================================================================
-    def set_host(self, host):
-        with self._roi_lock:
-            self._host = host
-        self._consecutive_failures = 0
-        self._failure_signal_sent  = False
-
-    def set_roi_config(self, correct_roi_id, active):
-        with self._roi_lock:
-            self._correct_roi_id = correct_roi_id
-            self._roi_active     = active
-
-    def set_fsm_state(self, state):
-        with self._roi_lock:
-            self._current_fsm_state = state
+    def _recv_worker(self):
+        while self._running:
+            data = self._recv_latest_frame()
+            if data is None:
+                self._recv_error = True
+                self._raw_event.set()
+                break
+            with self._raw_lock:
+                self._latest_raw = data
+            self._raw_event.set()
 
     # =========================================================================
     # [스레드 메인 루프]
@@ -246,11 +276,26 @@ class CameraThread(QThread):
                 time.sleep(TCP_RECONNECT_DELAY_SEC)
                 continue
 
+            self._recv_error = False
+            self._raw_event.clear()
+            recv_thread = threading.Thread(target=self._recv_worker, daemon=True)
+            recv_thread.start()
+
             try:
                 while self._running:
-                    data = self._recv_latest_frame()
-                    if data is None:
+                    if not self._raw_event.wait(timeout=TCP_RECV_TIMEOUT_SEC):
+                        self.log_signal.emit("[카메라] 수신 타임아웃")
                         break
+                    self._raw_event.clear()
+
+                    if self._recv_error:
+                        break
+
+                    with self._raw_lock:
+                        data = self._latest_raw
+
+                    if data is None:
+                        continue
 
                     frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
                     if frame is None:
@@ -258,8 +303,12 @@ class CameraThread(QThread):
 
                     if not calibration_initialized:
                         h, w = frame.shape[:2]
+                        self._last_frame_wh = (w, h)
                         self._init_calibration(w, h)
                         calibration_initialized = True
+
+                    if self._calibration_active:
+                        self.raw_frame_signal.emit(frame.copy())
 
                     frame = self._process_frame(frame)
 
@@ -279,6 +328,7 @@ class CameraThread(QThread):
                     except Exception:
                         pass
                     self.sock = None
+                recv_thread.join(timeout=3)
 
             if self._running:
                 self.log_signal.emit(f"[카메라] 스트림 끊김. {TCP_RECONNECT_DELAY_SEC:.0f}초 후 재연결...")
@@ -293,101 +343,55 @@ class CameraThread(QThread):
         if CAMERA_FLIP_VERTICAL:
             frame = cv2.flip(frame, 0)
 
-        with self._roi_lock:
-            is_active       = self._is_active
-            roi_active      = self._roi_active
-            correct_roi_id  = self._correct_roi_id
-            state           = self._current_fsm_state
+        with self._lock:
+            is_active = self._is_active
 
-        h, w, _ = frame.shape
-        finger_in_roi = ""
-        fingertip_pos = None
-
-        if is_active:
-            frame = self._undistort(frame)
-
-            if YOLO_AVAILABLE:
-                dets = _run_yolo_shared(frame)
-                self._tracks = _update_tracks(self._tracks, dets)
-                frame = self._draw_yolo(frame, self._tracks)
-                self.yolo_detections_signal.emit([
-                    (COCO_CLASSES[t['cls']], t['score'], *t['box']) for t in self._tracks
-                ])
-
-            if self._mediapipe_ok:
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                rgb.flags.writeable = False
-                results = self._hands.process(rgb)
-                rgb.flags.writeable = True
-
-                if results.multi_hand_landmarks:
-                    for hand_lm in results.multi_hand_landmarks:
-                        self._mp_draw.draw_landmarks(
-                            frame, hand_lm, self._mp_hands.HAND_CONNECTIONS,
-                            self._mp_draw.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=3),
-                            self._mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2),
-                        )
-                        idx_tip = hand_lm.landmark[self._mp_hands.HandLandmark.INDEX_FINGER_TIP]
-                        fx = int(idx_tip.x * w)
-                        fy = int(idx_tip.y * h)
-                        fingertip_pos = (fx, fy)
-                        cv2.circle(frame, (fx, fy), 12, (255, 0, 255), -1)
-                        cv2.circle(frame, (fx, fy), 14, (255, 255, 255), 2)
-
-        if not roi_active:
-            self.finger_roi_signal.emit("")
+        if not is_active:
             return frame
 
-        for roi in BUTTON_ROIS:
-            rx, ry, rw, rh = roi["rect"]
-            x1, y1 = int(rx * w), int(ry * h)
-            x2, y2 = int((rx + rw) * w), int((ry + rh) * h)
+        h, w, _ = frame.shape
+        frame = self._undistort(frame)
 
-            is_correct  = (roi["id"] == correct_roi_id)
-            is_hovered  = False
-            if fingertip_pos is not None:
-                fx, fy = fingertip_pos
-                if x1 <= fx <= x2 and y1 <= fy <= y2:
-                    is_hovered    = True
-                    finger_in_roi = roi["id"]
+        if YOLO_AVAILABLE:
+            dets = _run_yolo_shared(frame)
+            self._tracks = _update_tracks(self._tracks, dets)
+            frame = self._draw_yolo(frame, self._tracks)
+            self.yolo_detections_signal.emit([
+                (COCO_CLASSES[t['cls']], t['score'], *t['box']) for t in self._tracks
+            ])
 
-            color      = (0, 200, 0) if is_correct else (0, 0, 200)
-            label_text = f"{roi['label']} [정답]" if is_correct else roi["label"]
+        if self._mediapipe_ok:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            rgb.flags.writeable = False
+            results = self._hands.process(rgb)
+            rgb.flags.writeable = True
 
-            overlay = frame.copy()
-            alpha   = 0.30 if is_hovered else 0.12
-            cv2.rectangle(overlay, (x1, y1), (x2, y2), color, -1)
-            frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3 if is_hovered else 1)
-            cv2.putText(frame, label_text, (x1 + 5, y1 + 25),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+            if results.multi_hand_landmarks:
+                for hand_lm in results.multi_hand_landmarks:
+                    self._mp_draw.draw_landmarks(
+                        frame, hand_lm, self._mp_hands.HAND_CONNECTIONS,
+                        self._mp_draw.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=3),
+                        self._mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2),
+                    )
+                    idx_tip = hand_lm.landmark[self._mp_hands.HandLandmark.INDEX_FINGER_TIP]
+                    fx = int(idx_tip.x * w)
+                    fy = int(idx_tip.y * h)
+                    cv2.circle(frame, (fx, fy), 12, (255, 0, 255), -1)
+                    cv2.circle(frame, (fx, fy), 14, (255, 255, 255), 2)
 
-        if state == "WARNING" and int(time.time() * 4) % 2 == 0:
-            cv2.rectangle(frame, (0, 0), (w - 1, h - 1), (0, 0, 255), 8)
-        if state == "MONITORING":
-            cv2.rectangle(frame, (0, 0), (w - 1, h - 1), (0, 255, 255), 4)
-
-        if state and state != "IDLE":
-            state_label  = FSM_STATES.get(state, {}).get("label", state)
-            display_text = f"[{state_label}] {state}"
-            text_size    = cv2.getTextSize(display_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
-            cv2.rectangle(frame, (8, 8), (18 + text_size[0], 18 + text_size[1]), (0, 0, 0), -1)
-            cv2.putText(frame, display_text, (12, 12 + text_size[1]),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-        self.finger_roi_signal.emit(finger_in_roi)
         return frame
 
     # =========================================================================
     # [TCP 연결]
     # =========================================================================
     def _connect_tcp(self):
-        with self._roi_lock:
+        with self._lock:
             host = self._host
         try:
             self.log_signal.emit(f"[카메라] ESP32-S3 연결 시도: {host}:{CAMERA_TCP_PORT}")
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
             sock.settimeout(TCP_RECV_TIMEOUT_SEC)
             sock.connect((host, CAMERA_TCP_PORT))
             self.log_signal.emit(f"[카메라] 연결 성공! ({host}:{CAMERA_TCP_PORT})")
@@ -397,7 +401,6 @@ class CameraThread(QThread):
             return None
 
     def _recv_latest_frame(self):
-        """Drain stale buffered frames, return only the most recent JPEG data."""
         while True:
             header = self._recv_exact(4)
             if header is None:
@@ -430,6 +433,7 @@ class CameraThread(QThread):
 
     def stop(self):
         self._running = False
+        self._raw_event.set()
         if self.sock is not None:
             try:
                 self.sock.close()
@@ -455,7 +459,6 @@ class UsbCameraThread(QThread):
         self._tracks    = []
         self._lock      = threading.Lock()
 
-        # MediaPipe
         self._mediapipe_ok = False
         if MEDIAPIPE_AVAILABLE:
             try:
@@ -464,14 +467,13 @@ class UsbCameraThread(QThread):
                 self._hands    = self._mp_hands.Hands(
                     static_image_mode=False,
                     max_num_hands=1,
-                    min_detection_confidence=0.7,
-                    min_tracking_confidence=0.5,
+                    model_complexity=1,
+                    min_detection_confidence=0.85,
+                    min_tracking_confidence=0.7,
                 )
                 self._mediapipe_ok = True
             except Exception as e:
                 print(f"[MediaPipe/USB] init failed: {e}")
-
-        # YOLO (공유 모델 사용)
 
     def set_active(self, active):
         with self._lock:
@@ -526,6 +528,7 @@ class UsbCameraThread(QThread):
         if not cap.isOpened():
             self.log_signal.emit("[CCTV] 웹캠 열기 실패")
             return
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.log_signal.emit("[CCTV] USB 웹캠 연결 성공")
         while self._running:
             ret, frame = cap.read()

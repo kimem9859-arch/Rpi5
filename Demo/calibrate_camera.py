@@ -35,7 +35,7 @@ def recv_exact(sock, length):
 def recv_frame(sock):
     header = recv_exact(sock, 4)
     length = struct.unpack('<I', header)[0]
-    if length == 0 or length > 200000:
+    if length == 0 or length > 500000:
         return None
     data = recv_exact(sock, length)
     frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
