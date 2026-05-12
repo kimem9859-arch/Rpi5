@@ -28,7 +28,7 @@ STATUS_DANGER  = "#d50000"
 # =============================================================================
 # [YOLO 설정]
 # =============================================================================
-YOLO_MODEL_PATH       = os.path.join(_BASE_DIR, 'yolov8n.pt')
+YOLO_MODEL_PATH       = os.path.join(_BASE_DIR, 'YOLO model', 'yolov8n.pt')
 YOLO_CALIBRATION_PATH = os.path.join(_BASE_DIR, 'camera_calibration.npz')
 YOLO_CONF_HIGH  = 0.65
 YOLO_CONF_LOW   = 0.50
