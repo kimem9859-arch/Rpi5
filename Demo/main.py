@@ -1,4 +1,3 @@
-import os
 import sys
 
 try:
@@ -7,15 +6,7 @@ try:
 except Exception:
     pass
 
-# Windows Qt 플러그인 경로 수동 지정 (라즈베리파이에서는 무시됨)
-if sys.platform == "win32":
-    for site_path in sys.path:
-        plugin_path = os.path.join(site_path, "PyQt5", "Qt5", "plugins", "platforms")
-        if os.path.exists(plugin_path):
-            os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = plugin_path
-            break
-
-from PyQt5.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication
 from safety_console import SafetyConsole
 from config import BG_PRIMARY, BG_PANEL, TEXT_PRIMARY, BORDER_COLOR, ACCENT
 
@@ -32,7 +23,7 @@ def main():
     """)
     window = SafetyConsole()
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

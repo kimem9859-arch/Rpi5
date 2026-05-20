@@ -4,13 +4,13 @@ from datetime import datetime
 
 import cv2
 import numpy as np
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QTextBrowser, QPushButton, QSizePolicy,
     QDialog, QApplication,
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSlot
-from PyQt5.QtGui import QImage, QPixmap, QFont
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtGui import QImage, QPixmap, QFont
 
 from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT,
@@ -59,13 +59,13 @@ class CalibrationDialog(QDialog):
 
         # 체스보드 이미지
         self._board_label = QLabel()
-        self._board_label.setAlignment(Qt.AlignCenter)
+        self._board_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._board_label.setStyleSheet(f"background-color: {BG_SURFACE}; border: 1px solid {BORDER_COLOR};")
-        self._board_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._board_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._load_chessboard_image()
 
         self._status_label = QLabel(f"메인 화면을 보며 체스보드를 카메라에 비춰주세요  (0 / {self.SAMPLE_COUNT})")
-        self._status_label.setAlignment(Qt.AlignCenter)
+        self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._status_label.setWordWrap(True)
         self._status_label.setStyleSheet(f"font-size: 13px; padding: 6px; color: {TEXT_PRIMARY}; background-color: {BG_PANEL};")
 
@@ -79,7 +79,7 @@ class CalibrationDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(self._board_label)
         layout.addWidget(self._status_label)
-        layout.addWidget(self._cancel_btn, alignment=Qt.AlignRight)
+        layout.addWidget(self._cancel_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
         camera_thread._calibration_active = True
         camera_thread.raw_frame_signal.connect(self._on_frame)
@@ -88,7 +88,7 @@ class CalibrationDialog(QDialog):
         if os.path.exists(self._CHESSBOARD_PATH):
             self._board_label.setPixmap(
                 QPixmap(self._CHESSBOARD_PATH).scaled(
-                    500, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                    500, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
                 )
             )
         else:
@@ -221,18 +221,18 @@ class SafetyConsole(QMainWindow):
         main_layout = QHBoxLayout(central)
 
         self.camera_label = QLabel("카메라 연결 대기 중...")
-        self.camera_label.setAlignment(Qt.AlignCenter)
+        self.camera_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.camera_label.setStyleSheet(
             f"background-color: {BG_PANEL}; color: {TEXT_SECONDARY}; font-size: 16px;"
             f"border: 2px solid {BORDER_COLOR};"
         )
-        self.camera_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.camera_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         right_layout = QVBoxLayout()
 
         self.state_label = QLabel("● STANDBY")
-        self.state_label.setAlignment(Qt.AlignCenter)
-        self.state_label.setFont(QFont("Consolas", 18, QFont.Bold))
+        self.state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.state_label.setFont(QFont("Consolas", 18, QFont.Weight.Bold))
         self.state_label.setFixedHeight(80)
         self.state_label.setStyleSheet(
             f"background-color: {BG_PANEL}; color: {STATUS_OK};"
@@ -245,7 +245,7 @@ class SafetyConsole(QMainWindow):
             f"background-color: {BG_LOG}; color: {TEXT_LOG};"
             f"border: 1px solid {BORDER_COLOR}; padding: 8px;"
         )
-        self.log_browser.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.log_browser.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         right_layout.addWidget(self.state_label)
         right_layout.addWidget(self.log_browser)
@@ -280,7 +280,7 @@ class SafetyConsole(QMainWindow):
         if self._active_camera != "esp32":
             return
         scaled = qt_image.scaled(
-            self.camera_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            self.camera_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
         self.camera_label.setPixmap(QPixmap.fromImage(scaled))
 
@@ -289,7 +289,7 @@ class SafetyConsole(QMainWindow):
         if self._active_camera != "usb":
             return
         scaled = qt_image.scaled(
-            self.camera_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            self.camera_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
         self.camera_label.setPixmap(QPixmap.fromImage(scaled))
 
@@ -344,7 +344,7 @@ class SafetyConsole(QMainWindow):
 
     def _open_calibration_dialog(self):
         dlg = CalibrationDialog(self.camera_thread, self)
-        if dlg.exec_() == QDialog.Accepted:
+        if dlg.exec() == QDialog.DialogCode.Accepted:
             self.camera_thread.reload_calibration()
             self._append_log("[캘리브레이션] 완료. 왜곡 보정 재적용.")
         else:
@@ -377,7 +377,7 @@ class SafetyConsole(QMainWindow):
             return
         try:
             pixmap = self.grab()
-            qimage = pixmap.toImage().convertToFormat(QImage.Format_RGB888)
+            qimage = pixmap.toImage().convertToFormat(QImage.Format.Format_RGB888)
             w, h   = qimage.width(), qimage.height()
             ptr    = qimage.bits()
             ptr.setsize(h * w * 3)

@@ -26,9 +26,19 @@ STATUS_WARNING = "#ff6d00"
 STATUS_DANGER  = "#d50000"
 
 # =============================================================================
+# [추론 백엔드 설정]
+# =============================================================================
+# "pytorch": best.pt + ultralytics CPU 추론 (Phase A, 현재)
+# "hailo"  : best.hef + Hailo-8 가속 추론 (Phase B, HEF 변환 완료 후)
+INFERENCE_BACKEND = "pytorch"
+
+PT_MODEL_PATH  = os.path.join(_BASE_DIR, 'models', 'best.pt')
+HEF_MODEL_PATH = os.path.join(_BASE_DIR, 'models', 'best.hef')
+
+# =============================================================================
 # [YOLO 설정]
 # =============================================================================
-YOLO_MODEL_PATH       = os.path.join(_BASE_DIR, 'YOLO model', 'yolov8n.pt')
+YOLO_MODEL_PATH       = PT_MODEL_PATH
 YOLO_CALIBRATION_PATH = os.path.join(_BASE_DIR, 'camera_calibration.npz')
 YOLO_CONF_HIGH  = 0.65
 YOLO_CONF_LOW   = 0.50
@@ -61,7 +71,7 @@ LOG_SAVE_DIR = os.path.join(_BASE_DIR, 'logs')
 # =============================================================================
 _CAMERA_IP_FILE = os.path.join(_BASE_DIR, ".camera_ip")
 _cached_ip      = open(_CAMERA_IP_FILE).read().strip() if os.path.exists(_CAMERA_IP_FILE) else None
-CAMERA_TCP_HOST = _cached_ip if _cached_ip else "100.97.0.91"
+CAMERA_TCP_HOST = _cached_ip if _cached_ip else "10.111.10.235"
 CAMERA_TCP_PORT = 8888
 TCP_RECV_TIMEOUT_SEC    = 10.0
 TCP_RECONNECT_DELAY_SEC = 3.0

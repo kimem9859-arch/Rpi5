@@ -8,15 +8,15 @@ import os
 
 import cv2
 import numpy as np
-from PyQt5.QtCore import QThread, pyqtSignal
-from PyQt5.QtGui import QImage
+from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtGui import QImage
 
 from config import (
     CAMERA_FLIP_VERTICAL,
     CAMERA_TCP_HOST, CAMERA_TCP_PORT,
     TCP_RECV_TIMEOUT_SEC, TCP_RECONNECT_DELAY_SEC, TCP_MAX_FRAME_BYTES,
-    YOLO_MODEL_PATH, YOLO_CALIBRATION_PATH,
-    YOLO_CONF_HIGH, YOLO_CONF_LOW, YOLO_IOU_MATCH, YOLO_MAX_MISS, YOLO_INPUT_SIZE,
+    YOLO_CALIBRATION_PATH,
+    YOLO_CONF_HIGH, YOLO_IOU_MATCH, YOLO_MAX_MISS,
 )
 
 # =============================================================================
@@ -31,48 +31,18 @@ except Exception:
     pass
 
 # =============================================================================
-# [YOLO]
+# [Detector] config.INFERENCE_BACKEND selects PyTorch or Hailo backend
 # =============================================================================
-YOLO_AVAILABLE = False
-_shared_yolo_model = None
-_yolo_lock = threading.Lock()
+DETECTOR_AVAILABLE = False
+_detector = None
 
 try:
-    from ultralytics import YOLO as YOLOModel
-    _shared_yolo_model = YOLOModel(YOLO_MODEL_PATH)
-    YOLO_AVAILABLE = True
-    print("[YOLO] Model loaded (shared).")
+    from detector import create_detector
+    _detector = create_detector()
+    DETECTOR_AVAILABLE = True
+    print(f"[Detector] '{_detector.backend_name}' 백엔드 로드 완료.")
 except Exception as e:
-    print(f"[YOLO] Load failed: {e}")
-
-
-def _run_yolo_shared(frame):
-    if _shared_yolo_model is None:
-        return []
-    with _yolo_lock:
-        results = _shared_yolo_model(frame, imgsz=YOLO_INPUT_SIZE, verbose=False)[0]
-    detections = []
-    for box in results.boxes:
-        score = float(box.conf[0])
-        if score < YOLO_CONF_LOW:
-            continue
-        cls_id = int(box.cls[0])
-        x1, y1, x2, y2 = map(int, box.xyxy[0])
-        detections.append((cls_id, score, x1, y1, x2, y2))
-    return detections
-
-COCO_CLASSES = [
-    'person','bicycle','car','motorcycle','airplane','bus','train','truck','boat',
-    'traffic light','fire hydrant','stop sign','parking meter','bench','bird','cat',
-    'dog','horse','sheep','cow','elephant','bear','zebra','giraffe','backpack',
-    'umbrella','handbag','tie','suitcase','frisbee','skis','snowboard','sports ball',
-    'kite','baseball bat','baseball glove','skateboard','surfboard','tennis racket',
-    'bottle','wine glass','cup','fork','knife','spoon','bowl','banana','apple',
-    'sandwich','orange','broccoli','carrot','hot dog','pizza','donut','cake','chair',
-    'couch','potted plant','bed','dining table','toilet','tv','laptop','mouse',
-    'remote','keyboard','cell phone','microwave','oven','toaster','sink','refrigerator',
-    'book','clock','vase','scissors','teddy bear','hair drier','toothbrush'
-]
+    print(f"[Detector] 로드 실패: {e}")
 
 # =============================================================================
 # [YOLO 트래킹 헬퍼]
@@ -231,7 +201,7 @@ class CameraThread(QThread):
         for t in tracks:
             cls_id = t['cls']
             x1, y1, x2, y2 = t['box']
-            label = f"{COCO_CLASSES[cls_id]} {t['score']:.2f}"
+            label = f"{_detector.class_name(cls_id)} {t['score']:.2f}"
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(frame, label, (x1, y1 - 6),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
@@ -260,10 +230,10 @@ class CameraThread(QThread):
         else:
             self.log_signal.emit("[MediaPipe] 사용 불가! pip install mediapipe==0.10.14")
 
-        if YOLO_AVAILABLE:
-            self.log_signal.emit("[YOLO] 모델 로드 완료.")
+        if DETECTOR_AVAILABLE:
+            self.log_signal.emit(f"[Detector] '{_detector.backend_name}' 백엔드 로드 완료.")
         else:
-            self.log_signal.emit("[YOLO] 사용 불가!")
+            self.log_signal.emit("[Detector] 사용 불가!")
 
         calibration_initialized = False
 
@@ -315,7 +285,7 @@ class CameraThread(QThread):
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = rgb.shape
                     self.change_pixmap_signal.emit(
-                        QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
+                        QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888)
                     )
 
             except Exception as e:
@@ -352,12 +322,12 @@ class CameraThread(QThread):
         h, w, _ = frame.shape
         frame = self._undistort(frame)
 
-        if YOLO_AVAILABLE:
-            dets = _run_yolo_shared(frame)
+        if DETECTOR_AVAILABLE:
+            dets = _detector.detect(frame)
             self._tracks = _update_tracks(self._tracks, dets)
             frame = self._draw_yolo(frame, self._tracks)
             self.yolo_detections_signal.emit([
-                (COCO_CLASSES[t['cls']], t['score'], *t['box']) for t in self._tracks
+                (_detector.class_name(t['cls']), t['score'], *t['box']) for t in self._tracks
             ])
 
         if self._mediapipe_ok:
@@ -490,17 +460,17 @@ class UsbCameraThread(QThread):
 
         h, w, _ = frame.shape
 
-        if YOLO_AVAILABLE:
-            dets = _run_yolo_shared(frame)
+        if DETECTOR_AVAILABLE:
+            dets = _detector.detect(frame)
             self._tracks = _update_tracks(self._tracks, dets)
             for t in self._tracks:
                 x1, y1, x2, y2 = t['box']
-                label = f"{COCO_CLASSES[t['cls']]} {t['score']:.2f}"
+                label = f"{_detector.class_name(t['cls'])} {t['score']:.2f}"
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 cv2.putText(frame, label, (x1, y1 - 6),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             self.yolo_detections_signal.emit([
-                (COCO_CLASSES[t['cls']], t['score'], *t['box']) for t in self._tracks
+                (_detector.class_name(t['cls']), t['score'], *t['box']) for t in self._tracks
             ])
 
         if self._mediapipe_ok:
@@ -540,7 +510,7 @@ class UsbCameraThread(QThread):
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb.shape
             self.change_pixmap_signal.emit(
-                QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888).copy()
+                QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
             )
         cap.release()
         self.log_signal.emit("[CCTV] USB 웹캠 해제")
