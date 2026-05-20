@@ -7,23 +7,19 @@ import time
 import threading
 import os
 
-# ESP32 IP
+CAPTURE_INTERVAL = 5  # seconds
+
 ip = "10.111.10.235"
 port = 8888
 if len(sys.argv) > 1:
     ip = sys.argv[1]
 
-video_dir = r"D:\claude\claude-project\original\recordings"
-os.makedirs(video_dir, exist_ok=True)
-
-timestamp = time.strftime('%Y%m%d_%H%M%S')
-video_path = os.path.join(video_dir, f"{timestamp}.avi")
-writer = None
+save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "collected_images")
+os.makedirs(save_dir, exist_ok=True)
 
 latest_frame = None
 frame_lock = threading.Lock()
 running = True
-writer_lock = threading.Lock()
 
 
 def recv_exact(sock, length):
@@ -67,10 +63,6 @@ def receive_stream():
             with frame_lock:
                 latest_frame = frame
 
-            with writer_lock:
-                if writer is not None:
-                    writer.write(frame)
-
     except Exception as e:
         print(f"[수신 오류] {e}")
     finally:
@@ -87,41 +79,45 @@ def stream_with_reconnect():
         time.sleep(3)
 
 
-print(f"[시작] 서버 {ip}:{port}")
-print(f"[녹화 저장] {video_path}")
+def capture_loop():
+    global running
+    count = 0
+    while running:
+        time.sleep(CAPTURE_INTERVAL)
+        if not running:
+            break
+        with frame_lock:
+            frame = latest_frame.copy() if latest_frame is not None else None
+        if frame is None:
+            continue
+
+        timestamp = time.strftime('%Y%m%d_%H%M%S')
+        path = os.path.join(save_dir, f"{timestamp}.jpg")
+        cv2.imwrite(path, frame)
+        count += 1
+        print(f"[저장] ({count}) {path}")
+
+
+print(f"[시작] {ip}:{port}  |  저장 폴더: {save_dir}")
+print(f"[안내] {CAPTURE_INTERVAL}초마다 JPG 저장  |  q 키로 종료")
 
 t_stream = threading.Thread(target=stream_with_reconnect, daemon=True)
 t_stream.start()
 
-try:
-    while running and latest_frame is None:
-        time.sleep(0.05)
-except KeyboardInterrupt:
-    running = False
+t_capture = threading.Thread(target=capture_loop, daemon=True)
+t_capture.start()
 
-if latest_frame is not None:
-    h, w = latest_frame.shape[:2]
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    with writer_lock:
-        writer = cv2.VideoWriter(video_path, fourcc, 15.0, (w, h))
-    print(f"[녹화 시작] {w}x{h}")
-
-print("[안내] q 키로 종료")
 while running:
     with frame_lock:
         frame = latest_frame
 
     if frame is not None:
-        cv2.imshow("ESP32-S3 TCP Stream", frame)
+        cv2.imshow("ESP32-S3 Data Collector", frame)
 
     key = cv2.waitKey(1) & 0xFF
     if key == ord('q'):
         running = False
         break
 
-with writer_lock:
-    if writer is not None:
-        writer.release()
-
-print(f"[종료] 영상 저장: {video_path}")
 cv2.destroyAllWindows()
+print("[종료]")

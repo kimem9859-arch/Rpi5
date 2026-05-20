@@ -30,6 +30,10 @@ nohup.out
 # Claude Code
 .claude/
 
+# 대용량 데이터셋 / 영상
+cleanroom_dataset/
+영상 데이터/
+
 # 빌드
 build/
 *.o
