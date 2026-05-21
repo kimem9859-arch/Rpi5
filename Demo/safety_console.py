@@ -23,7 +23,7 @@ from config import (
     ACCENT, BTN_ACTIVE, BTN_INACTIVE, BTN_CALIB,
     STATUS_OK, STATUS_WARNING, STATUS_DANGER,
 )
-from camera_thread import CameraThread, UsbCameraThread, MEDIAPIPE_AVAILABLE
+from camera_thread import CameraThread, UsbCameraThread, MEDIAPIPE_AVAILABLE, close_detector
 
 
 # =============================================================================
@@ -405,4 +405,5 @@ class SafetyConsole(QMainWindow):
         self._append_log("[시스템] 카메라 스레드 종료 중...")
         self.camera_thread.stop()
         self.usb_camera_thread.stop()
+        close_detector()
         event.accept()

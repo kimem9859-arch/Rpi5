@@ -44,6 +44,12 @@ try:
 except Exception as e:
     print(f"[Detector] 로드 실패: {e}")
 
+
+def close_detector():
+    """Release detector backend resources (Hailo device, pipeline, etc.)."""
+    if _detector is not None:
+        _detector.close()
+
 # =============================================================================
 # [YOLO 트래킹 헬퍼]
 # =============================================================================
@@ -382,7 +388,11 @@ class CameraThread(QThread):
             data = self._recv_exact(length)
             if data is None:
                 return None
-            readable, _, _ = select.select([self.sock], [], [], 0)
+            try:
+                readable, _, _ = select.select([self.sock], [], [], 0)
+            except OSError:
+                # Socket closed by stop() during shutdown.
+                return None
             if not readable:
                 return data
 
@@ -395,6 +405,9 @@ class CameraThread(QThread):
                 chunk = self.sock.recv(length - len(data))
             except socket.timeout:
                 self.log_signal.emit("[카메라] 수신 타임아웃")
+                return None
+            except OSError:
+                # Socket closed by stop() during shutdown.
                 return None
             if not chunk:
                 return None

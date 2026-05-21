@@ -1,11 +1,5 @@
 import sys
 
-try:
-    import torch
-    from ultralytics import YOLO
-except Exception:
-    pass
-
 from PyQt6.QtWidgets import QApplication
 from safety_console import SafetyConsole
 from config import BG_PRIMARY, BG_PANEL, TEXT_PRIMARY, BORDER_COLOR, ACCENT

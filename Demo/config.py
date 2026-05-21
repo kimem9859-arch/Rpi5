@@ -38,7 +38,6 @@ HEF_MODEL_PATH = os.path.join(_BASE_DIR, 'models', 'best.hef')
 # =============================================================================
 # [YOLO 설정]
 # =============================================================================
-YOLO_MODEL_PATH       = PT_MODEL_PATH
 YOLO_CALIBRATION_PATH = os.path.join(_BASE_DIR, 'camera_calibration.npz')
 YOLO_CONF_HIGH  = 0.65
 YOLO_CONF_LOW   = 0.50
