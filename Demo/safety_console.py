@@ -24,6 +24,8 @@ from config import (
     STATUS_OK, STATUS_WARNING, STATUS_DANGER,
 )
 from camera_thread import CameraThread, UsbCameraThread, MEDIAPIPE_AVAILABLE, close_detector
+from fsm import SafetyFSM, State, Feedback
+from recipe import load_recipe, RecipeError
 
 
 # =============================================================================
@@ -165,6 +167,71 @@ class CalibrationDialog(QDialog):
 
 
 # =============================================================================
+# [단계 흐름 매뉴얼 UI] PRO-7 — 디스플레이에 공정 단계 흐름 + 현재 단계 표시
+# =============================================================================
+class StepFlowWidget(QWidget):
+    """레시피 단계를 세로 흐름으로 표시하고 현재 단계를 강조한다.
+
+    완료(✓) / 현재(▶) / 예정(○) 으로 구분하고, FSM 상태가 WARNING·BLOCK이면
+    현재 단계 색을 경고(주황)·차단(빨강)으로 바꾼다. IDLE이면 전체 대기(STANDBY).
+    """
+
+    def __init__(self, steps, parent=None):
+        super().__init__(parent)
+        self._steps = steps
+        self.setStyleSheet(f"background-color: {BG_PANEL}; border: 1px solid {BORDER_COLOR};")
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(3)
+        layout.setContentsMargins(10, 8, 10, 8)
+
+        title = QLabel("공정 단계 매뉴얼")
+        title.setFont(QFont("Consolas", 11, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {ACCENT}; border: none; padding-bottom: 4px;")
+        layout.addWidget(title)
+
+        self._rows = []
+        for _ in steps:
+            row = QLabel()
+            row.setWordWrap(True)
+            row.setFont(QFont("Consolas", 10))
+            layout.addWidget(row)
+            self._rows.append(row)
+        layout.addStretch()
+
+        self.update_view(1, State.IDLE)
+
+    def update_view(self, expected_step, state):
+        started = state != State.IDLE
+        # 현재 단계 색은 상태에 따라
+        if state == State.WARNING:
+            cur_color, cur_mark = STATUS_WARNING, "⚠"
+        elif state == State.BLOCK:
+            cur_color, cur_mark = STATUS_DANGER, "⛔"
+        else:
+            cur_color, cur_mark = ACCENT, "▶"
+
+        for i, (s, row) in enumerate(zip(self._steps, self._rows)):
+            order = i + 1
+            text = f"{s['button']:<4} {s.get('name', '')}"
+
+            if not started:                                  # 대기
+                mark, fg, weight, border = "○", TEXT_SECONDARY, "normal", "transparent"
+            elif order < expected_step:                      # 완료
+                mark, fg, weight, border = "✓", STATUS_OK, "normal", "transparent"
+            elif order == expected_step:                     # 현재
+                mark, fg, weight, border = cur_mark, cur_color, "bold", cur_color
+            else:                                            # 예정
+                mark, fg, weight, border = "○", TEXT_SECONDARY, "normal", "transparent"
+
+            row.setText(f"{mark} {text}")
+            row.setStyleSheet(
+                f"color: {fg}; font-weight: {weight}; border: none;"
+                f"border-left: 3px solid {border}; padding: 4px 6px;"
+            )
+
+
+# =============================================================================
 # [메인 콘솔]
 # =============================================================================
 class SafetyConsole(QMainWindow):
@@ -176,6 +243,24 @@ class SafetyConsole(QMainWindow):
 
         self._active_camera = "esp32"
         self._last_yolo_classes = set()
+        self._last_roi = ""
+
+        # 공정 레시피(정답 순서 단일 출처, §6) 로드. 실패해도 기본 시퀀스로 동작.
+        try:
+            self._recipe = load_recipe()
+        except RecipeError as e:
+            self._recipe = None
+            print(f"[레시피] 로드 실패 — 기본 시퀀스로 진행: {e}")
+
+        # 판정부(FSM) — 통합문서 §9. 콜백으로 상태표시·인터록·피드백을 받는다.
+        self.fsm = SafetyFSM(
+            sequence=(self._recipe["steps"] if self._recipe else None),
+            dwell_threshold=(self._recipe["dwell_threshold_sec"] if self._recipe else None),
+            emo_button=(self._recipe["emo_button"] if self._recipe else None),
+            on_state_change=self._on_fsm_state,
+            on_interlock=self._on_interlock,
+            on_feedback=self._on_feedback,
+        )
 
         self._video_writer   = None
         self._recording      = False
@@ -195,6 +280,7 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.change_pixmap_signal.connect(self._update_camera_frame)
         self.camera_thread.log_signal.connect(self._append_log)
         self.camera_thread.yolo_detections_signal.connect(self._on_yolo_detections)
+        self.camera_thread.roi_signal.connect(self._on_roi)
         self.camera_thread.calibration_needed_signal.connect(self._on_calibration_needed)
         self.camera_thread.start()
 
@@ -202,9 +288,14 @@ class SafetyConsole(QMainWindow):
         self.usb_camera_thread.change_pixmap_signal.connect(self._update_usb_frame)
         self.usb_camera_thread.log_signal.connect(self._append_log)
         self.usb_camera_thread.yolo_detections_signal.connect(self._on_yolo_detections)
+        self.usb_camera_thread.roi_signal.connect(self._on_roi)
         self.usb_camera_thread.start()
 
         self._append_log("[시스템] Vision AI 안전 콘솔 시작")
+        if self._recipe:
+            self._append_log(f"[레시피] '{self._recipe['process_name']}' 로드 — {self.fsm.step_count}단계")
+        else:
+            self._append_log("[레시피] 파일 없음/오류 — 기본 시퀀스(B1~B4)로 진행")
         self._append_log(f"[시스템] MediaPipe 사용 가능: {MEDIAPIPE_AVAILABLE}")
         self._append_log(f"[시스템] ESP32-S3 카메라: {CAMERA_TCP_HOST}:{CAMERA_TCP_PORT} (TCP)")
         self._append_log(f"[시스템] 로그 저장: {self._log_file_path}")
@@ -247,8 +338,34 @@ class SafetyConsole(QMainWindow):
         )
         self.log_browser.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
+        # 공정 제어 + 해제 버튼 2종 (해제 버튼은 §9.3: WARNING용/BLOCK용 분리)
+        self.btn_start_process = QPushButton("공정 시작 (레시피 로드)")
+        self.btn_release_warn  = QPushButton("WARNING 해제")
+        self.btn_release_block = QPushButton("BLOCK 해제")
+        self.btn_start_process.clicked.connect(self._on_start_process)
+        self.btn_release_warn.clicked.connect(lambda: self.fsm.release_warning())
+        self.btn_release_block.clicked.connect(lambda: self.fsm.release_block())
+        ctrl_base = "font-size: 12px; font-weight: bold; padding: 6px; border-radius: 2px; border: none;"
+        self.btn_start_process.setStyleSheet(ctrl_base + f"background-color: {BTN_ACTIVE}; color: {TEXT_PRIMARY};")
+        self.btn_release_warn.setStyleSheet(ctrl_base + f"background-color: {STATUS_WARNING}; color: {BG_PRIMARY};")
+        self.btn_release_block.setStyleSheet(ctrl_base + f"background-color: {STATUS_DANGER}; color: {TEXT_PRIMARY};")
+
+        release_row = QHBoxLayout()
+        release_row.addWidget(self.btn_release_warn)
+        release_row.addWidget(self.btn_release_block)
+
+        # 단계 흐름 매뉴얼 (PRO-7) — 레시피 기반. 레시피 없으면 기본 B1~B4로 구성.
+        steps = self._recipe["steps"] if self._recipe else [
+            {"order": i + 1, "button": f"B{i + 1}", "name": f"{i + 1}단계"}
+            for i in range(self.fsm.step_count)
+        ]
+        self.step_flow = StepFlowWidget(steps)
+
         right_layout.addWidget(self.state_label)
-        right_layout.addWidget(self.log_browser)
+        right_layout.addWidget(self.step_flow)
+        right_layout.addWidget(self.btn_start_process)
+        right_layout.addLayout(release_row)
+        right_layout.addWidget(self.log_browser, stretch=1)
 
         self.btn_esp32_cam = QPushButton("초소형카메라")
         self.btn_usb_cam   = QPushButton("CCTV")
@@ -334,6 +451,72 @@ class SafetyConsole(QMainWindow):
             if current:
                 self._append_log(f"[YOLO] 탐지: {', '.join(sorted(current))}")
             self._last_yolo_classes = current
+
+    # =========================================================================
+    # [판정부 FSM — 인식 입력 / 상태 출력]  통합문서 §8·§9
+    # =========================================================================
+    @pyqtSlot(str)
+    def _on_roi(self, roi):
+        """HOI 결과(손끝이 든 버튼 ROI)를 FSM 비전 틱으로 전달."""
+        self.fsm.update_vision(roi or None, time.time())
+        if roi != self._last_roi:
+            if roi:
+                self._append_log(f"[HOI] 손 진입: {roi}")
+            self._last_roi = roi
+
+    def _on_start_process(self):
+        self.fsm.load_recipe()
+        self._append_log(f"[FSM] 공정 시작 — {self.fsm.expected_step}단계: "
+                         f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
+
+    def _press_button(self, button):
+        """물리 버튼 눌림(시연: 키보드 1~4·E). 실제로는 Arduino Serial 입력."""
+        before = self.fsm.expected_step
+        self.fsm.press_button(button, time.time())
+        self._append_log(f"[버튼] {button} 눌림")
+        if self.fsm.expected_step != before and self.fsm.state != State.IDLE:
+            self._append_log(f"[FSM] 단계 진행 → {self.fsm.expected_step}단계: "
+                             f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
+
+    def keyPressEvent(self, event):
+        """시연용 버튼 입력: 1~4 = B1~B4 눌림, E = 비상정지(EMO)."""
+        key = event.text().upper()
+        if key in ("1", "2", "3", "4"):
+            self._press_button(f"B{key}")
+        elif key == "E":
+            self._press_button("EMO")
+        else:
+            super().keyPressEvent(event)
+
+    # --- FSM 콜백 (GUI 스레드에서 호출됨) ---
+    _STATE_COLOR = {
+        State.IDLE:        STATUS_OK,
+        State.READY:       STATUS_OK,
+        State.PROCESS_RUN: STATUS_OK,
+        State.MONITOR:     ACCENT,
+        State.WARNING:     STATUS_WARNING,
+        State.BLOCK:       STATUS_DANGER,
+    }
+
+    def _on_fsm_state(self, old, new):
+        color = self._STATE_COLOR.get(new, TEXT_PRIMARY)
+        self.state_label.setText(f"● {new.value}")
+        self.state_label.setStyleSheet(
+            f"background-color: {BG_PANEL}; color: {color};"
+            f"border: 2px solid {color}; padding: 10px; letter-spacing: 2px;"
+        )
+        self.step_flow.update_view(self.fsm.expected_step, new)
+        self._append_log(f"[FSM] {old.value} → {new.value}")
+
+    def _on_interlock(self, engaged):
+        # 실제로는 Arduino Serial로 릴레이 차단/복구 신호 전송 (PRO-20)
+        self._append_log(f"[인터록] 전기 신호 {'차단(ON)' if engaged else '복구(OFF)'}")
+
+    def _on_feedback(self, level):
+        if level == Feedback.WARNING:
+            self._append_log("[피드백] ⚠ 경고 — 시각 팝업 + 청각 타워램프")
+        elif level == Feedback.BLOCK:
+            self._append_log("[피드백] ⛔ 차단 — 오조작 강행 감지")
 
     # =========================================================================
     # [캘리브레이션]

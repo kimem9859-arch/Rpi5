@@ -1,0 +1,12 @@
+{
+  "process_name": "PECVD 기동 시퀀스",
+  "description": "단일 PECVD 콘솔 공정 기동 4단계 — 통합 설계문서 §6 정본. 정답 순서의 단일 출처.",
+  "dwell_threshold_sec": 1.0,
+  "emo_button": "EMO",
+  "steps": [
+    {"order": 1, "button": "B1", "name": "웨이퍼 로딩 + 도어 닫기/잠금"},
+    {"order": 2, "button": "B2", "name": "진공 배기/퍼지"},
+    {"order": 3, "button": "B3", "name": "공정가스 주입"},
+    {"order": 4, "button": "B4", "name": "증착(플라스마) 시작"}
+  ]
+}

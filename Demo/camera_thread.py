@@ -98,6 +98,26 @@ def _update_tracks(tracks, detections):
 
 
 # =============================================================================
+# [HOI — 손-객체 상호작용] 손끝이 들어있는 버튼 박스의 라벨을 반환 (통합문서 §7.2)
+# =============================================================================
+def roi_at_point(fx, fy, tracks):
+    """손끝(fx, fy)이 들어있는 검출 버튼 박스의 라벨을 반환. 없으면 None.
+
+    ROI는 고정 좌표가 아니라 **YOLO가 검출한 버튼 박스 그 자체**다(FPV에서 박스가
+    버튼을 따라다니므로 화면이 움직여도 유효). 박스가 겹치면 더 작은(가까운)
+    박스를 우선해 오판을 줄인다.
+    """
+    hit, hit_area = None, None
+    for t in tracks:
+        x1, y1, x2, y2 = t['box']
+        if x1 <= fx <= x2 and y1 <= fy <= y2:
+            area = (x2 - x1) * (y2 - y1)
+            if hit_area is None or area < hit_area:
+                hit, hit_area = t, area
+    return _detector.class_name(hit['cls']) if hit is not None else None
+
+
+# =============================================================================
 # [캘리브레이션 헬퍼]
 # =============================================================================
 def _load_undistort_map(path, w, h):
@@ -122,6 +142,7 @@ class CameraThread(QThread):
     change_pixmap_signal      = pyqtSignal(QImage)
     log_signal                = pyqtSignal(str)
     yolo_detections_signal    = pyqtSignal(list)
+    roi_signal                = pyqtSignal(str)   # 손끝이 든 버튼 ROI 라벨 ("" = 없음)
     raw_frame_signal          = pyqtSignal(object)
     calibration_needed_signal = pyqtSignal()
 
@@ -336,6 +357,7 @@ class CameraThread(QThread):
                 (_detector.class_name(t['cls']), t['score'], *t['box']) for t in self._tracks
             ])
 
+        fingertip = None
         if self._mediapipe_ok:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             rgb.flags.writeable = False
@@ -354,6 +376,11 @@ class CameraThread(QThread):
                     fy = int(idx_tip.y * h)
                     cv2.circle(frame, (fx, fy), 12, (255, 0, 255), -1)
                     cv2.circle(frame, (fx, fy), 14, (255, 255, 255), 2)
+                    fingertip = (fx, fy)
+
+        # HOI → FSM: 손끝이 든 버튼 ROI 라벨을 통지 (없으면 "")
+        roi = roi_at_point(*fingertip, self._tracks) if fingertip else None
+        self.roi_signal.emit(roi or "")
 
         return frame
 
@@ -432,6 +459,7 @@ class UsbCameraThread(QThread):
     change_pixmap_signal   = pyqtSignal(QImage)
     log_signal             = pyqtSignal(str)
     yolo_detections_signal = pyqtSignal(list)
+    roi_signal             = pyqtSignal(str)   # 손끝이 든 버튼 ROI 라벨 ("" = 없음)
 
     USB_DEVICE_INDEX = 0
 
@@ -486,6 +514,7 @@ class UsbCameraThread(QThread):
                 (_detector.class_name(t['cls']), t['score'], *t['box']) for t in self._tracks
             ])
 
+        fingertip = None
         if self._mediapipe_ok:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             rgb.flags.writeable = False
@@ -503,6 +532,10 @@ class UsbCameraThread(QThread):
                     fy = int(idx_tip.y * h)
                     cv2.circle(frame, (fx, fy), 12, (255, 0, 255), -1)
                     cv2.circle(frame, (fx, fy), 14, (255, 255, 255), 2)
+                    fingertip = (fx, fy)
+
+        roi = roi_at_point(*fingertip, self._tracks) if fingertip else None
+        self.roi_signal.emit(roi or "")
 
         return frame
 
