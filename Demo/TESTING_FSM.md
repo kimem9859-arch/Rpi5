@@ -34,6 +34,20 @@ FSM은 **서로 다른 두 사건**을 입력으로 받는다. 이 분리가 프
 | `safety_console.py` | FSM 연결·상태표시·단계 매뉴얼 UI·키 입력(②대역) | 수정 |
 | `config.py` | FSM 임계값 상수 | 수정 |
 
+## 2.5 RPi에서 이 브랜치 펼치기 (worktree — 기존 코드와 충돌 없이)
+기존 `feature/RPi5` 체크아웃은 **그대로 두고**, 옆에 별도 폴더로 이 브랜치를 펼친다.
+```bash
+cd ~/<기존_Rpi5_경로>          # 현재 feature/RPi5가 있는 저장소
+git fetch origin
+git worktree add ~/Rpi5-fsm feature/fsm-interlock   # 별도 폴더 + 별도 브랜치
+cd ~/Rpi5-fsm/Demo
+cat TESTING_FSM.md             # 이 문서
+```
+- `~/Rpi5-fsm`은 완전히 독립된 작업 디렉터리. 기존 폴더는 손대지 않는다.
+- 테스트 종료 후 정리: `git worktree remove ~/Rpi5-fsm`
+- 최신 변경 받기: `~/Rpi5-fsm`에서 `git pull` (또는 `git fetch && git reset --hard origin/feature/fsm-interlock`)
+- Claude Code CLI는 `~/Rpi5-fsm`에서 띄우면 이 문서를 참조해 테스트를 돕는다.
+
 ## 3. 빠른 검증 — 하드웨어·카메라 없이 (약 1분)
 ```bash
 cd Demo
