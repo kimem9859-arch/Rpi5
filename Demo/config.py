@@ -30,7 +30,7 @@ STATUS_DANGER  = "#d50000"
 # =============================================================================
 # "pytorch": best.pt + ultralytics CPU 추론 (Phase A, 현재)
 # "hailo"  : console_v1.hef + Hailo-8 가속 추론 (Phase B, 버튼 5클래스 B1~B4+EMO)
-INFERENCE_BACKEND = "pytorch"
+INFERENCE_BACKEND = "hailo"
 
 PT_MODEL_PATH  = os.path.join(_BASE_DIR, 'models', 'best.pt')
 HEF_MODEL_PATH = os.path.join(_BASE_DIR, 'models', 'console_v1.hef')

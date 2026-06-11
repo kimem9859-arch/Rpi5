@@ -109,8 +109,7 @@ class HailoDetector(BaseDetector):
         )
         self._stack.enter_context(network_group.activate(network_group.create_params()))
 
-        # best.pt is a single-class model; keep names in sync after conversion.
-        self._names = {0: "person"}
+        self._names = {0: "B1", 1: "B2", 2: "B3", 3: "B4", 4: "EMO"}
 
     def detect(self, frame):
         import cv2
