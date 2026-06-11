@@ -29,11 +29,11 @@ STATUS_DANGER  = "#d50000"
 # [추론 백엔드 설정]
 # =============================================================================
 # "pytorch": best.pt + ultralytics CPU 추론 (Phase A, 현재)
-# "hailo"  : best.hef + Hailo-8 가속 추론 (Phase B, HEF 변환 완료 후)
+# "hailo"  : console_v1.hef + Hailo-8 가속 추론 (Phase B, 버튼 5클래스 B1~B4+EMO)
 INFERENCE_BACKEND = "pytorch"
 
 PT_MODEL_PATH  = os.path.join(_BASE_DIR, 'models', 'best.pt')
-HEF_MODEL_PATH = os.path.join(_BASE_DIR, 'models', 'best.hef')
+HEF_MODEL_PATH = os.path.join(_BASE_DIR, 'models', 'console_v1.hef')
 
 # =============================================================================
 # [YOLO 설정]
