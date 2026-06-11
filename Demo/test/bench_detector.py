@@ -193,9 +193,8 @@ def run_bench(args):
     stab_w.writerow(["track_id", "cls_name", "start_frame", "end_frame", "duration_frames", "miss_count"])
     conf_w.writerow(["frame", "timestamp", "prev_cls", "new_cls", "iou"])
 
-    # --- 영상 저장 ---
-    video_writer = None
-    video_path   = None
+    # --- 영상 저장 경로 ---
+    video_path = None
     if not args.no_video:
         video_path = os.path.join(_VIDEOS_DIR, f"{ts}_bench.mp4")
 
@@ -216,6 +215,32 @@ def run_bench(args):
     raw_event   = threading.Event()
     recv_error  = [False]
     running     = [True]
+
+    # VideoWriter 비동기 큐
+    video_queue  = None
+    video_thread = None
+    if not args.no_video:
+        import queue as _queue
+        video_queue = _queue.Queue(maxsize=8)
+
+        def _video_worker():
+            writer = None
+            while True:
+                item = video_queue.get()
+                if item is None:
+                    break
+                frm, path = item
+                if writer is None:
+                    h, w = frm.shape[:2]
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    writer = cv2.VideoWriter(path, fourcc, 15.0, (w, h))
+                writer.write(frm)
+                video_queue.task_done()
+            if writer:
+                writer.release()
+
+        video_thread = threading.Thread(target=_video_worker, daemon=True)
+        video_thread.start()
 
     def recv_worker():
         while running[0]:
@@ -325,17 +350,17 @@ def run_bench(args):
                 cls_counts[name] = cls_counts.get(name, 0) + 1
                 cls_conf.setdefault(name, []).append(t["score"])
 
-            # 영상
+            # 영상 + 실시간 미리보기
             frame_draw = _draw_detections(frame.copy(), tracks, fps, frame_no)
-            if not args.no_video:
-                if video_writer is None:
-                    h, w = frame_draw.shape[:2]
-                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                    video_writer = cv2.VideoWriter(video_path, fourcc, 15.0, (w, h))
-                video_writer.write(frame_draw)
+            if not args.no_video and video_queue is not None:
+                try:
+                    video_queue.put_nowait((frame_draw.copy(), video_path))
+                except Exception:
+                    pass  # 큐 가득 찬 경우 드롭
 
-            # 실시간 미리보기
-            cv2.imshow("bench_detector", frame_draw)
+            # 2프레임마다 imshow (렌더링 오버헤드 절감)
+            if frame_no % 2 == 0:
+                cv2.imshow("bench_detector", frame_draw)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 print("\n[q] 사용자 중단.")
                 break
@@ -365,8 +390,9 @@ def run_bench(args):
                              info["last_frame"], duration, info["miss_total"]])
 
         perf_f.close(); det_f.close(); stab_f.close(); conf_f.close()
-        if video_writer:
-            video_writer.release()
+        if video_queue is not None:
+            video_queue.put(None)  # 종료 신호
+            video_thread.join(timeout=10)
         cv2.destroyAllWindows()
         detector.close()
 

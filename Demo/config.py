@@ -42,7 +42,7 @@ YOLO_CALIBRATION_PATH = os.path.join(_BASE_DIR, 'camera_calibration.npz')
 YOLO_CONF_HIGH  = 0.65
 YOLO_CONF_LOW   = 0.50
 YOLO_IOU_MATCH  = 0.3
-YOLO_MAX_MISS   = 3
+YOLO_MAX_MISS   = 5
 YOLO_INPUT_SIZE = 640
 
 # =============================================================================
