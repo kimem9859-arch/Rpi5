@@ -100,7 +100,7 @@ class SafetyFSM:
         self._dwell_roi   = None
         self._dwell_start = None
 
-    # ------------------------------------------------------ 기동 시퀀스 (§9.3 1~2)
+    # ------------------------------------------------------ 정비 시퀀스 (§9.3 1~2)
     def load_recipe(self):
         """IDLE → READY → PROCESS RUN. 레시피(공정 매뉴얼) 로드 완료."""
         if self.state == State.IDLE:

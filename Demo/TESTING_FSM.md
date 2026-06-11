@@ -98,7 +98,7 @@ python main.py
 - **Phase B(Hailo)**: `detector.py`의 `HailoDetector._names`가 `{0:"person"}` 하드코딩 → HEF 전환 시 `B1~B4`로 수정 필요.
 
 ### 로그로 상태 확인
-- `[레시피] 'PECVD 기동 시퀀스' 로드 — 4단계` → 레시피 OK
+- `[레시피] 'PECVD 정비(PM) 시퀀스' 로드 — 4단계` → 레시피 OK
 - `[시스템] MediaPipe 사용 가능: True/False`
 - `[Detector] '...' 백엔드 로드 완료` 또는 `사용 불가`
 - `[HOI] 손 진입: Bn` → ROI 판정(입력①) 동작 중
