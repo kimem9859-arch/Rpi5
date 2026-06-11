@@ -334,6 +334,12 @@ def run_bench(args):
                     video_writer = cv2.VideoWriter(video_path, fourcc, 15.0, (w, h))
                 video_writer.write(frame_draw)
 
+            # 실시간 미리보기
+            cv2.imshow("bench_detector", frame_draw)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                print("\n[q] 사용자 중단.")
+                break
+
             # 30프레임마다 터미널 출력
             if frame_no % 30 == 0:
                 cur_dets = {CLASS_NAMES[t["cls"]]: t["score"] for t in tracks if t["cls"] < len(CLASS_NAMES)}
@@ -361,6 +367,7 @@ def run_bench(args):
         perf_f.close(); det_f.close(); stab_f.close(); conf_f.close()
         if video_writer:
             video_writer.release()
+        cv2.destroyAllWindows()
         detector.close()
 
     # ==========================================================================
