@@ -13,6 +13,7 @@ __pycache__/
 *.pyo
 venv/
 venv311/
+.venv/
 
 # 로그 파일
 *.log
@@ -33,6 +34,13 @@ nohup.out
 # 대용량 데이터셋 / 영상
 cleanroom_dataset/
 영상 데이터/
+
+# 벤치마크 테스트 산출물 (test-artifacts 브랜치에서 관리)
+Demo/test/videos/
+Demo/test/logs/
+
+# GStreamer 샤크 캡처
+Demo/gstshark_*/
 
 # 빌드
 build/
