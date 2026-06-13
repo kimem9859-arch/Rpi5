@@ -1,5 +1,6 @@
 import os
 import time
+import subprocess
 from datetime import datetime
 
 import cv2
@@ -7,7 +8,7 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QTextBrowser, QPushButton, QSizePolicy,
-    QDialog, QApplication,
+    QDialog, QApplication, QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QImage, QPixmap, QFont
@@ -381,11 +382,20 @@ class SafetyConsole(QMainWindow):
         self.btn_calibrate.clicked.connect(self._open_calibration_dialog)
         self._apply_cam_btn_style()
 
+        # 시스템 종료(라즈베리파이 안전 종료) — 실수 방지 위해 위험색 + 확인창.
+        self.btn_shutdown = QPushButton("⏻ 시스템 종료")
+        self.btn_shutdown.clicked.connect(self._on_shutdown_clicked)
+        self.btn_shutdown.setStyleSheet(
+            f"background-color: {BTN_INACTIVE}; color: {STATUS_DANGER};"
+            f"border: 2px solid {STATUS_DANGER}; padding: 6px 12px; font-weight: bold;"
+        )
+
         cam_btn_layout = QHBoxLayout()
         cam_btn_layout.addWidget(self.btn_esp32_cam)
         cam_btn_layout.addWidget(self.btn_usb_cam)
         cam_btn_layout.addWidget(self.btn_calibrate)
         cam_btn_layout.addStretch()
+        cam_btn_layout.addWidget(self.btn_shutdown)   # 오른쪽 끝에 분리 배치
 
         cam_panel = QVBoxLayout()
         cam_panel.setSpacing(4)
@@ -528,6 +538,43 @@ class SafetyConsole(QMainWindow):
             self._append_log("[피드백] ⛔ 차단 — 오조작 강행 감지")
         # 램프 명령의 권위 소스 — NONE→RUN / WARNING→WARN / BLOCK→BLOCK 송신.
         self.interlock.set_feedback(level)
+
+    # =========================================================================
+    # [시스템 종료] — 라즈베리파이 안전 종료(SD 손상 방지). 종료 후 멀티탭 OFF.
+    # =========================================================================
+    def _on_shutdown_clicked(self):
+        # 실수로 눌러 바로 꺼지지 않도록 한 번 더 확인 — '예'를 눌러야만 종료.
+        reply = QMessageBox.question(
+            self,
+            "시스템 종료 확인",
+            "라즈베리파이를 안전하게 종료합니다.\n"
+            "종료가 완료되면(화면 꺼짐·LED 멈춤) 멀티탭 전원을 내리세요.\n\n"
+            "지금 종료할까요?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,   # 기본 선택 = 아니오 (오동작 방지)
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            self._append_log("[시스템] 종료 취소됨")
+            return
+
+        self._append_log("[시스템] 사용자 요청 — 라즈베리파이 안전 종료 시작")
+        # 종료 전 안전 정리: 녹화 저장 · 인터락 · 카메라 · 디텍터 해제.
+        for step in (
+            self._stop_recording,
+            self.interlock.close,
+            self.camera_thread.stop,
+            self.usb_camera_thread.stop,
+            close_detector,
+        ):
+            try:
+                step()
+            except Exception as e:
+                self._append_log(f"[시스템] 정리 중 무시된 오류: {e}")
+
+        try:
+            subprocess.Popen(["sudo", "shutdown", "-h", "now"])
+        except Exception as e:
+            self._append_log(f"[시스템] 종료 명령 실패: {e}")
 
     # =========================================================================
     # [캘리브레이션]
