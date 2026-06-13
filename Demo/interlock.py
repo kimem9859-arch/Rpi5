@@ -65,8 +65,9 @@ class InterlockController:
         if serial is None:
             self._log("[인터락] pyserial 미설치 — fallback(로그만), GUI 정상")
 
-        # 최초 연결 시도(실패해도 예외 없이 진행)
-        self._open()
+        # 최초 연결 시도(실패해도 예외 없이 진행). 성공 시 램프 상태 동기화.
+        if self._open():
+            self._sync_after_open()
 
         # 백그라운드 재연결 스레드(연결 안 됐을 때만 실제로 동작)
         self._reconnect_thread = threading.Thread(
@@ -95,14 +96,25 @@ class InterlockController:
                 self._log(f"[인터락] 연결 실패({self._port}): {e} — fallback")
                 return False
 
+    def _sync_after_open(self):
+        """연결 직후 램프 상태를 Pi 기준으로 강제 동기화한다(_open 락 밖에서 호출).
+
+        - 최초 연결(_last_cmd None): "RUN" 을 명시 송신 → 시작 램프를 Arduino
+          부팅값 우연이 아니라 Pi 가 결정한 정상(녹)으로 확정.
+        - 재연결(_last_cmd 있음): 마지막 명령을 다시 보내 끊기기 전 상태 복원
+          (BLOCK 중 케이블이 빠졌다 붙어도 차단이 풀리지 않음).
+        """
+        cmd = self._last_cmd if self._last_cmd is not None else "RUN"
+        self._write(cmd, force=True)
+
     def _reconnect_loop(self):
         """연결이 없을 때 주기적으로 재연결을 시도하는 백그라운드 루프."""
         while not self._closing:
             connected = self._ser is not None and getattr(self._ser, "is_open", False)
             if not connected and serial is not None:
-                if self._open() and self._last_cmd is not None:
-                    # 재연결 성공 → 현재 FSM 상태를 릴레이에 다시 반영
-                    self._write(self._last_cmd, force=True)
+                if self._open():
+                    # 재연결 성공 → 현재 FSM 상태(또는 최초면 RUN)를 릴레이에 반영
+                    self._sync_after_open()
             time.sleep(self._reconnect_delay)
 
     # -------------------------------------------------------------- 전송 코어
