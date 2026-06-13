@@ -26,6 +26,7 @@ from config import (
 from camera_thread import CameraThread, UsbCameraThread, MEDIAPIPE_AVAILABLE, close_detector
 from fsm import SafetyFSM, State, Feedback
 from recipe import load_recipe, RecipeError
+from interlock import InterlockController
 
 
 # =============================================================================
@@ -276,6 +277,11 @@ class SafetyConsole(QMainWindow):
 
         self._init_ui()
 
+        # 트랙 A 물리 인터락 — FSM 콜백을 Arduino 릴레이 명령으로(시리얼).
+        # 미연결 시 예외 없이 fallback(로그만)이라 GUI 동작에는 영향 없음.
+        # _append_log 가 쓰는 log_browser·_log_file_path 가 준비된 _init_ui 이후 생성.
+        self.interlock = InterlockController(log=self._append_log)
+
         self.camera_thread = CameraThread()
         self.camera_thread.change_pixmap_signal.connect(self._update_camera_frame)
         self.camera_thread.log_signal.connect(self._append_log)
@@ -509,14 +515,19 @@ class SafetyConsole(QMainWindow):
         self._append_log(f"[FSM] {old.value} → {new.value}")
 
     def _on_interlock(self, engaged):
-        # 실제로는 Arduino Serial로 릴레이 차단/복구 신호 전송 (PRO-20)
+        # Arduino Serial 로 릴레이 차단/복구 (트랙 A, interlock.py). BLOCK 진입 시
+        # 가장 빠른 차단 경로(engaged=True → 즉시 BLOCK 송신). 해제는 뒤따르는
+        # on_feedback(NONE)→RUN 이 처리한다.
         self._append_log(f"[인터록] 전기 신호 {'차단(ON)' if engaged else '복구(OFF)'}")
+        self.interlock.set_interlock(engaged)
 
     def _on_feedback(self, level):
         if level == Feedback.WARNING:
             self._append_log("[피드백] ⚠ 경고 — 시각 팝업 + 청각 타워램프")
         elif level == Feedback.BLOCK:
             self._append_log("[피드백] ⛔ 차단 — 오조작 강행 감지")
+        # 램프 명령의 권위 소스 — NONE→RUN / WARNING→WARN / BLOCK→BLOCK 송신.
+        self.interlock.set_feedback(level)
 
     # =========================================================================
     # [캘리브레이션]
@@ -589,4 +600,5 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.stop()
         self.usb_camera_thread.stop()
         close_detector()
+        self.interlock.close()
         event.accept()

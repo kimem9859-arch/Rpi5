@@ -85,3 +85,13 @@ CAMERA_TCP_PORT = 8888
 TCP_RECV_TIMEOUT_SEC    = 10.0
 TCP_RECONNECT_DELAY_SEC = 3.0
 TCP_MAX_FRAME_BYTES     = 500000
+
+# =============================================================================
+# [인터락 설정] — 트랙 A 물리 차단 (FSM 콜백 → pyserial → Arduino 릴레이)
+# 결선도 정본: ../dev/interlock/결선도_초안.md §5 (RUN/WARN/BLOCK + ACK)
+# =============================================================================
+INTERLOCK_ENABLED = True
+INTERLOCK_PORT    = "/dev/ttyACM0"   # Arduino UNO R4 USB 시리얼
+INTERLOCK_BAUD    = 115200
+INTERLOCK_TIMEOUT = 1.0              # 시리얼 read/write 타임아웃(초), ACK 대기 포함
+INTERLOCK_RECONNECT_DELAY_SEC = 3.0 # 연결 실패/끊김 시 재연결 시도 간격
