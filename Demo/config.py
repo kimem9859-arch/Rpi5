@@ -95,3 +95,15 @@ INTERLOCK_PORT    = "/dev/ttyACM0"   # Arduino UNO R4 USB 시리얼
 INTERLOCK_BAUD    = 115200
 INTERLOCK_TIMEOUT = 1.0              # 시리얼 read/write 타임아웃(초), ACK 대기 포함
 INTERLOCK_RECONNECT_DELAY_SEC = 3.0 # 연결 실패/끊김 시 재연결 시도 간격
+
+# =============================================================================
+# [GPIO 입력 설정] — 물리 버튼 B1~B4·EMO → Pi GPIO → FSM (트랙 A 입력부)
+# 결선도 정본: ../dev/interlock/결선도_초안.md §3.1
+#   버튼 = active-low (INPUT_PULLUP, 눌림=LOW)
+#   EMO  = NC쌍 fail-safe (INPUT_PULLUP, 평소 LOW=정상 / 누름·단선=HIGH=비상)
+# 해제 버튼(WARNING/BLOCK 해제)은 터치 UI라 GPIO 불필요.
+# =============================================================================
+GPIO_INPUT_ENABLED = True
+GPIO_BUTTON_PINS   = {"B1": 5, "B2": 6, "B3": 13, "B4": 19}  # BCM 번호
+GPIO_EMO_PIN       = 26                                       # BCM, EMO NC
+GPIO_BOUNCE_SEC    = 0.05                                     # 디바운스(기계식 채터링 제거)

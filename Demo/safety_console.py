@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QLabel, QTextBrowser, QPushButton, QSizePolicy,
     QDialog, QApplication, QMessageBox,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap, QFont
 
 from config import (
@@ -28,6 +28,7 @@ from camera_thread import CameraThread, UsbCameraThread, MEDIAPIPE_AVAILABLE, cl
 from fsm import SafetyFSM, State, Feedback
 from recipe import load_recipe, RecipeError
 from interlock import InterlockController
+from gpio_input import GpioInputController
 
 
 # =============================================================================
@@ -238,6 +239,9 @@ class StepFlowWidget(QWidget):
 # =============================================================================
 class SafetyConsole(QMainWindow):
 
+    # 물리 GPIO 버튼 입력 → GUI 스레드로 마샬링용 시그널(gpiozero 콜백은 별도 스레드).
+    gpio_button_signal = pyqtSignal(str)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Vision AI 안전 콘솔")
@@ -282,6 +286,13 @@ class SafetyConsole(QMainWindow):
         # 미연결 시 예외 없이 fallback(로그만)이라 GUI 동작에는 영향 없음.
         # _append_log 가 쓰는 log_browser·_log_file_path 가 준비된 _init_ui 이후 생성.
         self.interlock = InterlockController(log=self._append_log)
+
+        # 트랙 A 물리 입력 — 버튼 B1~B4·EMO(GPIO) → FSM. gpiozero 콜백은 별도 스레드라
+        # 시그널로 GUI 스레드의 _press_button 에 마샬링(직접 GUI 접근 금지). 미연결·비-Pi
+        # 환경에선 fallback(로그만) → 키보드 시뮬(1~4·E)로 동일 동작.
+        self.gpio_button_signal.connect(self._press_button)
+        self.gpio_input = GpioInputController(
+            on_button=self.gpio_button_signal.emit, log=self._append_log)
 
         self.camera_thread = CameraThread()
         self.camera_thread.change_pixmap_signal.connect(self._update_camera_frame)
@@ -561,6 +572,7 @@ class SafetyConsole(QMainWindow):
         # 종료 전 안전 정리: 녹화 저장 · 인터락 · 카메라 · 디텍터 해제.
         for step in (
             self._stop_recording,
+            self.gpio_input.close,
             self.interlock.close,
             self.camera_thread.stop,
             self.usb_camera_thread.stop,
@@ -647,5 +659,6 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.stop()
         self.usb_camera_thread.stop()
         close_detector()
+        self.gpio_input.close()
         self.interlock.close()
         event.accept()
