@@ -53,4 +53,5 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
 
 ## 다음
 1. ✅ console_v1.hef 통합·실추론 완료 — B1~B3·EMO 검출, B4 미탐지 → console_v2 재학습 확정.
-2. **트랙 A 인터락 코드** — `on_interlock`/`on_feedback` → pyserial(`RUN`/`WARN`/`BLOCK\n` + ACK, /dev/ttyACM0 115200) → Arduino 릴레이. 결선도·작업지시 = 상위 `../dev/interlock/`(`결선도_초안.md`·`코드작업_핸드오프.md`).
+2. ✅ **트랙 A 인터락 코드 완료(2026-06-13)** — 출력부 `interlock.py`(pyserial→Arduino UNO R4 **Minima** 릴레이, RUN/WARN/BLOCK+ACK, 실연결·ACK 검증) + 입력부 `gpio_input.py`(버튼 B1~B4·EMO→FSM, gpiozero Mock 검증) + GUI `⏻ 시스템 종료`(안전종료). 결선도·전원부 = 상위 `../dev/interlock/`(`결선도_초안.md` §3·§5·§8). **▶ 다음 = 실물 결선 + E2E**(버튼 GPIO·릴레이·타워램프, 사용자).
+3. **▶ 최우선 = console_v2 재학습**(B4 미탐지, GPU 환경) → DFC 변환·파이 재통합.
