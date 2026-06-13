@@ -52,5 +52,5 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
 - `original/` = 참고용 구버전(`yolo_hailo_tcp.py`=RPi Hailo 추론 핵심, `provision_wifi.py` 등 RPi 전용).
 
 ## 다음
-1. **console_v1.hef 통합·실추론** — 위 detector 배선(uint8 640·NMS·5클래스) → 검출·FPS·새영상 검증.
-2. 트랙 A 인터락 — `on_interlock` → pyserial(`BLOCK\n`/`OK\n`, /dev/ttyACM0 115200) → Arduino 릴레이.
+1. ✅ console_v1.hef 통합·실추론 완료 — B1~B3·EMO 검출, B4 미탐지 → console_v2 재학습 확정.
+2. **트랙 A 인터락 코드** — `on_interlock`/`on_feedback` → pyserial(`RUN`/`WARN`/`BLOCK\n` + ACK, /dev/ttyACM0 115200) → Arduino 릴레이. 결선도·작업지시 = 상위 `../dev/interlock/`(`결선도_초안.md`·`코드작업_핸드오프.md`).
