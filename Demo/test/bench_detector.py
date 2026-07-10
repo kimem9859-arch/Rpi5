@@ -2,16 +2,18 @@
 
 실행:
     cd ~/sop-project/Rpi5/Demo
-    python3 test/bench_detector.py                        # 기본 300프레임
+    python3 test/bench_detector.py                              # ESP32, 기본 300프레임
     python3 test/bench_detector.py --frames 100 --no-video
-    python3 test/bench_detector.py --frames 500 --host 10.157.207.235
+    python3 test/bench_detector.py --source esp32 --frames 500  # ESP32-S3(OV3660) TCP
+    python3 test/bench_detector.py --source usb   --frames 500  # USB 웹캠 (B4 원인 대조)
 
-출력:
-    test/logs/YYYYMMDD_HHMMSS_perf_log.csv
-    test/logs/YYYYMMDD_HHMMSS_detection_log.csv
-    test/logs/YYYYMMDD_HHMMSS_stability_log.csv
-    test/logs/YYYYMMDD_HHMMSS_confusion_log.csv
-    test/videos/YYYYMMDD_HHMMSS_bench.mp4   (--no-video 생략 시)
+출력 (파일명에 소스 태그 {esp32|usb}):
+    test/logs/YYYYMMDD_HHMMSS_<src>_perf_log.csv
+    test/logs/YYYYMMDD_HHMMSS_<src>_detection_log.csv    (confirmed 트랙 ≥CONF_HIGH)
+    test/logs/YYYYMMDD_HHMMSS_<src>_stability_log.csv
+    test/logs/YYYYMMDD_HHMMSS_<src>_confusion_log.csv
+    test/logs/YYYYMMDD_HHMMSS_<src>_rawdet_log.csv       (raw 검출 ≥CONF_LOW — B4 저신뢰 포함)
+    test/videos/YYYYMMDD_HHMMSS_<src>_bench.mp4           (--no-video 생략 시)
 """
 
 import argparse
@@ -169,52 +171,72 @@ def _draw_detections(frame, tracks, fps, frame_no):
 # =============================================================================
 def run_bench(args):
     ts        = datetime.now().strftime("%Y%m%d_%H%M%S")
+    source    = args.source                       # esp32 | usb — 카메라 소스 태그
     host      = args.host or config.CAMERA_TCP_HOST
     max_frames = args.frames
 
-    # --- CSV 파일 열기 ---
-    perf_path      = os.path.join(_LOGS_DIR, f"{ts}_perf_log.csv")
-    det_path       = os.path.join(_LOGS_DIR, f"{ts}_detection_log.csv")
-    stab_path      = os.path.join(_LOGS_DIR, f"{ts}_stability_log.csv")
-    conf_path      = os.path.join(_LOGS_DIR, f"{ts}_confusion_log.csv")
+    os.makedirs(_LOGS_DIR, exist_ok=True)
+    os.makedirs(_VIDEOS_DIR, exist_ok=True)
+
+    # --- CSV 파일 열기 (파일명에 소스 접미사 → USB/ESP32 산출물 구분) ---
+    _tag = f"{ts}_{source}"
+    perf_path      = os.path.join(_LOGS_DIR, f"{_tag}_perf_log.csv")
+    det_path       = os.path.join(_LOGS_DIR, f"{_tag}_detection_log.csv")
+    stab_path      = os.path.join(_LOGS_DIR, f"{_tag}_stability_log.csv")
+    conf_path      = os.path.join(_LOGS_DIR, f"{_tag}_confusion_log.csv")
+    rawdet_path    = os.path.join(_LOGS_DIR, f"{_tag}_rawdet_log.csv")
 
     perf_f = open(perf_path, "w", newline="")
     det_f  = open(det_path,  "w", newline="")
     stab_f = open(stab_path, "w", newline="")
     conf_f = open(conf_path, "w", newline="")
+    raw_f  = open(rawdet_path, "w", newline="")
 
     perf_w = csv.writer(perf_f)
     det_w  = csv.writer(det_f)
     stab_w = csv.writer(stab_f)
     conf_w = csv.writer(conf_f)
+    raw_w  = csv.writer(raw_f)
 
     perf_w.writerow(["frame", "timestamp", "fps", "inference_ms", "detection_count"])
     det_w.writerow( ["frame", "timestamp", "cls_name", "score", "x1", "y1", "x2", "y2"])
     stab_w.writerow(["track_id", "cls_name", "start_frame", "end_frame", "duration_frames", "miss_count"])
     conf_w.writerow(["frame", "timestamp", "prev_cls", "new_cls", "iou"])
+    # rawdet = 트래킹 이전 원시 검출(score≥YOLO_CONF_LOW). B4 저신뢰(0.5~0.65) 소실 구간 가시화용.
+    raw_w.writerow(  ["frame", "timestamp", "source", "cls_name", "score", "x1", "y1", "x2", "y2"])
 
     # --- 영상 저장 경로 ---
     video_path = None
     if not args.no_video:
-        video_path = os.path.join(_VIDEOS_DIR, f"{ts}_bench.mp4")
+        video_path = os.path.join(_VIDEOS_DIR, f"{_tag}_bench.mp4")
 
     # --- Detector ---
     print("[Detector] 로드 중...")
     detector = create_detector()
     print(f"[Detector] '{detector.backend_name}' 백엔드 준비 완료.")
 
-    # --- TCP 수신 스레드 ---
-    sock = _connect_tcp(host)
-    if sock is None:
-        print("ESP32 연결 실패. 종료합니다.")
-        detector.close()
-        return
-
+    # --- 프레임 소스 설정 (esp32 TCP / usb VideoCapture) ---
+    sock = None
+    cap  = None
     latest_raw  = [None]
     raw_lock    = threading.Lock()
     raw_event   = threading.Event()
     recv_error  = [False]
     running     = [True]
+
+    if source == "esp32":
+        sock = _connect_tcp(host)
+        if sock is None:
+            print("ESP32 연결 실패. 종료합니다.")
+            detector.close()
+            return
+    else:  # usb
+        cap = cv2.VideoCapture(args.usb_index)
+        if not cap.isOpened():
+            print(f"USB 웹캠(index {args.usb_index}) 열기 실패. 종료합니다.")
+            detector.close()
+            return
+        print(f"[USB] 웹캠 index {args.usb_index} 열림.")
 
     # VideoWriter 비동기 큐
     video_queue  = None
@@ -242,19 +264,21 @@ def run_bench(args):
         video_thread = threading.Thread(target=_video_worker, daemon=True)
         video_thread.start()
 
-    def recv_worker():
-        while running[0]:
-            data = _recv_latest_frame(sock)
-            if data is None:
-                recv_error[0] = True
+    recv_thread = None
+    if source == "esp32":
+        def recv_worker():
+            while running[0]:
+                data = _recv_latest_frame(sock)
+                if data is None:
+                    recv_error[0] = True
+                    raw_event.set()
+                    break
+                with raw_lock:
+                    latest_raw[0] = data
                 raw_event.set()
-                break
-            with raw_lock:
-                latest_raw[0] = data
-            raw_event.set()
 
-    recv_thread = threading.Thread(target=recv_worker, daemon=True)
-    recv_thread.start()
+        recv_thread = threading.Thread(target=recv_worker, daemon=True)
+        recv_thread.start()
 
     # --- 상태 변수 ---
     tracks        = []
@@ -268,31 +292,42 @@ def run_bench(args):
 
     # 요약용 누적
     fps_list    = []
-    cls_counts  = {n: 0   for n in CLASS_NAMES}
+    cls_counts  = {n: 0   for n in CLASS_NAMES}   # confirmed 트랙 기준
     cls_conf    = {n: []  for n in CLASS_NAMES}
+    raw_counts  = {n: 0   for n in CLASS_NAMES}   # raw 검출(≥CONF_LOW) 기준 — B4 저신뢰 포함
+    raw_conf    = {n: []  for n in CLASS_NAMES}
+    raw_frame_hit = {n: 0 for n in CLASS_NAMES}   # 해당 클래스가 1회+ 검출된 프레임 수
+    b4_emo_confusion = [0]                         # B4↔EMO 트랙 클래스 전환 횟수
 
     print(f"\n[벤치마크 시작] {max_frames}프레임 측정 — Ctrl+C로 중단\n")
 
     try:
         while frame_no < max_frames:
-            if not raw_event.wait(timeout=config.TCP_RECV_TIMEOUT_SEC):
-                print("[타임아웃] 스트림 수신 없음. 종료합니다.")
-                break
-            raw_event.clear()
-            if recv_error[0]:
-                print("[오류] TCP 수신 오류. 종료합니다.")
-                break
+            if source == "esp32":
+                if not raw_event.wait(timeout=config.TCP_RECV_TIMEOUT_SEC):
+                    print("[타임아웃] 스트림 수신 없음. 종료합니다.")
+                    break
+                raw_event.clear()
+                if recv_error[0]:
+                    print("[오류] TCP 수신 오류. 종료합니다.")
+                    break
 
-            with raw_lock:
-                data = latest_raw[0]
-            if data is None:
-                continue
+                with raw_lock:
+                    data = latest_raw[0]
+                if data is None:
+                    continue
 
-            frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-            if frame is None:
-                continue
-            if config.CAMERA_FLIP_VERTICAL:
-                frame = cv2.flip(frame, 0)
+                frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+                if frame is None:
+                    continue
+                if config.CAMERA_FLIP_VERTICAL:
+                    frame = cv2.flip(frame, 0)   # ESP32: 수직 플립(실런타임 CameraThread와 동일)
+            else:  # usb
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    print("[오류] USB 웹캠 프레임 수신 실패. 종료합니다.")
+                    break
+                frame = cv2.flip(frame, 1)       # USB: 좌우 플립(UsbCameraThread와 동일)
 
             frame_no += 1
             now_str  = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -309,6 +344,19 @@ def run_bench(args):
             t0   = time.perf_counter()
             dets = detector.detect(frame)
             infer_ms = (time.perf_counter() - t0) * 1000.0
+
+            # --- raw 검출 로깅 (트래킹 이전, score≥CONF_LOW 전량) ---
+            # confirmed 트랙(≥CONF_HIGH)만 보는 detection_log의 사각지대(B4 저신뢰) 보완.
+            _seen_this_frame = set()
+            for d in dets:
+                cls_id, score, x1, y1, x2, y2 = d
+                name = CLASS_NAMES[cls_id] if cls_id < len(CLASS_NAMES) else str(cls_id)
+                raw_w.writerow([frame_no, now_str, source, name, f"{score:.4f}", x1, y1, x2, y2])
+                raw_counts[name] = raw_counts.get(name, 0) + 1
+                raw_conf.setdefault(name, []).append(score)
+                _seen_this_frame.add(name)
+            for name in _seen_this_frame:
+                raw_frame_hit[name] = raw_frame_hit.get(name, 0) + 1
 
             # 트래킹 + track_id 할당
             old_track_ids = {id(t): t.get("track_id") for t in tracks}
@@ -339,6 +387,8 @@ def run_bench(args):
                         iou_val = _iou(prev_box, cur_box)
                         if iou_val > 0.3:
                             conf_w.writerow([frame_no, now_str, prev_cls, cur_cls, f"{iou_val:.3f}"])
+                            if {prev_cls, cur_cls} == {"B4", "EMO"}:
+                                b4_emo_confusion[0] += 1
             prev_boxes = cur_boxes
 
             # CSV 기록
@@ -376,11 +426,15 @@ def run_bench(args):
         print("\n[중단]")
     finally:
         running[0] = False
-        try:
-            sock.close()
-        except Exception:
-            pass
-        recv_thread.join(timeout=3)
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
+        if recv_thread is not None:
+            recv_thread.join(timeout=3)
+        if cap is not None:
+            cap.release()
 
         # 종료된 트랙 stability 기록
         alive_ids = {t.get("track_id") for t in tracks}
@@ -389,7 +443,7 @@ def run_bench(args):
             stab_w.writerow([tid, info["cls"], info["start_frame"],
                              info["last_frame"], duration, info["miss_total"]])
 
-        perf_f.close(); det_f.close(); stab_f.close(); conf_f.close()
+        perf_f.close(); det_f.close(); stab_f.close(); conf_f.close(); raw_f.close()
         if video_queue is not None:
             video_queue.put(None)  # 종료 신호
             video_thread.join(timeout=10)
@@ -407,16 +461,42 @@ def run_bench(args):
         print(f"평균 FPS   : {sum(valid_fps)/len(valid_fps):.1f}")
         print(f"최저 FPS   : {min(valid_fps):.1f}")
         print(f"최고 FPS   : {max(valid_fps):.1f}")
-    print(f"\n클래스별 누적 탐지:")
+    print(f"\n[소스: {source}]  클래스별 누적 탐지 (confirmed 트랙 ≥{config.YOLO_CONF_HIGH}):")
     for name in CLASS_NAMES:
         count = cls_counts.get(name, 0)
         scores = cls_conf.get(name, [])
         avg_conf = sum(scores) / len(scores) if scores else 0.0
         warn = "  ⚠ 취약" if avg_conf > 0 and avg_conf < CONF_WARN else ""
         print(f"  {name:<4}: {count:4d}회  평균신뢰도 {avg_conf:.3f}{warn}")
-    print(f"\n저장 위치: test/logs/{ts}_*.csv")
+
+    print(f"\nraw 검출 (≥{config.YOLO_CONF_LOW}, 트래킹 이전 — 저신뢰 포함):")
+    for name in CLASS_NAMES:
+        rc = raw_counts.get(name, 0)
+        rs = raw_conf.get(name, [])
+        ravg = sum(rs) / len(rs) if rs else 0.0
+        print(f"  {name:<4}: {rc:4d}회 (프레임 {raw_frame_hit.get(name,0)})  평균 {ravg:.3f}")
+
+    # --- B4 집중 분석 (주가설=카메라 입력 품질 vs 부가설=모델 저대비 판정용) ---
+    b4 = sorted(raw_conf.get("B4", []))
+    print(f"\n{'-'*50}\nB4 집중 분석")
+    if b4:
+        n = len(b4)
+        median = b4[n // 2] if n % 2 else (b4[n//2 - 1] + b4[n//2]) / 2
+        bucket = {"0.5–0.6": 0, "0.6–0.7": 0, "0.7+": 0}
+        for s in b4:
+            if   s < 0.6: bucket["0.5–0.6"] += 1
+            elif s < 0.7: bucket["0.6–0.7"] += 1
+            else:         bucket["0.7+"]    += 1
+        print(f"  B4 raw 검출: {n}회 / 검출 프레임 {raw_frame_hit.get('B4',0)}")
+        print(f"  score  min {b4[0]:.3f}  median {median:.3f}  max {b4[-1]:.3f}")
+        print(f"  분포   0.5–0.6:{bucket['0.5–0.6']}  0.6–0.7:{bucket['0.6–0.7']}  0.7+:{bucket['0.7+']}")
+    else:
+        print(f"  B4 raw 검출: 0회  ← 완전 미탐지 (카메라 화질/모델 저대비 원인 후보)")
+    print(f"  B4↔EMO 오인(트랙 전환): {b4_emo_confusion[0]}회 | raw EMO 총검출: {raw_counts.get('EMO',0)}회")
+
+    print(f"\n저장 위치: test/logs/{_tag}_*.csv")
     if not args.no_video and video_path:
-        print(f"영상 저장 : test/videos/{ts}_bench.mp4")
+        print(f"영상 저장 : test/videos/{_tag}_bench.mp4")
 
 
 # =============================================================================
@@ -424,8 +504,12 @@ def run_bench(args):
 # =============================================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="console_v1 Hailo 추론 벤치마크")
-    parser.add_argument("--frames",   type=int, default=300, help="측정 프레임 수 (기본 300)")
-    parser.add_argument("--host",     type=str, default=None, help="ESP32 IP 오버라이드")
-    parser.add_argument("--no-video", action="store_true",    help="영상 저장 생략")
+    parser.add_argument("--frames",    type=int, default=300, help="측정 프레임 수 (기본 300)")
+    parser.add_argument("--host",      type=str, default=None, help="ESP32 IP 오버라이드")
+    parser.add_argument("--no-video",  action="store_true",    help="영상 저장 생략")
+    parser.add_argument("--source",    choices=["esp32", "usb"], default="esp32",
+                        help="카메라 소스 (esp32=OV3660 TCP / usb=웹캠). B4 원인 대조용")
+    parser.add_argument("--usb-index", type=int, default=0,
+                        help="USB 웹캠 장치 인덱스 (--source usb, 기본 0)")
     args = parser.parse_args()
     run_bench(args)
