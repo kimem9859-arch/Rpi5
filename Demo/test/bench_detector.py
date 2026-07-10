@@ -87,22 +87,26 @@ def _recv_latest_frame(sock):
             return data
 
 
-def _lock_usb_exposure(index, exposure, wb_temp):
-    """USB 웹캠의 자동 노출·자동 화이트밸런스를 끄고 값을 고정.
+def _lock_usb_exposure(index, exposure, wb_temp=None):
+    """USB 웹캠의 자동 노출을 끄고 노출값을 고정. (WB는 wb_temp를 준 경우에만 고정)
 
-    ESP32(OV3660)는 펌웨어 고정 설정으로 스트리밍하는데 USB 웹캠은 AE/AWB가 켜져 있어
-    ① 시작 직후 과노출(포화 50%) ② 정반사로 버튼 색이 하얗게 날아가 B1·B3가 B2로 오분류.
-    두 카메라를 대등한 조건으로 비교하려면 USB 쪽도 고정해야 한다.
+    ESP32(OV3660)는 펌웨어 고정 설정으로 스트리밍하는데 USB 웹캠은 AE가 켜져 있어
+    ① 시작 직후 과노출(포화 50%) ② 정반사로 버튼 색이 날아가 B1·B3가 B2로 오분류.
+    두 카메라를 대등한 조건으로 비교하려면 USB 쪽 노출도 고정해야 한다.
 
     ※ auto_exposure=1(Manual)을 먼저 걸어야 exposure_time_absolute가 활성화된다.
+    ※ WB는 기본적으로 **자동을 유지**한다. UVC 드라이버는 색온도(R↔B) 축만 제공하고
+      틴트(G↔M) 축이 없어, 형광등 녹색 스파이크를 수동으로 잡을 수 없다(2026-07-10 실측:
+      최대 6500K에서도 흰 버튼 G=206 vs B/R=148/145로 초록 캐스트 잔존). 자동 AWB가 더 낫다.
     """
     dev = f"/dev/video{index}"
     steps = [
         ("auto_exposure", 1),                    # 1 = Manual Mode
         ("exposure_time_absolute", exposure),
-        ("white_balance_automatic", 0),
-        ("white_balance_temperature", wb_temp),
     ]
+    if wb_temp is not None:
+        steps += [("white_balance_automatic", 0), ("white_balance_temperature", wb_temp)]
+
     ok = True
     for name, val in steps:
         try:
@@ -118,7 +122,8 @@ def _lock_usb_exposure(index, exposure, wb_temp):
             print(f"[노출고정] {name} 설정 오류: {e}")
             ok = False
     if ok:
-        print(f"[노출고정] auto_exposure=Manual  exposure={exposure}  WB={wb_temp}K (자동 해제)")
+        wb_desc = f"WB={wb_temp}K(고정)" if wb_temp is not None else "WB=자동(유지)"
+        print(f"[노출고정] auto_exposure=Manual  exposure={exposure}  {wb_desc}")
     return ok
 
 
@@ -600,10 +605,13 @@ if __name__ == "__main__":
     parser.add_argument("--warmup", type=int, default=-1,
                         help="측정 전 버릴 프레임 수(AE 수렴 대기). 기본 auto = usb:60 / esp32:0")
     parser.add_argument("--lock-exposure", action="store_true",
-                        help="USB 웹캠 자동노출·자동WB 해제 후 고정 (ESP32와 조건 대등화)")
-    parser.add_argument("--exposure", type=int, default=157,
-                        help="--lock-exposure 시 exposure_time_absolute (기본 157=드라이버 기본값)")
-    parser.add_argument("--wb", type=int, default=4600,
-                        help="--lock-exposure 시 white_balance_temperature K (기본 4600)")
+                        help="USB 웹캠 자동노출 해제 후 고정 (ESP32와 조건 대등화). WB는 자동 유지")
+    parser.add_argument("--exposure", type=int, default=250,
+                        help="--lock-exposure 시 exposure_time_absolute. "
+                             "기본 250 = 2026-07-10 실측 최적(5클래스 20/20, B4 conf 0.801). "
+                             "값은 조명마다 다르니 test/tune_exposure.py로 재선정")
+    parser.add_argument("--wb", type=int, default=None,
+                        help="지정 시 white_balance_temperature(K) 고정. 미지정=자동 AWB 유지(권장). "
+                             "형광등 녹색 스파이크는 색온도 축으로 못 잡아 수동 고정 시 초록 캐스트 발생")
     args = parser.parse_args()
     run_bench(args)
