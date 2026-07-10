@@ -18,10 +18,15 @@
     test/logs/YYYYMMDD_HHMMSS_<src>_confusion_log.csv
     test/logs/YYYYMMDD_HHMMSS_<src>_rawdet_log.csv       (raw 검출 ≥CONF_LOW — B4 저신뢰 포함)
     test/videos/YYYYMMDD_HHMMSS_<src>_bench.mp4           (--no-video 생략 시)
+       ⚠ 이 영상은 **검출 오버레이가 그려진** 화면이고 mp4v 손실압축이라 재분석용이 아니다.
+    test/raw/YYYYMMDD_HHMMSS_<src>/f00001.png …          (--save-raw 시, 무손실)
+       detector.detect()에 건네진 바로 그 배열 + manifest.json(촬영 조건).
+       재생·재분석: python3 test/replay_raw.py test/raw/<dir>
 """
 
 import argparse
 import csv
+import json
 import os
 import select
 import socket
@@ -48,6 +53,7 @@ from detector import create_detector
 _TEST_DIR   = os.path.dirname(os.path.abspath(__file__))
 _LOGS_DIR   = os.path.join(_TEST_DIR, "logs")
 _VIDEOS_DIR = os.path.join(_TEST_DIR, "videos")
+_RAW_DIR    = os.path.join(_TEST_DIR, "raw")
 
 CLASS_NAMES = ["B1", "B2", "B3", "B4", "EMO"]
 CONF_WARN   = 0.70  # 이 미만이면 취약 경고
@@ -270,6 +276,33 @@ def run_bench(args):
     if not args.no_video:
         video_path = os.path.join(_VIDEOS_DIR, f"{_tag}_bench.mp4")
 
+    # --- raw 프레임 저장 (무손실 PNG) ---
+    # 저장 대상 = detector.detect()에 실제로 건네지는 배열(플립 적용 후). 그래야 재생 시
+    # 검출이 그대로 재현된다. ⚠️ 손실 압축(JPEG/mp4) 금지 — B4는 JPEG q90·블러 σ0.8만으로도
+    # 사라지므로(§10.9), 증거를 저장하는 행위가 증거를 파괴한다.
+    raw_dir = None
+    raw_img_queue = None
+    raw_img_thread = None
+    if args.save_raw:
+        raw_dir = os.path.join(_RAW_DIR, _tag)
+        os.makedirs(raw_dir, exist_ok=True)
+        import queue as _q
+        raw_img_queue = _q.Queue(maxsize=32)
+
+        def _raw_worker():
+            while True:
+                item = raw_img_queue.get()
+                if item is None:
+                    break
+                idx, img = item
+                cv2.imwrite(os.path.join(raw_dir, f"f{idx:05d}.png"), img,
+                            [cv2.IMWRITE_PNG_COMPRESSION, 3])
+                raw_img_queue.task_done()
+
+        raw_img_thread = threading.Thread(target=_raw_worker, daemon=True)
+        raw_img_thread.start()
+        print(f"[raw] 무손실 PNG 저장: test/raw/{_tag}/  (매 {args.raw_every}프레임)")
+
     # --- Detector ---
     print("[Detector] 로드 중...")
     detector = create_detector()
@@ -361,6 +394,8 @@ def run_bench(args):
     raw_conf    = {n: []  for n in CLASS_NAMES}
     raw_frame_hit = {n: 0 for n in CLASS_NAMES}   # 해당 클래스가 1회+ 검출된 프레임 수
     b4_emo_confusion = [0]                         # B4↔EMO 트랙 클래스 전환 횟수
+    raw_saved   = [0]                              # PNG로 저장된 프레임 수
+    raw_dropped = [0]                              # 큐 포화로 저장 못 한 프레임 수
 
     # --- 워밍업: AE/AWB 수렴 대기 (USB는 시작 직후 포화 50%까지 과노출) ---
     warmup = (60 if source == "usb" else 0) if args.warmup < 0 else args.warmup
@@ -390,6 +425,29 @@ def run_bench(args):
     _lock_desc = " 노출=고정" if (source == "usb" and args.lock_exposure) else ""
     print(f"\n[벤치마크 시작] 소스={source}  플립={_flip_desc}  워밍업={warmup}{_lock_desc}  "
           f"{max_frames}프레임 측정 — Ctrl+C로 중단\n")
+
+    # manifest — 이 raw가 어떤 조건에서 찍혔는지. 없으면 나중에 PNG 더미의 의미를 잃는다.
+    if raw_dir:
+        with open(os.path.join(raw_dir, "manifest.json"), "w") as mf:
+            json.dump({
+                "timestamp":      ts,
+                "source":         source,
+                "esp32_host":     host if source == "esp32" else None,
+                "usb_index":      args.usb_index if source == "usb" else None,
+                "flip_mode":      flip_mode,
+                "warmup_frames":  warmup,
+                "lock_exposure":  bool(args.lock_exposure and source == "usb"),
+                "exposure":       args.exposure if (args.lock_exposure and source == "usb") else None,
+                "wb":             args.wb,
+                "raw_every":      args.raw_every,
+                "backend":        detector.backend_name,
+                "hef_path":       getattr(config, "HEF_MODEL_PATH", None),
+                "yolo_conf_high": config.YOLO_CONF_HIGH,
+                "yolo_conf_low":  config.YOLO_CONF_LOW,
+                "yolo_input_size": config.YOLO_INPUT_SIZE,
+                "class_names":    CLASS_NAMES,
+                "note": "PNG = detector.detect()에 건네진 배열(플립 후). 무손실.",
+            }, mf, ensure_ascii=False, indent=2)
 
     try:
         while frame_no < max_frames:
@@ -427,6 +485,15 @@ def run_bench(args):
                 fps = 1.0 / dt if dt > 0 else fps
             prev_time = cur_time
             fps_list.append(fps)
+
+            # raw 저장 — detect()에 넘기기 직전의 바로 그 배열
+            if raw_img_queue is not None and (frame_no - 1) % args.raw_every == 0:
+                try:
+                    # 최대 0.5s 대기: PNG 인코딩이 밀려도 증거를 함부로 버리지 않는다.
+                    raw_img_queue.put((frame_no, frame.copy()), timeout=0.5)
+                    raw_saved[0] += 1
+                except Exception:
+                    raw_dropped[0] += 1
 
             # 추론
             t0   = time.perf_counter()
@@ -532,6 +599,9 @@ def run_bench(args):
                              info["last_frame"], duration, info["miss_total"]])
 
         perf_f.close(); det_f.close(); stab_f.close(); conf_f.close(); raw_f.close()
+        if raw_img_queue is not None:
+            raw_img_queue.put(None)          # 종료 신호 — 남은 큐를 다 쓰고 끝난다
+            raw_img_thread.join(timeout=60)
         if video_queue is not None:
             video_queue.put(None)  # 종료 신호
             video_thread.join(timeout=10)
@@ -584,7 +654,11 @@ def run_bench(args):
 
     print(f"\n저장 위치: test/logs/{_tag}_*.csv")
     if not args.no_video and video_path:
-        print(f"영상 저장 : test/videos/{_tag}_bench.mp4")
+        print(f"영상 저장 : test/videos/{_tag}_bench.mp4  ⚠ 검출 오버레이본 — 재분석 불가")
+    if raw_dir:
+        print(f"raw 저장  : test/raw/{_tag}/  PNG {raw_saved[0]}장" +
+              (f"  ⚠ 드롭 {raw_dropped[0]}장" if raw_dropped[0] else " (드롭 0)"))
+        print(f"            재생: python3 test/replay_raw.py test/raw/{_tag}")
 
 
 # =============================================================================
@@ -613,5 +687,10 @@ if __name__ == "__main__":
     parser.add_argument("--wb", type=int, default=None,
                         help="지정 시 white_balance_temperature(K) 고정. 미지정=자동 AWB 유지(권장). "
                              "형광등 녹색 스파이크는 색온도 축으로 못 잡아 수동 고정 시 초록 캐스트 발생")
+    parser.add_argument("--save-raw", action="store_true",
+                        help="detector에 들어간 프레임을 무손실 PNG로 저장(test/raw/). "
+                             "저장 영상은 검출 오버레이본이라 재분석 불가 — 재현·console_v2 평가용")
+    parser.add_argument("--raw-every", type=int, default=1, metavar="N",
+                        help="--save-raw 시 N프레임마다 1장 저장 (기본 1=전부). 용량 절감용")
     args = parser.parse_args()
     run_bench(args)
