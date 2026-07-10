@@ -16,10 +16,10 @@
 ## 추론 백엔드 — `detector.py` (★ console_v1.hef 통합 지점)
 - `BaseDetector` 인터페이스: `detect(frame)→[(cls_id, score, x1,y1,x2,y2)]`, `class_name(cls_id)`, `close()`.
 - `PyTorchDetector`(Phase A, best.pt, ultralytics CPU) ↔ `HailoDetector`(Phase B, .hef, Hailo-8). `config.INFERENCE_BACKEND`로 전환.
-- ⚠️ **console_v1.hef 배선 시** (상세 [`../dev/ai_model/README.md`](../dev/ai_model/README.md)):
-  - 입력 **uint8 640×640 RGB**(float 정규화 ❌), 출력 **HailoRT NMS 결과** 파싱(raw 텐서 ❌), **HailoRT 4.x**.
-  - `class_name`/`_names`를 **5클래스(0=B1·1=B2·2=B3·3=B4·4=EMO)** 로 — 현재 `{0:"person"}` 하드코딩이라 **수정 필요**.
-  - .hef(빌드 환경 `D:\Hailo_DFC\console_v1.hef`)를 파이로 옮겨 `Demo/YOLO model/` 또는 지정 경로에.
+- ✅ **console_v1.hef 배선 완료** (상세 [`../dev/ai_model/README.md`](../dev/ai_model/README.md)):
+  - 입력 **uint8 640×640 RGB**(float 정규화 ❌, stretch 리사이즈), 출력 **HailoRT NMS 결과** 파싱(raw 텐서 ❌), **HailoRT 4.x**.
+  - `class_name`/`_names` = **5클래스(0=B1·1=B2·2=B3·3=B4·4=EMO)** 매핑 완료(`detector.py:112`).
+  - .hef(빌드 환경 `D:\Hailo_DFC\console_v1.hef`) → 파이 `Demo/models/console_v1.hef`(`config.HEF_MODEL_PATH`).
 
 ## GUI·카메라·설정 (기존 모듈 — 현행 유효)
 ### `safety_console.py` (메인 GUI, QMainWindow)
@@ -34,7 +34,7 @@
 - 신호: `change_pixmap_signal`/`log_signal`/`yolo_detections_signal`/`raw_frame_signal`/`calibration_needed_signal`.
 
 ### `config.py` (전역 설정)
-- 추론: `INFERENCE_BACKEND`, `YOLO_MODEL_PATH`, `YOLO_CONF_HIGH(0.65)`/`YOLO_CONF_LOW(0.50)`, `YOLO_IOU_MATCH(0.3)`, `YOLO_MAX_MISS(3)`, `FSM_EMO_BUTTON`.
+- 추론: `INFERENCE_BACKEND`, `PT_MODEL_PATH`(best.pt)/`HEF_MODEL_PATH`(console_v1.hef), `YOLO_CONF_HIGH(0.65)`/`YOLO_CONF_LOW(0.50)`, `YOLO_IOU_MATCH(0.3)`, `YOLO_MAX_MISS(5)`, `YOLO_INPUT_SIZE(640)`, `FSM_EMO_BUTTON`.
 - TCP: `CAMERA_TCP_HOST`(`.camera_ip`에서 읽음)·`PORT(8888)`. 화면 1280×720·`CAMERA_FLIP_VERTICAL`. 녹화 `RECORDING_*`.
 - ESP32 IP 변경: `Demo/.camera_ip` 텍스트 수정 후 재시작.
 
@@ -50,6 +50,7 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
 ## 워크플로
 - ESP32 펌웨어(.ino) = **Arduino CLI**(IDE 아님), **라즈베리파이에서만** 편집·컴파일(Windows엔 미설치).
 - `original/` = 참고용 구버전(`yolo_hailo_tcp.py`=RPi Hailo 추론 핵심, `provision_wifi.py` 등 RPi 전용).
+- **벤치·B4 대조 실험** = `Demo/test/bench_detector.py`. `--source {esp32,usb}`로 **카메라만 변수**로 두고 대조 측정. `_rawdet_log.csv`(트래킹 이전 raw 검출 ≥`YOLO_CONF_LOW`)가 **B4 저신뢰 구간**을 드러냄 — `_detection_log.csv`(confirmed 트랙 ≥`YOLO_CONF_HIGH`)만 보면 놓친다. 종료 시 **B4 집중 분석**(score 분포·B4↔EMO 오인) 출력. 산출물은 소스 태그 파일명(`{ts}_{src}_*.csv`), `logs/`·`videos/`는 gitignore → `test-artifacts` 브랜치로 보관.
 
 ## 다음
 1. ✅ console_v1.hef 통합·실추론 완료 — B1~B3·EMO 검출, B4 미탐지 → console_v2 재학습 확정. ※ **B4 미탐지 원인 정정(2026-07-03)**: 양자화 반증(에뮬서 int8 .hef가 B4 검출·USB 웹캠선도 검출) → **카메라 입력 품질(OV3660) 주가설·미확정**(sop-project 통합문서 §10.7).
