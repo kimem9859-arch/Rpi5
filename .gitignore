@@ -38,6 +38,7 @@ cleanroom_dataset/
 # 벤치마크 테스트 산출물 (test-artifacts 브랜치에서 관리)
 Demo/test/videos/
 Demo/test/logs/
+Demo/test/exposure_samples/
 
 # GStreamer 샤크 캡처
 Demo/gstshark_*/

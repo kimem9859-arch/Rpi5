@@ -26,6 +26,7 @@ import os
 import select
 import socket
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -84,6 +85,41 @@ def _recv_latest_frame(sock):
             return None
         if not readable:
             return data
+
+
+def _lock_usb_exposure(index, exposure, wb_temp):
+    """USB 웹캠의 자동 노출·자동 화이트밸런스를 끄고 값을 고정.
+
+    ESP32(OV3660)는 펌웨어 고정 설정으로 스트리밍하는데 USB 웹캠은 AE/AWB가 켜져 있어
+    ① 시작 직후 과노출(포화 50%) ② 정반사로 버튼 색이 하얗게 날아가 B1·B3가 B2로 오분류.
+    두 카메라를 대등한 조건으로 비교하려면 USB 쪽도 고정해야 한다.
+
+    ※ auto_exposure=1(Manual)을 먼저 걸어야 exposure_time_absolute가 활성화된다.
+    """
+    dev = f"/dev/video{index}"
+    steps = [
+        ("auto_exposure", 1),                    # 1 = Manual Mode
+        ("exposure_time_absolute", exposure),
+        ("white_balance_automatic", 0),
+        ("white_balance_temperature", wb_temp),
+    ]
+    ok = True
+    for name, val in steps:
+        try:
+            r = subprocess.run(["v4l2-ctl", "-d", dev, "-c", f"{name}={val}"],
+                               capture_output=True, text=True, timeout=5)
+            if r.returncode != 0:
+                print(f"[노출고정] {name}={val} 실패: {r.stderr.strip()}")
+                ok = False
+        except FileNotFoundError:
+            print("[노출고정] v4l2-ctl 없음 — `sudo apt install v4l-utils` 필요. 자동노출 유지.")
+            return False
+        except Exception as e:
+            print(f"[노출고정] {name} 설정 오류: {e}")
+            ok = False
+    if ok:
+        print(f"[노출고정] auto_exposure=Manual  exposure={exposure}  WB={wb_temp}K (자동 해제)")
+    return ok
 
 
 def _connect_tcp(host):
@@ -256,6 +292,9 @@ def run_bench(args):
             detector.close()
             return
         print(f"[USB] 웹캠 index {args.usb_index} 열림.")
+        # VideoCapture 오픈 후에 걸어야 드라이버가 되돌리지 않는다.
+        if args.lock_exposure:
+            _lock_usb_exposure(args.usb_index, args.exposure, args.wb)
 
     # VideoWriter 비동기 큐
     video_queue  = None
@@ -318,8 +357,34 @@ def run_bench(args):
     raw_frame_hit = {n: 0 for n in CLASS_NAMES}   # 해당 클래스가 1회+ 검출된 프레임 수
     b4_emo_confusion = [0]                         # B4↔EMO 트랙 클래스 전환 횟수
 
+    # --- 워밍업: AE/AWB 수렴 대기 (USB는 시작 직후 포화 50%까지 과노출) ---
+    warmup = (60 if source == "usb" else 0) if args.warmup < 0 else args.warmup
+    if warmup > 0:
+        print(f"[워밍업] {warmup}프레임 폐기 — 자동노출 수렴 대기...")
+        got = 0
+        while got < warmup:
+            if source == "esp32":
+                if not raw_event.wait(timeout=config.TCP_RECV_TIMEOUT_SEC):
+                    print("[워밍업] 스트림 수신 없음. 중단합니다.")
+                    break
+                raw_event.clear()
+                if recv_error[0]:
+                    break
+                with raw_lock:
+                    if latest_raw[0] is None:
+                        continue
+            else:
+                ok, _ = cap.read()
+                if not ok:
+                    print("[워밍업] USB 프레임 수신 실패. 중단합니다.")
+                    break
+            got += 1
+        print(f"[워밍업] {got}프레임 폐기 완료.\n")
+
     _flip_desc = {"v": "수직", "h": "좌우", "vh": "수직+좌우", "none": "없음"}[flip_mode]
-    print(f"\n[벤치마크 시작] 소스={source}  플립={_flip_desc}  {max_frames}프레임 측정 — Ctrl+C로 중단\n")
+    _lock_desc = " 노출=고정" if (source == "usb" and args.lock_exposure) else ""
+    print(f"\n[벤치마크 시작] 소스={source}  플립={_flip_desc}  워밍업={warmup}{_lock_desc}  "
+          f"{max_frames}프레임 측정 — Ctrl+C로 중단\n")
 
     try:
         while frame_no < max_frames:
@@ -532,5 +597,13 @@ if __name__ == "__main__":
     parser.add_argument("--flip", choices=["auto", "none", "v", "h", "vh"], default="auto",
                         help="플립 보정. auto=esp32:수직(거꾸로 장착 보정)/usb:없음. "
                              "USB의 실런타임 좌우 플립은 표시용 미러링이라 검출 측정엔 해로움")
+    parser.add_argument("--warmup", type=int, default=-1,
+                        help="측정 전 버릴 프레임 수(AE 수렴 대기). 기본 auto = usb:60 / esp32:0")
+    parser.add_argument("--lock-exposure", action="store_true",
+                        help="USB 웹캠 자동노출·자동WB 해제 후 고정 (ESP32와 조건 대등화)")
+    parser.add_argument("--exposure", type=int, default=157,
+                        help="--lock-exposure 시 exposure_time_absolute (기본 157=드라이버 기본값)")
+    parser.add_argument("--wb", type=int, default=4600,
+                        help="--lock-exposure 시 white_balance_temperature K (기본 4600)")
     args = parser.parse_args()
     run_bench(args)
