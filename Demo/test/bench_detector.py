@@ -7,6 +7,10 @@
     python3 test/bench_detector.py --source esp32 --frames 500  # ESP32-S3(OV3660) TCP
     python3 test/bench_detector.py --source usb   --frames 500  # USB 웹캠 (B4 원인 대조)
 
+플립(--flip, 기본 auto):
+    esp32 → 수직(카메라 거꾸로 장착 보정, 추론에 필요)
+    usb   → 없음(실런타임의 좌우 미러링은 표시용. 거울상은 학습 방향과 달라 검출률 왜곡)
+
 출력 (파일명에 소스 태그 {esp32|usb}):
     test/logs/YYYYMMDD_HHMMSS_<src>_perf_log.csv
     test/logs/YYYYMMDD_HHMMSS_<src>_detection_log.csv    (confirmed 트랙 ≥CONF_HIGH)
@@ -175,6 +179,21 @@ def run_bench(args):
     host      = args.host or config.CAMERA_TCP_HOST
     max_frames = args.frames
 
+    # 플립 결정. auto = esp32:수직 / usb:없음.
+    #  - ESP32 수직 플립은 카메라가 물리적으로 거꾸로 장착돼 있어 바로잡는 보정 → 추론에 필요.
+    #  - USB 좌우 플립은 실런타임(UsbCameraThread)의 표시용 미러링 → 거울상 입력은 학습 데이터와
+    #    방향이 달라 검출률을 떨어뜨리므로 검출 측정에서는 적용하지 않는다.
+    if args.flip == "auto":
+        flip_mode = ("v" if config.CAMERA_FLIP_VERTICAL else "none") if source == "esp32" else "none"
+    else:
+        flip_mode = args.flip
+
+    def _apply_flip(f):
+        if flip_mode == "v":  return cv2.flip(f, 0)
+        if flip_mode == "h":  return cv2.flip(f, 1)
+        if flip_mode == "vh": return cv2.flip(f, -1)
+        return f
+
     os.makedirs(_LOGS_DIR, exist_ok=True)
     os.makedirs(_VIDEOS_DIR, exist_ok=True)
 
@@ -299,7 +318,8 @@ def run_bench(args):
     raw_frame_hit = {n: 0 for n in CLASS_NAMES}   # 해당 클래스가 1회+ 검출된 프레임 수
     b4_emo_confusion = [0]                         # B4↔EMO 트랙 클래스 전환 횟수
 
-    print(f"\n[벤치마크 시작] {max_frames}프레임 측정 — Ctrl+C로 중단\n")
+    _flip_desc = {"v": "수직", "h": "좌우", "vh": "수직+좌우", "none": "없음"}[flip_mode]
+    print(f"\n[벤치마크 시작] 소스={source}  플립={_flip_desc}  {max_frames}프레임 측정 — Ctrl+C로 중단\n")
 
     try:
         while frame_no < max_frames:
@@ -320,14 +340,12 @@ def run_bench(args):
                 frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
                 if frame is None:
                     continue
-                if config.CAMERA_FLIP_VERTICAL:
-                    frame = cv2.flip(frame, 0)   # ESP32: 수직 플립(실런타임 CameraThread와 동일)
             else:  # usb
                 ok, frame = cap.read()
                 if not ok or frame is None:
                     print("[오류] USB 웹캠 프레임 수신 실패. 종료합니다.")
                     break
-                frame = cv2.flip(frame, 1)       # USB: 좌우 플립(UsbCameraThread와 동일)
+            frame = _apply_flip(frame)
 
             frame_no += 1
             now_str  = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -511,5 +529,8 @@ if __name__ == "__main__":
                         help="카메라 소스 (esp32=OV3660 TCP / usb=웹캠). B4 원인 대조용")
     parser.add_argument("--usb-index", type=int, default=0,
                         help="USB 웹캠 장치 인덱스 (--source usb, 기본 0)")
+    parser.add_argument("--flip", choices=["auto", "none", "v", "h", "vh"], default="auto",
+                        help="플립 보정. auto=esp32:수직(거꾸로 장착 보정)/usb:없음. "
+                             "USB의 실런타임 좌우 플립은 표시용 미러링이라 검출 측정엔 해로움")
     args = parser.parse_args()
     run_bench(args)
