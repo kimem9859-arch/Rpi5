@@ -50,6 +50,7 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
 ## 워크플로
 - ESP32 펌웨어(.ino) = **Arduino CLI**(IDE 아님), **라즈베리파이에서만** 편집·컴파일(Windows엔 미설치).
 - `original/` = 참고용 구버전(`yolo_hailo_tcp.py`=RPi Hailo 추론 핵심, `provision_wifi.py` 등 RPi 전용).
+- **console_v2 데이터 준비** = `Demo/test/dedupe_raw.py`(pHash 중복제거 — 영상 프레임은 47%가 사실상 동일. **분할 전에** 반드시 실행. 파일명에 세션명 보존) + `Demo/test/export_labels.py`(rawdet_log → YOLO 라벨. v1 검출을 **프리라벨**로 재사용, 배경오탐 크기필터). ⚠️ **분할은 세션 단위로**(프레임 섞으면 누출 → mAP 거짓 상승). ⚠️ **B4는 파랑 스티커라 v1이 못 잡음 → 전량 수동 라벨**.
 - **벤치·B4 대조 실험** = `Demo/test/bench_detector.py`. `--source {esp32,usb}`로 **카메라만 변수**로 두고 대조 측정. `_rawdet_log.csv`(트래킹 이전 raw 검출 ≥`YOLO_CONF_LOW`)가 **B4 저신뢰 구간**을 드러냄 — `_detection_log.csv`(confirmed 트랙 ≥`YOLO_CONF_HIGH`)만 보면 놓친다. 종료 시 **B4 집중 분석**(score 분포·B4↔EMO 오인) 출력. 산출물은 소스 태그 파일명(`{ts}_{src}_*.csv`), `logs/`·`videos/`는 gitignore → `test-artifacts` 브랜치로 보관.
 
 ## 다음
