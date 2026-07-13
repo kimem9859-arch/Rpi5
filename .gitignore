@@ -52,3 +52,5 @@ build/
 arduino/wifi_credentials.h
 arduino/camera_stream_tcp/wifi_credentials.h
 Demo/dataset/
+.rfvenv/
+!.env.example

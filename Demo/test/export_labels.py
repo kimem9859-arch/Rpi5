@@ -61,6 +61,9 @@ def main():
     ap.add_argument("--conf", type=float, default=0.50,
                     help="이 신뢰도 미만 검출은 버림 (기본 0.50 = CONF_LOW)")
     ap.add_argument("--no-filter", action="store_true", help="크기·종횡비 필터 끄기")
+    ap.add_argument("--classes-out", default=None,
+                    help="classes.txt를 쓸 경로. labels/ 안에 두면 세션 폴더 순회 시 "
+                         "파일을 폴더로 오인하므로 dataset/classes.txt 처럼 부모에 둘 것")
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
@@ -121,8 +124,10 @@ def main():
         if not lines:
             no_label.append(img_name)
 
-    with open(os.path.join(os.path.dirname(args.out.rstrip("/")) or ".", "classes.txt"), "w") as fh:
-        fh.write("\n".join(CLASS_NAMES) + "\n")
+    if args.classes_out:
+        with open(args.classes_out, "w") as fh:
+            fh.write("\n".join(CLASS_NAMES) + "\n")
+        print(f"클래스맵: {args.classes_out}")
 
     n = len(images)
     print(f"이미지 {n}장 → 라벨 {n}개 생성 ({args.out})\n")
