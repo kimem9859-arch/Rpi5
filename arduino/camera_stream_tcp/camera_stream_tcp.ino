@@ -7,6 +7,10 @@
 #include "freertos/queue.h"
 #include <lwip/sockets.h>
 
+// WiFi 자격증명 (SSID·비번). gitignore 처리됨 — 저장소에 비번이 올라가지 않는다.
+// 배열 순서 = 연결 우선순위. 신호 세기와 무관하게 앞에 있는 SSID를 먼저 잡는다.
+#include "wifi_credentials.h"
+
 #define PWDN_GPIO_NUM     -1
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM     10
@@ -134,6 +138,66 @@ void acceptTask(void *param) {
   }
 }
 
+// 주변 SSID를 스캔해 WIFI_CREDS 배열 순서(=우선순위)대로 연결한다.
+// 신호 세기 기준이 아니다 — 1순위가 보이면 약하더라도 그쪽에 붙는다.
+// 이유: 파이도 같은 우선순위를 쓰므로, 규칙이 같아야 둘이 같은 서브넷에 모인다.
+//       (다른 네트워크에 붙으면 TCP 직결이 불가능하다.)
+bool tryConnect(const char* ssid, const char* pass, int timeoutSec) {
+  Serial.printf("Connecting to: %s ", ssid);
+  WiFi.begin(ssid, pass);
+  int retry = 0;
+  while (WiFi.status() != WL_CONNECTED && retry < timeoutSec) {
+    delay(1000);
+    Serial.print(".");
+    retry++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("\nWiFi connected. SSID: %s  IP: %s\n",
+                  ssid, WiFi.localIP().toString().c_str());
+    return true;
+  }
+  Serial.printf("\n  -> failed (%s)\n", ssid);
+  WiFi.disconnect();
+  return false;
+}
+
+void connectWiFiByPriority() {
+  WiFi.mode(WIFI_STA);
+
+  while (true) {
+    Serial.println("Scanning networks...");
+    int n = WiFi.scanNetworks();
+
+    // 우선순위 배열을 앞에서부터 훑어, 스캔에 잡힌 첫 SSID에 연결 시도
+    for (int i = 0; i < WIFI_CRED_COUNT; i++) {
+      bool found = false;
+      for (int j = 0; j < n; j++) {
+        if (WiFi.SSID(j) == WIFI_CREDS[i].ssid) { found = true; break; }
+      }
+      if (!found) {
+        Serial.printf("  [%d] %s : not in range\n", i + 1, WIFI_CREDS[i].ssid);
+        continue;
+      }
+      Serial.printf("  [%d] %s : found\n", i + 1, WIFI_CREDS[i].ssid);
+      WiFi.scanDelete();
+      if (tryConnect(WIFI_CREDS[i].ssid, WIFI_CREDS[i].pass, 20)) return;
+      break;   // 잡혔는데 연결 실패 → 다시 스캔부터 (비번 오류 등)
+    }
+    WiFi.scanDelete();
+
+    // 비상 폴백: 등록된 SSID가 하나도 안 잡히면 NVS에 저장된 자격증명 사용
+    // (시리얼 WIFI: 명령으로 임시 주입한 네트워크 — 현장 대응용)
+    String ssid, pass;
+    if (loadCredentials(ssid, pass)) {
+      Serial.printf("Fallback to saved credentials: %s\n", ssid.c_str());
+      if (tryConnect(ssid.c_str(), pass.c_str(), 15)) return;
+    }
+
+    Serial.println("No known network. Rescan in 5s...");
+    delay(5000);
+  }
+}
+
 void waitForSerialCredentials() {
   Serial.println("No WiFi credentials found.");
   Serial.println("Send credentials via: WIFI:<ssid>:<password>");
@@ -200,26 +264,7 @@ void setup() {
   }
   Serial.println("Camera OK");
 
-  String ssid, pass;
-  if (!loadCredentials(ssid, pass)) {
-    waitForSerialCredentials();
-    loadCredentials(ssid, pass);
-  }
-
-  Serial.printf("Connecting to: %s\n", ssid.c_str());
-  WiFi.begin(ssid.c_str(), pass.c_str());
-  int retry = 0;
-  while (WiFi.status() != WL_CONNECTED && retry < 30) {
-    delay(1000);
-    Serial.print(".");
-    retry++;
-  }
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\nWiFi connect failed. Retrying in 5s...");
-    delay(5000);
-    ESP.restart();
-  }
-  Serial.printf("\nWiFi connected. IP: %s\n", WiFi.localIP().toString().c_str());
+  connectWiFiByPriority();
 
   if (MDNS.begin(MDNS_HOSTNAME)) {
     Serial.printf("mDNS ready: %s.local\n", MDNS_HOSTNAME);
