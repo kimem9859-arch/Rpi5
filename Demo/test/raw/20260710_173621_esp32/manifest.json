@@ -1,0 +1,25 @@
+{
+  "timestamp": "20260710_173621",
+  "source": "esp32",
+  "esp32_host": "10.213.78.235",
+  "usb_index": null,
+  "flip_mode": "v",
+  "warmup_frames": 0,
+  "lock_exposure": false,
+  "exposure": null,
+  "wb": null,
+  "raw_every": 1,
+  "backend": "hailo",
+  "hef_path": "/home/pi/sop-project/Rpi5/Demo/models/console_v1.hef",
+  "yolo_conf_high": 0.65,
+  "yolo_conf_low": 0.5,
+  "yolo_input_size": 640,
+  "class_names": [
+    "B1",
+    "B2",
+    "B3",
+    "B4",
+    "EMO"
+  ],
+  "note": "PNG = detector.detect()에 건네진 배열(플립 후). 무손실."
+}
