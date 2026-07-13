@@ -50,7 +50,7 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
 ## 워크플로
 - ESP32 펌웨어(.ino) = **Arduino CLI**(IDE 아님), **라즈베리파이에서만** 편집·컴파일(Windows엔 미설치).
 - `original/` = 참고용 구버전(`yolo_hailo_tcp.py`=RPi Hailo 추론 핵심, `provision_wifi.py` 등 RPi 전용).
-- **⭐ console_v2 데이터 파이프라인 = `Demo/dataset_pipeline.md`** (촬영 → 중복제거 → 프리라벨 → Roboflow 업로드 → 라벨링 → 학습. **재현 절차서**). 도구: `test/dedupe_raw.py`(pHash 중복제거·**분할 전에** 실행) · `test/export_labels.py`(v1 검출을 프리라벨로) · `test/review_labels.py`(검수 시각화) · `test/upload_roboflow.py`(Roboflow 업로드).
+- **⭐ console_v2 데이터 파이프라인 = `Demo/dataset_pipeline.md`** · **라벨링 기준 = `Demo/labeling_guide.md`** (촬영 → 중복제거 → 프리라벨 → Roboflow 업로드 → 라벨링 → 학습. **재현 절차서**). 도구: `test/dedupe_raw.py`(pHash 중복제거·**분할 전에** 실행) · `test/export_labels.py`(v1 검출을 프리라벨로) · `test/review_labels.py`(검수 시각화) · `test/upload_roboflow.py`(Roboflow 업로드).
   - 🔴 **Roboflow 함정 2개**(둘 다 물렸음): ①`annotation_labelmap` 없으면 클래스가 **숫자("0","1")로** 올라감 ②`annotation_overwrite=True` 없으면 이미지 해시 캐시 때문에 `already annotated`로 **스킵되고 옛 라벨이 남음**. 전량 업로드 전 **3장으로 검증** 필수.
   - ⚠️ **분할은 세션 단위·업로드 시점에 명시**(Roboflow 자동 랜덤분할 금지 — 프레임 섞으면 누출 → mAP 거짓 상승). ⚠️ **B4는 파랑 스티커라 v1이 못 잡음 → 전량 수동**.
   - ❌ 색 기반 자동라벨러(`test/autolabel.py`)는 **채택 안 함** — 달성률 79%로 오르나 **EMO↔B3 오분류 122건**(Hue 인접). 틀린 라벨은 없는 라벨보다 해롭다. 참고용 보존.
