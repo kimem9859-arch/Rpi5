@@ -79,7 +79,11 @@ LOG_SAVE_DIR = os.path.join(_BASE_DIR, 'logs')
 # [ESP32-S3 TCP 카메라 설정]
 # =============================================================================
 _CAMERA_IP_FILE = os.path.join(_BASE_DIR, ".camera_ip")
-_cached_ip      = open(_CAMERA_IP_FILE).read().strip() if os.path.exists(_CAMERA_IP_FILE) else None
+try:
+    with open(_CAMERA_IP_FILE) as _f:
+        _cached_ip = _f.read().strip()
+except OSError:  # 파일 없음·권한 등 — 기본 IP로 폴백(앱 기동은 막지 않는다)
+    _cached_ip = None
 CAMERA_TCP_HOST = _cached_ip if _cached_ip else "10.111.10.235"
 CAMERA_TCP_PORT = 8888
 TCP_RECV_TIMEOUT_SEC    = 10.0
@@ -94,6 +98,7 @@ INTERLOCK_ENABLED = True
 INTERLOCK_PORT    = "/dev/ttyACM0"   # Arduino UNO R4 USB 시리얼
 INTERLOCK_BAUD    = 115200
 INTERLOCK_TIMEOUT = 1.0              # 시리얼 read/write 타임아웃(초), ACK 대기 포함
+INTERLOCK_BLOCK_ACK_RETRIES = 2      # BLOCK 무ACK 시 재전송 횟수(초과 시 on_fault 알람)
 INTERLOCK_RECONNECT_DELAY_SEC = 3.0 # 연결 실패/끊김 시 재연결 시도 간격
 
 # =============================================================================

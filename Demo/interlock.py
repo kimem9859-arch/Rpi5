@@ -6,9 +6,13 @@ Arduino로 `RUN`/`WARN`/`BLOCK` 한 줄 명령을 보내고 `ACK`를 확인한�
 
 핵심 원칙(§8 인식/판정/제어 분리, fail-safe):
   - 시리얼이 없거나 끊겨도 **예외 없이 fallback**한다(로그만). GUI·FSM은 정상 동작.
+  - 시리얼 I/O(write+ACK 대기 최대 1초)는 **전용 워커 스레드**에서 수행 —
+    FSM 콜백(GUI 스레드)은 큐에 넣고 즉시 반환하므로 UI가 얼지 않는다.
   - 백그라운드 스레드가 끊긴 포트를 주기적으로 재연결하고, 재연결 시
     마지막 명령을 다시 보내 릴레이 상태를 현재 FSM 상태와 일치시킨다.
   - 모든 시리얼 접근은 `threading.Lock`으로 직렬화한다.
+  - **BLOCK은 ACK로 차단 실행을 확인**한다 — 무ACK면 재시도, 최종 실패 시
+    `on_fault` 콜백(릴레이 미작동 가능성 알람). RUN/WARN은 경고 로그만.
 
 명령 매핑(결선도 §5):
   feedback NONE  + interlock 해제 → "RUN"   (녹 ON, 나머지 OFF)
@@ -17,6 +21,7 @@ Arduino로 `RUN`/`WARN`/`BLOCK` 한 줄 명령을 보내고 `ACK`를 확인한�
 EMO는 Pi GPIO로 FSM이 직접 BLOCK 전이 → 동일하게 "BLOCK" 송신(별도 메시지 없음).
 """
 
+import queue
 import threading
 import time
 
@@ -42,28 +47,39 @@ class InterlockController:
     """
 
     def __init__(self, port=None, baud=None, timeout=None,
-                 enabled=None, log=None):
+                 enabled=None, log=None, on_fault=None):
         self._port    = port if port is not None else config.INTERLOCK_PORT
         self._baud    = baud if baud is not None else config.INTERLOCK_BAUD
         self._timeout = timeout if timeout is not None else config.INTERLOCK_TIMEOUT
         self._reconnect_delay = getattr(config, "INTERLOCK_RECONNECT_DELAY_SEC", 3.0)
+        self._block_retries = getattr(config, "INTERLOCK_BLOCK_ACK_RETRIES", 2)
         self._enabled = config.INTERLOCK_ENABLED if enabled is None else enabled
 
-        # 로그 싱크(없으면 print). safety_console 의 _append_log 를 주입받는다.
+        # 로그 싱크(없으면 print). 워커 스레드에서 호출되므로 GUI 위젯 직접 접근 금지
+        # — safety_console 은 pyqtSignal.emit 를 주입한다.
         self._log = log or (lambda msg: print(msg))
+        # BLOCK 차단 미확인 알람(무ACK·미연결). 역시 워커 스레드에서 호출됨.
+        self._on_fault = on_fault
 
         self._lock   = threading.Lock()
         self._ser    = None
         self._closing = False
         self._last_cmd = None     # 재연결 시 재전송용 마지막 명령
+        self._queue = queue.Queue()   # (cmd, force) — GUI 스레드 비블로킹용
 
         if not self._enabled:
             self._log("[인터락] 비활성(INTERLOCK_ENABLED=False) — 명령 전송 안 함")
             self._reconnect_thread = None
+            self._writer_thread = None
             return
 
         if serial is None:
             self._log("[인터락] pyserial 미설치 — fallback(로그만), GUI 정상")
+
+        # 전송 워커 스레드 — 시리얼 write+ACK 대기를 GUI 스레드 밖에서 처리
+        self._writer_thread = threading.Thread(
+            target=self._writer_loop, name="interlock-writer", daemon=True)
+        self._writer_thread.start()
 
         # 최초 연결 시도(실패해도 예외 없이 진행). 성공 시 램프 상태 동기화.
         if self._open():
@@ -119,12 +135,33 @@ class InterlockController:
 
     # -------------------------------------------------------------- 전송 코어
     def _write(self, cmd, force=False):
-        """명령 한 줄 전송 + ACK 확인. 직전과 같은 명령이면 생략(force 제외).
+        """명령을 전송 큐에 넣고 즉시 반환(비블로킹 — GUI 스레드에서 안전).
 
-        모든 실패(미연결·write 오류)는 로그만 남기고 흡수한다.
+        실제 시리얼 write+ACK 대기는 _writer_loop(워커 스레드)가 수행한다.
         """
         if not self._enabled:
             return
+        self._queue.put((cmd, force))
+
+    def _writer_loop(self):
+        """전송 큐를 소비하는 워커. None 센티널이면 종료."""
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            cmd, force = item
+            try:
+                self._write_now(cmd, force)
+            except Exception as e:  # 어떤 실패도 워커를 죽이지 않는다
+                self._log(f"[인터락] 전송 스레드 오류({cmd}): {e}")
+
+    def _write_now(self, cmd, force=False):
+        """명령 한 줄 전송 + ACK 확인. 직전과 같은 명령이면 생략(force 제외).
+
+        모든 실패(미연결·write 오류)는 로그만 남기고 흡수한다. 단 BLOCK 은
+        차단이 실제 실행됐는지 ACK 로 확인해야 하므로, 무ACK 시 재시도 후
+        최종 실패면 _fault(알람) — 릴레이가 안 움직였을 수 있다.
+        """
         with self._lock:
             if not force and cmd == self._last_cmd:
                 self._last_cmd = cmd
@@ -133,23 +170,44 @@ class InterlockController:
             ser = self._ser
             if ser is None or not getattr(ser, "is_open", False):
                 self._log(f"[인터락] (미연결) 명령 보류: {cmd}")
+                if cmd == "BLOCK":
+                    self._fault("BLOCK 송신 불가(시리얼 미연결) — 릴레이 차단 미확인")
                 return
+            attempts = 1 + (self._block_retries if cmd == "BLOCK" else 0)
+            for i in range(attempts):
+                try:
+                    ser.write((cmd + "\n").encode("ascii"))
+                    ser.flush()
+                except Exception as e:
+                    self._log(f"[인터락] 송신 실패({cmd}): {e} — 재연결 대기")
+                    self._drop()
+                    if cmd == "BLOCK":
+                        self._fault(f"BLOCK 송신 실패({e}) — 릴레이 차단 미확인")
+                    return
+                try:
+                    ack = ser.readline().decode("ascii", "replace").strip()
+                except Exception:
+                    ack = ""
+                if ack == "ACK":
+                    tag = f" (재시도 {i}회 후)" if i else ""
+                    self._log(f"[인터락] → {cmd} (ACK){tag}")
+                    return
+                if cmd != "BLOCK":
+                    self._log(f"[인터락] → {cmd} (ACK 없음: '{ack}')")
+                    return
+                self._log(f"[인터락] → BLOCK ACK 없음('{ack}') — 재시도 {i + 1}/{attempts - 1}"
+                          if i < attempts - 1 else
+                          f"[인터락] → BLOCK ACK 없음('{ack}')")
+            self._fault(f"BLOCK ACK {attempts}회 미수신 — 릴레이 차단 미확인, 배선·Arduino 점검")
+
+    def _fault(self, msg):
+        """차단 미확인 등 안전 폴트 통지. 로그 + on_fault 콜백(예외 흡수)."""
+        self._log(f"[인터락] 🚨 {msg}")
+        if self._on_fault is not None:
             try:
-                ser.write((cmd + "\n").encode("ascii"))
-                ser.flush()
+                self._on_fault(msg)
             except Exception as e:
-                self._log(f"[인터락] 송신 실패({cmd}): {e} — 재연결 대기")
-                self._drop()
-                return
-            # ACK 확인(타임아웃이면 경고만, 동작은 계속)
-            try:
-                ack = ser.readline().decode("ascii", "replace").strip()
-            except Exception:
-                ack = ""
-            if ack == "ACK":
-                self._log(f"[인터락] → {cmd} (ACK)")
-            else:
-                self._log(f"[인터락] → {cmd} (ACK 없음: '{ack}')")
+                self._log(f"[인터락] 폴트 콜백 오류: {e}")
 
     def _drop(self):
         """현재 시리얼 핸들을 닫고 None 으로. (호출자가 _lock 보유 중)"""
@@ -185,8 +243,11 @@ class InterlockController:
 
     # ------------------------------------------------------------------ 종료
     def close(self):
-        """재연결 스레드 정지 + 시리얼 닫기. 종료 전 안전상태(RUN) 시도."""
+        """워커·재연결 스레드 정지 + 시리얼 닫기."""
         self._closing = True
+        if self._writer_thread is not None:
+            self._queue.put(None)   # 워커 종료 센티널
+            self._writer_thread.join(timeout=self._timeout * 4 + 1.0)
         if self._reconnect_thread is not None:
             self._reconnect_thread.join(timeout=self._reconnect_delay + 1.0)
         with self._lock:

@@ -64,10 +64,12 @@ class GpioInputController:
             emo = Button(emo_pin, pull_up=True, bounce_time=bounce)
             emo.when_released = (lambda: self._fire("EMO"))        # HIGH 전이 = 비상
             self._devices.append(emo)
-            # 시작 시 이미 HIGH면 비상/미배선 상태 — 경고만. 자동 BLOCK은 걸지 않음
-            # (엣지 기반이라 startup엔 발사 안 됨 → 미배선 콘솔에서 오동작 방지).
+            # 시작 시 이미 HIGH(비상 눌림/단선/미배선)면 즉시 EMO 발사 — fail-safe.
+            # NC+풀업 배선의 취지가 "단선도 비상"인데 엣지 전용이면 부팅 시 상태를
+            # 놓쳐 무방비 기동한다. 미배선 콘솔은 GPIO_INPUT_ENABLED=False 로 끌 것.
             if not emo.is_pressed:
-                self._log(f"[입력] ⚠ EMO(GPIO{emo_pin}) 시작 시 HIGH(비상/미배선) — 배선 확인")
+                self._log(f"[입력] 🚨 EMO(GPIO{emo_pin}) 시작 시 HIGH(비상/단선/미배선) — 즉시 BLOCK")
+                self._fire("EMO")
         except Exception as e:
             self._log(f"[입력] EMO 초기화 실패: {e} — fallback")
 

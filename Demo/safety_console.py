@@ -241,6 +241,11 @@ class SafetyConsole(QMainWindow):
 
     # 물리 GPIO 버튼 입력 → GUI 스레드로 마샬링용 시그널(gpiozero 콜백은 별도 스레드).
     gpio_button_signal = pyqtSignal(str)
+    # 백그라운드 스레드(인터락 워커·재연결, gpiozero)의 로그 → GUI 스레드 마샬링.
+    # _append_log 는 Qt 위젯을 만지므로 비GUI 스레드에서 직접 호출 금지.
+    bg_log_signal = pyqtSignal(str)
+    # 인터락 폴트(BLOCK 차단 미확인) → GUI 스레드 알람.
+    interlock_fault_signal = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -284,15 +289,20 @@ class SafetyConsole(QMainWindow):
 
         # 트랙 A 물리 인터락 — FSM 콜백을 Arduino 릴레이 명령으로(시리얼).
         # 미연결 시 예외 없이 fallback(로그만)이라 GUI 동작에는 영향 없음.
+        # 로그·폴트는 워커/재연결 스레드에서 오므로 시그널로 GUI 스레드에 마샬링.
         # _append_log 가 쓰는 log_browser·_log_file_path 가 준비된 _init_ui 이후 생성.
-        self.interlock = InterlockController(log=self._append_log)
+        self.bg_log_signal.connect(self._append_log)
+        self.interlock_fault_signal.connect(self._on_interlock_fault)
+        self.interlock = InterlockController(
+            log=self.bg_log_signal.emit,
+            on_fault=self.interlock_fault_signal.emit)
 
         # 트랙 A 물리 입력 — 버튼 B1~B4·EMO(GPIO) → FSM. gpiozero 콜백은 별도 스레드라
         # 시그널로 GUI 스레드의 _press_button 에 마샬링(직접 GUI 접근 금지). 미연결·비-Pi
         # 환경에선 fallback(로그만) → 키보드 시뮬(1~4·E)로 동일 동작.
         self.gpio_button_signal.connect(self._press_button)
         self.gpio_input = GpioInputController(
-            on_button=self.gpio_button_signal.emit, log=self._append_log)
+            on_button=self.gpio_button_signal.emit, log=self.bg_log_signal.emit)
 
         self.camera_thread = CameraThread()
         self.camera_thread.change_pixmap_signal.connect(self._update_camera_frame)
@@ -549,6 +559,20 @@ class SafetyConsole(QMainWindow):
             self._append_log("[피드백] ⛔ 차단 — 오조작 강행 감지")
         # 램프 명령의 권위 소스 — NONE→RUN / WARNING→WARN / BLOCK→BLOCK 송신.
         self.interlock.set_feedback(level)
+
+    @pyqtSlot(str)
+    def _on_interlock_fault(self, msg):
+        # BLOCK 명령이 ACK 로 확인되지 않음 — 릴레이가 실제로 안 움직였을 수 있다.
+        # 화면 BLOCK 표시만 믿으면 안 되므로 비모달 경고창으로 즉시 알린다.
+        self._append_log(f"[인터록] 🚨 폴트: {msg}")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Critical)
+        box.setWindowTitle("인터락 폴트")
+        box.setText("물리 차단이 확인되지 않았습니다!\n"
+                    f"{msg}\n\n릴레이·배선·Arduino 전원을 점검하세요.")
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.setModal(False)
+        box.show()
 
     # =========================================================================
     # [시스템 종료] — 라즈베리파이 안전 종료(SD 손상 방지). 종료 후 멀티탭 OFF.

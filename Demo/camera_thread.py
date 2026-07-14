@@ -183,8 +183,8 @@ class CameraThread(QThread):
     def set_active(self, active):
         with self._lock:
             self._is_active = active
-        if not active:
-            self._tracks = []
+            if not active:
+                self._tracks = []
 
     def set_host(self, host):
         with self._lock:
@@ -312,7 +312,7 @@ class CameraThread(QThread):
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = rgb.shape
                     self.change_pixmap_signal.emit(
-                        QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888)
+                        QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
                     )
 
             except Exception as e:
@@ -351,10 +351,12 @@ class CameraThread(QThread):
 
         if DETECTOR_AVAILABLE:
             dets = _detector.detect(frame)
-            self._tracks = _update_tracks(self._tracks, dets)
-            frame = self._draw_yolo(frame, self._tracks)
+            with self._lock:
+                self._tracks = _update_tracks(self._tracks, dets)
+                tracks = self._tracks
+            frame = self._draw_yolo(frame, tracks)
             self.yolo_detections_signal.emit([
-                (_detector.class_name(t['cls']), t['score'], *t['box']) for t in self._tracks
+                (_detector.class_name(t['cls']), t['score'], *t['box']) for t in tracks
             ])
 
         fingertip = None
@@ -489,8 +491,8 @@ class UsbCameraThread(QThread):
     def set_active(self, active):
         with self._lock:
             self._is_active = active
-        if not active:
-            self._tracks = []
+            if not active:
+                self._tracks = []
 
     def _process_frame(self, frame):
         with self._lock:
@@ -503,8 +505,10 @@ class UsbCameraThread(QThread):
 
         if DETECTOR_AVAILABLE:
             dets = _detector.detect(frame)
-            self._tracks = _update_tracks(self._tracks, dets)
-            for t in self._tracks:
+            with self._lock:
+                self._tracks = _update_tracks(self._tracks, dets)
+                tracks = self._tracks
+            for t in tracks:
                 x1, y1, x2, y2 = t['box']
                 label = f"{_detector.class_name(t['cls'])} {t['score']:.2f}"
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
