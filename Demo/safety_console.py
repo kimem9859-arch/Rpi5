@@ -372,7 +372,7 @@ class SafetyConsole(QMainWindow):
         self.btn_release_block = QPushButton("BLOCK 해제")
         self.btn_start_process.clicked.connect(self._on_start_process)
         self.btn_release_warn.clicked.connect(lambda: self.fsm.release_warning())
-        self.btn_release_block.clicked.connect(lambda: self.fsm.release_block())
+        self.btn_release_block.clicked.connect(self._release_block)
         ctrl_base = "font-size: 12px; font-weight: bold; padding: 6px; border-radius: 2px; border: none;"
         self.btn_start_process.setStyleSheet(ctrl_base + f"background-color: {BTN_ACTIVE}; color: {TEXT_PRIMARY};")
         self.btn_release_warn.setStyleSheet(ctrl_base + f"background-color: {STATUS_WARNING}; color: {BG_PRIMARY};")
@@ -514,6 +514,25 @@ class SafetyConsole(QMainWindow):
         if self.fsm.expected_step != before and self.fsm.state != State.IDLE:
             self._append_log(f"[FSM] 단계 진행 → {self.fsm.expected_step}단계: "
                              f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
+
+    def _release_block(self):
+        """BLOCK 해제 버튼 — EMO가 물리적으로 복귀되지 않았으면 거부.
+
+        gpio_input 은 엣지만 발사하므로, 여기서 레벨(emo_active)을 재확인하지
+        않으면 EMO 눌림/단선 상태에서도 해제가 통과해 무방비 RUN 이 된다.
+        """
+        if self.gpio_input.emo_active():
+            self._append_log("[FSM] 🚫 BLOCK 해제 거부 — EMO 미복귀(눌림/단선)")
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("해제 거부")
+            box.setText("EMO가 아직 복귀되지 않았습니다.\n"
+                        "비상정지 버튼을 돌려 복귀(또는 EMO 배선 점검) 후 다시 시도하세요.")
+            box.setStandardButtons(QMessageBox.StandardButton.Ok)
+            box.setModal(False)
+            box.show()
+            return
+        self.fsm.release_block()
 
     def keyPressEvent(self, event):
         """시연용 버튼 입력: 1~4 = B1~B4 눌림, E = 비상정지(EMO)."""

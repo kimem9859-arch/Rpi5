@@ -39,6 +39,7 @@ class GpioInputController:
         self._log = log or (lambda m: print(m))
         self._enabled = config.GPIO_INPUT_ENABLED if enabled is None else enabled
         self._devices = []
+        self._emo_device = None
 
         if not self._enabled:
             self._log("[입력] GPIO 입력 비활성(GPIO_INPUT_ENABLED=False) — 키보드 시뮬만")
@@ -64,6 +65,7 @@ class GpioInputController:
             emo = Button(emo_pin, pull_up=True, bounce_time=bounce)
             emo.when_released = (lambda: self._fire("EMO"))        # HIGH 전이 = 비상
             self._devices.append(emo)
+            self._emo_device = emo
             # 시작 시 이미 HIGH(비상 눌림/단선/미배선)면 즉시 EMO 발사 — fail-safe.
             # NC+풀업 배선의 취지가 "단선도 비상"인데 엣지 전용이면 부팅 시 상태를
             # 놓쳐 무방비 기동한다. 미배선 콘솔은 GPIO_INPUT_ENABLED=False 로 끌 것.
@@ -75,6 +77,19 @@ class GpioInputController:
 
         if self._devices:
             self._log(f"[입력] GPIO 입력 활성 — 버튼 {list(config.GPIO_BUTTON_PINS)} + EMO(GPIO{config.GPIO_EMO_PIN})")
+
+    def emo_active(self):
+        """EMO가 현재 비상 레벨(HIGH = 눌림/단선)인지. GPIO 미사용 환경은 False.
+
+        엣지 콜백과 별개의 **레벨 조회** — BLOCK 해제 시 "EMO가 물리적으로
+        복귀되지 않으면 해제 거부"에 쓴다(엣지만 보면 비상 유지 중 해제가 통과).
+        """
+        if self._emo_device is None:
+            return False
+        try:
+            return not self._emo_device.is_pressed  # HIGH(released) = 비상
+        except Exception:
+            return False
 
     def _fire(self, button_id):
         """엣지 콜백 → 호출부로 전달(GUI 마샬링은 호출부 책임). 예외는 흡수."""
