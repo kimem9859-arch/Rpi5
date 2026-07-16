@@ -20,6 +20,9 @@
   - 입력 **uint8 640×640 RGB**(float 정규화 ❌, stretch 리사이즈), 출력 **HailoRT NMS 결과** 파싱(raw 텐서 ❌), **HailoRT 4.x**.
   - `class_name`/`_names` = **5클래스(0=B1·1=B2·2=B3·3=B4·4=EMO)** 매핑 완료(`detector.py:112`).
   - .hef(빌드 환경 `D:\Hailo_DFC\console_v1.hef`) → 파이 `Demo/models/console_v1.hef`(`config.HEF_MODEL_PATH`).
+- 🆕 **`console_v2.hef` 배포됨(2026-07-16)** — `Demo/models/console_v2.hef`(4.4MB, 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652. 수치 = 상위 통합문서 **§10.14·§10.15**). 규격은 v1과 동일(uint8 640·NMS on-chip·5클래스·HailoRT 4.x)이라 **코드 수정 불필요**.
+  - ⚠️ **`config.HEF_MODEL_PATH`는 아직 v1 그대로다**(의도적). **B4 해결 여부가 미판정**이라 데모 기본값을 미검증 모델로 바꾸지 않았다. → **⑤ replay 평가 통과 후 v2로 전환**할 것.
+  - **⑤ 평가는 config 변경 없이 가능**: `python3 test/replay_raw.py test/raw/20260713_180016 --hef models/console_v2.hef`(`--hef`가 런타임에 `config.HEF_MODEL_PATH`를 덮어씀).
 
 ## GUI·카메라·설정 (기존 모듈 — 현행 유효)
 ### `safety_console.py` (메인 GUI, QMainWindow)
@@ -59,4 +62,13 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
 ## 다음
 1. ✅ console_v1.hef 통합·실추론 완료 — B1~B3·EMO 검출, B4 미탐지 → console_v2 재학습 확정. ※ **B4 미탐지 원인 정정(2026-07-03)**: 양자화 반증(에뮬서 int8 .hef가 B4 검출·USB 웹캠선도 검출) → **카메라 입력 품질(OV3660) 주가설·미확정**(sop-project 통합문서 §10.7).
 2. ✅ **트랙 A 인터락 코드 완료(2026-06-13)** — 출력부 `interlock.py`(pyserial→Arduino UNO R4 **Minima** 릴레이, RUN/WARN/BLOCK+ACK, 실연결·ACK 검증) + 입력부 `gpio_input.py`(버튼 B1~B4·EMO→FSM, gpiozero Mock 검증) + GUI `⏻ 시스템 종료`(안전종료). 결선도·전원부 = 상위 `../dev/interlock/`(`결선도_초안.md` §3·§5·§8). ✅ **실물 결선 + E2E 검증 완료(2026-07-15, 상세 = 상위 통합문서 §12)** — 전 구간(버튼 GPIO·릴레이·12V 타워램프) + 폴트 3종 통과. 조치: 펌웨어 재업로드, **EMO 비상 중 BLOCK 해제 거부 추가**(`gpio_input.emo_active()` 레벨 체크 + `safety_console._release_block()`).
-3. **▶ 최우선 = console_v2 재학습**(B4 미탐지, GPU 환경) → DFC 변환·파이 재통합. + **카메라 B4 재테스트**(USB vs ESP32, 원인 확정 — 주가설=카메라 입력 품질 §10.7, raw 저장).
+3. ✅ **console_v2 학습·`.hef` 변환 완료(2026-07-16, 데스크톱)** — 파랑 스티커 B4 데이터셋 652장 재학습(§10.14) → DFC level 1·캘리브 652로 변환(§10.15) → `Demo/models/console_v2.hef` 배포 완료. HAR 검증(uint8·NMS·5클래스) 통과.
+4. **▶ 최우선 = ⑤ replay 평가 (파이에서 수행)** — **B4 판정은 오직 여기서만 가능하다.**
+   ```bash
+   python3 test/replay_raw.py test/raw/20260713_180016 --hef models/console_v2.hef   # 저조도 — B3·B4 살아났나
+   python3 test/replay_raw.py test/raw/20260713_175129 --hef models/console_v2.hef   # 정반사 — B2 중복 회귀 없나
+   ```
+   - **판정 기준**: v1 대비 **저조도 B3·B4 검출률 상승** · **정반사 B2 중복 오분류 무회귀**.
+   - 🔴 **`.pt` mAP(0.995)나 `.hef` HAR 검증 통과로 B4 해결을 주장하지 말 것** — **v1도 그 관문은 전부 통과했고 에뮬레이션서 B4를 0.95로 검출했으나 파이 실추론에선 0회**였다(§10.5~§10.7). 실패 지점은 **실제 ESP32 입력**이었고 `replay_raw`만이 그 조건을 재현한다.
+   - ⚠️ **저조도 파랑 B4 생존은 이때 처음 측정**된다(v1이 파랑을 못 잡아 프리라벨 0 → §10.13 미측정 플래그).
+   - 통과하면 → `config.HEF_MODEL_PATH`를 `console_v2.hef`로 전환 + 결과를 통합문서 §10에 기록.
