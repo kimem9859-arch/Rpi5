@@ -21,8 +21,9 @@
   - `class_name`/`_names` = **5클래스(0=B1·1=B2·2=B3·3=B4·4=EMO)** 매핑 완료(`detector.py:112`).
   - .hef(빌드 환경 `D:\Hailo_DFC\console_v1.hef`) → 파이 `Demo/models/console_v1.hef`(`config.HEF_MODEL_PATH`).
 - 🆕 **`console_v2.hef` 배포됨(2026-07-16)** — `Demo/models/console_v2.hef`(4.4MB, 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652. 수치 = 상위 통합문서 **§10.14·§10.15**). 규격은 v1과 동일(uint8 640·NMS on-chip·5클래스·HailoRT 4.x)이라 **코드 수정 불필요**.
-  - ⚠️ **`config.HEF_MODEL_PATH`는 아직 v1 그대로다**(의도적). **B4 해결 여부가 미판정**이라 데모 기본값을 미검증 모델로 바꾸지 않았다. → **⑤ replay 평가 통과 후 v2로 전환**할 것.
-  - **⑤ 평가는 config 변경 없이 가능**: `python3 test/replay_raw.py test/raw/20260713_180016 --hef models/console_v2.hef`(`--hef`가 런타임에 `config.HEF_MODEL_PATH`를 덮어씀).
+  - ✅ **`config.HEF_MODEL_PATH` = `console_v2.hef`로 전환됨(2026-07-16, 사용자 요청)** — `bench_detector.py`·`run_demo.sh` 등 **config를 읽는 모든 경로가 v2로 동작**한다(이 둘엔 `--hef` 옵션이 없어 config가 유일한 선택 수단).
+  - 🔴 **전환 = 검증이 아니다.** **B4 해결 여부는 여전히 미판정**(§10.16). 기본값이 v2라고 해서 "v2가 검증됐다"고 읽지 말 것.
+  - **v1과 대조하려면**: `replay_raw.py`는 `--hef models/console_v1.hef`로 런타임 지정(권장) / `bench_detector.py`·데모는 **config를 `console_v1.hef`로 되돌려야** 한다(`--hef` 미지원).
 
 ## GUI·카메라·설정 (기존 모듈 — 현행 유효)
 ### `safety_console.py` (메인 GUI, QMainWindow)
@@ -95,4 +96,5 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
 
    #### 결과 처리
    - 🔴 **`.pt` mAP(0.995)·`.hef` HAR 검증·⑤ 통과 그 무엇으로도 "B4 해결"을 선언하지 말 것** — v1도 앞 두 관문은 전부 통과했고 에뮬레이션서 B4를 0.95로 검출했으나 파이 실추론에선 0회였다(§10.5~§10.7). **최종 판정의 유일한 근거 = 미촬영 `test` 세션**(다른 날·조명·실콘솔, 🔴**파랑 스티커 동일 사양 필수**).
-   - 통과 시 → `config.HEF_MODEL_PATH`를 `console_v2.hef`로 전환 + 결과를 통합문서 §10에 기록(수치 정본). **그 다음 할 일은 "완료 선언"이 아니라 test 세션 촬영이다.**
+   - ※ `config.HEF_MODEL_PATH`는 **이미 v2로 전환됨**(2026-07-16) — ⑤ 결과와 무관하게 바꾼 것이니 **전환을 검증으로 오해하지 말 것**. ⑤가 하한선에서 실패하면 **config를 v1로 되돌리고** 원인 재분석.
+   - 통과 시 → 결과를 통합문서 §10에 기록(수치 정본). **그 다음 할 일은 "완료 선언"이 아니라 test 세션 촬영이다.**

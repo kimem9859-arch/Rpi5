@@ -29,11 +29,14 @@ STATUS_DANGER  = "#d50000"
 # [추론 백엔드 설정]
 # =============================================================================
 # "pytorch": best.pt + ultralytics CPU 추론 (Phase A, 현재)
-# "hailo"  : console_v1.hef + Hailo-8 가속 추론 (Phase B, 버튼 5클래스 B1~B4+EMO)
+# "hailo"  : console_v2.hef + Hailo-8 가속 추론 (Phase B, 버튼 5클래스 B1~B4+EMO)
 INFERENCE_BACKEND = "hailo"
 
 PT_MODEL_PATH  = os.path.join(_BASE_DIR, 'models', 'best.pt')
-HEF_MODEL_PATH = os.path.join(_BASE_DIR, 'models', 'console_v1.hef')
+# console_v2 = 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652 (수치 = 상위 통합문서 §10.14·§10.15).
+# ⚠️ B4 해결 여부는 아직 미판정 — 판정 기준·한계는 §10.16. v1과 대조하려면 이 줄을
+#    console_v1.hef 로 바꾸거나, replay_raw.py 는 --hef 로 런타임 지정할 수 있다.
+HEF_MODEL_PATH = os.path.join(_BASE_DIR, 'models', 'console_v2.hef')
 
 # =============================================================================
 # [YOLO 설정]
