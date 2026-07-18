@@ -42,6 +42,7 @@ Demo/test/exposure_samples/
 Demo/test/raw/
 *.db
 *.sqlite*
+Demo/test/bench_report.html
 
 # GStreamer 샤크 캡처
 Demo/gstshark_*/

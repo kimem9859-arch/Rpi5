@@ -59,7 +59,7 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
   - ⚠️ **분할은 세션 단위·업로드 시점에 명시**(Roboflow 자동 랜덤분할 금지 — 프레임 섞으면 누출 → mAP 거짓 상승). ⚠️ **B4는 파랑 스티커라 v1이 못 잡음 → 전량 수동**.
   - ❌ 색 기반 자동라벨러(`test/autolabel.py`)는 **채택 안 함** — 달성률 79%로 오르나 **EMO↔B3 오분류 122건**(Hue 인접). 틀린 라벨은 없는 라벨보다 해롭다. 참고용 보존.
 - **벤치·B4 대조 실험** = `Demo/test/bench_detector.py`. `--source {esp32,usb}`로 **카메라만 변수**로 두고 대조 측정. `_rawdet_log.csv`(트래킹 이전 raw 검출 ≥`YOLO_CONF_LOW`)가 **B4 저신뢰 구간**을 드러냄 — `_detection_log.csv`(confirmed 트랙 ≥`YOLO_CONF_HIGH`)만 보면 놓친다. 종료 시 **B4 집중 분석**(score 분포·B4↔EMO 오인) 출력. 산출물은 소스 태그 파일명(`{ts}_{src}_*.csv`), `logs/`·`videos/`는 gitignore → `test-artifacts` 브랜치로 보관.
-- **벤치 로그 DB** = `Demo/test/db_import.py` — `test/logs/` CSV 전량 + `replay_raw.py` 검출 CSV(`logs/replay/`, 기본 켬·`--no-csv`로 끔)를 `test/bench.db`(SQLite, gitignore)로 재구축. 세션 간 비교·집계는 SQL로(요약 수치 정본은 여전히 통합문서 §10).
+- **벤치 로그 DB** = `Demo/test/db_import.py` — `test/logs/` CSV 전량 + `replay_raw.py` 검출 CSV(`logs/replay/`, 기본 켬·`--no-csv`로 끔)를 `test/bench.db`(SQLite, gitignore)로 재구축. 세션 간 비교·집계는 SQL로(요약 수치 정본은 여전히 통합문서 §10). 시각화 = `db_report.py` → `bench_report.html`(자립형·미추적, 조건별 검출률·v1↔v2·B4 confidence·FPS).
 
 ## 다음
 1. ✅ console_v1.hef 통합·실추론 완료 — B1~B3·EMO 검출, B4 미탐지 → console_v2 재학습 확정. ※ **B4 미탐지 원인 정정(2026-07-03)**: 양자화 반증(에뮬서 int8 .hef가 B4 검출·USB 웹캠선도 검출) → **카메라 입력 품질(OV3660) 주가설·미확정**(sop-project 통합문서 §10.7).
