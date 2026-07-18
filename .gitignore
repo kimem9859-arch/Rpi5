@@ -40,6 +40,8 @@ Demo/test/videos/
 Demo/test/logs/
 Demo/test/exposure_samples/
 Demo/test/raw/
+*.db
+*.sqlite*
 
 # GStreamer 샤크 캡처
 Demo/gstshark_*/

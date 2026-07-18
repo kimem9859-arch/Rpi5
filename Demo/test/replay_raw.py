@@ -22,8 +22,11 @@
 
 import argparse
 import collections
+import csv
+import datetime
 import json
 import os
+import re
 import statistics
 import sys
 
@@ -83,18 +86,44 @@ def _load_frames(raw_dir, limit=None):
     return frames
 
 
-def _run(detector, frames, degrade, conf_high):
-    """반환: 클래스별 (검출수, 검출프레임수, score리스트)"""
+def _frame_no(png_name):
+    m = re.search(r"(\d+)", png_name)
+    return int(m.group(1)) if m else -1
+
+
+def _run(detector, frames, degrade, conf_high, csv_writer=None):
+    """반환: 클래스별 (검출수, 검출프레임수, score리스트). csv_writer가 있으면 검출별 행 기록."""
     counts = collections.Counter()
     hits   = collections.defaultdict(set)
     scores = collections.defaultdict(list)
     for name, img in frames:
-        for cls_id, score, *_ in detector.detect(degrade(img) if degrade else img):
+        for cls_id, score, *box in detector.detect(degrade(img) if degrade else img):
             cn = CLASS_NAMES[cls_id] if cls_id < len(CLASS_NAMES) else str(cls_id)
             counts[cn] += 1
             hits[cn].add(name)
             scores[cn].append(score)
+            if csv_writer:
+                x1, y1, x2, y2 = (list(box) + [None] * 4)[:4]
+                csv_writer.writerow([_frame_no(name), cn, f"{score:.4f}", x1, y1, x2, y2])
     return counts, hits, scores
+
+
+def _open_csv(raw_dir, hef_path, conf_high, degrade_label):
+    """logs/replay/에 검출 CSV 생성 — db_import.py가 '# meta:' 줄을 읽어 적재한다."""
+    replay_dir = os.path.join(_TEST_DIR, "logs", "replay")
+    os.makedirs(replay_dir, exist_ok=True)
+    run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    session = os.path.basename(os.path.normpath(raw_dir))
+    hef = os.path.basename(hef_path)
+    path = os.path.join(replay_dir, f"{run_ts}_{os.path.splitext(hef)[0]}_{session}.csv")
+    f = open(path, "w", newline="")
+    meta = {"run_ts": run_ts, "session": session, "hef": hef,
+            "conf_high": conf_high, "conf_low": config.YOLO_CONF_LOW,
+            "degrade": degrade_label}
+    f.write("# meta: " + json.dumps(meta, ensure_ascii=False) + "\n")
+    w = csv.writer(f)
+    w.writerow(["frame", "cls_name", "score", "x1", "y1", "x2", "y2"])
+    return f, w, path
 
 
 def _report(label, frames, counts, hits, scores, conf_high):
@@ -123,6 +152,8 @@ def main():
                     help="confirm 임계값 (기본 config.YOLO_CONF_HIGH)")
     ap.add_argument("--ablation", action="store_true",
                     help="§10.9 요인 분리 조건들을 일괄 비교 (원본/해상도↓/JPEG/블러)")
+    ap.add_argument("--no-csv", action="store_true",
+                    help="logs/replay/ 검출 CSV 기록 끄기 (기본은 기록 → db_import.py로 적재)")
     args = ap.parse_args()
 
     if not os.path.isdir(args.raw_dir):
@@ -183,8 +214,18 @@ def main():
             if parts:
                 degrade = _make_degrade(args.jpeg, args.scale, args.blur)
             label = " + ".join(parts) if parts else "원본"
-            counts, hits, scores = _run(detector, frames, degrade, conf_high)
+            csv_f = csv_w = csv_path = None
+            if not args.no_csv:
+                csv_f, csv_w, csv_path = _open_csv(
+                    args.raw_dir, config.HEF_MODEL_PATH, conf_high, label)
+            try:
+                counts, hits, scores = _run(detector, frames, degrade, conf_high, csv_w)
+            finally:
+                if csv_f:
+                    csv_f.close()
             _report(label, frames, counts, hits, scores, conf_high)
+            if csv_path:
+                print(f"\n[csv] {csv_path}  (db_import.py 실행 시 DB에 적재됨)")
     finally:
         detector.close()
 
