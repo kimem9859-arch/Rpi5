@@ -66,12 +66,11 @@ pip install PyQt6 opencv-python numpy mediapipe ultralytics
 - 없을 때 동작: `mediapipe`·`ultralytics`는 `try/except`라 없어도 앱은 뜨지만 손검출/추론이 빠짐.
   `PyQt6`·`opencv`·`numpy`는 필수(없으면 `main.py` import 실패).
 
-## 5. 모델 (중요)
-- 현재 `models/best.pt` = **person 1클래스** → 버튼을 검출하지 못해 **ROI가 안 잡힘**(비전 전이 없음).
-- 버튼 시연하려면 **`console_v1.pt`** 필요. 계약: **YOLOv8 detection, 클래스 이름 정확히 `B1 B2 B3 B4`, imgsz 640**.
-- 준비 확인: `python check_model.py console_v1.pt` → "✅ 끼워넣기 가능"
-- 끼우기: `console_v1.pt`를 `models/`에 두고 `config.PT_MODEL_PATH` 지정(또는 `best.pt`로 이름 변경).
+## 5. 모델 (중요) — 2026-07-18 현행화
+- ✅ 버튼 검출 모델 배선 완료 — 기본 = **`models/console_v2.hef`**(Hailo, `config.HEF_MODEL_PATH`, 2026-07-16 전환. B4 판정은 통합문서 §10.16). `models/best.pt` = **console_v1 5클래스**(PyTorch 백엔드 폴백, `config.INFERENCE_BACKEND`로 전환).
+- 계약: **YOLOv8 detection, 5클래스 `B1 B2 B3 B4 EMO`**(※구판의 "B1~B4 4클래스"는 오기), uint8 640, HailoRT NMS.
 - 모델이 없어도 **키보드(②대역)만으로 FSM 흐름 전체를 시연**할 수 있다.
+- ※구판 서술("best.pt = person 1클래스 → ROI 안 잡힘")은 2026-06-11 console_v1 통합 전 기록.
 
 ## 6. GUI 실행 & 시연
 ```bash
@@ -95,7 +94,7 @@ python main.py
 - **MediaPipe 없음**: 손끝 미검출 → ROI 항상 빈값 → 비전으로 MONITOR 진입 불가(키보드는 됨).
 - **FPV 깜빡임**: 손/박스가 프레임마다 들락거리면 체류 타이머가 리셋돼 WARNING이 안 뜰 수 있음(디바운스 미적용 — 실측 후 튜닝 대상).
 - **키 입력 안 먹음**: 메인창에 포커스가 있어야 함(버튼/로그 클릭 후엔 창을 한번 클릭).
-- **Phase B(Hailo)**: `detector.py`의 `HailoDetector._names`가 `{0:"person"}` 하드코딩 → HEF 전환 시 `B1~B4`로 수정 필요.
+- **Phase B(Hailo)**: ✅ 해소됨 — `HailoDetector._names` 5클래스(B1~B4·EMO) 매핑 완료(`detector.py`). ※구판의 "`{0:"person"}` 하드코딩 수정 필요"는 console_v1 통합(2026-06-11)으로 완료.
 
 ### 로그로 상태 확인
 - `[레시피] 'PECVD 정비(PM) 시퀀스' 로드 — 4단계` → 레시피 OK
