@@ -1,4 +1,6 @@
-"""console_v1.hef 성능 벤치마크 — Hailo 실추론 FPS·탐지율·안정성 측정.
+"""Hailo 실추론 벤치마크 — FPS·탐지율·안정성 측정.
+
+대상 모델은 config.HEF_MODEL_PATH가 가리키는 것(현재 console_v2.hef). --hef 옵션은 없다.
 
 실행:
     cd ~/sop-project/Rpi5/Demo
@@ -11,7 +13,13 @@
     esp32 → 수직(카메라 거꾸로 장착 보정, 추론에 필요)
     usb   → 없음(실런타임의 좌우 미러링은 표시용. 거울상은 학습 방향과 달라 검출률 왜곡)
 
-출력 (파일명에 소스 태그 {esp32|usb}):
+출력 (파일명 태그 = YYYYMMDD_HHMMSS_<src>[_<condition>][_<model>]):
+    <src>       = esp32 | usb
+    <condition> = --condition 지정 시에만. 예: fluorescent/lowlight/daylight/cleanroom
+    <model>     = config가 가리키는 모델 stem(console_v2 등) — 자동 유도
+    예: test/logs/20260720_143012_esp32_lowlight_console_v2_rawdet_log.csv
+    ※ 파일명 규약은 test/db_import.py의 _LOG_RE와 공유한다 — 한쪽만 바꾸면 적재에서 스킵된다.
+
     test/logs/YYYYMMDD_HHMMSS_<src>_perf_log.csv
     test/logs/YYYYMMDD_HHMMSS_<src>_detection_log.csv    (confirmed 트랙 ≥CONF_HIGH)
     test/logs/YYYYMMDD_HHMMSS_<src>_stability_log.csv
@@ -28,6 +36,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import select
 import socket
 import struct
@@ -226,6 +235,16 @@ def run_bench(args):
     host      = args.host or config.CAMERA_TCP_HOST
     max_frames = args.frames
 
+    # 조건 슬러그 — 파일명·db_import 정규식이 [a-z0-9-]만 받는다. 어긋난 문자는 '-'로.
+    condition = None
+    if args.condition:
+        condition = re.sub(r"[^a-z0-9-]+", "-", args.condition.strip().lower()).strip("-") or None
+
+    # 사용 모델 stem (console_v1 / console_v2 …) — 실제로 로드되는 백엔드의 경로에서 유도.
+    _model_path = (config.PT_MODEL_PATH if config.INFERENCE_BACKEND == "pytorch"
+                   else getattr(config, "HEF_MODEL_PATH", None))
+    model_name = os.path.splitext(os.path.basename(_model_path))[0] if _model_path else None
+
     # 플립 결정. auto = esp32:수직 / usb:없음.
     #  - ESP32 수직 플립은 카메라가 물리적으로 거꾸로 장착돼 있어 바로잡는 보정 → 추론에 필요.
     #  - USB 좌우 플립은 실런타임(UsbCameraThread)의 표시용 미러링 → 거울상 입력은 학습 데이터와
@@ -244,8 +263,15 @@ def run_bench(args):
     os.makedirs(_LOGS_DIR, exist_ok=True)
     os.makedirs(_VIDEOS_DIR, exist_ok=True)
 
-    # --- CSV 파일 열기 (파일명에 소스 접미사 → USB/ESP32 산출물 구분) ---
+    # --- CSV 파일 열기 (파일명에 소스·조건·모델 접미사 → 산출물 구분) ---
+    # 조건·모델을 파일명에 넣는 이유: 없으면 조건 분류가 db_import.py의 하드코딩 매핑에만
+    # 의존해 새 세션이 condition=NULL로 적재된다. 모델명은 config에서 자동 유도 —
+    # 손으로 적지 않아야 오기재로 v1/v2를 뒤바꾸는 사고를 막는다.
     _tag = f"{ts}_{source}"
+    if condition:
+        _tag += f"_{condition}"
+    if model_name:
+        _tag += f"_{model_name}"
     perf_path      = os.path.join(_LOGS_DIR, f"{_tag}_perf_log.csv")
     det_path       = os.path.join(_LOGS_DIR, f"{_tag}_detection_log.csv")
     stab_path      = os.path.join(_LOGS_DIR, f"{_tag}_stability_log.csv")
@@ -432,6 +458,8 @@ def run_bench(args):
             json.dump({
                 "timestamp":      ts,
                 "source":         source,
+                "condition":      condition,
+                "model":          model_name,
                 "esp32_host":     host if source == "esp32" else None,
                 "usb_index":      args.usb_index if source == "usb" else None,
                 "flip_mode":      flip_mode,
@@ -665,7 +693,7 @@ def run_bench(args):
 # Entry point
 # =============================================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="console_v1 Hailo 추론 벤치마크")
+    parser = argparse.ArgumentParser(description="Hailo 추론 벤치마크 (모델 = config.HEF_MODEL_PATH)")
     parser.add_argument("--frames",    type=int, default=300, help="측정 프레임 수 (기본 300)")
     parser.add_argument("--host",      type=str, default=None, help="ESP32 IP 오버라이드")
     parser.add_argument("--no-video",  action="store_true",    help="영상 저장 생략")
@@ -692,5 +720,9 @@ if __name__ == "__main__":
                              "저장 영상은 검출 오버레이본이라 재분석 불가 — 재현·console_v2 평가용")
     parser.add_argument("--raw-every", type=int, default=1, metavar="N",
                         help="--save-raw 시 N프레임마다 1장 저장 (기본 1=전부). 용량 절감용")
+    parser.add_argument("--condition", type=str, default=None, metavar="SLUG",
+                        help="촬영 조건 슬러그(fluorescent/lowlight/daylight/cleanroom 등). "
+                             "산출물 파일명·manifest에 기록되어 db_import가 조건을 자동 분류한다. "
+                             "미지정 시 기존 파일명 형식 유지(db_import의 하드코딩 매핑에 의존)")
     args = parser.parse_args()
     run_bench(args)

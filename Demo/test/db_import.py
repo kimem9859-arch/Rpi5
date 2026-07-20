@@ -34,9 +34,20 @@ REPLAY_DIR = os.path.join(LOGS_DIR, "replay")
 RAW_DIR = os.path.join(_TEST_DIR, "raw")
 DEFAULT_DB = os.path.join(_TEST_DIR, "bench.db")
 
-# {YYYYMMDD}_{HHMMSS}_{source}_{kind}_log.csv
+# {YYYYMMDD}_{HHMMSS}_{source}[_{condition}][_{model}]_{kind}_log.csv
+#   condition/model 접미사는 2026-07-20 도입(bench_detector.py --condition). 그 이전 세션은
+#   접미사가 없으므로 둘 다 optional — 기존 21개 세션의 파싱을 그대로 유지한다.
+#   condition은 [a-z0-9-], model은 '_v<숫자>'를 포함해 서로 모호하지 않다.
+#   ⚠️ 이 규약은 bench_detector.py의 _tag 생성과 공유한다 — 한쪽만 바꾸면 여기서 조용히 스킵된다.
 _LOG_RE = re.compile(
-    r"^(\d{8})_(\d{6})_(esp32|usb)_(rawdet|detection|perf|stability|confusion)_log\.csv$")
+    r"^(\d{8})_(\d{6})_(esp32|usb)"
+    r"(?:_([a-z0-9-]+))?"
+    r"(?:_([a-z0-9]+_v\d+|best))?"
+    r"_(rawdet|detection|perf|stability|confusion)_log\.csv$")
+
+# 바탕화면 '실테스트 점검' 바로가기가 쓰는 조건 슬러그. 카메라·모델이 살아있는지만 보는
+# 30프레임 세션이라 측정값이 아니다 — 적재에서 제외해 조건 비교를 오염시키지 않는다.
+_SMOKETEST_COND = "smoketest"
 
 # 세션 → 촬영 조건 분류 (근거 = 통합문서 §10.13/§10.17; 수치는 담지 않는다)
 _CONDITIONS = {
@@ -49,12 +60,13 @@ _CONDITIONS = {
 
 _SCHEMA = """
 CREATE TABLE sessions (
-    id            TEXT PRIMARY KEY,   -- 'YYYYMMDD_HHMMSS_source'
+    id            TEXT PRIMARY KEY,   -- 'YYYYMMDD_HHMMSS_source[_condition][_model]' = raw 폴더명
     date          TEXT,               -- '2026-07-13'
     time          TEXT,               -- '174153'
     source        TEXT,               -- 'esp32' | 'usb'
     condition     TEXT,               -- baseline/specular/distance/lowlight/holdout/bench-camera
-    condition_ref TEXT,               -- 근거 문서 포인터 (§10.x)
+    condition_ref TEXT,               -- 근거 문서 포인터 (§10.x) 또는 '파일명'
+    model         TEXT,               -- 'console_v2' 등. 파일명 접미사에서 (구 세션은 NULL)
     -- 이하 manifest.json에서 승격 (raw 프레임 보존 세션만, 나머지 NULL)
     hef_path      TEXT,
     conf_high     REAL,
@@ -112,7 +124,10 @@ def _read_rows(path, skip_comment=False):
         return list(reader)
 
 
-def _condition_for(date_s, time_s):
+def _condition_for(date_s, time_s, cond_tag=None):
+    # 파일명이 조건을 직접 들고 있으면 그것이 우선 — 하드코딩 매핑은 그 이전 세션용 폴백이다.
+    if cond_tag:
+        return (cond_tag, "파일명")
     key = f"{date_s}_{time_s}"
     if key in _CONDITIONS:
         return _CONDITIONS[key]
@@ -130,13 +145,17 @@ def _import_logs(con):
         if not m:
             skipped.append(os.path.basename(path))
             continue
-        date_s, time_s, source, kind = m.groups()
-        sid = f"{date_s}_{time_s}_{source}"
-        cond, ref = _condition_for(date_s, time_s)
+        date_s, time_s, source, cond_tag, model, kind = m.groups()
+        if cond_tag == _SMOKETEST_COND:        # 장비 점검용 — 측정 데이터가 아니라 DB에 넣지 않는다
+            continue
+        # 세션 id = 로그 파일명 접두사 = raw 폴더명. 이 등식이 깨지면 manifest 조인이 끊긴다.
+        sid = "_".join(x for x in (date_s, time_s, source, cond_tag, model) if x)
+        cond, ref = _condition_for(date_s, time_s, cond_tag)
         con.execute(
-            "INSERT OR IGNORE INTO sessions (id, date, time, source, condition, condition_ref)"
-            " VALUES (?,?,?,?,?,?)",
-            (sid, f"{date_s[:4]}-{date_s[4:6]}-{date_s[6:]}", time_s, source, cond, ref))
+            "INSERT OR IGNORE INTO sessions"
+            " (id, date, time, source, condition, condition_ref, model)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (sid, f"{date_s[:4]}-{date_s[4:6]}-{date_s[6:]}", time_s, source, cond, ref, model))
         if kind == "confusion":                # 전 세션 0행 — 테이블 없음 (모듈 주석 참조)
             continue
         rows = _read_rows(path)
