@@ -3,7 +3,7 @@
 #
 #   포트 자동 탐지 → 컴파일 → 업로드 → 부팅 로그에서 IP를 읽어 .camera_ip 자동 기록
 #
-# 펌웨어는 WiFi를 스캔해 wifi_credentials.h의 배열 순서(Jason → Eung Min)대로 연결한다.
+# 펌웨어는 WiFi를 스캔해 wifi_credentials.h의 배열 순서(Eung Min → Jason)대로 연결한다.
 # 따라서 장소가 바뀌어도 다시 구울 필요가 없다. IP만 바뀌면 update_ip.sh를 쓴다.
 
 set -uo pipefail
