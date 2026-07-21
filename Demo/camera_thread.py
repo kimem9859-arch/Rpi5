@@ -20,15 +20,9 @@ from config import (
 )
 
 # =============================================================================
-# [MediaPipe]
+# [손 검출]
 # =============================================================================
-MEDIAPIPE_AVAILABLE = False
-try:
-    import mediapipe as mp
-    _test = mp.solutions.hands
-    MEDIAPIPE_AVAILABLE = True
-except Exception:
-    pass
+from hand_tracker import HandTracker
 
 # =============================================================================
 # [Detector] config.INFERENCE_BACKEND selects PyTorch or Hailo backend
@@ -164,21 +158,11 @@ class CameraThread(QThread):
         self._raw_event    = threading.Event()
         self._recv_error   = False
 
-        self._mediapipe_ok = False
-        if MEDIAPIPE_AVAILABLE:
-            try:
-                self._mp_hands = mp.solutions.hands
-                self._mp_draw  = mp.solutions.drawing_utils
-                self._hands    = self._mp_hands.Hands(
-                    static_image_mode=False,
-                    max_num_hands=1,
-                    model_complexity=1,
-                    min_detection_confidence=0.85,
-                    min_tracking_confidence=0.7,
-                )
-                self._mediapipe_ok = True
-            except Exception as e:
-                print(f"[MediaPipe] init failed: {e}")
+        # 손 검출 — MediaPipe 프레임워크는 Python 3.13/aarch64 휠이 없어 못 쓴다.
+        # 대신 같은 모델(BlazePalm·BlazeHandLandmark)을 Hailo에서 돌린다(hand_tracker).
+        # 모델이 없으면 조용히 비활성되고 detect()가 None을 주므로, 손 검출이 없던
+        # 종전과 정확히 같게 동작한다.
+        self._hand = HandTracker(log=lambda m: self.log_signal.emit(m))
 
     def set_active(self, active):
         with self._lock:
@@ -252,10 +236,8 @@ class CameraThread(QThread):
     # [스레드 메인 루프]
     # =========================================================================
     def run(self):
-        if self._mediapipe_ok:
-            self.log_signal.emit("[MediaPipe] 손 추적 모듈 로드 완료.")
-        else:
-            self.log_signal.emit("[MediaPipe] 사용 불가! pip install mediapipe==0.10.14")
+        if not self._hand.available:
+            self.log_signal.emit("[손검출] 비활성 — 버튼 검출만 동작합니다.")
 
         if DETECTOR_AVAILABLE:
             self.log_signal.emit(f"[Detector] '{_detector.backend_name}' 백엔드 로드 완료.")
@@ -359,26 +341,8 @@ class CameraThread(QThread):
                 (_detector.class_name(t['cls']), t['score'], *t['box']) for t in tracks
             ])
 
-        fingertip = None
-        if self._mediapipe_ok:
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            rgb.flags.writeable = False
-            results = self._hands.process(rgb)
-            rgb.flags.writeable = True
-
-            if results.multi_hand_landmarks:
-                for hand_lm in results.multi_hand_landmarks:
-                    self._mp_draw.draw_landmarks(
-                        frame, hand_lm, self._mp_hands.HAND_CONNECTIONS,
-                        self._mp_draw.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=3),
-                        self._mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2),
-                    )
-                    idx_tip = hand_lm.landmark[self._mp_hands.HandLandmark.INDEX_FINGER_TIP]
-                    fx = int(idx_tip.x * w)
-                    fy = int(idx_tip.y * h)
-                    cv2.circle(frame, (fx, fy), 12, (255, 0, 255), -1)
-                    cv2.circle(frame, (fx, fy), 14, (255, 255, 255), 2)
-                    fingertip = (fx, fy)
+        # 손 검출 → 검지 끝. 랜드마크 표시는 hand_tracker 가 frame 에 직접 그린다.
+        fingertip = self._hand.detect(frame, draw_on=frame)
 
         # HOI → FSM: 손끝이 든 버튼 ROI 라벨을 통지 (없으면 "")
         roi = roi_at_point(*fingertip, self._tracks) if fingertip else None
@@ -472,21 +436,8 @@ class UsbCameraThread(QThread):
         self._tracks    = []
         self._lock      = threading.Lock()
 
-        self._mediapipe_ok = False
-        if MEDIAPIPE_AVAILABLE:
-            try:
-                self._mp_hands = mp.solutions.hands
-                self._mp_draw  = mp.solutions.drawing_utils
-                self._hands    = self._mp_hands.Hands(
-                    static_image_mode=False,
-                    max_num_hands=1,
-                    model_complexity=1,
-                    min_detection_confidence=0.85,
-                    min_tracking_confidence=0.7,
-                )
-                self._mediapipe_ok = True
-            except Exception as e:
-                print(f"[MediaPipe/USB] init failed: {e}")
+        # 손 검출 — Hailo 팜+핸드(MediaPipe 모델). 상세 = hand_tracker.py
+        self._hand = HandTracker(log=lambda m: self.log_signal.emit(m))
 
     def set_active(self, active):
         with self._lock:
@@ -518,25 +469,8 @@ class UsbCameraThread(QThread):
                 (_detector.class_name(t['cls']), t['score'], *t['box']) for t in self._tracks
             ])
 
-        fingertip = None
-        if self._mediapipe_ok:
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            rgb.flags.writeable = False
-            results = self._hands.process(rgb)
-            rgb.flags.writeable = True
-            if results.multi_hand_landmarks:
-                for hand_lm in results.multi_hand_landmarks:
-                    self._mp_draw.draw_landmarks(
-                        frame, hand_lm, self._mp_hands.HAND_CONNECTIONS,
-                        self._mp_draw.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=3),
-                        self._mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2),
-                    )
-                    idx_tip = hand_lm.landmark[self._mp_hands.HandLandmark.INDEX_FINGER_TIP]
-                    fx = int(idx_tip.x * w)
-                    fy = int(idx_tip.y * h)
-                    cv2.circle(frame, (fx, fy), 12, (255, 0, 255), -1)
-                    cv2.circle(frame, (fx, fy), 14, (255, 255, 255), 2)
-                    fingertip = (fx, fy)
+        # 손 검출 → 검지 끝. 랜드마크 표시는 hand_tracker 가 frame 에 직접 그린다.
+        fingertip = self._hand.detect(frame, draw_on=frame)
 
         roi = roi_at_point(*fingertip, self._tracks) if fingertip else None
         self.roi_signal.emit(roi or "")

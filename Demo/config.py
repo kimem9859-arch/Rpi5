@@ -105,6 +105,22 @@ INTERLOCK_BLOCK_ACK_RETRIES = 2      # BLOCK 무ACK 시 재전송 횟수(초과 
 INTERLOCK_RECONNECT_DELAY_SEC = 3.0 # 연결 실패/끊김 시 재연결 시도 간격
 
 # =============================================================================
+# [손 검출(HOI) 설정] — Hailo 팜검출 + 핸드랜드마크 21점
+# MediaPipe 프레임워크는 Python 3.13/aarch64 휠이 없어 못 쓴다. 대신 **구글 MediaPipe의
+# 모델 자체**(BlazePalm·BlazeHandLandmark)를 Hailo용 .hef 로 변환한 것을 쓴다 —
+# hailo_platform+numpy+cv2 만 필요해 3.13 문제가 원천 소멸한다.
+# 근거·실증 = docs/superpowers/specs/2026-07-21-HOI-경로-design.md
+#
+# ⚠️ 아래 경로가 없으면 손 검출은 **자동 비활성**되고 버튼 검출만 동작한다(기존과 동일).
+#    모델·소스는 아직 repo 밖에 있다 — vendoring 여부는 별도 결정 사항.
+# =============================================================================
+HAND_ENABLED       = True
+HAND_MODELS_DIR    = os.path.expanduser("~/hoi_probe/hailo8")
+HAND_BLAZE_DIR     = os.path.expanduser("~/hoi_probe/blaze_app_python")
+HAND_MIN_SCORE     = 0.5      # 랜드마크 신뢰도 하한. 미만이면 손 없음으로 본다
+HAND_DRAW          = True     # 화면에 랜드마크·검지끝 표시
+
+# =============================================================================
 # [GPIO 입력 설정] — 물리 버튼 B1~B4·EMO → Pi GPIO → FSM (트랙 A 입력부)
 # 결선도 정본: ../dev/interlock/결선도_초안.md §3.1
 #   버튼 = active-low (INPUT_PULLUP, 눌림=LOW)
