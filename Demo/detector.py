@@ -81,33 +81,24 @@ class HailoDetector(BaseDetector):
     def __init__(self):
         from contextlib import ExitStack
 
-        from hailo_platform import (
-            HEF, VDevice, InferVStreams, ConfigureParams,
-            InputVStreamParams, OutputVStreamParams, HailoStreamInterface,
-        )
+        from hailo_platform import InferVStreams, InputVStreamParams, OutputVStreamParams
 
-        if not os.path.exists(config.HEF_MODEL_PATH):
-            raise FileNotFoundError(
-                f"HEF 모델이 없습니다: {config.HEF_MODEL_PATH} "
-                "(WSL2에서 best.pt -> best.hef 변환 후 배치하세요)"
-            )
+        import hailo_device
 
         self._lock = threading.Lock()
         self._stack = ExitStack()
 
-        hef = HEF(config.HEF_MODEL_PATH)
-        target = self._stack.enter_context(VDevice())
-        cfg = ConfigureParams.create_from_hef(
-            hef, interface=HailoStreamInterface.PCIe
-        )
-        network_group = target.configure(hef, cfg)[0]
+        # 장치는 hailo_device 가 소유한다(공유). 여기서 VDevice 를 만들면
+        # 손 검출 등 다른 모델을 올릴 수 없다 — HAILO_OUT_OF_PHYSICAL_DEVICES.
+        network_group = hailo_device.configure(config.HEF_MODEL_PATH)
         in_params = InputVStreamParams.make(network_group)
         out_params = OutputVStreamParams.make(network_group)
         self._in_name = network_group.get_input_vstream_infos()[0].name
         self._pipeline = self._stack.enter_context(
             InferVStreams(network_group, in_params, out_params)
         )
-        self._stack.enter_context(network_group.activate(network_group.create_params()))
+        # ⚠️ network_group.activate() 를 부르지 않는다 — ROUND_ROBIN 스케줄러가
+        #    컨텍스트 전환을 관리한다. 수동 활성화는 장치를 독점해 다른 모델을 막는다.
 
         self._names = {0: "B1", 1: "B2", 2: "B3", 3: "B4", 4: "EMO"}
 
@@ -143,6 +134,11 @@ class HailoDetector(BaseDetector):
         return self._names.get(cls_id, str(cls_id))
 
     def close(self):
+        """자기 추론 파이프라인만 닫는다.
+
+        공유 VDevice 는 건드리지 않는다 — 닫으면 같은 장치를 쓰는 다른 모델
+        (손 검출 등)이 함께 죽는다. 장치 해제가 정말 필요하면 hailo_device.shutdown().
+        """
         self._stack.close()
 
 
