@@ -56,7 +56,9 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
 - `original/` = 참고용 구버전(`yolo_hailo_tcp.py`=RPi Hailo 추론 핵심, `provision_wifi.py` 등 RPi 전용).
 - **⭐ console_v2 데이터 파이프라인 = `Demo/dataset_pipeline.md`** · **라벨링 기준 = `Demo/labeling_guide.md`** (촬영 → 중복제거 → 프리라벨 → Roboflow 업로드 → 라벨링 → 학습. **재현 절차서**). 도구: `test/dedupe_raw.py`(pHash 중복제거·**분할 전에** 실행) · `test/export_labels.py`(v1 검출을 프리라벨로) · `test/review_labels.py`(검수 시각화) · `test/upload_roboflow.py`(Roboflow 업로드).
   - 🔴 **Roboflow 함정 2개**(둘 다 물렸음): ①`annotation_labelmap` 없으면 클래스가 **숫자("0","1")로** 올라감 ②`annotation_overwrite=True` 없으면 이미지 해시 캐시 때문에 `already annotated`로 **스킵되고 옛 라벨이 남음**. 전량 업로드 전 **3장으로 검증** 필수.
-  - ⚠️ **분할은 세션 단위·업로드 시점에 명시**(Roboflow 자동 랜덤분할 금지 — 프레임 섞으면 누출 → mAP 거짓 상승). ⚠️ **B4는 파랑 스티커라 v1이 못 잡음 → 전량 수동**.
+  - ⚠️ **분할은 업로드 시점에 명시**(Roboflow 자동 랜덤분할 금지 — 프레임 섞으면 누출 → mAP 거짓 상승). 세션 단위 분할이 기본이나, **세션마다 촬영 변화 축이 다르면 세션마다 나눠 할당**한다(통째로 떼면 그 축이 학습에서 빠짐 — `dataset_pipeline.md` §8).
+  - **프리라벨 소스 = 로그를 만든 모델**(`export_labels.py`는 모델을 가리지 않음). ~~B4는 v1이 못 잡아 전량 수동~~ → **v2 소스에서는 B4 포함 달성률 92%**(2026-07-20 클린룸). 검수 우선순위 = ①빠진 박스(가림은 제외) ②클래스 오류 ③박스 타이트함.
+  - 🔴 **평가용 test 셋엔 프리라벨 금지** — 평가 대상 모델로 정답을 만들면 순환논리다(§10.19).
   - ❌ 색 기반 자동라벨러(`test/autolabel.py`)는 **채택 안 함** — 달성률 79%로 오르나 **EMO↔B3 오분류 122건**(Hue 인접). 틀린 라벨은 없는 라벨보다 해롭다. 참고용 보존.
 - **벤치·B4 대조 실험** = `Demo/test/bench_detector.py`. `--source {esp32,usb}`로 **카메라만 변수**로 두고 대조 측정. `_rawdet_log.csv`(트래킹 이전 raw 검출 ≥`YOLO_CONF_LOW`)가 **B4 저신뢰 구간**을 드러냄 — `_detection_log.csv`(confirmed 트랙 ≥`YOLO_CONF_HIGH`)만 보면 놓친다. 종료 시 **B4 집중 분석**(score 분포·B4↔EMO 오인) 출력. 산출물은 소스 태그 파일명(`{ts}_{src}_*.csv`), `logs/`·`videos/`는 gitignore → `test-artifacts` 브랜치로 보관.
 - **벤치 로그 DB** = `Demo/test/db_import.py` — `test/logs/` CSV 전량 + `replay_raw.py` 검출 CSV(`logs/replay/`, 기본 켬·`--no-csv`로 끔)를 `test/bench.db`(SQLite, gitignore)로 재구축. 세션 간 비교·집계는 SQL로(요약 수치 정본은 여전히 통합문서 §10). 시각화 = `db_report.py` → `bench_report.html`(자립형·미추적, 조건별 검출률·v1↔v2·B4 confidence·FPS).
