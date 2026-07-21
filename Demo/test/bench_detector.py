@@ -277,6 +277,7 @@ def run_bench(args):
     stab_path      = os.path.join(_LOGS_DIR, f"{_tag}_stability_log.csv")
     conf_path      = os.path.join(_LOGS_DIR, f"{_tag}_confusion_log.csv")
     rawdet_path    = os.path.join(_LOGS_DIR, f"{_tag}_rawdet_log.csv")
+    gpio_path      = os.path.join(_LOGS_DIR, f"{_tag}_gpio_log.csv")
 
     perf_f = open(perf_path, "w", newline="")
     det_f  = open(det_path,  "w", newline="")
@@ -296,6 +297,43 @@ def run_bench(args):
     conf_w.writerow(["frame", "timestamp", "prev_cls", "new_cls", "iou"])
     # rawdet = 트래킹 이전 원시 검출(score≥YOLO_CONF_LOW). B4 저신뢰(0.5~0.65) 소실 구간 가시화용.
     raw_w.writerow(  ["frame", "timestamp", "source", "cls_name", "score", "x1", "y1", "x2", "y2"])
+
+    # --- GPIO 물리 버튼 눌림 기록 (--gpio) ---
+    # 왜: 비전이 "손이 어느 버튼에 있나"만 알려주는 데 반해, GPIO는 "실제로 언제 눌렸나"라는
+    #     정답을 준다. 둘을 합쳐야 §9.4가 요구하는 선행시간(t_눌림 − t_도착)을 잴 수 있고,
+    #     "비전이 눌림보다 먼저 감지한다"는 프로젝트 명제를 증명할 수 있다.
+    # ⚠️ gpiozero 콜백은 내부 스레드에서 불린다(gpio_input.py 참조) — 메인 루프가 frame_no 를
+    #     증가시키는 동안 읽으므로 락으로 보호하고, 그 안에서 writerow 까지 수행한다.
+    gpio_f = gpio_w = gpio_ctl = None
+    gpio_lock = threading.Lock()
+    gpio_events = [0]
+    frame_holder = [0]          # 콜백 스레드가 읽는 현재 프레임 번호(메인 루프가 갱신)
+    if args.gpio:
+        gpio_f = open(gpio_path, "w", newline="")
+        gpio_w = csv.writer(gpio_f)
+        gpio_w.writerow(["timestamp", "button", "frame"])
+
+        def _on_gpio(button_id):
+            # 촬영 시작 전(frame 0) 이벤트는 버린다. EMO는 NC 미배선 시 HIGH=비상으로 읽혀
+            # 컨트롤러 생성 즉시 한 번 발사되는데(gpio_input.py 의 단선 fail-safe — 의도된 동작),
+            # 그건 측정값이 아니라 초기 상태다. 프레임이 없으니 비전과 대조도 불가능하다.
+            if frame_holder[0] == 0:
+                print(f"  [GPIO] {button_id} — 촬영 시작 전 이벤트라 기록하지 않음"
+                      f"{' (EMO 미배선 fail-safe로 보임)' if button_id == 'EMO' else ''}")
+                return
+            with gpio_lock:
+                gpio_w.writerow([datetime.now().strftime("%H:%M:%S.%f")[:-3],
+                                 button_id, frame_holder[0]])
+                gpio_f.flush()               # 촬영 중 크래시해도 눌림 기록은 남긴다
+                gpio_events[0] += 1
+            print(f"  [GPIO] {button_id} 눌림 (frame {frame_holder[0]})")
+
+        try:
+            from gpio_input import GpioInputController
+            # 미설치·핀 실패·비-Pi 환경에서도 예외 없이 fallback (gpio_input.py 설계)
+            gpio_ctl = GpioInputController(_on_gpio, log=lambda m: print(f"  {m}"))
+        except Exception as e:
+            print(f"  [GPIO] 초기화 실패: {e} — 눌림 기록 없이 촬영을 계속합니다")
 
     # --- 영상 저장 경로 ---
     video_path = None
@@ -460,6 +498,7 @@ def run_bench(args):
                 "source":         source,
                 "condition":      condition,
                 "model":          model_name,
+                "gpio":           bool(args.gpio),
                 "esp32_host":     host if source == "esp32" else None,
                 "usb_index":      args.usb_index if source == "usb" else None,
                 "flip_mode":      flip_mode,
@@ -504,6 +543,7 @@ def run_bench(args):
             frame = _apply_flip(frame)
 
             frame_no += 1
+            frame_holder[0] = frame_no       # GPIO 콜백 스레드가 눌림에 프레임을 붙일 수 있게
             now_str  = datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
             # FPS
@@ -626,6 +666,14 @@ def run_bench(args):
             stab_w.writerow([tid, info["cls"], info["start_frame"],
                              info["last_frame"], duration, info["miss_total"]])
 
+        if gpio_ctl is not None:
+            try:
+                gpio_ctl.close()             # 콜백을 먼저 끊고 나서 파일을 닫는다
+            except Exception:
+                pass
+        if gpio_f is not None:
+            with gpio_lock:
+                gpio_f.close()
         perf_f.close(); det_f.close(); stab_f.close(); conf_f.close(); raw_f.close()
         if raw_img_queue is not None:
             raw_img_queue.put(None)          # 종료 신호 — 남은 큐를 다 쓰고 끝난다
@@ -680,6 +728,11 @@ def run_bench(args):
         print(f"  B4 raw 검출: 0회  ← 완전 미탐지 (카메라 화질/모델 저대비 원인 후보)")
     print(f"  B4↔EMO 오인(트랙 전환): {b4_emo_confusion[0]}회 | raw EMO 총검출: {raw_counts.get('EMO',0)}회")
 
+    if args.gpio:
+        print(f"\nGPIO 눌림  : {gpio_events[0]}회 → test/logs/{_tag}_gpio_log.csv")
+        if gpio_events[0] == 0:
+            print("  ⚠️ 눌림이 0회다 — 배선 미연결이거나 카메라에 보이는 버튼이")
+            print("     GPIO에 물린 버튼과 다를 수 있다. 분석 전에 확인할 것")
     print(f"\n저장 위치: test/logs/{_tag}_*.csv")
     if not args.no_video and video_path:
         print(f"영상 저장 : test/videos/{_tag}_bench.mp4  ⚠ 검출 오버레이본 — 재분석 불가")
@@ -720,6 +773,11 @@ if __name__ == "__main__":
                              "저장 영상은 검출 오버레이본이라 재분석 불가 — 재현·console_v2 평가용")
     parser.add_argument("--raw-every", type=int, default=1, metavar="N",
                         help="--save-raw 시 N프레임마다 1장 저장 (기본 1=전부). 용량 절감용")
+    parser.add_argument("--gpio", action="store_true",
+                        help="물리 버튼(GPIO) 눌림을 <tag>_gpio_log.csv 에 기록. "
+                             "비전의 '손이 어디 있나'에 '실제로 언제 눌렸나'라는 정답을 붙여 "
+                             "선행시간(§9.4)과 사전 감지 성립 여부를 측정할 수 있게 한다. "
+                             "gpiozero 미설치·배선 없음이면 예외 없이 촬영만 계속된다")
     parser.add_argument("--condition", type=str, default=None, metavar="SLUG",
                         help="촬영 조건 슬러그(fluorescent/lowlight/daylight/cleanroom 등). "
                              "산출물 파일명·manifest에 기록되어 db_import가 조건을 자동 분류한다. "

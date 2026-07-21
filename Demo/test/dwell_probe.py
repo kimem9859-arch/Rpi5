@@ -109,6 +109,42 @@ def fill_gaps(series, times, gap_sec):
     return out, filled
 
 
+def load_presses(path):
+    """gpio 로그 → [(초, 버튼, 프레임)]. 없으면 빈 목록."""
+    if not path or not os.path.exists(path):
+        return []
+    out = []
+    with open(path, newline="") as f:
+        for r in csv.DictReader(f):
+            out.append((_parse_ts(r["timestamp"]), r["button"], int(r["frame"])))
+    return sorted(out)
+
+
+def analyze_presses(presses, series, frames, times, dwell):
+    """눌림 하나하나에 대해 '비전이 언제 그 버튼을 봤는가'를 대조한다.
+
+    선행시간 = t_눌림 − t_도착. t_도착은 **눌림 직전의 연속 ROI 구간이 시작된 시각**이다.
+    이 값이 양수여야 "누르기 직전에 사전 감지"라는 프로젝트 명제가 성립한다.
+    """
+    rows = []
+    for t_press, btn, fr in presses:
+        # 눌림 시각 이하인 마지막 프레임 인덱스
+        idx = max((i for i, t in enumerate(times) if t <= t_press), default=None)
+        if idx is None:
+            rows.append((btn, fr, None, None, "프레임 없음"))
+            continue
+        seen = series[idx]
+        if seen != btn:
+            rows.append((btn, fr, None, seen, "ROI 불일치" if seen else "미검출"))
+            continue
+        # 같은 ROI가 연속으로 유지된 구간의 시작까지 거슬러 올라간다
+        j = idx
+        while j > 0 and series[j - 1] == btn:
+            j -= 1
+        rows.append((btn, fr, t_press - times[j], seen, "OK"))
+    return rows
+
+
 def segments(series, frames, times):
     """연속 동일 ROI 구간 → [(roi, 시작프레임, 끝프레임, 지속초)]."""
     segs = []
@@ -137,6 +173,9 @@ def main():
     ap.add_argument("--margin", type=int, default=0,
                     help="버튼 박스를 이 픽셀만큼 넓혀 ROI 판정 (기본 0 = 박스 안)")
     ap.add_argument("--conf", type=float, default=0.5, help="손 랜드마크 최소 score")
+    ap.add_argument("--gpio-log", default=None,
+                    help="GPIO 눌림 로그(기본: 세션명으로 자동 탐색). 있으면 선행시간·"
+                         "사전 감지율·오경보 후보를 함께 산출한다")
     args = ap.parse_args()
 
     sess = os.path.basename(os.path.normpath(args.raw_dir))
@@ -222,6 +261,36 @@ def main():
         filled_series, nfill = fill_gaps(series, times, args.gap_fill)
         after, _ = report(f"갭메우기 {args.gap_fill}초 적용 (프레임 {nfill}개 보정)",
                           filled_series)
+
+    # ── GPIO 눌림 대조 (정답이 있을 때만) ──────────────────────────────────
+    gpio_log = args.gpio_log or os.path.join(_TEST_DIR, "logs", f"{sess}_gpio_log.csv")
+    presses = load_presses(gpio_log)
+    if presses:
+        rows = analyze_presses(presses, series, frames, times, args.dwell)
+        lead = [r[2] for r in rows if r[2] is not None]
+        ok_pre = [x for x in lead if x > 0]
+        print(f"\n【GPIO 눌림 대조】 {len(presses)}회  ({os.path.basename(gpio_log)})")
+        print(f"  {'버튼':<5}{'프레임':>7}{'선행시간':>10}{'비전이 본 ROI':>14}  비고")
+        for btn, fr, ld, seen, note in rows:
+            print(f"  {btn:<5}{fr:>7}"
+                  f"{(f'{ld:+.2f}s' if ld is not None else '-'):>10}"
+                  f"{(seen or '-'):>14}  {note}")
+        print(f"\n  ⭐ **사전 감지율** : {len(ok_pre)}/{len(presses)} "
+              f"({len(ok_pre)/len(presses)*100:.0f}%)  ← 눌림보다 먼저 본 비율")
+        print(f"  ROI 일치율   : {sum(1 for r in rows if r[4]=='OK')}/{len(presses)}")
+        if lead:
+            print(f"  선행시간     : median {st.median(lead):.2f}s · "
+                  f"min {min(lead):.2f}s · max {max(lead):.2f}s")
+            print(f"  → dwell 임계 후보: **min({min(lead):.2f}s) 미만**이어야 눌림 전에 판정된다")
+        # 눌림 없이 임계를 넘긴 체류 = 오경보 후보
+        press_frames = {fr for _t, _b, fr in presses}
+        false_pos = [s for s in segments(series, frames, times)
+                     if s[3] >= args.dwell and not any(s[1] <= pf <= s[2] for pf in press_frames)]
+        print(f"  오경보 후보  : {len(false_pos)}개 "
+              f"(dwell {args.dwell}s를 넘겼으나 눌림이 없던 구간)")
+    else:
+        print(f"\n【GPIO 눌림 대조】 기록 없음 — `bench_detector.py --gpio` 로 촬영하면"
+              f"\n  선행시간·사전 감지율·오경보율을 함께 낼 수 있다(§9.4가 요구하는 값).")
 
     # ── 판정 ───────────────────────────────────────────────────────────────
     print(f"\n{'='*60}")
