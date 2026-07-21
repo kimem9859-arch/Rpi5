@@ -66,18 +66,25 @@ def load_buttons(log_path):
     return boxes, times
 
 
-def roi_of(tip, buttons, margin):
-    """손끝이 들어있는 버튼 ROI. margin 만큼 박스를 넓혀 판정한다.
+def roi_of(tip, buttons, margin=0):
+    """손끝이 들어있는 버튼 ROI 라벨. 없으면 None.
 
-    겹치는 박스가 여럿이면 중심이 가장 가까운 것을 택한다.
+    ⚠️ **런타임(`camera_thread.roi_at_point`)과 동일한 규칙이어야 한다** —
+    측정 도구가 다른 규칙을 쓰면 그 수치가 실제 동작을 대표하지 못한다.
+      · ROI = **검출 박스 그 자체**(FPV라 고정 좌표는 성립하지 않는다)
+      · 겹치면 **더 작은(가까운) 박스 우선** — 오판을 줄이는 런타임 규칙 그대로
+
+    margin 은 실험용 확장이며 기본 0 = 런타임과 완전히 동일. 0이 아닌 값으로
+    측정한 결과는 런타임 동작이 아니라 "박스를 넓히면 어떻게 되는가"의 답이다.
     """
     tx, ty = tip
-    hits = []
+    hit, hit_area = None, None
     for cls, x1, y1, x2, y2 in buttons:
         if x1 - margin <= tx <= x2 + margin and y1 - margin <= ty <= y2 + margin:
-            d = np.hypot(tx - (x1 + x2) / 2, ty - (y1 + y2) / 2)
-            hits.append((d, cls))
-    return min(hits)[1] if hits else None
+            area = (x2 - x1 + 2 * margin) * (y2 - y1 + 2 * margin)
+            if hit_area is None or area < hit_area:
+                hit, hit_area = cls, area
+    return hit
 
 
 def fill_gaps(series, times, gap_sec):
