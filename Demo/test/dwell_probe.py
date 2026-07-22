@@ -173,10 +173,12 @@ def main():
     ap = argparse.ArgumentParser(description="손끝 ROI 체류 측정 (§9.4 임계 검증)")
     ap.add_argument("raw_dir", help="test/raw/<세션> 경로")
     ap.add_argument("--log", default=None, help="rawdet 로그 (기본: 세션명으로 자동 탐색)")
-    ap.add_argument("--dwell", type=float, default=0.5,
-                    help="체류 임계(초). 기본 0.5 = §9.4 정본(PoC 실측)")
-    ap.add_argument("--gap-fill", type=float, default=0.3,
-                    help="갭메우기(초). 기본 0.3 = §9.4 정본. 0 이면 끔")
+    # 🔴 기본값은 **런타임 config 를 그대로 읽는다** — 도구가 다른 값을 쓰면 그 수치가
+    #    실제 동작을 대표하지 못한다. (2026-07-22: conf·ring·dwell·gap 네 번 물렸다)
+    ap.add_argument("--dwell", type=float, default=None,
+                    help="체류 임계(초). 기본 = config.FSM_DWELL_THRESHOLD_SEC")
+    ap.add_argument("--gap-fill", type=float, default=None,
+                    help="갭메우기(초). 기본 = config.FSM_GAP_FILL_SEC. 0 이면 끔")
     ap.add_argument("--ring", type=int, default=None,
                     help="ROI 링(1단계) 폭 px. 기본 = config.HAND_ROI_RING_PX(런타임과 동일). "
                          "0 이면 링을 끄고 박스 안만 본다")
@@ -188,6 +190,10 @@ def main():
     args = ap.parse_args()
     ring = args.ring if args.ring is not None else config.HAND_ROI_RING_PX
     conf = args.conf if args.conf is not None else config.HAND_MIN_SCORE
+    if args.dwell is None:
+        args.dwell = config.FSM_DWELL_THRESHOLD_SEC
+    if args.gap_fill is None:
+        args.gap_fill = config.FSM_GAP_FILL_SEC
 
     sess = os.path.basename(os.path.normpath(args.raw_dir))
     log = args.log or os.path.join(_TEST_DIR, "logs", f"{sess}_rawdet_log.csv")
