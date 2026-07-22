@@ -47,11 +47,23 @@
 ### 데이터 흐름
 ```
 ESP32-S3(OV3660) ─TCP:8888→ CameraThread
-   (_recv_worker → 수직플립 → undistort → detector → MediaPipe)
+   (_recv_worker → 수직플립 → undistort → detector → hand_tracker(손))
       ├─ change_pixmap_signal → SafetyConsole (화면)
-      └─ 검출 → 손-버튼 ROI/HOI → SafetyFSM.update_vision → 상태전이·on_interlock·피드백
+      └─ 검출 → zone_at_point(roi_zones: 링1/안쪽2) → SafetyFSM.update_vision(roi, now, level)
+         → 체류(§9.4 dwell 0.3·갭메우기 0.3) → 상태전이·on_interlock·피드백
 USB 웹캠 ─ UsbCameraThread (동일 구조)
 ```
+
+### `run_scenario.sh` (기능 검증 촬영 런처, 2026-07-22 신설)
+> 🔴 **발표용 시연 녹화가 아니라 "HOI·FSM이 의도대로 도는가"를 눈으로 확인하는 도구**다. HOI는 미완성이므로(감지 천장 57~65%) 여기서 나온 영상은 **기능 확인용**이며 성능 근거로 인용하지 않는다.
+
+`./run_scenario.sh <번호>` — **GUI + 화면녹화 + 웹캠(3인칭)녹화를 한 번에** 띄우고, GUI를 닫으면 녹화도 정리한다. 산출물은 `Demo/scenario/<시각>_s<번호>/`에 4종(`screen.mp4`·`webcam.mp4`·`app_log.txt`·`esp32_fpv.avi`). 따로 켜면 시작 시각이 어긋나 대조가 안 되므로 묶었다. `scenario/`는 gitignore(1080p 두 갈래라 4분에 약 580MB).
+
+🔴 **함정 2개** (둘 다 실제로 물렸음):
+1. **GUI가 USB 웹캠을 점유한다** — `UsbCameraThread.run()`이 CCTV 버튼과 무관하게 시작 즉시 `/dev/video0`을 연다. 웹캠을 외부 녹화에 쓰려면 **`config.USB_CAMERA_ENABLED=False`**(환경변수 `SOP_USB_CAMERA=0`)로 양보시킨다. 런처가 자동 설정.
+2. **OpenCV로 웹캠을 열면 1080p가 5fps** — 기본 **GStreamer 백엔드**에서 FOURCC 설정이 `unhandled property`로 무시돼 YUYV로 떨어진다. **`cv2.VideoCapture(0, cv2.CAP_V4L2)`를 명시**해야 MJPG 1080p30이 나온다(실측). 그래서 런처의 녹화는 **ffmpeg가 v4l2를 직접** 연다.
+
+※ `SOP_FULLSCREEN=1`이면 GUI가 `showMaximized`로 모니터를 채운다. `showFullScreen`은 쓰지 않는다 — 제목표시줄이 사라져 창을 닫을 수 없는데 **녹화 종료가 GUI 종료에 묶여 있다**.
 
 ## 워크플로
 - ESP32 펌웨어(.ino) = **Arduino CLI**(IDE 아님), **라즈베리파이에서만** 편집·컴파일(Windows엔 미설치).
