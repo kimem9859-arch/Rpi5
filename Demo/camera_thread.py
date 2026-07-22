@@ -493,6 +493,12 @@ class UsbCameraThread(QThread):
         return frame
 
     def run(self):
+        # 🔴 이 스레드는 시작하자마자 /dev/video0 을 **점유**한다(CCTV 버튼과 무관).
+        #    시나리오 촬영처럼 웹캠을 3인칭 기록용으로 따로 써야 할 때는
+        #    config.USB_CAMERA_ENABLED=False 로 두어 장치를 놓아준다.
+        if not getattr(config, "USB_CAMERA_ENABLED", True):
+            self.log_signal.emit("[CCTV] 비활성(USB_CAMERA_ENABLED=False) — 웹캠을 외부에 양보")
+            return
         cap = cv2.VideoCapture(self.USB_DEVICE_INDEX)
         if not cap.isOpened():
             self.log_signal.emit("[CCTV] 웹캠 열기 실패")

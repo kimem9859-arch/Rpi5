@@ -251,7 +251,12 @@ class SafetyConsole(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Vision AI 안전 콘솔")
-        self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+        # 창 크기: 기본은 설계값(1280×720)이나 **고정하지 않는다**.
+        # 시나리오 촬영 때 모니터를 꽉 채워야 화면 녹화에 GUI가 크게 담긴다.
+        # 영상은 camera_label 크기에 맞춰 비율 유지로 스케일되므로(_update_camera_frame)
+        # 창을 키워도 왜곡되지 않는다. ※ ESP32 녹화본 해상도는 창 크기와 무관하다.
+        self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+        self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
         self._active_camera = "esp32"
         self._last_yolo_classes = set()
