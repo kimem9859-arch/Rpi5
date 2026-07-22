@@ -24,7 +24,7 @@ from config import (
     ACCENT, BTN_ACTIVE, BTN_INACTIVE, BTN_CALIB,
     STATUS_OK, STATUS_WARNING, STATUS_DANGER,
 )
-from camera_thread import CameraThread, UsbCameraThread, MEDIAPIPE_AVAILABLE, close_detector
+from camera_thread import CameraThread, UsbCameraThread, close_detector
 from fsm import SafetyFSM, State, Feedback
 from recipe import load_recipe, RecipeError
 from interlock import InterlockController
@@ -324,7 +324,12 @@ class SafetyConsole(QMainWindow):
             self._append_log(f"[레시피] '{self._recipe['process_name']}' 로드 — {self.fsm.step_count}단계")
         else:
             self._append_log("[레시피] 파일 없음/오류 — 기본 시퀀스(B1~B4)로 진행")
-        self._append_log(f"[시스템] MediaPipe 사용 가능: {MEDIAPIPE_AVAILABLE}")
+        # 손 검출은 모델·소스가 없으면 **조용히** 비활성된다(hand_tracker.py). 시작 로그에
+        # 상태를 못 박아 둬야 "왜 순서 위반을 못 잡지?"를 나중에 헤매지 않는다.
+        # ※ HandTracker 자신도 로그를 내지만 CameraThread.__init__ 시점이라 log_signal 이
+        #    아직 연결되기 전이다 — GUI 로그에는 안 남는다. 그래서 여기서 다시 적는다.
+        _hand = self.camera_thread._hand
+        self._append_log(f"[시스템] 손 검출(HOI): {'사용 가능' if _hand.available else '비활성 — ' + _hand.reason}")
         self._append_log(f"[시스템] ESP32-S3 카메라: {CAMERA_TCP_HOST}:{CAMERA_TCP_PORT} (TCP)")
         self._append_log(f"[시스템] 로그 저장: {self._log_file_path}")
 
