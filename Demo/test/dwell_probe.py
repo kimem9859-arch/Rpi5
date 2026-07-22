@@ -23,7 +23,7 @@
     python3 test/dwell_probe.py test/raw/<세션>
 
     # 임계 후보 비교
-    python3 test/dwell_probe.py test/raw/<세션> --dwell 0.5 --gap-fill 0.3 --margin 10
+    python3 test/dwell_probe.py test/raw/<세션> --dwell 0.5 --gap-fill 0.3 --ring 25
 
 ⚠️ 이 도구는 **"버튼 누르는 동작" 촬영본**에 쓰라고 만든 것이다. 가림 촬영(154947)처럼
    손을 크게 휘젓는 세션은 조작 장면이 아니라 참고값일 뿐이다.
@@ -44,6 +44,9 @@ _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 _DEMO_DIR = os.path.dirname(_TEST_DIR)
 sys.path.insert(0, _DEMO_DIR)
 sys.path.insert(0, _TEST_DIR)
+
+import config
+import roi_zones
 
 TIP = 8          # MediaPipe 손 랜드마크 인덱스 8 = 검지 끝 (접촉 기준점, §7.2)
 
@@ -66,25 +69,22 @@ def load_buttons(log_path):
     return boxes, times
 
 
-def roi_of(tip, buttons, margin=0):
-    """손끝이 들어있는 버튼 ROI 라벨. 없으면 None.
+def roi_of(tip, buttons, ring=0):
+    """손끝이 들어있는 버튼 ROI 라벨. 없으면 None. (단계가 필요하면 zone_of)
 
-    ⚠️ **런타임(`camera_thread.roi_at_point`)과 동일한 규칙이어야 한다** —
-    측정 도구가 다른 규칙을 쓰면 그 수치가 실제 동작을 대표하지 못한다.
-      · ROI = **검출 박스 그 자체**(FPV라 고정 좌표는 성립하지 않는다)
-      · 겹치면 **더 작은(가까운) 박스 우선** — 오판을 줄이는 런타임 규칙 그대로
-
-    margin 은 실험용 확장이며 기본 0 = 런타임과 완전히 동일. 0이 아닌 값으로
-    측정한 결과는 런타임 동작이 아니라 "박스를 넓히면 어떻게 되는가"의 답이다.
+    🔴 **판정 규칙은 여기에 없다** — `Demo/roi_zones.py` 가 단일 출처이고 런타임
+       (`camera_thread.zone_at_point`)도 같은 것을 쓴다. 예전엔 여기에 복제돼 있어
+       "한쪽만 바꾸면 측정이 실제 동작을 대표하지 못한다"는 위험을 주석으로만 막고
+       있었다(2026-07-22 해소).
     """
-    tx, ty = tip
-    hit, hit_area = None, None
-    for cls, x1, y1, x2, y2 in buttons:
-        if x1 - margin <= tx <= x2 + margin and y1 - margin <= ty <= y2 + margin:
-            area = (x2 - x1 + 2 * margin) * (y2 - y1 + 2 * margin)
-            if hit_area is None or area < hit_area:
-                hit, hit_area = cls, area
-    return hit
+    return zone_of(tip, buttons, ring)[0]
+
+
+def zone_of(tip, buttons, ring=0):
+    """(라벨, 단계) — 2=박스 안 / 1=링 / (None, None)=밖."""
+    return roi_zones.zone_at_point(tip[0], tip[1],
+                                   [(c, x1, y1, x2, y2) for c, x1, y1, x2, y2 in buttons],
+                                   ring)
 
 
 def fill_gaps(series, times, gap_sec):
@@ -177,13 +177,17 @@ def main():
                     help="체류 임계(초). 기본 0.5 = §9.4 정본(PoC 실측)")
     ap.add_argument("--gap-fill", type=float, default=0.3,
                     help="갭메우기(초). 기본 0.3 = §9.4 정본. 0 이면 끔")
-    ap.add_argument("--margin", type=int, default=0,
-                    help="버튼 박스를 이 픽셀만큼 넓혀 ROI 판정 (기본 0 = 박스 안)")
-    ap.add_argument("--conf", type=float, default=0.5, help="손 랜드마크 최소 score")
+    ap.add_argument("--ring", type=int, default=None,
+                    help="ROI 링(1단계) 폭 px. 기본 = config.HAND_ROI_RING_PX(런타임과 동일). "
+                         "0 이면 링을 끄고 박스 안만 본다")
+    ap.add_argument("--conf", type=float, default=None,
+                    help="손 랜드마크 최소 score. 기본 = config.HAND_MIN_SCORE(런타임과 동일)")
     ap.add_argument("--gpio-log", default=None,
                     help="GPIO 눌림 로그(기본: 세션명으로 자동 탐색). 있으면 선행시간·"
                          "사전 감지율·오경보 후보를 함께 산출한다")
     args = ap.parse_args()
+    ring = args.ring if args.ring is not None else config.HAND_ROI_RING_PX
+    conf = args.conf if args.conf is not None else config.HAND_MIN_SCORE
 
     sess = os.path.basename(os.path.normpath(args.raw_dir))
     log = args.log or os.path.join(_TEST_DIR, "logs", f"{sess}_rawdet_log.csv")
@@ -208,9 +212,9 @@ def main():
         img = cv2.imread(os.path.join(args.raw_dir, f))
         lms, flags = run_hand(img, det, lm)
         roi = None
-        if len(lms) and flags is not None and float(np.max(flags)) >= args.conf:
+        if len(lms) and flags is not None and float(np.max(flags)) >= conf:
             hand_hit += 1
-            roi = roi_of(lms[0][TIP][:2], buttons[fr], args.margin)
+            roi = roi_of(lms[0][TIP][:2], buttons[fr], ring)
         frames.append(fr)
         series.append(roi)
         times.append(times_by_frame[fr])
@@ -264,16 +268,20 @@ def main():
 
     before, _ = report("갭메우기 없음", series)
     after = before
+    eval_series = series          # 눌림 대조·오경보에 쓸 시계열
     if args.gap_fill > 0:
         filled_series, nfill = fill_gaps(series, times, args.gap_fill)
         after, _ = report(f"갭메우기 {args.gap_fill}초 적용 (프레임 {nfill}개 보정)",
                           filled_series)
+        # 🔴 런타임(fsm.update_vision)이 실제로 갭메우기를 하므로 대조도 메운 시계열로 한다.
+        #    2026-07-22 이전엔 런타임에 갭메우기가 없어 메우지 않은 것이 맞았다.
+        eval_series = filled_series
 
     # ── GPIO 눌림 대조 (정답이 있을 때만) ──────────────────────────────────
     gpio_log = args.gpio_log or os.path.join(_TEST_DIR, "logs", f"{sess}_gpio_log.csv")
     presses = load_presses(gpio_log)
     if presses:
-        rows = analyze_presses(presses, series, frames, times, args.dwell)
+        rows = analyze_presses(presses, eval_series, frames, times, args.dwell)
         lead = [r[2] for r in rows if r[2] is not None]
         ok_pre = [x for x in lead if x > 0]
         print(f"\n【GPIO 눌림 대조】 {len(presses)}회  ({os.path.basename(gpio_log)})")
@@ -291,7 +299,7 @@ def main():
             print(f"  → dwell 임계 후보: **min({min(lead):.2f}s) 미만**이어야 눌림 전에 판정된다")
         # 눌림 없이 임계를 넘긴 체류 = 오경보 후보
         press_frames = {fr for _t, _b, fr in presses}
-        false_pos = [s for s in segments(series, frames, times)
+        false_pos = [s for s in segments(eval_series, frames, times)
                      if s[3] >= args.dwell and not any(s[1] <= pf <= s[2] for pf in press_frames)]
         print(f"  오경보 후보  : {len(false_pos)}개 "
               f"(dwell {args.dwell}s를 넘겼으나 눌림이 없던 구간)")

@@ -12,11 +12,12 @@ sys.path.insert(0, os.path.dirname(__file__))
 from fsm import SafetyFSM, State, Feedback
 
 
-def make_fsm(threshold=1.0, step_count=4):
+def make_fsm(threshold=1.0, step_count=4, gap_fill=0.3):
     log = {"states": [], "interlock": [], "feedback": []}
     fsm = SafetyFSM(
         step_count=step_count,
         dwell_threshold=threshold,
+        gap_fill=gap_fill,
         on_state_change=lambda o, n: log["states"].append((o, n)),
         on_interlock=lambda e: log["interlock"].append(e),
         on_feedback=lambda f: log["feedback"].append(f),
@@ -70,7 +71,11 @@ def test_wrong_roi_graze_returns_to_process_run():
     assert fsm.state == State.MONITOR
     fsm.update_vision("B3", now=0.5)        # 0.5초 < 1.0 임계
     assert fsm.state == State.MONITOR        # 아직 경고 아님
-    fsm.update_vision(None, now=0.6)        # 손 이탈 = 스침
+    # 🔴 갭메우기(0.3초)보다 뒤에서 이탈해야 '진짜 이탈'이다. 0.6이면 직전 관측(0.5)과
+    #    간격이 0.1초라 §9.4 갭메우기가 유지한다 — 그게 의도된 동작이다(2026-07-22).
+    fsm.update_vision(None, now=0.6)        # 공백 0.1초 < 갭메우기 → 아직 유지
+    assert fsm.state == State.MONITOR
+    fsm.update_vision(None, now=1.0)        # 공백 0.5초 > 갭메우기 → 손 이탈 = 스침
     assert fsm.state == State.PROCESS_RUN    # 정상 복귀, 진전 없음
     assert fsm.expected_step == 1
 
@@ -161,6 +166,55 @@ def test_emo_from_any_state():
         fsm.press_button("EMO")
         assert fsm.state == State.BLOCK, f"EMO from {setup} failed"
 
+
+
+# ============================================================================
+# 도넛 2단계 ROI (2026-07-22 신설) — 설계 = 2026-07-22-도넛-2단계-ROI-design.md
+# 링(1단계)=접근은 체류를 예열만 하고, 차단은 박스 안(2단계)에서만 발화한다(C1).
+# ============================================================================
+from roi_zones import INSIDE, RING
+
+
+def test_ring_alone_does_not_warn():
+    """링에만 머물면 임계를 한참 넘겨도 경고하지 않는다 — 접근은 위반이 아니다."""
+    fsm, _ = make_fsm(threshold=1.0)
+    run(fsm)
+    fsm.update_vision("B3", now=0.0, level=RING)     # 기대=1, B3 오답이지만 '접근'
+    fsm.update_vision("B3", now=5.0, level=RING)     # 임계의 5배를 머물러도
+    assert fsm.state == State.MONITOR                # WARNING 아님
+    print("  PASS  링에만 있으면 임계를 넘겨도 경고하지 않는다")
+
+
+def test_ring_preheats_then_inside_fires():
+    """링에서 쌓인 체류가 박스 안 진입 즉시 발화로 이어진다(예열)."""
+    fsm, _ = make_fsm(threshold=1.0)
+    run(fsm)
+    fsm.update_vision("B3", now=0.0, level=RING)     # 접근 시작 — 여기서부터 누적
+    fsm.update_vision("B3", now=1.2, level=RING)     # 임계 넘겼으나 링이라 발화 안 함
+    assert fsm.state == State.MONITOR
+    fsm.update_vision("B3", now=1.3, level=INSIDE)   # 박스 안 진입 → 예열분이 인정돼 즉시
+    assert fsm.state == State.WARNING
+    print("  PASS  링에서 예열된 체류가 박스 안 진입 즉시 발화한다")
+
+
+def test_gap_fill_holds_then_resets():
+    """갭메우기 — 짧은 공백은 유지, 임계를 넘는 공백은 리셋."""
+    fsm, _ = make_fsm(threshold=1.0, gap_fill=0.3)
+    run(fsm)
+    fsm.update_vision("B3", now=0.0)                 # 오답 체류 시작
+    fsm.update_vision(None, now=0.2)                 # 공백 0.2초 < 0.3 → 유지
+    assert fsm.state == State.MONITOR
+    fsm.update_vision("B3", now=1.1)                 # 체류가 안 끊겨 임계 초과 → 발화
+    assert fsm.state == State.WARNING
+
+    fsm2, _ = make_fsm(threshold=1.0, gap_fill=0.3)
+    run(fsm2)
+    fsm2.update_vision("B3", now=0.0)
+    fsm2.update_vision(None, now=0.5)                # 공백 0.5초 > 0.3 → 진짜 이탈
+    assert fsm2.state == State.PROCESS_RUN
+    fsm2.update_vision("B3", now=1.1)                # 타이머가 리셋됐으므로 다시 시작
+    assert fsm2.state == State.MONITOR               # 아직 경고 아님
+    print("  PASS  갭메우기 — 0.2초 공백은 유지, 0.5초 공백은 리셋")
 
 if __name__ == "__main__":
     import traceback

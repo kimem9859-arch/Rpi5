@@ -11,6 +11,7 @@ import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QImage
 
+import config
 from config import (
     CAMERA_FLIP_VERTICAL,
     CAMERA_TCP_HOST, CAMERA_TCP_PORT,
@@ -23,6 +24,7 @@ from config import (
 # [손 검출]
 # =============================================================================
 from hand_tracker import HandTracker
+import roi_zones
 
 # =============================================================================
 # [Detector] config.INFERENCE_BACKEND selects PyTorch or Hailo backend
@@ -94,21 +96,33 @@ def _update_tracks(tracks, detections):
 # =============================================================================
 # [HOI — 손-객체 상호작용] 손끝이 들어있는 버튼 박스의 라벨을 반환 (통합문서 §7.2)
 # =============================================================================
-def roi_at_point(fx, fy, tracks):
-    """손끝(fx, fy)이 들어있는 검출 버튼 박스의 라벨을 반환. 없으면 None.
+def _labeled_boxes(tracks):
+    """트랙 → [(라벨, x1, y1, x2, y2)] — roi_zones 가 받는 형식.
 
-    ROI는 고정 좌표가 아니라 **YOLO가 검출한 버튼 박스 그 자체**다(FPV에서 박스가
-    버튼을 따라다니므로 화면이 움직여도 유효). 박스가 겹치면 더 작은(가까운)
-    박스를 우선해 오판을 줄인다.
+    디텍터 로드 실패 시엔 라벨을 붙일 수 없으므로 빈 목록. (그 경우 트랙도 안 쌓이지만,
+    예전 코드가 '히트가 있을 때만' class_name 을 부르던 견고함을 유지한다.)
     """
-    hit, hit_area = None, None
-    for t in tracks:
-        x1, y1, x2, y2 = t['box']
-        if x1 <= fx <= x2 and y1 <= fy <= y2:
-            area = (x2 - x1) * (y2 - y1)
-            if hit_area is None or area < hit_area:
-                hit, hit_area = t, area
-    return _detector.class_name(hit['cls']) if hit is not None else None
+    if _detector is None:
+        return []
+    return [(_detector.class_name(t['cls']), *t['box']) for t in tracks]
+
+
+def zone_at_point(fx, fy, tracks, ring=None):
+    """손끝(fx, fy) → (버튼 라벨, 단계). 2=박스 안 / 1=링 안 / (None, None)=밖.
+
+    판정 규칙 정본은 `roi_zones.zone_at_point` 하나뿐이다 — 여기서 다시 구현하지 말 것.
+    """
+    if ring is None:
+        ring = getattr(config, "HAND_ROI_RING_PX", 0)
+    return roi_zones.zone_at_point(fx, fy, _labeled_boxes(tracks), ring)
+
+
+def roi_at_point(fx, fy, tracks):
+    """손끝이 들어있는 검출 버튼 박스의 라벨. 없으면 None. (링 없이 = 박스 안만)
+
+    ⚠️ 시그니처를 유지한 호환용 얇은 래퍼다. 단계가 필요하면 `zone_at_point` 를 쓸 것.
+    """
+    return roi_zones.zone_at_point(fx, fy, _labeled_boxes(tracks), 0)[0]
 
 
 # =============================================================================
@@ -136,7 +150,8 @@ class CameraThread(QThread):
     change_pixmap_signal      = pyqtSignal(QImage)
     log_signal                = pyqtSignal(str)
     yolo_detections_signal    = pyqtSignal(list)
-    roi_signal                = pyqtSignal(str)   # 손끝이 든 버튼 ROI 라벨 ("" = 없음)
+    roi_signal                = pyqtSignal(str, int)  # (버튼 ROI 라벨, 단계) — ""·0 = 없음
+                                                     # 단계 2=박스 안(위험) / 1=링(접근). roi_zones 참조
     raw_frame_signal          = pyqtSignal(object)
     calibration_needed_signal = pyqtSignal()
 
@@ -345,8 +360,8 @@ class CameraThread(QThread):
         fingertip = self._hand.detect(frame, draw_on=frame)
 
         # HOI → FSM: 손끝이 든 버튼 ROI 라벨을 통지 (없으면 "")
-        roi = roi_at_point(*fingertip, self._tracks) if fingertip else None
-        self.roi_signal.emit(roi or "")
+        roi, level = zone_at_point(*fingertip, self._tracks) if fingertip else (None, None)
+        self.roi_signal.emit(roi or "", level or 0)
 
         return frame
 
@@ -425,7 +440,7 @@ class UsbCameraThread(QThread):
     change_pixmap_signal   = pyqtSignal(QImage)
     log_signal             = pyqtSignal(str)
     yolo_detections_signal = pyqtSignal(list)
-    roi_signal             = pyqtSignal(str)   # 손끝이 든 버튼 ROI 라벨 ("" = 없음)
+    roi_signal             = pyqtSignal(str, int)  # (버튼 ROI 라벨, 단계) — ""·0 = 없음
 
     USB_DEVICE_INDEX = 0
 
@@ -472,8 +487,8 @@ class UsbCameraThread(QThread):
         # 손 검출 → 검지 끝. 랜드마크 표시는 hand_tracker 가 frame 에 직접 그린다.
         fingertip = self._hand.detect(frame, draw_on=frame)
 
-        roi = roi_at_point(*fingertip, self._tracks) if fingertip else None
-        self.roi_signal.emit(roi or "")
+        roi, level = zone_at_point(*fingertip, self._tracks) if fingertip else (None, None)
+        self.roi_signal.emit(roi or "", level or 0)
 
         return frame
 

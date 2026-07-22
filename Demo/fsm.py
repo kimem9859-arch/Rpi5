@@ -13,6 +13,7 @@
 import enum
 
 import config
+from roi_zones import INSIDE as ZONE_INSIDE   # 구역 단계 정의는 roi_zones 가 단일 출처
 
 
 class State(enum.Enum):
@@ -40,7 +41,7 @@ class SafetyFSM:
     """
 
     def __init__(self, step_count=None, dwell_threshold=None,
-                 sequence=None, emo_button=None,
+                 sequence=None, emo_button=None, gap_fill=None,
                  on_state_change=None, on_interlock=None, on_feedback=None):
         # sequence: 레시피 steps 리스트 [{order, button, name}, ...] (recipe.json).
         # 주면 정답 순서·단계 이름을 거기서 읽고, 없으면 B1..B{step_count}로 대체.
@@ -63,6 +64,14 @@ class SafetyFSM:
         # 오답 ROI 체류 타이머 (MONITOR 오답 분기)
         self._dwell_roi    = None  # 현재 체류 중인 오답 ROI id
         self._dwell_start  = None  # 체류 시작 시각
+
+        # 갭메우기 (§9.4) — 손 검출이 한두 프레임 끊겨도 직전 관측을 유지한다.
+        # 없으면 한 프레임 놓칠 때마다 체류가 리셋돼 실제보다 짧게 잡힌다(§10.22 실측:
+        # 갭메우기 0.3초만 넣어도 선행시간 median 0.38s → 0.55s).
+        self.gap_fill      = gap_fill if gap_fill is not None else getattr(config, "FSM_GAP_FILL_SEC", 0.0)
+        self._last_roi     = None  # 마지막으로 실제 관측된 ROI
+        self._last_level   = None  # 그때의 단계 (2=박스 안 / 1=링)
+        self._last_seen    = None  # 그 관측 시각
 
     # ------------------------------------------------------------------ 헬퍼
     @property
@@ -108,22 +117,37 @@ class SafetyFSM:
             self._goto(State.PROCESS_RUN)
 
     # ------------------------------------------------------ 비전 틱 (§9.3 3·5)
-    def update_vision(self, roi, now):
+    def update_vision(self, roi, now, level=ZONE_INSIDE):
         """매 프레임 호출. `roi`는 손이 들어와 있는 버튼 ROI id 또는 None.
+
+        `level` = 구역 단계(`roi_zones`): **2=박스 안(위험) / 1=링(접근)**.
+        기본값 2라 단계를 안 주는 기존 호출부·테스트는 종전과 똑같이 동작한다.
 
         - 손이 정답 ROI에 있어도 '눌림' 전까지는 진전시키지 않는다(press_button이 확정).
         - 오답 ROI 체류는 타이머로 스침(<임계) vs 위반(≥임계)을 가른다.
+        - **체류는 링에서도 쌓이지만(예열), 차단 발화는 박스 안에서만 한다**(설계 C1).
+          링에서만 임계를 넘겨도 경고하지 않는다 — 접근은 위반이 아니다. 대신 누적을
+          유지해, 손이 박스 안으로 들어오는 순간 즉시 판정된다.
         """
         if self.state in (State.IDLE, State.WARNING, State.BLOCK):
             # 경고/차단 중에는 비전 틱으로 자동 전이하지 않음 (해제 버튼이 주체)
             return
 
+        # --- 갭메우기(§9.4) — 짧은 검출 공백은 이탈로 보지 않는다 ---
         if roi is None:
-            # 손이 ROI 밖 → 오답 체류 취소(스침으로 간주), MONITOR면 정상 복귀
-            if self.state == State.MONITOR:
-                self._goto(State.PROCESS_RUN)
-            self._reset_dwell()
-            return
+            if (self.gap_fill > 0 and self._last_roi is not None
+                    and self._last_seen is not None
+                    and now - self._last_seen <= self.gap_fill):
+                roi, level = self._last_roi, self._last_level    # 직전 관측 유지
+            else:
+                # 진짜 이탈 → 오답 체류 취소(스침으로 간주), MONITOR면 정상 복귀
+                if self.state == State.MONITOR:
+                    self._goto(State.PROCESS_RUN)
+                self._reset_dwell()
+                self._last_roi = self._last_level = self._last_seen = None
+                return
+        else:
+            self._last_roi, self._last_level, self._last_seen = roi, level, now
 
         # 손이 어떤 ROI 안에 있음 → 감시 시작
         if self.state == State.PROCESS_RUN:
@@ -134,12 +158,12 @@ class SafetyFSM:
             self._reset_dwell()
             return
 
-        # 오답 ROI: 체류 타이머
+        # 오답 ROI: 체류 타이머 (링에서도 누적 — 예열)
         if self._dwell_roi != roi:
             self._dwell_roi   = roi
             self._dwell_start = now
-        elif now - self._dwell_start >= self.dwell_threshold:
-            # 체류 임계 초과 → 위반 경고
+        elif now - self._dwell_start >= self.dwell_threshold and level == ZONE_INSIDE:
+            # 체류 임계 초과 + 박스 안 → 위반 경고. 링이면 아무 일도 없이 누적만 이어진다.
             self._goto(State.WARNING)
             self._reset_dwell()
 

@@ -26,6 +26,7 @@ from config import (
 )
 from camera_thread import CameraThread, UsbCameraThread, close_detector
 from fsm import SafetyFSM, State, Feedback
+from roi_zones import INSIDE as ZONE_INSIDE
 from recipe import load_recipe, RecipeError
 from interlock import InterlockController
 from gpio_input import GpioInputController
@@ -254,7 +255,7 @@ class SafetyConsole(QMainWindow):
 
         self._active_camera = "esp32"
         self._last_yolo_classes = set()
-        self._last_roi = ""
+        self._last_roi = (None, 0)   # (ROI 라벨, 구역 단계) — 로그 중복 억제용
 
         # 공정 레시피(정답 순서 단일 출처, §6) 로드. 실패해도 기본 시퀀스로 동작.
         try:
@@ -497,14 +498,19 @@ class SafetyConsole(QMainWindow):
     # =========================================================================
     # [판정부 FSM — 인식 입력 / 상태 출력]  통합문서 §8·§9
     # =========================================================================
-    @pyqtSlot(str)
-    def _on_roi(self, roi):
-        """HOI 결과(손끝이 든 버튼 ROI)를 FSM 비전 틱으로 전달."""
-        self.fsm.update_vision(roi or None, time.time())
-        if roi != self._last_roi:
+    @pyqtSlot(str, int)   # 🔴 시그널(str, int)과 반드시 일치해야 한다 — 어긋나면 기동 즉시 TypeError
+    def _on_roi(self, roi, level):
+        """HOI 결과(손끝이 든 버튼 ROI + 구역 단계)를 FSM 비전 틱으로 전달.
+
+        level: 2=박스 안(위험) / 1=링(접근) / 0=밖. 상세 = roi_zones.py
+        """
+        self.fsm.update_vision(roi or None, time.time(), level or ZONE_INSIDE)
+        if (roi, level) != self._last_roi:
             if roi:
-                self._append_log(f"[HOI] 손 진입: {roi}")
-            self._last_roi = roi
+                # 단계를 남긴다 — 안 보이면 시연 중 "왜 안 잡히지"를 진단할 수 없다.
+                self._append_log(f"[HOI] 손 {'진입' if level == ZONE_INSIDE else '접근'}: "
+                                 f"{roi} ({'박스 안' if level == ZONE_INSIDE else '링'})")
+            self._last_roi = (roi, level)
 
     def _on_start_process(self):
         self.fsm.load_recipe()
