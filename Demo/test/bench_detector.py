@@ -8,6 +8,9 @@
     python3 test/bench_detector.py --frames 100 --no-video
     python3 test/bench_detector.py --source esp32 --frames 500  # ESP32-S3(OV3660) TCP
     python3 test/bench_detector.py --source usb   --frames 500  # USB 웹캠 (B4 원인 대조)
+    python3 test/bench_detector.py --frames 300 --no-video --hand   # HOI 포함 FPS (§4 NFR-1)
+       ⚠ FPS 측정에 --save-raw 를 붙이지 말 것 — PNG 인코딩이 CPU를 뺏어 3fps 가량 낮게 나온다
+         (실측: --raw-every 5 → 12.5fps vs --raw-every 1 → 8.1fps, 추론시간은 동일).
 
 플립(--flip, 기본 auto):
     esp32 → 수직(카메라 거꾸로 장착 보정, 추론에 필요)
@@ -372,6 +375,24 @@ def run_bench(args):
     detector = create_detector()
     print(f"[Detector] '{detector.backend_name}' 백엔드 준비 완료.")
 
+    # --- 손 검출 (--hand) ---
+    # 왜: §4 NFR-1이 요구하는 건 "손 검출 포함 15fps 이상인가"인데, 지금까지 그걸 잴 도구가
+    #     없었다(이 파일은 FPS를 재지만 버튼만 보고, camera_thread는 손을 보지만 FPS를 안 남긴다).
+    #     켜고/끄고 두 번 돌리면 HOI가 실제로 먹는 비용이 나온다.
+    # ⚠️ 모델·소스가 없으면 HandTracker가 조용히 비활성된다(available=False) — 그때는 경고만
+    #     내고 촬영은 계속한다. 도구가 촬영 기회를 막아서는 안 된다(--gpio와 같은 태도).
+    hand_tracker = None
+    hand_ms_list = []
+    hand_hit     = 0
+    if args.hand:
+        from hand_tracker import HandTracker
+        hand_tracker = HandTracker(log=lambda m: print(f"  {m}"))
+        if not hand_tracker.available:
+            # 비활성이면 아예 놓아 준다 — 안 그러면 매 프레임 None을 받고 요약이
+            # "평균 0.0ms·검출 0%"라는 그럴듯한 숫자를 내놔 오해를 부른다.
+            hand_tracker = None
+            print("  ⚠️ 손 검출이 비활성이다 — 이 세션의 FPS는 'HOI 포함'이 아니다")
+
     # --- 프레임 소스 설정 (esp32 TCP / usb VideoCapture) ---
     sock = None
     cap  = None
@@ -381,17 +402,22 @@ def run_bench(args):
     recv_error  = [False]
     running     = [True]
 
+    def _close_models():
+        detector.close()
+        if hand_tracker is not None:
+            hand_tracker.close()
+
     if source == "esp32":
         sock = _connect_tcp(host)
         if sock is None:
             print("ESP32 연결 실패. 종료합니다.")
-            detector.close()
+            _close_models()
             return
     else:  # usb
         cap = cv2.VideoCapture(args.usb_index)
         if not cap.isOpened():
             print(f"USB 웹캠(index {args.usb_index}) 열기 실패. 종료합니다.")
-            detector.close()
+            _close_models()
             return
         print(f"[USB] 웹캠 index {args.usb_index} 열림.")
         # VideoCapture 오픈 후에 걸어야 드라이버가 되돌리지 않는다.
@@ -499,6 +525,7 @@ def run_bench(args):
                 "condition":      condition,
                 "model":          model_name,
                 "gpio":           bool(args.gpio),
+                "hand":           hand_tracker is not None,
                 "esp32_host":     host if source == "esp32" else None,
                 "usb_index":      args.usb_index if source == "usb" else None,
                 "flip_mode":      flip_mode,
@@ -568,6 +595,17 @@ def run_bench(args):
             dets = detector.detect(frame)
             infer_ms = (time.perf_counter() - t0) * 1000.0
 
+            # 손 검출 — 버튼 추론 바로 뒤에서, 같은 프레임으로. 이 시간이 FPS에 그대로 실린다.
+            # 🔴 draw_on 을 주지 않는다: frame 은 raw PNG로 저장되는 바로 그 배열이라
+            #    랜드마크를 그리면 증거가 오염된다. 표시는 아래 frame_draw 에만 한다.
+            fingertip = None
+            if hand_tracker is not None:
+                t_hand = time.perf_counter()
+                fingertip = hand_tracker.detect(frame)
+                hand_ms_list.append((time.perf_counter() - t_hand) * 1000.0)
+                if fingertip is not None:
+                    hand_hit += 1
+
             # --- raw 검출 로깅 (트래킹 이전, score≥CONF_LOW 전량) ---
             # confirmed 트랙(≥CONF_HIGH)만 보는 detection_log의 사각지대(B4 저신뢰) 보완.
             _seen_this_frame = set()
@@ -625,6 +663,9 @@ def run_bench(args):
 
             # 영상 + 실시간 미리보기
             frame_draw = _draw_detections(frame.copy(), tracks, fps, frame_no)
+            if fingertip is not None:                 # 검지 끝 — 촬영 중 눈으로 확인하는 용도
+                cv2.circle(frame_draw, fingertip, 10, (255, 0, 255), -1)
+                cv2.circle(frame_draw, fingertip, 12, (255, 255, 255), 2)
             if not args.no_video and video_queue is not None:
                 try:
                     video_queue.put_nowait((frame_draw.copy(), video_path))
@@ -682,7 +723,7 @@ def run_bench(args):
             video_queue.put(None)  # 종료 신호
             video_thread.join(timeout=10)
         cv2.destroyAllWindows()
-        detector.close()
+        _close_models()
 
     # ==========================================================================
     # 종료 요약
@@ -727,6 +768,17 @@ def run_bench(args):
     else:
         print(f"  B4 raw 검출: 0회  ← 완전 미탐지 (카메라 화질/모델 저대비 원인 후보)")
     print(f"  B4↔EMO 오인(트랙 전환): {b4_emo_confusion[0]}회 | raw EMO 총검출: {raw_counts.get('EMO',0)}회")
+
+    if args.hand:
+        print(f"\n{'-'*50}\n손 검출 (HOI)")
+        if hand_ms_list:
+            avg_h = sum(hand_ms_list) / len(hand_ms_list)
+            rate  = hand_hit / len(hand_ms_list) * 100
+            print(f"  소요   평균 {avg_h:.1f}ms  최대 {max(hand_ms_list):.1f}ms")
+            print(f"  검출   {hand_hit}/{len(hand_ms_list)} 프레임 ({rate:.1f}%)")
+            print("  ⇒ 위 평균 FPS는 **HOI 포함** 값이다 (§4 NFR-1 판정용)")
+        else:
+            print("  비활성이었다 — 위 FPS는 버튼만 돌린 값이다")
 
     if args.gpio:
         print(f"\nGPIO 눌림  : {gpio_events[0]}회 → test/logs/{_tag}_gpio_log.csv")
@@ -778,6 +830,11 @@ if __name__ == "__main__":
                              "비전의 '손이 어디 있나'에 '실제로 언제 눌렸나'라는 정답을 붙여 "
                              "선행시간(§9.4)과 사전 감지 성립 여부를 측정할 수 있게 한다. "
                              "gpiozero 미설치·배선 없음이면 예외 없이 촬영만 계속된다")
+    parser.add_argument("--hand", action="store_true",
+                        help="손 검출(Hailo 팜+핸드)을 함께 돌려 **HOI 포함 FPS**를 측정한다. "
+                             "§4 NFR-1이 요구하는 값이 이것이다. 켜고/끄고 두 번 재면 "
+                             "손 검출이 실제로 먹는 비용이 나온다. "
+                             "모델·소스가 없으면 경고만 내고 버튼 검출로 계속한다")
     parser.add_argument("--condition", type=str, default=None, metavar="SLUG",
                         help="촬영 조건 슬러그(fluorescent/lowlight/daylight/cleanroom 등). "
                              "산출물 파일명·manifest에 기록되어 db_import가 조건을 자동 분류한다. "

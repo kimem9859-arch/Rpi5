@@ -33,6 +33,7 @@ echo "  프레임: $FRAMES · raw 저장: $RAW_DESC"
 echo
 
 # ESP32 도달 확인 — 못 붙으면 촬영을 헛돌리지 않고 여기서 멈춘다.
+# ping 은 "전원 꺼짐/IP 바뀜"을 빠르게 걸러 주는 1차 관문일 뿐이다.
 CAM_IP="$(cat .camera_ip 2>/dev/null)"
 echo "📡 ESP32 카메라 확인 중... (${CAM_IP:-미설정})"
 if [ -z "$CAM_IP" ] || ! ping -c 2 -W 2 "$CAM_IP" >/dev/null 2>&1; then
@@ -45,7 +46,24 @@ if [ -z "$CAM_IP" ] || ! ping -c 2 -W 2 "$CAM_IP" >/dev/null 2>&1; then
     read -rp "Enter 키를 누르면 닫힙니다..."
     exit 1
 fi
-echo "✅ ESP32 응답 정상"
+
+# 🔴 ping 통과 = 정상이 아니다. 실제로 프레임을 받아 속도를 재고 나서 촬영을 허락한다.
+#    2026-07-20에 라우팅 경유 연결이 ping을 통과해 0.9fps(정상 12.5)로 한 세션을 통째로 버렸다.
+python3 test/cam_probe.py
+case $? in
+    0) ;;                                    # 정상 — 그대로 진행
+    2)  echo
+        read -rp "느린 상태로 촬영하시겠습니까? (y = 진행 / 그 외 = 중단) " ans
+        case "$ans" in
+            y|Y) ;;
+            *)   echo "촬영을 취소했습니다."; read -rp "Enter 키를 누르면 닫힙니다..."; exit 1 ;;
+        esac ;;
+    *)  echo
+        echo "   (IP가 바뀌었다면 바탕화면 'ESP32 IP 갱신'을 먼저 실행)"
+        echo
+        read -rp "Enter 키를 누르면 닫힙니다..."
+        exit 1 ;;
+esac
 echo
 echo "▶ 촬영을 시작합니다. 5개 버튼(B1~B4·EMO)이 화면에 들어오게 하세요."
 echo
