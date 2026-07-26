@@ -68,7 +68,7 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
 ## 워크플로
 - ESP32 펌웨어(.ino) = **Arduino CLI**(IDE 아님), **라즈베리파이에서만** 편집·컴파일(Windows엔 미설치).
 - `original/` = 참고용 구버전(`yolo_hailo_tcp.py`=RPi Hailo 추론 핵심, `provision_wifi.py` 등 RPi 전용).
-- **⭐ console_v2 데이터 파이프라인 = `Demo/dataset_pipeline.md`** · **라벨링 기준 = `Demo/labeling_guide.md`** (촬영 → 중복제거 → 프리라벨 → Roboflow 업로드 → 라벨링 → 학습. **재현 절차서**). 도구: `test/dedupe_raw.py`(pHash 중복제거·**분할 전에** 실행) · `test/export_labels.py`(v1 검출을 프리라벨로) · `test/review_labels.py`(검수 시각화) · `test/upload_roboflow.py`(Roboflow 업로드).
+- **⭐ console_v2 데이터 파이프라인 = `Demo/docs/dataset_pipeline.md`** · **라벨링 기준 = `Demo/docs/labeling_guide.md`** (촬영 → 중복제거 → 프리라벨 → Roboflow 업로드 → 라벨링 → 학습. **재현 절차서**). 도구: `test/dedupe_raw.py`(pHash 중복제거·**분할 전에** 실행) · `test/export_labels.py`(v1 검출을 프리라벨로) · `test/review_labels.py`(검수 시각화) · `test/upload_roboflow.py`(Roboflow 업로드).
   - 🔴 **Roboflow 함정 2개**(둘 다 물렸음): ①`annotation_labelmap` 없으면 클래스가 **숫자("0","1")로** 올라감 ②`annotation_overwrite=True` 없으면 이미지 해시 캐시 때문에 `already annotated`로 **스킵되고 옛 라벨이 남음**. 전량 업로드 전 **3장으로 검증** 필수.
   - ⚠️ **분할은 업로드 시점에 명시**(Roboflow 자동 랜덤분할 금지 — 프레임 섞으면 누출 → mAP 거짓 상승). 세션 단위 분할이 기본이나, **세션마다 촬영 변화 축이 다르면 세션마다 나눠 할당**한다(통째로 떼면 그 축이 학습에서 빠짐 — `dataset_pipeline.md` §8).
   - **프리라벨 소스 = 로그를 만든 모델**(`export_labels.py`는 모델을 가리지 않음). ~~B4는 v1이 못 잡아 전량 수동~~ → **v2 소스에서는 B4 포함 달성률 92%**(2026-07-20 클린룸). 검수 우선순위 = ①빠진 박스(가림은 제외) ②클래스 오류 ③박스 타이트함.
@@ -106,7 +106,7 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
    > ※ **HailoRT는 4.x여야 한다**(DFC 3.33.1로 만든 `.hef` 호환 / 5.x 금지). 이 파이는 v1을 4.x로 돌리고 있으므로 **손대지 않았다면 그대로**다. 버전을 올린 적 있다면 먼저 확인할 것.
 
    #### 🔴 판정 기준 정본 = 통합문서 **§10.16**. "v1 대비 검출률 상승"을 쓰지 말 것 (2026-07-16 정정)
-   `test/raw/<세션>`이 곧 **652장 학습 데이터의 출처**라(`Demo/dataset_pipeline.md`) **학습에 쓴 장면으로 시험 보는 구조**다. 게다가 v1은 **파랑 스티커를 학습한 적이 없어**(§10.12 "v1으론 여전히 0% — 학습 분포 밖, **당연**") 0%가 예정돼 있고, v2는 이 프레임으로 학습했다. → **"v1 0회 → v2 N회"는 자동으로 나오고 아무것도 증명하지 않는다.**
+   `test/raw/<세션>`이 곧 **652장 학습 데이터의 출처**라(`Demo/docs/dataset_pipeline.md`) **학습에 쓴 장면으로 시험 보는 구조**다. 게다가 v1은 **파랑 스티커를 학습한 적이 없어**(§10.12 "v1으론 여전히 0% — 학습 분포 밖, **당연**") 0%가 예정돼 있고, v2는 이 프레임으로 학습했다. → **"v1 0회 → v2 N회"는 자동으로 나오고 아무것도 증명하지 않는다.**
    ⚠️ **두 개의 "B4 0%"를 혼동 금지**: ①§10.6의 0회(6월·**검정** B4·원인=카메라 입력 품질) ②파랑 프레임에서 v1의 0%(단순 분포 밖). **다른 현상이다.**
 
    #### ✅ 이것만 본다 (셋 다 파이에서 가능)
