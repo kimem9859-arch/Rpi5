@@ -41,7 +41,7 @@ cd ~/<기존_Rpi5_경로>          # 현재 feature/RPi5가 있는 저장소
 git fetch origin
 git worktree add ~/Rpi5-fsm feature/fsm-interlock   # 별도 폴더 + 별도 브랜치
 cd ~/Rpi5-fsm/Demo
-cat TESTING_FSM.md             # 이 문서
+cat docs/TESTING_FSM.md        # 이 문서
 ```
 - `~/Rpi5-fsm`은 완전히 독립된 작업 디렉터리. 기존 폴더는 손대지 않는다.
 - 테스트 종료 후 정리: `git worktree remove ~/Rpi5-fsm`
