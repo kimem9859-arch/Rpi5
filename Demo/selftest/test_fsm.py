@@ -1,7 +1,7 @@
 """SafetyFSM 단위 테스트 — 통합 설계문서 §9.3 전이 시나리오 + §6 표 검증.
 
 하드웨어·Qt 없이 순수 로직만 검증한다. 시간(now)은 직접 주입한다.
-실행: python -m pytest Demo/selftest/test_fsm.py -q   또는   python Demo/selftest/test_fsm.py
+실행: python Demo/selftest/test_fsm.py
 """
 
 import os

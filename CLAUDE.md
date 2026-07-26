@@ -9,9 +9,9 @@
 비전(버튼 검출 + 손) → 손-버튼 ROI 접촉 → §8 → **FSM 순서판정** → 물리 인터락(트랙 A)·안돈 피드백.
 
 ## 핵심 — FSM & 레시피 (fsm-interlock 작업으로 추가)
-- **`fsm.py` `SafetyFSM`** — 6상태 `State`(IDLE/READY/PROCESS_RUN/MONITOR/WARNING/BLOCK). 콜백 `on_state_change`·**`on_interlock(bool)`**(→트랙 A 차단)·`on_feedback`. 주요 메서드: `load_recipe()`·`update_vision(roi, now)`·`press_button()`·EMO 처리·`release_warning()`/`release_block()`. 오답 ROI→타이머→WARNING/BLOCK, **EMO→즉시 BLOCK**(해제 시 기대단계=1 리셋, 위반 BLOCK 해제는 기대 유지). 단위테스트 `test_fsm.py`.
+- **`fsm.py` `SafetyFSM`** — 6상태 `State`(IDLE/READY/PROCESS_RUN/MONITOR/WARNING/BLOCK). 콜백 `on_state_change`·**`on_interlock(bool)`**(→트랙 A 차단)·`on_feedback`. 주요 메서드: `load_recipe()`·`update_vision(roi, now)`·`press_button()`·EMO 처리·`release_warning()`/`release_block()`. 오답 ROI→타이머→WARNING/BLOCK, **EMO→즉시 BLOCK**(해제 시 기대단계=1 리셋, 위반 BLOCK 해제는 기대 유지). 단위테스트 `Demo/selftest/test_fsm.py`.
 - **`recipe.py`/`recipe.json`** — 정답 순서 단일 출처. **PM 정비 4단계**: B1 클린·가스차단 → B2 펌프/퍼지 → B3 전극 냉각 → B4 챔버 벤트 (+EMO). `current_step_name`이 여기서 옴. (정본 §6.1과 동기화됨)
-- 테스트 절차 전체: **`TESTING_FSM.md`**. 실HW 테스트는 **라즈베리파이에서** 수행.
+- 테스트 절차 전체: **`Demo/docs/TESTING_FSM.md`**. 실HW 테스트는 **라즈베리파이에서** 수행.
 
 ## 추론 백엔드 — `detector.py` (★ console_v1.hef 통합 지점)
 - `BaseDetector` 인터페이스: `detect(frame)→[(cls_id, score, x1,y1,x2,y2)]`, `class_name(cls_id)`, `close()`.
@@ -36,7 +36,7 @@
 - `UsbCameraThread` — USB 웹캠 동일 처리.
 - `_update_tracks()` — IoU 간이 트래킹, `YOLO_MAX_MISS` 초과 제거(**가림 대응**). YOLO `try/except` 선택 로드.
 - 🆕 **`hand_tracker.py`(2026-07-22)** — **MediaPipe 프레임워크는 안 쓴다**(Python 3.13/aarch64 휠 없음). 같은 **모델**(BlazePalm·BlazeHandLandmark)을 Hailo `.hef`로 돌린다. `detect(frame)` → 검지끝 좌표. 장치는 `hailo_device`의 **공유 VDevice**(여기서 VDevice를 만들면 버튼 모델과 충돌). ⚠️ 모델·소스가 없거나 `HAND_ENABLED=False`면 **조용히 비활성**되고 `detect()`가 None → 손 검출이 없던 종전과 동일 동작. 🔴 모델·blaze 소스가 **repo 밖**(`~/hoi_probe/`)이라 클론·sop-pi-2에선 자동 비활성(vendoring 미결).
-- 🔴 **`safety_console`이 `camera_thread`에서 import하는 이름이 사라지면 GUI가 통째로 죽는다** — 실제로 발생(2026-07-22, `MEDIAPIPE_AVAILABLE`). 방어 = **`test_imports.py`**(GUI 진입점 import + AST로 import 이름 실재 대조). `camera_thread`의 최상위 이름을 바꾸면 **이 테스트를 반드시 돌릴 것**.
+- 🔴 **`safety_console`이 `camera_thread`에서 import하는 이름이 사라지면 GUI가 통째로 죽는다** — 실제로 발생(2026-07-22, `MEDIAPIPE_AVAILABLE`). 방어 = **`Demo/selftest/test_imports.py`**(GUI 진입점 import + AST로 import 이름 실재 대조). `camera_thread`의 최상위 이름을 바꾸면 **이 테스트를 반드시 돌릴 것**.
 - 신호: `change_pixmap_signal`/`log_signal`/`yolo_detections_signal`/`raw_frame_signal`/`calibration_needed_signal`.
 
 ### `config.py` (전역 설정)
