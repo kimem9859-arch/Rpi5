@@ -29,7 +29,7 @@ FSM은 **서로 다른 두 사건**을 입력으로 받는다. 이 분리가 프
 | `recipe.json` | **정답 순서 단일 출처** (§6 4단계) | 신규 |
 | `recipe.py` | 레시피 로더 + 검증 | 신규 |
 | `check_model.py` | 모델 계약 검증 (클래스 B1~B4·detection) | 신규 |
-| `test_fsm.py` / `test_hoi_sim.py` / `test_recipe.py` | 단위·통합 테스트 | 신규 |
+| `selftest/` (`test_fsm`·`test_hoi_sim`·`test_recipe`·`test_imports`) | 자체점검 — HW 없이 도는 테스트 | 신규 |
 | `camera_thread.py` | `roi_at_point`(HOI) + `roi_signal` 추가 | 수정 |
 | `safety_console.py` | FSM 연결·상태표시·단계 매뉴얼 UI·키 입력(②대역) | 수정 |
 | `config.py` | FSM 임계값 상수 | 수정 |
@@ -51,10 +51,11 @@ cat TESTING_FSM.md             # 이 문서
 ## 3. 빠른 검증 — 하드웨어·카메라 없이 (약 1분)
 ```bash
 cd Demo
-python test_fsm.py        # FSM 전이 11종  → "11/11 passed"
-python test_hoi_sim.py    # 인식→판정 4종  → "4/4 passed"
-python test_recipe.py     # 레시피 5종     → "5/5 passed"
-python recipe.py          # 레시피 내용 출력 확인
+../.venv/bin/python selftest/test_fsm.py     # FSM 전이 14종 → "14/14 passed"
+../.venv/bin/python selftest/test_recipe.py  # 레시피 5종    → "5/5 passed"
+../.venv/bin/python selftest/test_hoi_sim.py # 인식→판정 4종 → "4/4 passed"
+../.venv/bin/python selftest/test_imports.py # 시연 경로 2종 → "2/2 passed"
+../.venv/bin/python recipe.py                # 레시피 내용 출력 확인
 ```
 이 4개는 PyQt6/카메라 없이도 돈다(`test_hoi_sim`은 무거운 라이브러리를 스텁으로 막음).
 **코드를 고치면 이 테스트부터 통과 유지할 것.**
