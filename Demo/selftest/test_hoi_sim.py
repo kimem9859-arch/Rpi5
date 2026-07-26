@@ -4,14 +4,15 @@ GUI/카메라 라이브러리(PyQt6·cv2·numpy·mediapipe)를 스텁으로 막�
 camera_thread.roi_at_point(검출 박스 기반 ROI 판정)이 SafetyFSM과 맞물려
 '손끝이 어느 버튼 박스에 있는가 → 상태 전이'가 실제로 도는지 확인한다.
 
-실행: python Demo/test_hoi_sim.py
+실행: python Demo/selftest/test_hoi_sim.py
 """
 
 import os
 import sys
 import types
 
-sys.path.insert(0, os.path.dirname(__file__))
+_DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _DEMO_DIR)
 
 
 # --- 무거운 라이브러리 스텁 (camera_thread import만 통과시키면 됨) ---

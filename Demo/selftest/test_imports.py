@@ -20,7 +20,8 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _DEMO_DIR)
 
 # GUI 위젯을 만들지 않아도 PyQt6 import 자체는 디스플레이가 없어도 된다.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -37,7 +38,7 @@ def test_camera_thread_exports():
     """safety_console 이 camera_thread 에서 가져다 쓰는 이름이 실제로 있는가."""
     import ast
 
-    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "safety_console.py")
+    src = os.path.join(_DEMO_DIR, "safety_console.py")
     with open(src) as f:
         tree = ast.parse(f.read())
 

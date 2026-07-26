@@ -1,6 +1,6 @@
 """recipe.json 로더 + 레시피 구동 FSM 검증.
 
-실행: python Demo/test_recipe.py
+실행: python Demo/selftest/test_recipe.py
 """
 
 import json
@@ -8,7 +8,8 @@ import os
 import sys
 import tempfile
 
-sys.path.insert(0, os.path.dirname(__file__))
+_DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _DEMO_DIR)
 
 from recipe import load_recipe, RecipeError
 from fsm import SafetyFSM, State
