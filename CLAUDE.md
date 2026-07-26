@@ -76,6 +76,14 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
   - ❌ 색 기반 자동라벨러(`test/autolabel.py`)는 **채택 안 함** — 달성률 79%로 오르나 **EMO↔B3 오분류 122건**(Hue 인접). 틀린 라벨은 없는 라벨보다 해롭다. 참고용 보존.
 - **벤치·B4 대조 실험** = `Demo/test/bench_detector.py`. `--source {esp32,usb}`로 **카메라만 변수**로 두고 대조 측정. `_rawdet_log.csv`(트래킹 이전 raw 검출 ≥`YOLO_CONF_LOW`)가 **B4 저신뢰 구간**을 드러냄 — `_detection_log.csv`(confirmed 트랙 ≥`YOLO_CONF_HIGH`)만 보면 놓친다. 종료 시 **B4 집중 분석**(score 분포·B4↔EMO 오인) 출력. 산출물은 소스 태그 파일명(`{ts}_{src}_*.csv`), `logs/`·`videos/`는 gitignore → `test-artifacts` 브랜치로 보관.
 - **벤치 로그 DB** = `Demo/test/db_import.py` — `test/logs/` CSV 전량 + `replay_raw.py` 검출 CSV(`logs/replay/`, 기본 켬·`--no-csv`로 끔)를 `test/bench.db`(SQLite, gitignore)로 재구축. 세션 간 비교·집계는 SQL로(요약 수치 정본은 여전히 통합문서 §10). 시각화 = `db_report.py` → `bench_report.html`(자립형·미추적, 조건별 검출률·v1↔v2·B4 confidence·FPS).
+- 🆕 **HOI 분석 DB(2026-07-26)** = `test/hoi.db` — **버튼 DB와 별개 파일**(분석 단위가 프레임 vs **눌림 이벤트**로 다르고, `db_import.py`의 INSERT가 컬럼 수에 고정돼 있어 손대면 그쪽이 깨진다). **서로를 참조하지 않는다.** 설계 = 상위 `docs/superpowers/specs/2026-07-26-HOI-DB-design.md`.
+  - **2단계로 나뉜다** — ① `hoi_probe_batch.py --thresh 0.5`(팜 추론 캐시, 22세션 **약 40분**·중단·재개 가능·`--force`로 재생성) → ② `hoi_import.py`(DB 재구축, 수 초). **팜 추론은 raw가 정본이라 안 바뀌고, DB는 규칙이 바뀌면 다시 만든다** — 묶으면 아무도 재구축하지 않는다.
+  - 테이블 4개: `sessions`(자세·근접도·구도) · **`presses`(눌림 1회 = 1행, `gap_frames`·`button_y` = §10.26·§10.29의 지배 변수)** · `palm_frames`(**팜 임계·링 폭이 행 안에** — 0.5/0.2 공존) · `button_boxes`(눌림 ±15프레임).
+  - 🔴 **ROI 구역 판정은 적재 시에 `roi_zones.zone_at_point()`로 계산**해 `zone_label`·`zone_level`에 넣는다. **SQL에 링 규칙을 다시 쓰지 말 것** — `roi_zones.py`가 단일 출처다.
+  - **지표(사전 감지율 등)는 저장하지 않는다** — 질의로 계산(판정 생산이 바뀌면 stale). 예시 질의 4개 = `hoi_import.py` docstring.
+  - ⚠️ **`sqlite3` CLI가 이 파이에 없다** — 질의는 `python3 -c "import sqlite3 ..."`로.
+  - ⚠️ **수동 매핑 표 2개**(`_POSTURE`·`_VIOLATION_RULE`)가 코드에 있다. 세션이 늘면 갱신할 것 — 미등록 세션은 NULL이 되고 임포터가 그 목록을 **보고**한다.
+  - ✅ **검증 = 코드가 아니라 결과로** — §10.28·§10.29 값과 대조해 4건 전부 통과(눌림 503건 일치 · `far-high-r1` 85.7% · `far-low` B4 20.5→77.3% · 속도 계단 58/92/94/96%).
 
 ## 다음
 1. ✅ console_v1.hef 통합·실추론 완료 — B1~B3·EMO 검출, B4 미탐지 → console_v2 재학습 확정. ※ **B4 미탐지 원인 정정(2026-07-03)**: 양자화 반증(에뮬서 int8 .hef가 B4 검출·USB 웹캠선도 검출) → **카메라 입력 품질(OV3660) 주가설·미확정**(sop-project 통합문서 §10.7).

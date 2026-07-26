@@ -40,6 +40,7 @@ Demo/test/videos/
 Demo/test/logs/
 Demo/test/exposure_samples/
 Demo/test/raw/
+Demo/test/palm_cache/
 *.db
 *.sqlite*
 Demo/test/bench_report.html
