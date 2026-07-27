@@ -11,12 +11,20 @@
    얇은 껍데기다. 체류·갭메우기·발화 규칙을 여기 다시 쓰면 정본이 둘이 되고 측정이
    런타임을 대표하지 못한다 — 도구가 config 를 안 따라 네 번 물렸던 전례(§10.23).
 
-실제 운용과 다른 점 3가지 (설계 §4.3 — 인용 시 반드시 병기):
+실제 운용과 다른 점 4가지 (설계 §4.3 — 인용 시 반드시 병기):
     1. BLOCK 진입 즉시 자동 해제. 촬영 당시 GUI 를 안 돌려 해제 조작 기록이 없다.
        해제하지 않으면 첫 위반 이후 모든 눌림이 평가에서 빠진다.
     2. WARNING 도 즉시 자동 해제. 같은 이유.
     3. 기대단계를 매 눌림 직전 `expected_button` 으로 설정. 상태를 눌림으로 굴리면
        한 번 어긋날 때 이후가 전부 오염된다.
+    4. 공정 완료(`IDLE`)에 도달하면 `load_recipe()` 를 다시 불러 다음 주기를 시작한다
+       (2026-07-27 추가 — Critical 버그 수정). `mixed` 세션(예: `far-high-r3`)은 정상
+       주기(B1→B2→B3→B4)를 여러 번 돈 뒤 위반 주기로 넘어가는 촬영인데, 마지막 단계
+       (B4) 정답 눌림이 `_step_complete()` 에서 `State.IDLE` 로 떨어뜨리고
+       `update_vision()` 은 `IDLE` 에서 즉시 return 한다 — 다음 주기를 시작해 주지
+       않으면 **이후 모든 비전 입력이 영구히 무시돼 위반 눌림에 경고가 0건이 된다.**
+       `expect_b1` 세션(정답 눌림이 없는 순수 위반 촬영)은 애초에 IDLE 에 도달하지
+       않아 이 버그가 드러나지 않았다 — 관문(§2)이 그 세션들만 써서 통과해 온 이유.
 
 사용:
     python3 test/fsm_sim.py --gate          # 🔴 검증 관문 (아래 §2 새 정의)
@@ -129,6 +137,8 @@ def simulate(con, session_id, dwell=None, gap_fill=None, thresh=hoi_metrics.PALM
             fsm.press_button(p["button"], ts)
             if fsm.state in (State.WARNING, State.BLOCK):
                 fsm.release_warning(); fsm.release_block()
+            if fsm.state == State.IDLE:
+                fsm.load_recipe()      # 정책 4 — 공정 완료 후 다음 주기 시작
             # 다음 눌림의 기대단계를 **미리** 넣는다 (정책 3).
             # 체류 타이머는 눌림 **이전** 접근 프레임에서 쌓이므로, 눌림 시점에
             # 넣으면 그 접근 구간이 낡은 기대단계로 판정된다.
