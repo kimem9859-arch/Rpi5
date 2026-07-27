@@ -10,6 +10,7 @@
 기대단계는 유지되며, EMO 해제만 기대단계를 1로 리셋한다.
 """
 
+import collections
 import enum
 
 import config
@@ -42,6 +43,7 @@ class SafetyFSM:
 
     def __init__(self, step_count=None, dwell_threshold=None,
                  sequence=None, emo_button=None, gap_fill=None,
+                 window_n=None, window_m=None,
                  on_state_change=None, on_interlock=None, on_feedback=None):
         # sequence: 레시피 steps 리스트 [{order, button, name}, ...] (recipe.json).
         # 주면 정답 순서·단계 이름을 거기서 읽고, 없으면 B1..B{step_count}로 대체.
@@ -73,6 +75,14 @@ class SafetyFSM:
         self._last_level   = None  # 그때의 단계 (2=박스 안 / 1=링)
         self._last_seen    = None  # 그 관측 시각
 
+        # 창 기반 누적 (§10.29⑥ — 경계는 시간이 아니라 프레임 수다).
+        # 최근 window_n 프레임의 관측 ROI 를 큐에 담고, 같은 ROI 가 window_m 회 이상이면
+        # 검출이 끊긴 프레임에서도 '계속 있는 것'으로 본다.
+        # 🔴 window_n = 0 이면 창이 꺼지고 위 갭메우기가 그대로 동작한다(롤백 스위치).
+        self.window_n = window_n if window_n is not None else getattr(config, "HAND_WINDOW_N", 0)
+        self.window_m = window_m if window_m is not None else getattr(config, "HAND_WINDOW_M", 3)
+        self._win = collections.deque(maxlen=max(self.window_n, 1))
+
     # ------------------------------------------------------------------ 헬퍼
     @property
     def correct_roi(self):
@@ -80,6 +90,15 @@ class SafetyFSM:
         if self._sequence:
             return self._sequence[self.expected_step - 1]["button"]
         return f"B{self.expected_step}"
+
+    @property
+    def last_roi(self):
+        """마지막으로 관측(또는 창/갭메우기로 유지)된 ROI. 없으면 None.
+
+        측정 도구(`test/fsm_sim.py`)가 '런타임 거울' 지표를 내는 데 쓴다 —
+        눌림 시점에 FSM 이 그 버튼을 보고 있었는가.
+        """
+        return self._last_roi
 
     @property
     def current_step_name(self):
@@ -133,11 +152,22 @@ class SafetyFSM:
             # 경고/차단 중에는 비전 틱으로 자동 전이하지 않음 (해제 버튼이 주체)
             return
 
-        # --- 갭메우기(§9.4) — 짧은 검출 공백은 이탈로 보지 않는다 ---
+        # --- 창에 이번 관측을 기록 (None 도 기록해야 '끊김'이 세어진다) ---
+        if self.window_n > 0:
+            self._win.append(roi)
+
+        # --- 관측 공백 처리 — 창(우선) 또는 갭메우기(§9.4) ---
         if roi is None:
-            if (self.gap_fill > 0 and self._last_roi is not None
+            hold = False
+            if self.window_n > 0 and self._last_roi is not None:
+                # 최근 window_n 프레임 중 같은 ROI 가 window_m 회 이상이면 유지
+                hold = list(self._win).count(self._last_roi) >= self.window_m
+            elif (self.gap_fill > 0 and self._last_roi is not None
                     and self._last_seen is not None
                     and now - self._last_seen <= self.gap_fill):
+                hold = True
+
+            if hold:
                 roi, level = self._last_roi, self._last_level    # 직전 관측 유지
             else:
                 # 진짜 이탈 → 오답 체류 취소(스침으로 간주), MONITOR면 정상 복귀
@@ -145,6 +175,7 @@ class SafetyFSM:
                     self._goto(State.PROCESS_RUN)
                 self._reset_dwell()
                 self._last_roi = self._last_level = self._last_seen = None
+                self._win.clear()
                 return
         else:
             self._last_roi, self._last_level, self._last_seen = roi, level, now

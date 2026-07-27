@@ -14,11 +14,14 @@ from fsm import SafetyFSM, State, Feedback
 
 
 def make_fsm(threshold=1.0, step_count=4, gap_fill=0.3):
+    # window_n=0 — 이 테스트들은 갭메우기(시간 기준)를 검증하는 것이므로 창(관측횟수
+    # 기준, config 기본값 5)이 끼어들지 않게 종전 동작으로 고정한다.
     log = {"states": [], "interlock": [], "feedback": []}
     fsm = SafetyFSM(
         step_count=step_count,
         dwell_threshold=threshold,
         gap_fill=gap_fill,
+        window_n=0,
         on_state_change=lambda o, n: log["states"].append((o, n)),
         on_interlock=lambda e: log["interlock"].append(e),
         on_feedback=lambda f: log["feedback"].append(f),
@@ -216,6 +219,59 @@ def test_gap_fill_holds_then_resets():
     fsm2.update_vision("B3", now=1.1)                # 타이머가 리셋됐으므로 다시 시작
     assert fsm2.state == State.MONITOR               # 아직 경고 아님
     print("  PASS  갭메우기 — 0.2초 공백은 유지, 0.5초 공백은 리셋")
+
+def make_win_fsm(threshold=1.0, window_n=5, window_m=3):
+    """창 기반 누적 FSM. 갭메우기는 끄고 창만 본다."""
+    log = {"states": []}
+    fsm = SafetyFSM(
+        step_count=4, dwell_threshold=threshold, gap_fill=0.0,
+        window_n=window_n, window_m=window_m,
+        on_state_change=lambda o, n: log["states"].append((o, n)),
+    )
+    fsm.load_recipe()
+    return fsm, log
+
+
+def test_window_holds_through_sparse_dropouts():
+    """N=5·M=3 — 3연속 관측 뒤 2연속 결측까지는 창이 유지한다.
+
+    (참고: 결측을 '한 프레임 걸러' 무한 반복하는 패턴은 창이 항상 결측으로
+    끝나는 상태에서 평가되어 정확히 floor(N/2)=2회만 잡혀 M=3을 영영 못 채우는
+    구조적 함정이 있다 — 이 테스트는 그 함정을 피해 실제로 성립하는 경계를 쓴다.)
+    """
+    fsm, _ = make_win_fsm(threshold=1.0, window_n=5, window_m=3)
+    for t in (0.0, 0.1, 0.2):
+        fsm.update_vision("B2", now=t)          # 3연속 관측 → 창 [B2,B2,B2]
+    fsm.update_vision(None, now=0.3)             # 결측 1 — 창 count(B2)=3 → 유지
+    assert fsm.state == State.MONITOR
+    fsm.update_vision(None, now=0.4)             # 결측 2 — 창 count(B2)=3(길이5) → 유지
+    assert fsm.state == State.MONITOR
+    fsm.update_vision("B2", now=1.0)             # 체류가 안 끊겼으므로 총 1.0초 → 경고
+    assert fsm.state == State.WARNING
+    print("  PASS  창 — 짧은 연속 결측에서도 체류가 이어진다")
+
+
+def test_window_releases_when_hand_truly_leaves():
+    """창 안 관측이 M회 미만이면 이탈로 본다 — 무한정 유지되지 않는다."""
+    fsm, _ = make_win_fsm(threshold=1.0, window_n=5, window_m=3)
+    fsm.update_vision("B2", now=0.0)
+    for t in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6):      # 6프레임 연속 미검출
+        fsm.update_vision(None, now=t)
+    assert fsm.state == State.PROCESS_RUN         # MONITOR 에서 복귀
+    print("  PASS  창 — 진짜 이탈이면 체류가 풀린다")
+
+
+def test_window_disabled_falls_back_to_gap_fill():
+    """window_n=0 이면 롤백 스위치 — 종전 갭메우기 동작과 동일."""
+    fsm, _ = make_win_fsm(threshold=1.0, window_n=0, window_m=3)
+    fsm.gap_fill = 0.3
+    fsm.update_vision("B2", now=0.0)
+    fsm.update_vision(None, now=0.2)              # 0.2 <= 0.3 → 유지
+    assert fsm.state == State.MONITOR
+    fsm.update_vision(None, now=0.8)              # 0.6 공백 > 0.3 → 이탈
+    assert fsm.state == State.PROCESS_RUN
+    print("  PASS  창 — window_n=0 이면 종전 갭메우기 동작")
+
 
 if __name__ == "__main__":
     import traceback
