@@ -148,13 +148,20 @@ class SafetyFSM:
           링에서만 임계를 넘겨도 경고하지 않는다 — 접근은 위반이 아니다. 대신 누적을
           유지해, 손이 박스 안으로 들어오는 순간 즉시 판정된다.
         """
+        # --- ① 관측 기록 (상태 무관) ---
+        # 손이 어디 있는지는 FSM 상태와 무관한 사실이다. 상태 게이트보다 먼저 기록해야
+        # WARNING/BLOCK 해제 직후에도 최신 관측을 갖고 있다 — 그렇지 않으면 해제 직후
+        # 낡은 값으로 판정하거나(런타임), 측정 도구가 FSM 상태를 관측 능력으로 오독한다
+        # (`last_roi`가 경고가 뜬 동안 멈춰버리는 역설).
+        if self.window_n > 0:
+            self._win.append(roi)          # None 도 기록해야 '끊김'이 세어진다
+        if roi is not None:
+            self._last_roi, self._last_level, self._last_seen = roi, level, now
+
+        # --- ② 상태 게이트 — 전이는 여기서만 막는다 ---
         if self.state in (State.IDLE, State.WARNING, State.BLOCK):
             # 경고/차단 중에는 비전 틱으로 자동 전이하지 않음 (해제 버튼이 주체)
             return
-
-        # --- 창에 이번 관측을 기록 (None 도 기록해야 '끊김'이 세어진다) ---
-        if self.window_n > 0:
-            self._win.append(roi)
 
         # --- 관측 공백 처리 — 창(우선) 또는 갭메우기(§9.4) ---
         # 🔴 window_n>0(config 기본값)이면 아래 gap_fill 분기는 영영 도달하지 않는다 —
@@ -180,8 +187,6 @@ class SafetyFSM:
                 self._last_roi = self._last_level = self._last_seen = None
                 self._win.clear()
                 return
-        else:
-            self._last_roi, self._last_level, self._last_seen = roi, level, now
 
         # 손이 어떤 ROI 안에 있음 → 감시 시작
         if self.state == State.PROCESS_RUN:

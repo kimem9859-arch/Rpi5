@@ -295,6 +295,37 @@ def test_window_disabled_falls_back_to_gap_fill():
     print("  PASS  창 — window_n=0 이면 종전 갭메우기 동작")
 
 
+# ============================================================================
+# 관측 기록 vs 상태 게이트 분리 (2026-07-27, Task 5b)
+# WARNING/BLOCK 중에도 last_roi 는 계속 갱신되고, 상태 전이만 막힌다.
+# ============================================================================
+def test_last_roi_updates_during_warning():
+    """WARNING 중에도 last_roi 가 최신 관측을 반영한다(종전엔 낡은 값으로 멈췄다)."""
+    fsm, _ = make_fsm(threshold=1.0)
+    run(fsm)
+    fsm.update_vision("B2", now=0.0)        # 오답 체류 시작
+    fsm.update_vision("B2", now=1.0)        # 체류 1.0 ≥ 임계 → WARNING
+    assert fsm.state == State.WARNING
+    assert fsm.last_roi == "B2"
+    fsm.update_vision("B3", now=1.1)        # WARNING 중에도 새 관측
+    assert fsm.last_roi == "B3"              # 갱신됨 (종전엔 "B2"로 고정)
+    print("  PASS  WARNING 중에도 last_roi 가 갱신된다")
+
+
+def test_warning_state_transition_still_blocked():
+    """WARNING 중 update_vision 을 여러 번 불러도 상태 전이는 막힌다(관측만 된다)."""
+    fsm, _ = make_fsm(threshold=1.0)
+    run(fsm)
+    fsm.update_vision("B2", now=0.0)
+    fsm.update_vision("B2", now=1.0)
+    assert fsm.state == State.WARNING
+    fsm.update_vision("B1", now=1.1)        # 정답 ROI 를 봐도
+    assert fsm.state == State.WARNING        # 상태는 그대로
+    fsm.update_vision(None, now=1.2)        # 손이 사라져도
+    assert fsm.state == State.WARNING        # 상태는 그대로 (해제 버튼만이 주체)
+    print("  PASS  WARNING 중 상태 전이는 관측과 무관하게 막힌다")
+
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
