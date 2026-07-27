@@ -47,6 +47,7 @@ sys.path.insert(0, _TEST_DIR)
 
 import config
 import roi_zones
+import hoi_metrics                    # 사전 감지율 판정 규칙 단일 출처 (2026-07-27)
 
 TIP = 8          # MediaPipe 손 랜드마크 인덱스 8 = 검지 끝 (접촉 기준점, §7.2)
 
@@ -132,23 +133,29 @@ def analyze_presses(presses, series, frames, times, dwell):
 
     선행시간 = t_눌림 − t_도착. t_도착은 **눌림 직전의 연속 ROI 구간이 시작된 시각**이다.
     이 값이 양수여야 "누르기 직전에 사전 감지"라는 프로젝트 명제가 성립한다.
+
+    `win` = 창 기반 능력 상한(§3, `hoi_metrics`). 선행시간과 **다른 것을 잰다** —
+    선행시간은 연속 구간을 요구하고, 창은 창 안에 한 번이라도 보이면 성공이다.
+    두 값의 격차 = 판정 로직이 버리는 양.
     """
+    by_frame = {fr: series[i] for i, fr in enumerate(frames)}
     rows = []
     for t_press, btn, fr in presses:
+        win = hoi_metrics.capability_hit(by_frame, fr, btn)
         # 눌림 시각 이하인 마지막 프레임 인덱스
         idx = max((i for i, t in enumerate(times) if t <= t_press), default=None)
         if idx is None:
-            rows.append((btn, fr, None, None, "프레임 없음"))
+            rows.append((btn, fr, None, None, "프레임 없음", win))
             continue
         seen = series[idx]
         if seen != btn:
-            rows.append((btn, fr, None, seen, "ROI 불일치" if seen else "미검출"))
+            rows.append((btn, fr, None, seen, "ROI 불일치" if seen else "미검출", win))
             continue
         # 같은 ROI가 연속으로 유지된 구간의 시작까지 거슬러 올라간다
         j = idx
         while j > 0 and series[j - 1] == btn:
             j -= 1
-        rows.append((btn, fr, t_press - times[j], seen, "OK"))
+        rows.append((btn, fr, t_press - times[j], seen, "OK", win))
     return rows
 
 
@@ -291,13 +298,16 @@ def main():
         lead = [r[2] for r in rows if r[2] is not None]
         ok_pre = [x for x in lead if x > 0]
         print(f"\n【GPIO 눌림 대조】 {len(presses)}회  ({os.path.basename(gpio_log)})")
-        print(f"  {'버튼':<5}{'프레임':>7}{'선행시간':>10}{'비전이 본 ROI':>14}  비고")
-        for btn, fr, ld, seen, note in rows:
+        print(f"  {'버튼':<5}{'프레임':>7}{'선행시간':>10}{'비전이 본 ROI':>14}{'창':>4}  비고")
+        for btn, fr, ld, seen, note, win in rows:
             print(f"  {btn:<5}{fr:>7}"
                   f"{(f'{ld:+.2f}s' if ld is not None else '-'):>10}"
-                  f"{(seen or '-'):>14}  {note}")
+                  f"{(seen or '-'):>14}{('O' if win else 'X'):>4}  {note}")
+        n_win = sum(1 for r in rows if r[5])
         print(f"\n  ⭐ **사전 감지율** : {len(ok_pre)}/{len(presses)} "
-              f"({len(ok_pre)/len(presses)*100:.0f}%)  ← 눌림보다 먼저 본 비율")
+              f"({len(ok_pre)/len(presses)*100:.0f}%)  ← 선행시간>0 (연속 구간 요구)")
+        print(f"  ⭐ **능력 상한**   : {n_win}/{len(presses)} "
+              f"({n_win/len(presses)*100:.0f}%)  ← 창 {hoi_metrics.WINDOW_N}프레임 안에 한 번이라도")
         print(f"  ROI 일치율   : {sum(1 for r in rows if r[4]=='OK')}/{len(presses)}")
         if lead:
             print(f"  선행시간     : median {st.median(lead):.2f}s · "
