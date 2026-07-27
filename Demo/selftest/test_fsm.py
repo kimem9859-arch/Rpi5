@@ -235,9 +235,11 @@ def make_win_fsm(threshold=1.0, window_n=5, window_m=3):
 def test_window_holds_through_sparse_dropouts():
     """N=5·M=3 — 3연속 관측 뒤 2연속 결측까지는 창이 유지한다.
 
-    (참고: 결측을 '한 프레임 걸러' 무한 반복하는 패턴은 창이 항상 결측으로
-    끝나는 상태에서 평가되어 정확히 floor(N/2)=2회만 잡혀 M=3을 영영 못 채우는
-    구조적 함정이 있다 — 이 테스트는 그 함정을 피해 실제로 성립하는 경계를 쓴다.)
+    (참고: 이탈("진짜 이탈") 시 `self._win.clear()`로 창을 통째로 비운다.
+    그래서 '한 프레임 걸러' 결측을 무한 반복하는 패턴은 매 결측마다 창에
+    쌓인 게 1개뿐인 상태(count=1<3)로 즉시 이탈·초기화가 반복돼 창이 아예
+    쌓이지 못한다 — 유지를 얻으려면 먼저 window_m(3)회를 **연속으로** 관측해
+    창을 채워야 한다. 이 테스트는 그 전제를 갖춘 뒤의 경계를 쓴다.)
     """
     fsm, _ = make_win_fsm(threshold=1.0, window_n=5, window_m=3)
     for t in (0.0, 0.1, 0.2):
@@ -251,14 +253,34 @@ def test_window_holds_through_sparse_dropouts():
     print("  PASS  창 — 짧은 연속 결측에서도 체류가 이어진다")
 
 
-def test_window_releases_when_hand_truly_leaves():
-    """창 안 관측이 M회 미만이면 이탈로 본다 — 무한정 유지되지 않는다."""
+def test_window_releases_after_sustained_absence():
+    """유지 자격(window_m 연속 관측)을 갖춘 뒤, 결측이 이어지면 정확히 몇 번째에서
+    풀리는지를 확인한다 — `test_window_holds_through_sparse_dropouts`(유지된다)의
+    반대쪽 경계(결국 풀린다)를 맡는다.
+
+    N=5·M=3. 3연속 관측으로 창을 [B2,B2,B2]로 채운 뒤 결측을 이어가면:
+      결측 1 → 창 [B2,B2,B2,None]        count(B2)=3 ≥3 → 유지
+      결측 2 → 창 [B2,B2,B2,None,None]   count(B2)=3 ≥3 → 유지 (아직 안 밀림, len=5)
+      결측 3 → 가장 오래된 B2가 밀려나 count(B2)=2 <3 → 이탈
+    (실측 확인: 이 파일 작성 시 `python3 -c`로 위 수열을 직접 먹여 검증했다 —
+    §Task5 리뷰 보고서 참조.)
+    """
     fsm, _ = make_win_fsm(threshold=1.0, window_n=5, window_m=3)
-    fsm.update_vision("B2", now=0.0)
-    for t in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6):      # 6프레임 연속 미검출
-        fsm.update_vision(None, now=t)
-    assert fsm.state == State.PROCESS_RUN         # MONITOR 에서 복귀
-    print("  PASS  창 — 진짜 이탈이면 체류가 풀린다")
+    for t in (0.0, 0.1, 0.2):
+        fsm.update_vision("B2", now=t)            # 3연속 관측 → 유지 자격 획득
+    assert fsm.state == State.MONITOR
+
+    fsm.update_vision(None, now=0.3)               # 결측 1
+    assert fsm.state == State.MONITOR              # 아직 유지
+    fsm.update_vision(None, now=0.4)               # 결측 2
+    assert fsm.state == State.MONITOR              # 아직 유지
+
+    fsm.update_vision(None, now=0.5)               # 결측 3 — 여기서 정확히 풀린다
+    assert fsm.state == State.PROCESS_RUN
+
+    fsm.update_vision(None, now=0.6)               # 풀린 뒤에도 계속 결측 → 그대로 유지
+    assert fsm.state == State.PROCESS_RUN
+    print("  PASS  창 — 유지 자격을 갖춘 뒤에도 결측 3번째에서 정확히 풀린다")
 
 
 def test_window_disabled_falls_back_to_gap_fill():

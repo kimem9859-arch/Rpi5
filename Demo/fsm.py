@@ -157,6 +157,9 @@ class SafetyFSM:
             self._win.append(roi)
 
         # --- 관측 공백 처리 — 창(우선) 또는 갭메우기(§9.4) ---
+        # 🔴 window_n>0(config 기본값)이면 아래 gap_fill 분기는 영영 도달하지 않는다 —
+        #    병행이 아니라 대체다(설계 §5.1: 유지 판단을 시간 기준→관측 횟수 기준으로
+        #    바꾸는 것). 갭메우기로 되돌리려면 HAND_WINDOW_N=0.
         if roi is None:
             hold = False
             if self.window_n > 0 and self._last_roi is not None:
