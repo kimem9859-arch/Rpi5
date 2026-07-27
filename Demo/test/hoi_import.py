@@ -20,7 +20,8 @@
       않는다 — 판정 생산(링 폭·체류 임계)이 바뀌면 stale 이 된다.
     - 측정 수치의 정본은 통합문서 §10 (복제 금지).
 
-예시 질의 — 오늘 파이썬으로 재조립하던 것들:
+예시 질의 — 오늘 파이썬으로 재조립하던 것들 (🔴 이 목록은 정본이 아니다 — `hoi_metrics.py` 가
+단일 출처):
 
     -- ① §10.27 버튼 y 구간별 팜 검출률 (절벽 y≈337 확인)
     SELECT CAST(p.button_y/40 AS INT)*40 AS y_bin, COUNT(*) AS n,
@@ -101,11 +102,14 @@ CREATE TABLE presses (               -- 눌림 1회 = 1행
     gap_frames  INTEGER,             -- 직전 눌림과의 간격 (첫 눌림 NULL) — §10.29⑥의 축
     gap_sec     REAL,
     button_y    REAL,                -- 그 버튼의 세션 median y — §10.26 절벽 판정의 축
-    is_violation INTEGER             -- 오답인가 (규칙 미정 세션은 NULL)
+    is_violation INTEGER,            -- 오답인가 (규칙 미정 세션은 NULL)
+    expected_button TEXT             -- 그때 기대되던 버튼 (FSM 시뮬레이터가 기대단계를 여기 맞춘다)
 );
 CREATE TABLE palm_frames (           -- 팜 임계·링을 행 안에 (같은 프레임이 임계별로 여러 행)
     session_id  TEXT REFERENCES sessions(id),
     frame INTEGER,
+    ts          REAL,                -- 세션 시작 기준 초 (perf_log 기준). 체류는 초 단위 연산이고
+                                     -- fps가 7.7~11.3으로 흔들려 frame/fps 추정이 불가하다.
     palm_thresh REAL, ring_px INTEGER,
     n_palm INTEGER, flag REAL,
     tip_x REAL, tip_y REAL,
@@ -215,6 +219,19 @@ def _violation_flags(presses, rule):
     return [None] * len(presses)
 
 
+def _expected_buttons(presses, flags):
+    """[(frame, button)] + 위반 플래그 → 그 눌림 시점에 **기대되던** 버튼.
+
+    정답이면 기대 버튼 = 누른 버튼이다. 위반이면 기대 버튼은 무엇인가?
+    🔴 이 데이터셋의 위반 규칙 3개(`expect_b1`·`mixed` 의 위반 구간)는 **전부
+       "기대 B1"** 이다 — 정답 주기를 마친 뒤 B1 을 건너뛰고 B2·B3·B4 를 누르는
+       촬영이었다(§10.23·§10.27 설계). 그래서 위반이면 일괄 "B1" 이다.
+       ⚠️ 다른 형태의 위반(예: 기대 B3 인데 B1)을 찍으면 이 함수를 고쳐야 한다.
+    """
+    return [None if f is None else (b if f == 0 else "B1")
+            for f, (_, b) in zip(flags, presses)]
+
+
 def _import_session(con, sid):
     """세션 1개의 sessions·presses·button_boxes 적재. → (눌림 수, 규칙명 or None)."""
     date_s, time_s, condition, model = _parse_session_id(sid)
@@ -257,6 +274,7 @@ def _import_session(con, sid):
                for r in _rows(os.path.join(LOGS_DIR, f"{sid}_gpio_log.csv"))]
     presses.sort()
     flags = _violation_flags(presses, rule)
+    expected = _expected_buttons(presses, flags)
 
     rows, want_frames = [], set()
     for i, (frame, button) in enumerate(presses):
@@ -268,19 +286,19 @@ def _import_session(con, sid):
         by = med(button)
         rows.append((sid, frame, button,
                      (times[frame] - t0) if frame in times else None,
-                     gap_f, gap_s, by, flags[i]))
+                     gap_f, gap_s, by, flags[i], expected[i]))
         want_frames.update(range(frame - BOX_WINDOW, frame + BOX_WINDOW + 1))
-    con.executemany("INSERT INTO presses VALUES (?,?,?,?,?,?,?,?)", rows)
+    con.executemany("INSERT INTO presses VALUES (?,?,?,?,?,?,?,?,?)", rows)
 
     # ── button_boxes: 눌림 근처만
     box_rows = [(sid, fr, *b) for fr in sorted(want_frames & boxes_by_frame.keys())
                 for b in boxes_by_frame[fr]]
     con.executemany("INSERT INTO button_boxes VALUES (?,?,?,?,?,?,?)", box_rows)
 
-    return len(rows), rule, posture
+    return len(rows), rule, posture, {f: t - t0 for f, t in times.items()}
 
 
-def _import_palm_cache(con, known_sessions):
+def _import_palm_cache(con, known_sessions, times_by_session):
     """palm_cache/*.csv → palm_frames. → (행 수, 조합 수, 캐시 없는 세션 목록)."""
     total, combos = 0, 0
     covered = set()
@@ -291,18 +309,20 @@ def _import_palm_cache(con, known_sessions):
         sid, thresh, ring = m.group(1), float(m.group(2)), int(m.group(3))
         if sid not in known_sessions:            # 삭제된 세션의 캐시가 남아 있을 수 있다
             continue
+        times = times_by_session.get(sid, {})
         rows = []
         for r in _rows(path):
             def num(k, cast=float):
                 v = r.get(k)
                 return cast(v) if v not in (None, "") else None
-            rows.append((sid, int(r["frame"]), thresh, ring,
+            fr = int(r["frame"])
+            rows.append((sid, fr, times.get(fr), thresh, ring,
                          num("n_palm", int), num("flag"),
                          num("tip_x"), num("tip_y"),
                          num("palm_cx"), num("palm_cy"), num("palm_size"),
                          r.get("zone_label") or None, num("zone_level", int)))
         con.executemany(
-            "INSERT INTO palm_frames VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            "INSERT INTO palm_frames VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         total += len(rows)
         combos += 1
         covered.add(sid)
@@ -326,15 +346,17 @@ def main():
 
     n_press = 0
     no_rule, no_posture = [], []
+    times_by_session = {}
     for sid in sessions:
-        cnt, rule, posture = _import_session(con, sid)
+        cnt, rule, posture, times = _import_session(con, sid)
         n_press += cnt
+        times_by_session[sid] = times
         if rule is None:
             no_rule.append(sid)
         if posture is None:
             no_posture.append(sid)
 
-    palm_rows, combos, no_cache = _import_palm_cache(con, set(sessions))
+    palm_rows, combos, no_cache = _import_palm_cache(con, set(sessions), times_by_session)
     con.commit()
 
     print(f"✅ {args.db}")
