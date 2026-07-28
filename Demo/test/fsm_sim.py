@@ -86,11 +86,15 @@ def simulate(con, session_id, dwell=None, gap_fill=None, thresh=hoi_metrics.PALM
         "SELECT frame, ts FROM palm_frames "
         "WHERE session_id=? AND palm_thresh=? ORDER BY frame", (session_id, thresh))}
     presses = hoi_metrics.load_presses(con, session_id)
-    if exclude_cliff:
-        presses = [p for p in presses
-                   if p["button_y"] is not None and p["button_y"] < CLIFF_Y]
     if not series:
         return None
+
+    # exclude_cliff 는 재생 자체를 바꾸지 않는다 — 절벽 눌림도 실제로 BLOCK 을 걸고
+    # expected_step 을 굴렸으므로, 타임라인에서 빼면 남은 눌림의 판정 궤적까지
+    # 달라진다(정직하지 않은 사후 층화). 전 눌림을 그대로 재생하고, 집계 단계에서만
+    # y < CLIFF_Y 로 좁힌다.
+    def _counts(p):
+        return not exclude_cliff or (p["button_y"] is not None and p["button_y"] < CLIFF_Y)
 
     warnings = []                      # WARNING 진입 시각
     fsm = SafetyFSM(
@@ -101,7 +105,7 @@ def simulate(con, session_id, dwell=None, gap_fill=None, thresh=hoi_metrics.PALM
     fsm.load_recipe()
 
     press_at = {p["frame"]: p for p in presses}
-    mirror_hits = 0
+    mirror_hits = mirror_total = 0
     blocked = violations = 0
     n_warn = 0
     nxt = 0                            # 다음에 올 눌림의 인덱스
@@ -122,16 +126,19 @@ def simulate(con, session_id, dwell=None, gap_fill=None, thresh=hoi_metrics.PALM
 
         if p is not None:
             # 런타임 거울 — 이 시점에 FSM 이 그 버튼 ROI 를 관측 중이었나
-            if fsm.last_roi == p["button"]:
-                mirror_hits += 1
-            if p["is_violation"] == 1:
-                violations += 1
-                # 사전 차단 = 이 눌림 **전에** WARNING 이 떠 있었나.
-                # 🔴 해제(정책 1·2)를 이 판정보다 **먼저** 하면 안 된다 — 앞선
-                #    프레임에서 올라온 WARNING 이 지워져 "그 프레임에서 새로 발화한
-                #    것"만 세게 된다(2026-07-27 실측으로 확인된 버그).
-                if fsm.state == State.WARNING or fired:
-                    blocked += 1
+            # (절벽 눌림도 정상 재생하되, exclude_cliff 면 집계에서만 뺀다)
+            if _counts(p):
+                mirror_total += 1
+                if fsm.last_roi == p["button"]:
+                    mirror_hits += 1
+                if p["is_violation"] == 1:
+                    violations += 1
+                    # 사전 차단 = 이 눌림 **전에** WARNING 이 떠 있었나.
+                    # 🔴 해제(정책 1·2)를 이 판정보다 **먼저** 하면 안 된다 — 앞선
+                    #    프레임에서 올라온 WARNING 이 지워져 "그 프레임에서 새로 발화한
+                    #    것"만 세게 된다(2026-07-27 실측으로 확인된 버그).
+                    if fsm.state == State.WARNING or fired:
+                        blocked += 1
             if fsm.state in (State.WARNING, State.BLOCK):
                 fsm.release_warning(); fsm.release_block()   # 정책 1·2
             fsm.press_button(p["button"], ts)
@@ -149,7 +156,7 @@ def simulate(con, session_id, dwell=None, gap_fill=None, thresh=hoi_metrics.PALM
     ts_all = [t for t in times.values() if t is not None]
     return {
         "session": session_id,
-        "mirror_hits": mirror_hits, "mirror_total": len(presses),
+        "mirror_hits": mirror_hits, "mirror_total": mirror_total,
         "blocked": blocked, "violations": violations,
         "false_alarms": n_warn - blocked,
         "duration_sec": (max(ts_all) - min(ts_all)) if ts_all else 0.0,

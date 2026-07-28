@@ -312,6 +312,28 @@ def test_last_roi_updates_during_warning():
     print("  PASS  WARNING 중에도 last_roi 가 갱신된다")
 
 
+def test_last_roi_expires_during_warning():
+    """WARNING 중 손이 갭메우기(0.3초)보다 오래 사라지면 last_roi 가 None 으로 만료된다.
+
+    (관측 무효화가 상태 게이트 '아래'에 남아 있으면 이게 실패한다 — WARNING/BLOCK
+    동안 last_roi 가 영원히 만료되지 않는 버그. 실측: gap_fill=0.3일 때 마지막 관측
+    (now=1.0)로부터 0.2초 공백은 유지, 0.6초 공백은 만료된다.)
+    """
+    fsm, _ = make_fsm(threshold=1.0, gap_fill=0.3)
+    run(fsm)
+    fsm.update_vision("B2", now=0.0)        # 오답 체류 시작
+    fsm.update_vision("B2", now=1.0)        # 체류 1.0 ≥ 임계 → WARNING
+    assert fsm.state == State.WARNING
+    assert fsm.last_roi == "B2"
+    fsm.update_vision(None, now=1.2)        # 공백 0.2초 < 갭메우기 0.3 → 아직 유지
+    assert fsm.last_roi == "B2"
+    assert fsm.state == State.WARNING        # 상태 전이는 여전히 막힘
+    fsm.update_vision(None, now=1.6)        # 공백 0.6초(1.0 기준) > 갭메우기 → 만료
+    assert fsm.last_roi is None              # 낡은 값으로 영원히 남지 않는다
+    assert fsm.state == State.WARNING        # 상태는 그대로 (해제 버튼만이 주체)
+    print("  PASS  WARNING 중 손이 오래 사라지면 last_roi 가 None 으로 만료된다")
+
+
 def test_warning_state_transition_still_blocked():
     """WARNING 중 update_vision 을 여러 번 불러도 상태 전이는 막힌다(관측만 된다)."""
     fsm, _ = make_fsm(threshold=1.0)

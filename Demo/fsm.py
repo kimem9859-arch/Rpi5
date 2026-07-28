@@ -158,15 +158,12 @@ class SafetyFSM:
         if roi is not None:
             self._last_roi, self._last_level, self._last_seen = roi, level, now
 
-        # --- ② 상태 게이트 — 전이는 여기서만 막는다 ---
-        if self.state in (State.IDLE, State.WARNING, State.BLOCK):
-            # 경고/차단 중에는 비전 틱으로 자동 전이하지 않음 (해제 버튼이 주체)
-            return
-
-        # --- 관측 공백 처리 — 창(우선) 또는 갭메우기(§9.4) ---
-        # 🔴 window_n>0(config 기본값)이면 아래 gap_fill 분기는 영영 도달하지 않는다 —
-        #    병행이 아니라 대체다(설계 §5.1: 유지 판단을 시간 기준→관측 횟수 기준으로
-        #    바꾸는 것). 갭메우기로 되돌리려면 HAND_WINDOW_N=0.
+        # --- ② 관측 공백 처리 — 창(우선) 또는 갭메우기(§9.4). 상태와 무관하게 판정한다 —
+        # 유지/무효화는 '무엇을 보고 있는가'라는 사실이지, 상태 전이가 아니다. 여기서
+        # 무효화하지 않으면 WARNING/BLOCK 동안 `_last_roi`가 영원히 만료되지 않는다.
+        # 🔴 window_n>0 이면 아래 gap_fill 분기는 영영 도달하지 않는다 — 병행이 아니라
+        #    대체다(설계 §5.1: 유지 판단을 시간 기준→관측 횟수 기준으로 바꾸는 것).
+        #    config 기본값은 HAND_WINDOW_N=0(폐기됨) — 즉 기본은 갭메우기가 동작한다.
         if roi is None:
             hold = False
             if self.window_n > 0 and self._last_roi is not None:
@@ -180,13 +177,22 @@ class SafetyFSM:
             if hold:
                 roi, level = self._last_roi, self._last_level    # 직전 관측 유지
             else:
-                # 진짜 이탈 → 오답 체류 취소(스침으로 간주), MONITOR면 정상 복귀
-                if self.state == State.MONITOR:
-                    self._goto(State.PROCESS_RUN)
-                self._reset_dwell()
+                # 진짜 이탈 → 관측 무효화 (상태와 무관 — WARNING/BLOCK 중에도 만료된다)
                 self._last_roi = self._last_level = self._last_seen = None
                 self._win.clear()
-                return
+                roi, level = None, None
+
+        # --- ③ 상태 게이트 — 전이는 여기서만 막는다 ---
+        if self.state in (State.IDLE, State.WARNING, State.BLOCK):
+            # 경고/차단 중에는 비전 틱으로 자동 전이하지 않음 (해제 버튼이 주체)
+            return
+
+        if roi is None:
+            # 진짜 이탈 → 오답 체류 취소(스침으로 간주), MONITOR면 정상 복귀
+            if self.state == State.MONITOR:
+                self._goto(State.PROCESS_RUN)
+            self._reset_dwell()
+            return
 
         # 손이 어떤 ROI 안에 있음 → 감시 시작
         if self.state == State.PROCESS_RUN:
