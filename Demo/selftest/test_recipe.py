@@ -89,6 +89,80 @@ def test_fsm_driven_by_recipe():
     print("  PASS  레시피 구동 FSM — 단계 진행 + 이름 매핑")
 
 
+# ----------------------------------------------------- 서브 작업(sub) 스키마
+# 정본: 상위 docs/superpowers/specs/2026-08-03-uiux-글라스-design.md §6
+def test_sub_backward_compatible():
+    """🔴 sub 가 없는 기존 레시피가 그대로 읽혀야 한다 — 하위 호환."""
+    with tempfile.TemporaryDirectory() as tmp:
+        r = load_recipe(_write(tmp, GOOD))          # GOOD 에는 sub 가 없다
+        assert all("sub" not in s for s in r["steps"])
+    print("  PASS  sub 없는 레시피 하위 호환")
+
+
+def test_sub_valid_forms():
+    """wait / wait_tool 두 형태가 통과한다."""
+    data = {**GOOD, "steps": [
+        {"order": 1, "button": "B1", "name": "1단계",
+         "sub": {"type": "wait", "sec": 30, "label": "대기"}},
+        {"order": 2, "button": "B2", "name": "2단계",
+         "sub": {"type": "wait_tool", "sec": 30, "label": "퍼지",
+                 "tool": "spanner", "tools": ["spanner", "driver", "wrench"]}},
+        {"order": 3, "button": "B3", "name": "3단계"},   # sub 없음도 섞인다
+    ]}
+    with tempfile.TemporaryDirectory() as tmp:
+        r = load_recipe(_write(tmp, data))
+        assert r["steps"][0]["sub"]["type"] == "wait"
+        assert r["steps"][1]["sub"]["tool"] == "spanner"
+        assert "sub" not in r["steps"][2]
+    print("  PASS  sub wait / wait_tool / 없음 혼재 허용")
+
+
+def test_sub_rejects_bad():
+    """잘못된 sub 는 거부한다 — 런타임에 조용히 무동작이 되는 것을 막는다."""
+    def step_with(sub):
+        return {**GOOD, "steps": [{"order": 1, "button": "B1", "name": "1", "sub": sub}]}
+
+    cases = [
+        ("type 미지원",      {"type": "countdown", "sec": 30, "label": "x"}),
+        ("type 없음",        {"sec": 30, "label": "x"}),
+        ("sec 0",           {"type": "wait", "sec": 0, "label": "x"}),
+        ("sec 음수",         {"type": "wait", "sec": -5, "label": "x"}),
+        ("sec 비숫자",       {"type": "wait", "sec": "30", "label": "x"}),
+        ("label 없음",       {"type": "wait", "sec": 30}),
+        ("wait_tool 인데 tools 없음",
+                            {"type": "wait_tool", "sec": 30, "label": "x", "tool": "spanner"}),
+        ("wait_tool 인데 tool 이 tools 밖",
+                            {"type": "wait_tool", "sec": 30, "label": "x",
+                             "tool": "hammer", "tools": ["spanner", "driver"]}),
+        ("sub 가 dict 가 아님", "wait"),
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        for label, sub in cases:
+            try:
+                load_recipe(_write(tmp, step_with(sub)))
+                assert False, f"{label}: 거부됐어야 함"
+            except RecipeError:
+                pass
+    print(f"  PASS  잘못된 sub {len(cases)}종 모두 거부")
+
+
+def test_real_recipe_has_scenario():
+    """실제 recipe.json 이 확정 시나리오를 담고 있는가 (design §5).
+
+    대기 3회(30초) + 2단계에 공구. 4단계는 서브 작업 없음.
+    """
+    r = load_recipe()
+    steps = r["steps"]
+    subs = [s.get("sub") for s in steps]
+
+    assert subs[0] and subs[0]["type"] == "wait" and subs[0]["sec"] == 30
+    assert subs[1] and subs[1]["type"] == "wait_tool" and subs[1]["sec"] == 30
+    assert subs[2] and subs[2]["type"] == "wait" and subs[2]["sec"] == 30
+    assert subs[3] is None, "4단계는 서브 작업이 없다(챔버 개방 = 시연 범위 밖)"
+    assert set(subs[1]["tools"]) == {"spanner", "driver", "wrench"}
+    print("  PASS  recipe.json 시나리오 — 대기 30s×3 + 2단계 공구 3종")
+
+
 def test_custom_sequence_non_b_labels():
     """버튼 라벨이 B1~B4가 아니어도(임의 라벨) 동작."""
     seq = [{"order": 1, "button": "LOAD", "name": "로딩"},

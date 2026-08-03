@@ -52,6 +52,48 @@ def _validate(data):
     if not (isinstance(thr, (int, float)) and thr > 0):
         raise RecipeError(f"dwell_threshold_sec가 양수가 아닙니다: {thr}")
 
+    for s in steps:
+        if "sub" in s:
+            _validate_sub(s["sub"], s.get("button", "?"))
+
+
+# 서브 작업 종류. 늘어나면 여기만 늘린다.
+SUB_TYPES = ("wait", "wait_tool")
+
+
+def _validate_sub(sub, button):
+    """서브 작업(sub) 검증 — 정본 = 상위 design 문서 §6.
+
+    sub 는 **선택**이다. 없으면 그 단계는 버튼을 누르는 즉시 다음으로 간다
+    (하위 호환: sub 개념이 없던 기존 레시피가 그대로 읽힌다).
+
+    잘못된 sub 를 통과시키면 런타임에 **조용히 무동작**이 되어
+    "왜 게이지가 안 뜨지"를 헤매게 되므로 여기서 거부한다.
+    """
+    where = f"step {button}의 sub"
+
+    if not isinstance(sub, dict):
+        raise RecipeError(f"{where}가 객체가 아닙니다: {sub!r}")
+
+    stype = sub.get("type")
+    if stype not in SUB_TYPES:
+        raise RecipeError(f"{where}.type 이 {SUB_TYPES} 중 하나가 아닙니다: {stype!r}")
+
+    sec = sub.get("sec")
+    if not (isinstance(sec, (int, float)) and not isinstance(sec, bool) and sec > 0):
+        raise RecipeError(f"{where}.sec 이 양수가 아닙니다: {sec!r}")
+
+    if not sub.get("label"):
+        raise RecipeError(f"{where}.label 이 비어 있습니다 (화면에 표시할 이름)")
+
+    if stype == "wait_tool":
+        tools = sub.get("tools")
+        if not isinstance(tools, list) or not tools:
+            raise RecipeError(f"{where}.tools 가 비어 있습니다 (선택지 목록)")
+        tool = sub.get("tool")
+        if tool not in tools:
+            raise RecipeError(f"{where}.tool({tool!r})이 tools{tools} 안에 없습니다")
+
 
 if __name__ == "__main__":
     import sys
