@@ -8,7 +8,7 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QTextBrowser, QPushButton, QSizePolicy,
-    QDialog, QApplication, QMessageBox,
+    QDialog, QApplication, QMessageBox, QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
@@ -31,6 +31,11 @@ from roi_zones import INSIDE as ZONE_INSIDE
 from recipe import load_recipe, RecipeError
 from interlock import InterlockController
 from gpio_input import GpioInputController
+
+import theme
+from sub_task import SubTask
+from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, place
+from overlay_menu import MenuPanel, NotifyPanel, SettingsPanel
 
 
 # =============================================================================
@@ -172,71 +177,6 @@ class CalibrationDialog(QDialog):
 
 
 # =============================================================================
-# [단계 흐름 매뉴얼 UI] PRO-7 — 디스플레이에 공정 단계 흐름 + 현재 단계 표시
-# =============================================================================
-class StepFlowWidget(QWidget):
-    """레시피 단계를 세로 흐름으로 표시하고 현재 단계를 강조한다.
-
-    완료(✓) / 현재(▶) / 예정(○) 으로 구분하고, FSM 상태가 WARNING·BLOCK이면
-    현재 단계 색을 경고(주황)·차단(빨강)으로 바꾼다. IDLE이면 전체 대기(STANDBY).
-    """
-
-    def __init__(self, steps, parent=None):
-        super().__init__(parent)
-        self._steps = steps
-        self.setStyleSheet(f"background-color: {BG_PANEL}; border: 1px solid {BORDER_COLOR};")
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(3)
-        layout.setContentsMargins(10, 8, 10, 8)
-
-        title = QLabel("공정 단계 매뉴얼")
-        title.setFont(config.font("title", 700))
-        title.setStyleSheet(f"color: {ACCENT}; border: none; padding-bottom: 4px;")
-        layout.addWidget(title)
-
-        self._rows = []
-        for _ in steps:
-            row = QLabel()
-            row.setWordWrap(True)
-            row.setFont(config.font("body"))
-            layout.addWidget(row)
-            self._rows.append(row)
-        layout.addStretch()
-
-        self.update_view(1, State.IDLE)
-
-    def update_view(self, expected_step, state):
-        started = state != State.IDLE
-        # 현재 단계 색은 상태에 따라
-        if state == State.WARNING:
-            cur_color, cur_mark = STATUS_WARNING, "⚠"
-        elif state == State.BLOCK:
-            cur_color, cur_mark = STATUS_DANGER, "⛔"
-        else:
-            cur_color, cur_mark = ACCENT, "▶"
-
-        for i, (s, row) in enumerate(zip(self._steps, self._rows)):
-            order = i + 1
-            text = f"{s['button']:<4} {s.get('name', '')}"
-
-            if not started:                                  # 대기
-                mark, fg, weight, border = "○", TEXT_SECONDARY, "normal", "transparent"
-            elif order < expected_step:                      # 완료
-                mark, fg, weight, border = "✓", STATUS_OK, "normal", "transparent"
-            elif order == expected_step:                     # 현재
-                mark, fg, weight, border = cur_mark, cur_color, "bold", cur_color
-            else:                                            # 예정
-                mark, fg, weight, border = "○", TEXT_SECONDARY, "normal", "transparent"
-
-            row.setText(f"{mark} {text}")
-            row.setStyleSheet(
-                f"color: {fg}; font-weight: {weight}; border: none;"
-                f"border-left: 3px solid {border}; padding: 4px 6px;"
-            )
-
-
-# =============================================================================
 # [메인 콘솔]
 # =============================================================================
 class SafetyConsole(QMainWindow):
@@ -262,6 +202,14 @@ class SafetyConsole(QMainWindow):
         self._active_camera = "esp32"
         self._last_yolo_classes = set()
         self._last_roi = (None, 0)   # (ROI 라벨, 구역 단계) — 로그 중복 억제용
+
+        # 서브 작업(대기·공구) — design §5. FSM 을 고치지 않는 대신 여기서 굴린다.
+        self._sub = None             # 진행 중인 SubTask
+        self._sub_button = None      # 그 서브 작업을 시작시킨 버튼
+        self._tool_override = None   # 설정 메뉴에서 바꾼 지정 공구(세션 한정)
+        self._sub_timer = QTimer()
+        self._sub_timer.setInterval(200)
+        self._sub_timer.timeout.connect(self._tick_sub)
 
         # 공정 레시피(정답 순서 단일 출처, §6) 로드. 실패해도 기본 시퀀스로 동작.
         try:
@@ -350,96 +298,139 @@ class SafetyConsole(QMainWindow):
     # [UI 초기화]
     # =========================================================================
     def _init_ui(self):
+        """글라스 UI — 영상 가운데 4:3, 좌우 검정 레터박스, 모든 UI 는 오버레이.
+
+        정본 = 상위 specs/2026-08-03-uiux-글라스-design.md §1·§4.
+        기존 좌7:우3 2단 배치를 대체한다.
+        """
         central = QWidget()
+        central.setStyleSheet(f"background-color: #000000;")
         self.setCentralWidget(central)
-        main_layout = QHBoxLayout(central)
+        self._root = central
 
-        self.camera_label = QLabel("카메라 연결 대기 중...")
+        # ── 영상 (가운데 4:3, 나머지는 검정) ────────────────────────────────
+        self.camera_label = QLabel("카메라 연결 대기 중...", central)
         self.camera_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.camera_label.setStyleSheet(
-            f"background-color: {BG_PANEL}; color: {TEXT_SECONDARY}; font-size: 16px;"
-            f"border: 2px solid {BORDER_COLOR};"
-        )
-        self.camera_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.camera_label.setStyleSheet("background-color: #000000; color: #8d949a;")
 
-        right_layout = QVBoxLayout()
-
-        self.state_label = QLabel("● STANDBY")
-        self.state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.state_label.setFont(config.font("state", 800))
-        self.state_label.setFixedHeight(80)
-        self.state_label.setStyleSheet(
-            f"background-color: {BG_PANEL}; color: {STATUS_OK};"
-            f"border: 2px solid {STATUS_OK}; padding: 10px; letter-spacing: 2px;"
-        )
-
-        self.log_browser = QTextBrowser()
-        self.log_browser.setFont(config.font("small"))
-        self.log_browser.setStyleSheet(
-            f"background-color: {BG_LOG}; color: {TEXT_LOG};"
-            f"border: 1px solid {BORDER_COLOR}; padding: 8px;"
-        )
-        self.log_browser.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        # 공정 제어 + 해제 버튼 2종 (해제 버튼은 §9.3: WARNING용/BLOCK용 분리)
-        self.btn_start_process = QPushButton("공정 시작 (레시피 로드)")
-        self.btn_release_warn  = QPushButton("WARNING 해제")
-        self.btn_release_block = QPushButton("BLOCK 해제")
-        self.btn_start_process.clicked.connect(self._on_start_process)
-        self.btn_release_warn.clicked.connect(lambda: self.fsm.release_warning())
-        self.btn_release_block.clicked.connect(self._release_block)
-        ctrl_base = "font-size: 12px; font-weight: bold; padding: 6px; border-radius: 2px; border: none;"
-        self.btn_start_process.setStyleSheet(ctrl_base + f"background-color: {BTN_ACTIVE}; color: {TEXT_PRIMARY};")
-        self.btn_release_warn.setStyleSheet(ctrl_base + f"background-color: {STATUS_WARNING}; color: {BG_PRIMARY};")
-        self.btn_release_block.setStyleSheet(ctrl_base + f"background-color: {STATUS_DANGER}; color: {TEXT_PRIMARY};")
-
-        release_row = QHBoxLayout()
-        release_row.addWidget(self.btn_release_warn)
-        release_row.addWidget(self.btn_release_block)
-
-        # 단계 흐름 매뉴얼 (PRO-7) — 레시피 기반. 레시피 없으면 기본 B1~B4로 구성.
+        # ── 오버레이 ───────────────────────────────────────────────────────
         steps = self._recipe["steps"] if self._recipe else [
             {"order": i + 1, "button": f"B{i + 1}", "name": f"{i + 1}단계"}
             for i in range(self.fsm.step_count)
         ]
-        self.step_flow = StepFlowWidget(steps)
+        self.status_panel = StatusPanel(steps, central)
+        self.gauge_panel  = GaugePanel(central)
+        self.glow         = GlowFrame(central)
+        self.alert        = AlertBanner(central)
+        self.alert.release_clicked.connect(self._on_alert_release)
 
-        right_layout.addWidget(self.state_label)
-        right_layout.addWidget(self.step_flow)
-        right_layout.addWidget(self.btn_start_process)
-        right_layout.addLayout(release_row)
-        right_layout.addWidget(self.log_browser, stretch=1)
+        # ── 버튼 (메뉴·알림·CTA) ───────────────────────────────────────────
+        self.btn_menu = QPushButton("☰", central)
+        self.btn_menu.setFont(config.font("cta", 700))
+        self.btn_menu.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_menu.clicked.connect(self._toggle_menu)
 
-        self.btn_esp32_cam = QPushButton("초소형카메라")
-        self.btn_usb_cam   = QPushButton("CCTV")
-        self.btn_calibrate = QPushButton("캘리브레이션")
-        self.btn_esp32_cam.clicked.connect(lambda: self._switch_camera("esp32"))
-        self.btn_usb_cam.clicked.connect(lambda: self._switch_camera("usb"))
-        self.btn_calibrate.clicked.connect(self._open_calibration_dialog)
-        self._apply_cam_btn_style()
+        self.btn_notify = QPushButton("🔔", central)
+        self.btn_notify.setFont(config.font("cta", 700))
+        self.btn_notify.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_notify.clicked.connect(self._toggle_notify)
 
-        # 시스템 종료(라즈베리파이 안전 종료) — 실수 방지 위해 위험색 + 확인창.
-        self.btn_shutdown = QPushButton("⏻ 시스템 종료")
-        self.btn_shutdown.clicked.connect(self._on_shutdown_clicked)
-        self.btn_shutdown.setStyleSheet(
-            f"background-color: {BTN_INACTIVE}; color: {STATUS_DANGER};"
-            f"border: 2px solid {STATUS_DANGER}; padding: 6px 12px; font-weight: bold;"
-        )
+        # 작업 시작 / 다음 단계 진행 — 화면 정중앙(design §4.1·§4.3)
+        self.btn_cta = QPushButton("▶  작업 시작", central)
+        self.btn_cta.setFont(config.font("cta", 800))
+        self.btn_cta.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_cta.clicked.connect(self._on_cta)
 
-        cam_btn_layout = QHBoxLayout()
-        cam_btn_layout.addWidget(self.btn_esp32_cam)
-        cam_btn_layout.addWidget(self.btn_usb_cam)
-        cam_btn_layout.addWidget(self.btn_calibrate)
-        cam_btn_layout.addStretch()
-        cam_btn_layout.addWidget(self.btn_shutdown)   # 오른쪽 끝에 분리 배치
+        # 🔴 버튼이 포커스를 가져가면 keyPressEvent(ESC·1~4·E)가 안 온다.
+        for b in (self.btn_menu, self.btn_notify, self.btn_cta):
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-        cam_panel = QVBoxLayout()
-        cam_panel.setSpacing(4)
-        cam_panel.addLayout(cam_btn_layout)
-        cam_panel.addWidget(self.camera_label)
+        # ── 시트 패널 (열었을 때만) ────────────────────────────────────────
+        self.menu_panel = MenuPanel(central)
+        self.menu_panel.closed.connect(lambda: self._toggle_menu(False))
+        self.menu_panel.log_clicked.connect(self._show_log)
+        self.menu_panel.calibrate_clicked.connect(self._open_calibration_dialog)
+        self.menu_panel.cctv_clicked.connect(self._toggle_camera_source)
+        self.menu_panel.settings_clicked.connect(self._open_settings)
+        self.menu_panel.shutdown_clicked.connect(self._on_shutdown_clicked)
 
-        main_layout.addLayout(cam_panel, stretch=7)
-        main_layout.addLayout(right_layout, stretch=3)
+        self.notify_panel = NotifyPanel(central)
+        self.notify_panel.closed.connect(lambda: self._toggle_notify(False))
+
+        self.settings_panel = SettingsPanel(central)
+        self.settings_panel.closed.connect(lambda: self._toggle_settings(False))
+        self.settings_panel.tool_changed.connect(self._on_tool_changed)
+        self.settings_panel.theme_changed.connect(self._on_theme_changed)
+        # 공구 선택지는 **레시피가 준다** — 목록을 코드에 박지 않는다(design §4.4).
+        self._wire_tool_settings()
+
+        # 로그는 메뉴 안으로 — 평소엔 숨는다(design §4.7)
+        self.log_browser = QTextBrowser(central)
+        self.log_browser.setFont(config.font("small"))
+        self.log_browser.hide()
+
+        self._apply_theme()
+        self._relayout()
+
+    # =========================================================================
+    # [글라스 UI — 배치·테마]
+    # =========================================================================
+    def _relayout(self):
+        """창 크기가 바뀔 때마다 % 기준으로 다시 배치한다."""
+        if not hasattr(self, "_root"):
+            return
+        # ⚠️ QMainWindow 가 centralWidget 을 언제 resize 하는지는 이벤트 순서에 달려
+        #    있어, 여기서 직접 맞춘다. 안 그러면 창을 키워도 오버레이가 옛 크기로 앉는다.
+        self._root.setGeometry(self.contentsRect())
+        r = self._root.rect()
+        pw, ph = r.width(), r.height()
+
+        # 영상: 가운데 4:3(높이를 꽉 채움). 좌우가 검정 레터박스가 된다.
+        vh = ph
+        vw = int(vh * 4 / 3)
+        if vw > pw:                       # 창이 4:3보다 좁으면 폭 기준
+            vw, vh = pw, int(pw * 3 / 4)
+        self.camera_label.setGeometry((pw - vw) // 2, (ph - vh) // 2, vw, vh)
+
+        self.status_panel.relayout(r)
+        self.gauge_panel.relayout(r)
+        self.glow.relayout(r)
+        self.alert.relayout(r)
+        self.menu_panel.relayout(r)
+        self.notify_panel.relayout(r)
+        self.settings_panel.relayout(r)
+
+        place(self.btn_menu, r, right=0.14, top=0.05)
+        place(self.btn_notify, r, left=0.14, bottom=0.05)
+        place(self.btn_cta, r)            # 정중앙
+        self.log_browser.setGeometry(int(pw * 0.14), int(ph * 0.10),
+                                     int(pw * 0.50), int(ph * 0.80))
+
+        for w in (self.glow, self.alert, self.menu_panel,
+                  self.notify_panel, self.settings_panel, self.log_browser):
+            w.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._relayout()
+
+    def _apply_theme(self):
+        """테마가 바뀌면 모든 오버레이에 다시 적용한다."""
+        for w in (self.status_panel, self.gauge_panel, self.alert,
+                  self.menu_panel, self.notify_panel, self.settings_panel):
+            w.apply_theme()
+        btn_qss = (f"QPushButton {{ {theme.panel_qss('panel', padding='8px 14px')} }}"
+                   f"QPushButton:hover {{ color: {theme.C('info')}; }}")
+        self.btn_menu.setStyleSheet(btn_qss)
+        self.btn_notify.setStyleSheet(btn_qss)
+        self.btn_cta.setStyleSheet(
+            f"QPushButton {{ background-color: {theme.C('cta_bg')};"
+            f" color: {theme.C('cta_text')}; border: 1px solid {theme.C('cta_border')};"
+            f" border-radius: 12px; padding: 18px 42px; }}")
+        self.log_browser.setStyleSheet(
+            theme.panel_qss("sheet", padding="10px 12px")
+            + f"color: {theme.C('text')};")
+
 
     # =========================================================================
     # [슬롯]
@@ -464,24 +455,128 @@ class SafetyConsole(QMainWindow):
 
     def _switch_camera(self, source):
         self._active_camera = source
-        self._apply_cam_btn_style()
         self._last_yolo_classes = set()
         self.camera_thread.set_active(source == "esp32")
         self.usb_camera_thread.set_active(source == "usb")
         label = "초소형카메라 (ESP32-S3)" if source == "esp32" else "CCTV (USB 웹캠)"
         self._append_log(f"[카메라] {label}로 전환")
+        self._notify("work", "카메라 전환", label)
         if source == "esp32":
             self.camera_label.setText("ESP32-S3 연결 대기 중...")
 
-    def _apply_cam_btn_style(self):
-        active   = f"background-color: {BTN_ACTIVE}; color: {TEXT_PRIMARY}; border: 1px solid {ACCENT};"
-        inactive = f"background-color: {BTN_INACTIVE}; color: {TEXT_SECONDARY}; border: 1px solid {BORDER_COLOR};"
-        calib    = f"background-color: {BTN_CALIB}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_COLOR};"
-        base     = (f"font-size: 12px; font-weight: bold; padding: 5px 14px; "
-                    f"border-radius: 2px; font-family: {config.UI_FONT_FAMILY};")
-        self.btn_esp32_cam.setStyleSheet(base + (active if self._active_camera == "esp32" else inactive))
-        self.btn_usb_cam.setStyleSheet(base   + (active if self._active_camera == "usb"   else inactive))
-        self.btn_calibrate.setStyleSheet(base + calib)
+    def _toggle_camera_source(self):
+        """메뉴의 「CCTV 전환」 — 두 카메라를 번갈아 쓴다."""
+        self._switch_camera("usb" if self._active_camera == "esp32" else "esp32")
+        self._toggle_menu(False)
+
+    # =========================================================================
+    # [글라스 UI — 패널 열고 닫기]
+    # =========================================================================
+    # ⚠️ 열림 판정은 isHidden() 으로 한다 — 창이 아직 안 보이는 동안
+    #    자식 위젯의 isVisible() 은 항상 False 라 토글이 엉킨다.
+    def _toggle_menu(self, show=None):
+        want = self.menu_panel.isHidden() if show is None else show
+        if want:
+            self._close_sheets(except_=self.menu_panel)
+        self.menu_panel.setVisible(want)
+        if want:
+            self.menu_panel.raise_()
+        self._dim_others(self._any_sheet_open())
+
+    def _toggle_notify(self, show=None):
+        want = self.notify_panel.isHidden() if show is None else show
+        if want:
+            self._close_sheets(except_=self.notify_panel)
+        self.notify_panel.setVisible(want)
+        if want:
+            self.notify_panel.raise_()
+        self._dim_others(self._any_sheet_open())
+
+    def _toggle_settings(self, show=None):
+        want = self.settings_panel.isHidden() if show is None else show
+        if want:
+            self._close_sheets(except_=self.settings_panel)
+            # 🔴 공구는 IDLE 일 때만 바꿀 수 있다 — 진행 중에 바뀌면 판정이 흔들린다.
+            self.settings_panel.set_tool_editable(self.fsm.state == State.IDLE)
+        self.settings_panel.setVisible(want)
+        if want:
+            self.settings_panel.raise_()
+        self._dim_others(self._any_sheet_open())
+
+    def _sheets(self):
+        return (self.menu_panel, self.notify_panel, self.settings_panel)
+
+    def _close_sheets(self, except_=None):
+        """한 번에 하나만 열리게 한다 — 겹치면 뒤엣것을 못 읽는다."""
+        for p in self._sheets():
+            if p is not except_:
+                p.hide()
+        if except_ is not self.log_browser:
+            self.log_browser.hide()
+
+    def _any_sheet_open(self):
+        return any(not p.isHidden() for p in self._sheets())
+
+    def _open_settings(self):
+        self._toggle_menu(False)
+        self._toggle_settings(True)
+
+    def _show_log(self):
+        self._toggle_menu(False)
+        self.log_browser.setVisible(not self.log_browser.isVisible())
+        self.log_browser.raise_()
+
+    def _dim_others(self, dimmed):
+        """열린 패널·경고가 주인공이 되도록 나머지를 낮춘다 (design §4.7·§4.5).
+
+        ⚠️ setWindowOpacity 는 **최상위 창에만** 먹는다. 자식 위젯은
+           QGraphicsOpacityEffect 를 걸어야 한다.
+        """
+        alpha = theme.DIM_OPACITY if dimmed else 1.0
+        for w in (self.status_panel, self.gauge_panel, self.btn_menu, self.btn_notify):
+            eff = QGraphicsOpacityEffect(w)
+            eff.setOpacity(alpha)
+            w.setGraphicsEffect(eff)
+
+    # =========================================================================
+    # [글라스 UI — 설정 반영]
+    # =========================================================================
+    def _wire_tool_settings(self):
+        """레시피에서 공구 선택지를 찾아 설정 패널에 넘긴다.
+
+        `wait_tool` 서브 작업이 없으면 공구 항목 자체가 비어 있게 둔다 —
+        시나리오가 바뀌어도 코드를 안 고치게 하려는 것이다.
+        """
+        for s in (self._recipe or {}).get("steps", []):
+            sub = s.get("sub") or {}
+            if sub.get("type") == "wait_tool":
+                self.settings_panel.set_tools(
+                    sub.get("tools", []), sub.get("tool"), sub.get("tool_names"))
+                return
+
+    def _on_tool_changed(self, tool_key):
+        self._tool_override = tool_key
+        name = self._tool_display_name(tool_key)
+        self._append_log(f"[설정] 지정 공구 → {name}")
+        self._notify("work", "설정 변경", f"지정 공구 → {name}")
+
+    def _on_theme_changed(self, name):
+        theme.set_theme(name)
+        self._apply_theme()
+        self._relayout()
+        self._append_log(f"[설정] 화면 테마 → {'다크' if name == 'dark' else '화이트'}")
+
+    def _tool_display_name(self, key):
+        for s in (self._recipe or {}).get("steps", []):
+            sub = s.get("sub") or {}
+            if key in (sub.get("tools") or []):
+                return sub.get("tool_names", {}).get(key, key)
+        return key
+
+    def _notify(self, kind, title, sub=""):
+        """알림 추가 + 버튼 뱃지 갱신."""
+        self.notify_panel.push(kind, title, sub)
+        self.btn_notify.setText(f"🔔 {self.notify_panel.count}")
 
     @pyqtSlot(str)
     def _append_log(self, message):
@@ -524,17 +619,133 @@ class SafetyConsole(QMainWindow):
 
     def _on_start_process(self):
         self.fsm.load_recipe()
-        self._append_log(f"[FSM] 공정 시작 — {self.fsm.expected_step}단계: "
+        self._append_log(f"[FSM] 작업 시작 — {self.fsm.expected_step}단계: "
                          f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
+        self._notify("work", "작업 시작",
+                     f"{(self._recipe or {}).get('process_name', '기본 시퀀스')} "
+                     f"{self.fsm.step_count}단계")
 
+    # =========================================================================
+    # [서브 작업] design §5 — 메인 버튼과 다음 버튼 사이에 끼는 작업
+    # =========================================================================
     def _press_button(self, button):
-        """물리 버튼 눌림(시연: 키보드 1~4·E). 실제로는 Arduino Serial 입력."""
+        """물리 버튼 눌림(시연: 키보드 1~4·E). 실제로는 GPIO 입력.
+
+        🔑 **정답 버튼이고 서브 작업이 있으면 FSM 에 바로 알리지 않는다.**
+           서브 작업을 시작하고, 「다음 단계 진행」에서 비로소 fsm.press_button() 을 부른다.
+           그 지연 덕분에 대기 중 다른 버튼을 누르면 기대단계가 아직 안 올라가 있어
+           FSM 이 **자동으로 오답 판정**한다 — FSM 을 고칠 필요가 없다(design §5).
+        """
+        self._append_log(f"[버튼] {button} 눌림")
+
+        # 서브 작업 진행 중이면 어떤 버튼이든 FSM 으로 보낸다 → 오답이면 위반 판정
+        if self._sub is not None and self._sub.is_active:
+            self._commit_button(button)
+            return
+
+        spec = self._sub_spec_for(button)
+        if spec is not None and self.fsm.state != State.IDLE and button == self.fsm.correct_roi:
+            self._begin_sub(button, spec)
+            return
+
+        self._commit_button(button)
+
+    def _commit_button(self, button):
+        """FSM 에 실제로 눌림을 전달한다."""
         before = self.fsm.expected_step
         self.fsm.press_button(button, time.time())
-        self._append_log(f"[버튼] {button} 눌림")
         if self.fsm.expected_step != before and self.fsm.state != State.IDLE:
             self._append_log(f"[FSM] 단계 진행 → {self.fsm.expected_step}단계: "
                              f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
+            self._notify("work", f"{before}단계 완료",
+                         f"{button} {self._step_name(before)}")
+
+    def _sub_spec_for(self, button):
+        """그 버튼 단계의 서브 작업 사양. 없으면 None."""
+        for s in (self._recipe or {}).get("steps", []):
+            if s.get("button") == button:
+                spec = s.get("sub")
+                if spec and self._tool_override and spec.get("type") == "wait_tool":
+                    spec = dict(spec, tool=self._tool_override)   # 설정에서 바꾼 공구 반영
+                return spec
+        return None
+
+    def _step_name(self, order):
+        for s in (self._recipe or {}).get("steps", []):
+            if s.get("order") == order:
+                return s.get("name", "")
+        return ""
+
+    def _begin_sub(self, button, spec):
+        self._sub = SubTask(spec)
+        self._sub_button = button
+        self._sub_timer.start()
+        self._append_log(f"[서브] {spec['label']} 시작 ({spec['sec']}초)")
+        self._update_sub_view()
+
+    def _tick_sub(self):
+        if self._sub is None or not self._sub.is_active:
+            return
+        self._sub.tick()
+        self._update_sub_view()
+
+    def _update_sub_view(self):
+        """게이지·CTA·공구 경고를 서브 작업 상태에 맞춘다."""
+        sub = self._sub
+        self.gauge_panel.update_view(sub)
+        self._relayout()
+
+        if sub is None or not sub.is_active:
+            self.btn_cta.hide()
+            return
+
+        # 공구 오선택 — 🔴 해제 버튼 없이, 올바른 공구로 바꾸면 스스로 풀린다
+        if sub.wrong_tool:
+            if self.alert.mode != "tool":
+                self.alert.show_wrong_tool(sub.wrong_tool_name, sub.want_tool_name)
+                self.glow.set_level("warn")
+                self._dim_others(True)
+                self._notify("warn", "다른 공구입니다",
+                             f"{sub.wrong_tool_name} → {sub.want_tool_name} 필요")
+                self._relayout()
+        elif self.alert.mode == "tool":
+            self.alert.hide_all()
+            self.glow.set_level(None)
+            self._dim_others(False)
+
+        # 진행 버튼은 조건을 다 채웠을 때만
+        if sub.can_advance:
+            self.btn_cta.setText("▶  다음 단계 진행")
+            self.btn_cta.show()
+            self.btn_cta.raise_()
+        else:
+            self.btn_cta.hide()
+
+    def _finish_sub(self):
+        """「다음 단계 진행」 — 여기서 비로소 FSM 에 눌림을 전달한다."""
+        button = self._sub_button
+        self._sub_timer.stop()
+        self._sub = None
+        self._sub_button = None
+        self.gauge_panel.update_view(None)
+        self.btn_cta.hide()
+        if button:
+            self._commit_button(button)
+
+    def _on_cta(self):
+        """화면 정중앙 버튼 — IDLE 이면 「작업 시작」, 서브 작업 중이면 「다음 단계 진행」."""
+        if self._sub is not None and self._sub.is_active:
+            self._finish_sub()
+        else:
+            self._on_start_process()
+            self.btn_cta.hide()
+
+    def _on_alert_release(self):
+        """경고·차단 배너의 해제 버튼."""
+        if self.alert.mode == "block":
+            self._release_block()
+        elif self.alert.mode == "order":
+            self.fsm.release_warning()
 
     def _release_block(self):
         """BLOCK 해제 버튼 — EMO가 물리적으로 복귀되지 않았으면 거부.
@@ -556,7 +767,29 @@ class SafetyConsole(QMainWindow):
         self.fsm.release_block()
 
     def keyPressEvent(self, event):
-        """시연용 버튼 입력: 1~4 = B1~B4 눌림, E = 비상정지(EMO)."""
+        """시연용 버튼 입력: 1~4 = B1~B4 눌림, E = 비상정지(EMO).
+
+        🔴 ESC = 탈출구 — Full Screen 이라 메뉴가 유일한 출구다(design §7).
+           마우스·터치가 안 먹거나 메뉴가 안 열려도 여기로 빠져나온다.
+        ⚠️ 오버레이 버튼으로 포커스가 옮겨가면 이 핸들러가 안 불릴 수 있어
+           버튼들에 NoFocus 를 준다(_init_ui).
+        """
+        if event.key() == Qt.Key.Key_Escape:
+            # 열려 있는 패널부터 닫는다 — 한 번에 창을 닫지 않는다(오조작 방지)
+            # ⚠️ isVisible() 이 아니라 isHidden() 을 본다 — 창이 아직 안 보이는
+            #    상태에서는 자식의 isVisible() 이 항상 False 라 이 분기가 통째로 죽는다.
+            for panel in (self.settings_panel, self.menu_panel, self.notify_panel):
+                if not panel.isHidden():
+                    panel.hide()
+                    self._dim_others(False)
+                    return
+            if not self.log_browser.isHidden():
+                self.log_browser.hide()
+                return
+            self._append_log("[시스템] ESC — 창을 닫습니다")
+            self.close()
+            return
+
         key = event.text().upper()
         if key in ("1", "2", "3", "4"):
             self._press_button(f"B{key}")
@@ -566,24 +799,43 @@ class SafetyConsole(QMainWindow):
             super().keyPressEvent(event)
 
     # --- FSM 콜백 (GUI 스레드에서 호출됨) ---
-    _STATE_COLOR = {
-        State.IDLE:        STATUS_OK,
-        State.READY:       STATUS_OK,
-        State.PROCESS_RUN: STATUS_OK,
-        State.MONITOR:     ACCENT,
-        State.WARNING:     STATUS_WARNING,
-        State.BLOCK:       STATUS_DANGER,
-    }
+    # ※ 상태 색은 theme.py 가 정본이다(StatusPanel 이 토큰으로 고른다).
+    #   종전의 _STATE_COLOR 표는 config 의 단일 테마 색을 직접 쓰고 있어 제거했다.
 
     def _on_fsm_state(self, old, new):
-        color = self._STATE_COLOR.get(new, TEXT_PRIMARY)
-        self.state_label.setText(f"● {new.value}")
-        self.state_label.setStyleSheet(
-            f"background-color: {BG_PANEL}; color: {color};"
-            f"border: 2px solid {color}; padding: 10px; letter-spacing: 2px;"
-        )
-        self.step_flow.update_view(self.fsm.expected_step, new)
+        self.status_panel.update_view(new.value, self.fsm.expected_step)
         self._append_log(f"[FSM] {old.value} → {new.value}")
+
+        # 발광·배너는 상태에 따라 — 🔴 발광은 영상 영역에만(GlowFrame 이 담당)
+        if new == State.BLOCK:
+            self.glow.set_level("block")
+            self.alert.show_block()
+            self._dim_others(True)
+            self._notify("danger", "전기 입력 차단됨",
+                         f"{self.fsm.expected_step}단계 {self.fsm.correct_roi}")
+        elif new == State.WARNING:
+            self.glow.set_level("warn")
+            self.alert.show_order_violation(self.fsm.correct_roi, self.fsm.current_step_name)
+            self._dim_others(True)
+            self._notify("warn", "순서가 다릅니다",
+                         f"지금은 {self.fsm.correct_roi} {self.fsm.current_step_name}")
+        else:
+            # 공구 경고는 서브 작업 쪽이 관리하므로 그때는 지우지 않는다
+            if self.alert.mode != "tool":
+                self.glow.set_level(None)
+                self.alert.hide_all()
+                self._dim_others(False)
+
+        # IDLE 로 돌아오면 다시 「작업 시작」을 띄운다
+        if new == State.IDLE:
+            self._sub_timer.stop()
+            self._sub = None
+            self._sub_button = None
+            self.gauge_panel.update_view(None)
+            self.btn_cta.setText("▶  작업 시작")
+            self.btn_cta.show()
+
+        self._relayout()
 
     def _on_interlock(self, engaged):
         # Arduino Serial 로 릴레이 차단/복구 (트랙 A, interlock.py). BLOCK 진입 시
