@@ -16,8 +16,10 @@
     → 가장 큰 효과 하나(퍼지는 후광)를 걸고, 색 대비(design §3)가 나머지를 맡는다.
 """
 
-from PyQt6.QtCore import Qt, QRect
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGraphicsDropShadowEffect
+from PyQt6.QtCore import Qt, QRect, pyqtSignal
+from PyQt6.QtWidgets import (
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QGraphicsDropShadowEffect,
+)
 from PyQt6.QtGui import QColor
 
 import config
@@ -243,3 +245,169 @@ class GaugePanel(_Panel):
         p = _POS["gauge"]
         width = _POS["gauge_w_tool"] if self._needs_tool else p["width"]
         place(self, parent_rect, left=p["left"], top=p["top"], width=width)
+
+
+# =============================================================================
+# [경고·차단] design §4.5·§4.6
+# =============================================================================
+
+_BANNER_POS = {"width": 0.44, "bottom": 0.13}
+_BLOCK_POS  = {"width": 0.46}
+
+
+class GlowFrame(QWidget):
+    """상태 발광 테두리.
+
+    🔴 **영상 영역(가운데 75%)에만** 걸린다 — 검정 레터박스는 빛나지 않는다(design §4.5).
+       그래서 부모 전체가 아니라 영상 사각형에 맞춰 배치한다.
+    """
+
+    _SPEC = {
+        "warn":  ("warn",   9, 60),    # (색 토큰, 테두리 두께 px, 안쪽 번짐 px)
+        "block": ("danger", 12, 90),
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._level = None
+        self.hide()
+
+    def set_level(self, level):
+        """level: None | "warn" | "block"."""
+        self._level = level
+        if level is None:
+            self.hide()
+            return
+        token, border, spread = self._SPEC[level]
+        c = theme.C(token)
+        self.setStyleSheet(
+            f"background: transparent;"
+            f"border: {border}px solid {c};"
+            f"border-radius: 6px;")
+        self.raise_()
+        self.show()
+
+    @property
+    def level(self):
+        return self._level
+
+    def relayout(self, parent_rect):
+        """영상 영역 = 가운데 75%. 좌우 12.5%씩 검정."""
+        pw, ph = parent_rect.width(), parent_rect.height()
+        self.setGeometry(QRect(int(pw * VIDEO_LEFT_RATIO), 0,
+                               int(pw * VIDEO_WIDTH_RATIO), ph))
+
+
+class AlertBanner(_Panel):
+    """경고·차단 배너.
+
+    두 종류의 경고가 있고 **해제 버튼 유무가 다르다**(design §4.3·§4.5):
+      - 순서 위반: 손을 뗐는지 시스템이 알 수 없어 **사람이 해제**해야 한다 → 버튼 있음
+      - 공구 오선택: 다시 보면 안다 → **버튼 없음.** 올바른 공구로 바꾸면 스스로 풀린다
+        (버튼을 두면 잘못된 공구를 든 채 넘어갈 수 있다)
+    """
+
+    release_clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self._mode = None
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(14)
+
+        self._icon = QLabel("⚠")
+        self._icon.setFont(config.font("cta", 800))
+        lay.addWidget(self._icon)
+
+        col = QVBoxLayout()
+        col.setSpacing(3)
+        self._title = QLabel("")
+        self._title.setFont(config.font("banner", 800))
+        self._line1 = QLabel("")
+        self._line1.setFont(config.font("body", 600))
+        self._line1.setWordWrap(True)
+        self._line2 = QLabel("")
+        self._line2.setFont(config.font("body", 600))
+        self._line2.setWordWrap(True)
+        col.addWidget(self._title)
+        col.addWidget(self._line1)
+        col.addWidget(self._line2)
+        lay.addLayout(col, 1)
+
+        self._release = QPushButton("해제")
+        self._release.setFont(config.font("body", 700))
+        self._release.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._release.clicked.connect(self.release_clicked.emit)
+        lay.addWidget(self._release)
+
+        self.hide()
+
+    # --------------------------------------------------------------- 표시
+    def show_order_violation(self, expected_button, expected_name):
+        """순서 위반 — 해제 버튼 있음. 안내 2줄(2번째 줄 들여쓰기)."""
+        self._mode = "order"
+        self._paint("warn", "⚠", "순서가 다릅니다",
+                    f"지금은 {expected_button} {expected_name} 차례입니다",
+                    f"— 손을 뗀 뒤 {expected_button}를 누르세요",
+                    release_text="경고 해제", indent2=True)
+
+    def show_wrong_tool(self, wrong_name, want_name):
+        """공구 오선택 — 🔴 해제 버튼 없음. 문장이 짧아 들여쓰기도 하지 않는다."""
+        self._mode = "tool"
+        self._paint("warn", "⚠", "다른 공구입니다",
+                    f"가져온 것: {wrong_name} — {want_name}로 바꿔 주세요",
+                    "", release_text=None, indent2=False)
+
+    def show_block(self, reason="순서 위반이 계속되어 인터락이 작동했습니다"):
+        """차단 — 해제 버튼 있음(EMO 미복귀 거부는 기존 _release_block 이 담당)."""
+        self._mode = "block"
+        self._paint("danger", "⛔", "전기 입력 차단됨", reason, "",
+                    release_text="차단 해제", indent2=False)
+
+    def _paint(self, token, mark, title, line1, line2, release_text, indent2):
+        c = theme.C(token)
+        self._icon.setText(mark)
+        self._icon.setStyleSheet(theme.text_qss(token, 800))
+        self._title.setText(title)
+        self._title.setStyleSheet(theme.text_qss(token, 800))
+        for lbl, text in ((self._line1, line1), (self._line2, line2)):
+            lbl.setText(text)
+            lbl.setStyleSheet(theme.text_qss("text", 600))
+            lbl.setVisible(bool(text))
+        self._line2.setStyleSheet(
+            theme.text_qss("text", 600) + ("padding-left: 14px;" if indent2 else ""))
+
+        if release_text:
+            self._release.setText(release_text)
+            self._release.setStyleSheet(
+                f"QPushButton {{ background-color: {c}; color: {theme.C('cta_text')};"
+                f" border: 1px solid {c}; border-radius: 6px; padding: 10px 18px; }}")
+            self._release.show()
+        else:
+            self._release.hide()
+
+        self.setStyleSheet(theme.panel_qss("sheet", padding="14px 18px")
+                           + f"border-color: {c};")
+        for lbl in (self._icon, self._title, self._line1, self._line2):
+            _glow(lbl)
+        self.raise_()
+        self.show()
+
+    @property
+    def mode(self):
+        return self._mode
+
+    def hide_all(self):
+        self._mode = None
+        self.hide()
+
+    def relayout(self, parent_rect):
+        if self._mode == "block":
+            place(self, parent_rect, width=_BLOCK_POS["width"])       # 중앙을 가린다
+        else:
+            place(self, parent_rect, width=_BANNER_POS["width"],
+                  bottom=_BANNER_POS["bottom"])

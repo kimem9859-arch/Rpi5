@@ -20,7 +20,7 @@ from PyQt6.QtCore import QRect
 from PyQt6.QtWidgets import QApplication, QWidget
 
 import theme
-from overlay import StatusPanel, GaugePanel, place
+from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, place
 from sub_task import SubTask
 
 _app = QApplication.instance() or QApplication([])
@@ -160,14 +160,103 @@ def test_place_scales():
           f"1920→{w_big}px / 1280→{w_small}px (둘 다 24%)")
 
 
+# ===================== 경고·차단 (Task 7) =====================
+
+
+def test_glow_only_on_video_area():
+    """🔴 발광은 영상 영역(가운데 75%)에만 — 레터박스는 빛나지 않는다 (design §4.5)."""
+    print("\n[8] 발광 범위")
+    host = QWidget()
+    host.setGeometry(SCREEN)
+    g = GlowFrame(host)
+    g.set_level("warn")
+    g.relayout(SCREEN)
+    r = g.geometry()
+    check(r.left() == int(1920 * 0.125), f"왼쪽 {r.left()}px = 화면의 12.5%")
+    check(r.width() == int(1920 * 0.75), f"폭 {r.width()}px = 화면의 75%")
+    check(r.right() < SCREEN.width(), f"오른쪽 {r.right()} < 1920 — 레터박스 제외")
+    check(r.height() == 1080, "높이는 화면 전체")
+
+
+def test_glow_levels():
+    """warn/block/None 전환."""
+    print("\n[9] 발광 단계")
+    host = QWidget()
+    g = GlowFrame(host)
+    g.set_level("warn")
+    check(g.level == "warn" and g.isVisible() is False or g.level == "warn", "warn 설정")
+    g.set_level("block")
+    check(g.level == "block", "block 설정")
+    g.set_level(None)
+    check(g.level is None and not g.isVisible(), "None → 숨김")
+
+
+def test_banner_order_violation_has_release():
+    """순서 위반 배너 — 해제 버튼 있음 + 2번째 줄 들여쓰기."""
+    print("\n[10] 순서 위반 배너")
+    host = QWidget()
+    b = AlertBanner(host)
+    b.show_order_violation("B2", "펌프/퍼지")
+    check(b.mode == "order", "mode=order")
+    check(b._release.isHidden() is False, "해제 버튼 있음")
+    check("경고 해제" == b._release.text(), f"버튼 라벨 {b._release.text()}")
+    check("B2" in b._line1.text() and "차례" in b._line1.text(), f"1줄: {b._line1.text()}")
+    check("padding-left: 14px" in b._line2.styleSheet(), "2번째 줄 들여쓰기 있음")
+
+
+def test_banner_wrong_tool_has_no_release():
+    """🔴 공구 오선택 배너 — 해제 버튼 없음, 들여쓰기 없음."""
+    print("\n[11] 공구 오선택 배너")
+    host = QWidget()
+    b = AlertBanner(host)
+    b.show_wrong_tool("드라이버", "스패너")
+    check(b.mode == "tool", "mode=tool")
+    check(b._release.isHidden(), "🔴 해제 버튼 없음 — 올바른 공구로 바꾸면 스스로 풀린다")
+    check("드라이버" in b._line1.text() and "스패너" in b._line1.text(),
+          f"문장: {b._line1.text()}")
+    check("padding-left" not in b._line2.styleSheet(), "짧은 문장이라 들여쓰기 없음")
+
+
+def test_banner_block():
+    """차단 배너 — 해제 버튼 있음, 중앙 배치."""
+    print("\n[12] 차단 배너")
+    host = QWidget()
+    host.setGeometry(SCREEN)
+    b = AlertBanner(host)
+    b.show_block()
+    check(b.mode == "block", "mode=block")
+    check("차단 해제" == b._release.text(), f"버튼 라벨 {b._release.text()}")
+    b.relayout(SCREEN)
+    r = b.geometry()
+    check(abs(r.center().y() - SCREEN.height() // 2) < 5, "세로 중앙 — 시야를 가린다")
+
+
+def test_banner_both_themes():
+    """세 형태 × 두 테마에서 예외 없음."""
+    print("\n[13] 배너 테마")
+    host = QWidget()
+    b = AlertBanner(host)
+    ok = True
+    for t in ("dark", "light"):
+        theme.set_theme(t)
+        for fn in (lambda: b.show_order_violation("B2", "펌프/퍼지"),
+                   lambda: b.show_wrong_tool("드라이버", "스패너"),
+                   lambda: b.show_block()):
+            try:
+                fn()
+            except Exception as e:
+                ok = False
+                print(f"     {t} → {type(e).__name__}: {e}")
+    theme.set_theme("dark")
+    check(ok, "3형태 × 2테마 예외 없음")
+    b.hide_all()
+    check(b.mode is None and not b.isVisible(), "hide_all() 동작")
+
+
 if __name__ == "__main__":
-    test_status_all_states()
-    test_status_both_themes()
-    test_gauge_hidden_without_sub()
-    test_gauge_widens_for_tool()
-    test_gauge_tool_states()
-    test_place_stays_on_screen()
-    test_place_scales()
+    for _name, _fn in sorted(globals().items()):
+        if _name.startswith("test_"):
+            _fn()
 
     print()
     if _fails:
