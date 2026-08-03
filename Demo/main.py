@@ -3,14 +3,16 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 from safety_console import SafetyConsole
-from config import BG_PRIMARY, BG_PANEL, TEXT_PRIMARY, BORDER_COLOR, ACCENT
+from config import BG_PRIMARY, BG_PANEL, TEXT_PRIMARY, BORDER_COLOR, ACCENT, UI_FONT_FAMILY
 
 
 def main():
     app = QApplication(sys.argv)
+    # 🔴 폰트 이름은 config 가 단일 정본이다 — 여기 'Consolas' 가 박혀 있어서
+    #    앱 전역 기본 글꼴이 조용히 중국어 폰트로 폴백되고 있었다(2026-08-03 발견).
     app.setStyleSheet(f"""
         QMainWindow  {{ background-color: {BG_PRIMARY}; }}
-        QWidget      {{ background-color: {BG_PRIMARY}; color: {TEXT_PRIMARY}; font-family: 'Consolas', monospace; }}
+        QWidget      {{ background-color: {BG_PRIMARY}; color: {TEXT_PRIMARY}; font-family: '{UI_FONT_FAMILY}', sans-serif; }}
         QScrollBar:vertical {{ background: {BG_PANEL}; width: 8px; border: none; }}
         QScrollBar::handle:vertical {{ background: {BORDER_COLOR}; border-radius: 4px; min-height: 20px; }}
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
