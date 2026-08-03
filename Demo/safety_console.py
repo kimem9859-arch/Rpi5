@@ -11,8 +11,9 @@ from PyQt6.QtWidgets import (
     QDialog, QApplication, QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, pyqtSignal
-from PyQt6.QtGui import QImage, QPixmap, QFont
+from PyQt6.QtGui import QImage, QPixmap
 
+import config
 from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT,
     RECORDING_ENABLED, RECORDING_SAVE_DIR, RECORDING_FPS, RECORDING_CODEC,
@@ -190,7 +191,7 @@ class StepFlowWidget(QWidget):
         layout.setContentsMargins(10, 8, 10, 8)
 
         title = QLabel("공정 단계 매뉴얼")
-        title.setFont(QFont("Consolas", 11, QFont.Weight.Bold))
+        title.setFont(config.font("title", 700))
         title.setStyleSheet(f"color: {ACCENT}; border: none; padding-bottom: 4px;")
         layout.addWidget(title)
 
@@ -198,7 +199,7 @@ class StepFlowWidget(QWidget):
         for _ in steps:
             row = QLabel()
             row.setWordWrap(True)
-            row.setFont(QFont("Consolas", 10))
+            row.setFont(config.font("body"))
             layout.addWidget(row)
             self._rows.append(row)
         layout.addStretch()
@@ -336,6 +337,9 @@ class SafetyConsole(QMainWindow):
         #    아직 연결되기 전이다 — GUI 로그에는 안 남는다. 그래서 여기서 다시 적는다.
         _hand = self.camera_thread._hand
         self._append_log(f"[시스템] 손 검출(HOI): {'사용 가능' if _hand.available else '비활성 — ' + _hand.reason}")
+        # 🔴 폰트가 조용히 폴백되면 알 방법이 없다 — 2026-08-03 이전 3개월간 Consolas 요청이
+        #    중국어 폰트로 대체되고 있었다. 요청/실제를 여기서 못 박는다.
+        self._append_log(f"[시스템] UI 폰트: {config.font_report()}")
         self._append_log(f"[시스템] ESP32-S3 카메라: {CAMERA_TCP_HOST}:{CAMERA_TCP_PORT} (TCP)")
         self._append_log(f"[시스템] 로그 저장: {self._log_file_path}")
 
@@ -362,7 +366,7 @@ class SafetyConsole(QMainWindow):
 
         self.state_label = QLabel("● STANDBY")
         self.state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.state_label.setFont(QFont("Consolas", 18, QFont.Weight.Bold))
+        self.state_label.setFont(config.font("state", 800))
         self.state_label.setFixedHeight(80)
         self.state_label.setStyleSheet(
             f"background-color: {BG_PANEL}; color: {STATUS_OK};"
@@ -370,7 +374,7 @@ class SafetyConsole(QMainWindow):
         )
 
         self.log_browser = QTextBrowser()
-        self.log_browser.setFont(QFont("Consolas", 10))
+        self.log_browser.setFont(config.font("small"))
         self.log_browser.setStyleSheet(
             f"background-color: {BG_LOG}; color: {TEXT_LOG};"
             f"border: 1px solid {BORDER_COLOR}; padding: 8px;"
@@ -473,7 +477,8 @@ class SafetyConsole(QMainWindow):
         active   = f"background-color: {BTN_ACTIVE}; color: {TEXT_PRIMARY}; border: 1px solid {ACCENT};"
         inactive = f"background-color: {BTN_INACTIVE}; color: {TEXT_SECONDARY}; border: 1px solid {BORDER_COLOR};"
         calib    = f"background-color: {BTN_CALIB}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_COLOR};"
-        base     = f"font-size: 12px; font-weight: bold; padding: 5px 14px; border-radius: 2px; font-family: Consolas;"
+        base     = (f"font-size: 12px; font-weight: bold; padding: 5px 14px; "
+                    f"border-radius: 2px; font-family: {config.UI_FONT_FAMILY};")
         self.btn_esp32_cam.setStyleSheet(base + (active if self._active_camera == "esp32" else inactive))
         self.btn_usb_cam.setStyleSheet(base   + (active if self._active_camera == "usb"   else inactive))
         self.btn_calibrate.setStyleSheet(base + calib)

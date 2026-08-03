@@ -3,6 +3,59 @@ import os
 _BASE_DIR = os.path.dirname(__file__)
 
 # =============================================================================
+# [UI 폰트] — 단일 정본. 여기 말고 다른 곳에서 폰트 이름을 쓰지 말 것.
+# =============================================================================
+# 🔴 2026-08-03 이전에는 QFont("Consolas") 를 7곳에 흩어 쓰고 있었는데 이 파이에
+#    Consolas 가 없어 Qt 가 조용히 WenQuanYi Zen Hei Mono(중국어 폰트)로 대체했다.
+#    요청과 실제가 어긋나도 아무 신호가 없어 3개월을 모르고 지냈다.
+#    → 이름을 여기 한 곳에 두고, 기동 시 font_report() 를 로그에 남긴다.
+#
+# 설치(다른 환경): 상위 docs/superpowers/specs/2026-08-03-uiux-글라스-design.md §2.4
+UI_FONT_FAMILY = "Pretendard"
+
+# 역할별 크기(pt). 화면 배치는 % 기준이지만 글자는 pt 로 둔다.
+UI_FONT_SIZES = {
+    "title":  13,   # 패널 제목 (공정 단계, 메뉴)
+    "state":  15,   # 상태 라벨 (PROCESS RUN)
+    "body":   12,   # 본문 (단계 이름, 메뉴 항목)
+    "small":  10,   # 부가 라벨 (○ 콘솔 앞에 놓으면 확인됩니다)
+    "banner": 16,   # 경고·차단 배너 제목
+    "cta":    20,   # 작업 시작 / 다음 단계 진행
+}
+
+# 굵기: 400 본문 / 600 강조 / 700 제목 / 800 현재 단계
+UI_FONT_WEIGHT_DEFAULT = 600
+
+
+def font(role="body", weight=None):
+    """역할 이름으로 QFont 를 만든다. 고정폭 숫자(tnum)가 켜져 있다.
+
+    tnum 을 켜지 않으면 게이지가 '18/30s → 19/30s' 로 바뀔 때 폭이 흔들린다.
+    ⚠️ QFont.setFeature 는 Qt 6.7+ 다. 없으면 조용히 건너뛴다(글꼴은 정상).
+    """
+    from PyQt6.QtGui import QFont
+
+    f = QFont(UI_FONT_FAMILY)
+    f.setPointSize(UI_FONT_SIZES.get(role, UI_FONT_SIZES["body"]))
+    f.setWeight(weight if weight is not None else UI_FONT_WEIGHT_DEFAULT)
+    try:
+        f.setFeature(QFont.Tag("tnum"), 1)
+    except (AttributeError, TypeError):
+        pass
+    return f
+
+
+def font_report():
+    """요청한 폰트와 실제 적용된 폰트를 한 줄로. 기동 로그용."""
+    from PyQt6.QtGui import QFontInfo
+
+    info = QFontInfo(font("body"))
+    actual = info.family()
+    mark = "OK" if actual.startswith(UI_FONT_FAMILY) else "🔴 폴백"
+    return f"{UI_FONT_FAMILY} → {actual} ({mark})"
+
+
+# =============================================================================
 # [UI 테마]
 # =============================================================================
 BG_PRIMARY   = "#0e0e0e"
