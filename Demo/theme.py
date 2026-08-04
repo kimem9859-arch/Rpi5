@@ -86,6 +86,13 @@ THEMES = {
 # 경고·차단 시 다른 오버레이를 낮추는 값 (design §3.1 「흐림 처리」)
 DIM_OPACITY = 0.40
 
+# 🔴 상시 오버레이(공정 단계·게이지)의 판 배경을 그릴지.
+#    False 면 글자만 영상 위에 뜬다 — 사용자 의견: "배경 없는 쪽이 AR 글라스답다".
+#    ⚠️ 아직 **결정 전**이다. 밝은/어두운 실기동 영상에서 확인한 뒤 기본값을 정한다.
+#       (지금은 배경이 없는 상태가 QWidget 의 WA_StyledBackground 누락 때문이었다 —
+#        의도한 것이 아니었으므로 껐다 켤 수 있게만 만들어 둔다.)
+PANEL_BACKGROUND = False
+
 _current = DEFAULT_THEME
 
 

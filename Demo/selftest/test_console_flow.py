@@ -136,9 +136,13 @@ def test_theme_switch():
     win = make_console()
     win._on_theme_changed("light")
     check(theme.current() == "light", "화이트로 전환")
-    check("255, 255, 255" in win.status_panel.styleSheet()
-          or "255,255,255" in win.status_panel.styleSheet(),
-          "패널 배경이 흰 계열")
+    # ⚠️ 패널 배경은 theme.PANEL_BACKGROUND 로 껐다 켠다(기본 False — AR 글라스 느낌).
+    #    배경을 켰을 때만 테마 색이 스타일시트에 나타난다.
+    win._on_panel_bg_changed(True)
+    ss = win.status_panel.styleSheet()
+    check("255, 255, 255" in ss or "255,255,255" in ss, f"배경 켜면 흰 계열: {ss[:40]}")
+    win._on_panel_bg_changed(False)
+    check("transparent" in win.status_panel.styleSheet(), "배경 끄면 투명")
     win._on_theme_changed("dark")
     check(theme.current() == "dark", "다크 복귀")
     win.close()

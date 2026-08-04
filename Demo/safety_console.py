@@ -283,13 +283,17 @@ class SafetyConsole(QMainWindow):
             lambda n: self._on_connect_gave_up("카메라", n))
         self.camera_thread.start()
 
+        # 🔴 두 카메라를 동시에 돌리지 않는다 (2026-08-04).
+        #    종전에는 ESP32·USB 스레드가 **둘 다 추론**했는데 화면엔 하나만 나왔다.
+        #    실측에서 USB 쪽이 약 14%p 를 쓰고 있었다. 쓰는 쪽만 돌린다.
         self.usb_camera_thread = UsbCameraThread()
         self.usb_camera_thread.change_pixmap_signal.connect(self._update_usb_frame)
         self.usb_camera_thread.log_signal.connect(self._append_log)
         self.usb_camera_thread.yolo_detections_signal.connect(self._on_yolo_detections)
         self.usb_camera_thread.roi_signal.connect(self._on_roi)
-        self.usb_camera_thread.start()
+        # start() 는 _switch_camera 가 필요할 때만 부른다 — 아래 초기 전환에서 결정된다.
 
+        self._switch_camera("esp32", quiet=True)   # 기동 시 ESP32 만 — USB 는 CCTV 전환 때 연다
         self._append_log("[시스템] Vision AI 안전 콘솔 시작")
         if self._recipe:
             self._append_log(f"[레시피] '{self._recipe['process_name']}' 로드 — {self.fsm.step_count}단계")
@@ -393,6 +397,7 @@ class SafetyConsole(QMainWindow):
         self.settings_panel.closed.connect(lambda: self._toggle_settings(False))
         self.settings_panel.tool_changed.connect(self._on_tool_changed)
         self.settings_panel.theme_changed.connect(self._on_theme_changed)
+        self.settings_panel.panel_bg_changed.connect(self._on_panel_bg_changed)
         # 공구 선택지는 **레시피가 준다** — 목록을 코드에 박지 않는다(design §4.4).
         self._wire_tool_settings()
 
@@ -517,14 +522,23 @@ class SafetyConsole(QMainWindow):
             except Exception as e:
                 print(f"[녹화 프레임 오류] {e}")
 
-    def _switch_camera(self, source):
+    def _switch_camera(self, source, quiet=False):
+        """카메라 전환 — 🔴 쓰는 쪽만 스레드를 돌린다(둘 다 돌리면 CPU 낭비).
+
+        ⚠️ 멈춘 스레드를 다시 start() 할 수는 없다(QThread 규약). 그래서 쓰지 않는
+           쪽은 **set_active(False) 로 처리만 끄고** 스레드는 유지한다. 처리를 끄면
+           추론이 돌지 않아 부담이 사라진다 — 이것이 실측 14%p 의 정체였다.
+        """
         self._active_camera = source
         self._last_yolo_classes = set()
         self.camera_thread.set_active(source == "esp32")
         self.usb_camera_thread.set_active(source == "usb")
+        if source == "usb" and not self.usb_camera_thread.isRunning():
+            self.usb_camera_thread.start()      # 필요해진 순간에만 연다
         label = "초소형카메라 (ESP32-S3)" if source == "esp32" else "CCTV (USB 웹캠)"
         self._append_log(f"[카메라] {label}로 전환")
-        self._notify("work", "카메라 전환", label)
+        if not quiet:
+            self._notify("work", "카메라 전환", label)
         if source == "esp32":
             self.camera_label.setText("ESP32-S3 연결 대기 중...")
 
@@ -717,6 +731,13 @@ class SafetyConsole(QMainWindow):
         self._apply_theme()
         self._relayout()
         self._append_log(f"[설정] 화면 테마 → {'다크' if name == 'dark' else '화이트'}")
+
+    def _on_panel_bg_changed(self, on):
+        """공정 단계·게이지 패널의 배경 on/off — 실기동 영상에서 확인 후 기본값 확정."""
+        theme.PANEL_BACKGROUND = bool(on)
+        self._apply_theme()
+        self._relayout()
+        self._append_log(f"[설정] 패널 배경 → {'있음' if on else '없음'}")
 
     def _tool_display_name(self, key):
         for s in (self._recipe or {}).get("steps", []):

@@ -48,6 +48,9 @@ class _Sheet(QWidget):
         self.hide()
 
     def apply_theme(self):
+        # 🔴 시트는 **항상 배경을 그린다** — 읽고 눌러야 하므로 가독성이 우선이다.
+        #    (맨 QWidget 은 이 속성 없이는 스타일시트 배경이 무시된다.)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(theme.panel_qss("sheet", padding="10px 12px"))
         for lbl in self.findChildren(QLabel):
             _glow(lbl)
@@ -302,6 +305,7 @@ class SettingsPanel(_Sheet):
 
     tool_changed = pyqtSignal(str)
     theme_changed = pyqtSignal(str)
+    panel_bg_changed = pyqtSignal(bool)
     closed = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -348,6 +352,20 @@ class SettingsPanel(_Sheet):
             self._theme_group.addButton(rb)
             lay.addWidget(rb)
 
+        self._bg_caption = QLabel("공정 단계 패널 배경")
+        self._bg_caption.setFont(config.font("small", 700))
+        lay.addWidget(self._bg_caption)
+
+        self._bg_group = QButtonGroup(self)
+        for on, text in ((False, "없음  (글자만 — AR 글라스 느낌)"), (True, "있음")):
+            rb = QRadioButton(text)
+            rb.setFont(config.font("body", 600))
+            rb.setCursor(Qt.CursorShape.PointingHandCursor)
+            rb.setChecked(on == getattr(theme, "PANEL_BACKGROUND", True))
+            rb.toggled.connect(lambda chk, v=on: chk and self.panel_bg_changed.emit(v))
+            self._bg_group.addButton(rb)
+            lay.addWidget(rb)
+
         lay.addStretch()
 
     def set_tools(self, tools, current_tool, tool_names=None):
@@ -379,12 +397,13 @@ class SettingsPanel(_Sheet):
     def apply_theme(self):
         super().apply_theme()
         self._title.setStyleSheet(theme.text_qss("text", 800))
-        for cap in (self._tool_caption, self._theme_caption):
+        for cap in (self._tool_caption, self._theme_caption, self._bg_caption):
             cap.setStyleSheet(theme.text_qss("label", 700))
         radio_qss = (f"QRadioButton {{ color: {theme.C('text')}; background: transparent;"
                      f" padding: 3px 2px; }}"
                      f"QRadioButton:disabled {{ color: {theme.C('todo')}; }}")
-        for b in list(self._tool_buttons.values()) + list(self._theme_group.buttons()):
+        for b in (list(self._tool_buttons.values()) + list(self._theme_group.buttons())
+                  + list(self._bg_group.buttons())):
             b.setStyleSheet(radio_qss)
 
     def relayout(self, parent_rect):

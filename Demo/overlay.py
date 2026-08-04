@@ -88,7 +88,17 @@ class _Panel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
     def apply_theme(self):
-        self.setStyleSheet(theme.panel_qss(self.KIND))
+        """🔴 맨 QWidget 은 WA_StyledBackground 없이는 스타일시트 배경을 **안 그린다**.
+
+        2026-08-04 에 픽셀로 확인: 속성이 꺼져 있으면 배경이 통째로 무시된다
+        (빨강 바탕 위에서 RGB(255,0,0) 그대로 → 판이 안 보임).
+        theme.PANEL_BACKGROUND 로 켜고 끈다 — 배경 없는 쪽이 AR 글라스답다는 의견이
+        있어 **실기동 영상에서 확인한 뒤** 기본값을 정한다.
+        """
+        on = getattr(theme, "PANEL_BACKGROUND", True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, on)
+        self.setStyleSheet(theme.panel_qss(self.KIND) if on
+                           else "background: transparent; border: none;")
         for lbl in self.findChildren(QLabel):
             _glow(lbl)
 
