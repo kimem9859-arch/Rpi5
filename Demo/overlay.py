@@ -428,3 +428,53 @@ class AlertBanner(_Panel):
         else:
             place(self, parent_rect, width=_BANNER_POS["width"],
                   bottom=_BANNER_POS["bottom"])
+
+
+class ConnBar(_Panel):
+    """우하단 연결 상태 — 📷 카메라 · 🔌 인터락 · 🔘 GPIO (design §9).
+
+    🔴 상태는 **아이콘 뒤 알약 배경색**으로 나타낸다. 컬러 이모지는 스타일시트의
+       color: 로 물들지 않아 글자색으로는 상태를 구분할 수 없다.
+    🔴 상태 판단은 여기서 하지 않는다 — 콘솔이 점검 기능과 **같은 출처**로 계산해
+       update_state() 로 넣어 준다. 두 곳이 따로 판단하면 표시바와 점검 화면이
+       서로 다른 말을 하게 된다.
+    """
+
+    ITEMS = (("camera", "📷"), ("interlock", "🔌"), ("gpio", "🔘"))
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+
+        self._icons = {}
+        self._states = {}
+        for key, glyph in self.ITEMS:
+            lbl = QLabel(glyph)
+            lbl.setFont(config.font("body", 600))
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setFixedSize(34, 28)
+            lay.addWidget(lbl)
+            self._icons[key] = lbl
+            self._states[key] = None
+        self.update_state({})
+
+    def update_state(self, states):
+        """states = {"camera": True|False|None, ...}. None = 확인 중."""
+        self._states.update(states or {})
+        for key, _ in self.ITEMS:
+            v = self._states.get(key)
+            token = "done" if v is True else ("danger" if v is False else "todo")
+            # 🔴 padding: 0 을 명시한다 — 패널의 padding 이 자식에 상속되면 크기가
+            #    고정된 아이콘은 눌려 글리프가 사라진다(2026-08-04 알림에서 겪음).
+            self._icons[key].setStyleSheet(
+                f"background-color: {theme.C(token)}; border-radius: 6px;"
+                f" border: none; padding: 0;")
+
+    def apply_theme(self):
+        super().apply_theme()
+        self.update_state({})            # 테마가 바뀌면 색을 다시 칠한다
+
+    def relayout(self, parent_rect):
+        place(self, parent_rect, right=0.03, bottom=0.04)

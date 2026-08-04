@@ -34,7 +34,7 @@ from gpio_input import GpioInputController
 
 import theme
 from sub_task import SubTask
-from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, place
+from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, place
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
                           NotifyButton, CheckPanel, RecordPanel)
 import precheck
@@ -407,6 +407,10 @@ class SafetyConsole(QMainWindow):
         # 공구 선택지는 **레시피가 준다** — 목록을 코드에 박지 않는다(design §4.4).
         self._wire_tool_settings()
 
+        # 우하단 연결 상태 표시바 — 상시 노출(design §9)
+        self.conn_bar = ConnBar(central)
+        self.conn_bar.show()
+
         # 로그는 메뉴 안으로 — 평소엔 숨는다(design §4.7)
         self.log_browser = QTextBrowser(central)
         self.log_browser.setFont(config.font("small"))
@@ -423,6 +427,11 @@ class SafetyConsole(QMainWindow):
         self._log_close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._log_close.clicked.connect(lambda: self._set_log_visible(False))
         self._log_close.hide()
+
+        # 연결 상태바는 1초마다 갱신한다 — 색만 바꾸는 갱신이라 부하가 없다.
+        self._conn_timer = QTimer(self)
+        self._conn_timer.timeout.connect(self._update_conn_bar)
+        self._conn_timer.start(1000)
 
         self._apply_theme()
         self._relayout()
@@ -456,6 +465,7 @@ class SafetyConsole(QMainWindow):
         self.settings_panel.relayout(r)
         self.check_panel.relayout(r)
         self.record_panel.relayout(r)
+        self.conn_bar.relayout(r)
 
         place(self.btn_menu, r, right=0.14, top=0.05)
         place(self.btn_notify, r, left=0.14, bottom=0.05)
@@ -481,7 +491,7 @@ class SafetyConsole(QMainWindow):
         """테마가 바뀌면 모든 오버레이에 다시 적용한다."""
         for w in (self.status_panel, self.gauge_panel, self.alert,
                   self.menu_panel, self.notify_panel, self.settings_panel,
-                  self.check_panel, self.record_panel):
+                  self.check_panel, self.record_panel, self.conn_bar):
             w.apply_theme()
         btn_qss = (f"QPushButton {{ {theme.panel_qss('panel', padding='8px 14px')} }}"
                    f"QPushButton:hover {{ color: {theme.C('info')}; }}")
@@ -673,8 +683,20 @@ class SafetyConsole(QMainWindow):
         """수동 점검 — 1차 항목을 지금 다시 본다."""
         self.check_panel.update_results(precheck.run_stage1(self._check_ctx()))
 
-    def _check_ctx(self):
-        """점검이 보는 대상 묶음. 1·2차·수동이 같은 것을 본다."""
+    def _update_conn_bar(self):
+        """연결 상태바 — 🔴 점검(1차)과 **같은 출처**로 계산한다.
+
+        따로 판단하면 표시바와 점검 화면이 서로 다른 말을 하게 된다.
+        """
+        ok = {r.key: r.ok for r in precheck.run_stage1(self._check_ctx(with_frame=False))}
+        self.conn_bar.update_state({k: ok.get(k) for k in ("camera", "interlock", "gpio")})
+
+    def _check_ctx(self, with_frame=True):
+        """점검이 보는 대상 묶음. 1·2차·수동이 같은 것을 본다.
+
+        with_frame=False — 연결 상태바처럼 매 초 부르는 곳은 프레임 변환을 건너뛴다
+        (numpy 변환이 비싸다). 1차 점검은 프레임을 보지 않으므로 결과가 같다.
+        """
         from camera_thread import DETECTOR_AVAILABLE
         cam = (self.camera_thread if self._active_camera == "esp32"
                else self.usb_camera_thread)
@@ -685,7 +707,7 @@ class SafetyConsole(QMainWindow):
             interlock=self.interlock,
             gpio_input=self.gpio_input,
             last_frame_time=self._last_frame_time,
-            last_frame=self._frame_for_check(),
+            last_frame=self._frame_for_check() if with_frame else None,
             seen_buttons=self._seen_buttons,
         )
 

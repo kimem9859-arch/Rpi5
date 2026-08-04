@@ -253,6 +253,35 @@ def test_banner_both_themes():
     check(b.mode is None and not b.isVisible(), "hide_all() 동작")
 
 
+def test_conn_bar():
+    """🔴 우하단 연결 상태바 — 아이콘 3개, 상태는 배경색으로 (design §9).
+
+    컬러 이모지는 color: 로 물들지 않는다. 그래서 알약 배경색으로 구분한다.
+    """
+    print("\n[N] 연결 상태바")
+    from overlay import ConnBar
+    host = QWidget()
+    c = ConnBar(host)
+    check([k for k, _ in ConnBar.ITEMS] == ["camera", "interlock", "gpio"],
+          f"항목 3개: {[k for k, _ in ConnBar.ITEMS]}")
+
+    c.update_state({"camera": True, "interlock": False, "gpio": None})
+    ok_qss = c._icons["camera"].styleSheet()
+    ng_qss = c._icons["interlock"].styleSheet()
+    unknown_qss = c._icons["gpio"].styleSheet()
+    check(theme.C("done") in ok_qss, f"연결 → done 색: {ok_qss[:48]}")
+    check(theme.C("danger") in ng_qss, f"끊김 → danger 색: {ng_qss[:48]}")
+    check(theme.C("todo") in unknown_qss, f"확인 중 → todo 색: {unknown_qss[:48]}")
+
+    # 우하단에 앉는가 — 화면 오른쪽 아래 1/4 안
+    c.relayout(SCREEN)
+    r = c.geometry()
+    check(r.right() <= SCREEN.width() and r.bottom() <= SCREEN.height(),
+          f"화면 안: {r}")
+    check(r.center().x() > SCREEN.width() * 0.5 and r.center().y() > SCREEN.height() * 0.5,
+          f"우하단: 중심 {r.center().x()},{r.center().y()}")
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
