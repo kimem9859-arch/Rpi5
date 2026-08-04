@@ -324,6 +324,24 @@ def test_menu_width_widened():
           f"가장 긴 항목 '{longest.text()}' {need}px + 여백 ≤ {m.width()}px")
 
 
+def test_settings_note_hidden_when_empty():
+    """🔴 문구가 없으면 라벨을 숨긴다 — 빈칸이 공구와 테마 사이를 벌렸다.
+
+    실측(2026-08-04): 빈 문구 라벨이 37px 를 차지했다.
+    """
+    print("\n[18] 설정 빈칸")
+    host = QWidget()
+    s = SettingsPanel(host)
+    s.set_tools(["spanner", "driver"], "spanner")
+
+    s.set_tool_editable(True)                  # IDLE — 문구 없음
+    check(s._tool_note.isHidden(), "변경 가능하면 문구 라벨이 숨겨진다")
+
+    s.set_tool_editable(False)                 # 작업 중 — 문구 있음
+    check(not s._tool_note.isHidden(), "작업 중이면 문구가 보인다")
+    check("변경할 수 없습니다" in s._tool_note.text(), f"문구: {s._tool_note.text()}")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

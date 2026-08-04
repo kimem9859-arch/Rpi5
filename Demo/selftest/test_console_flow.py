@@ -269,6 +269,14 @@ def test_sheet_sized_on_first_open():
     win._open_record()
     h, want = win.record_panel.height(), win.record_panel.sizeHint().height()
     check(h >= want, f"녹화 패널 높이 {h} ≥ 내용이 요구하는 {want}")
+
+    # 🔴 설정 패널도 같다 — 「작업 중에는 변경할 수 없습니다」 문구가 생기면
+    #    필요 높이가 커진다. 다시 재지 않으면 공구 라디오가 눌려 겹친다.
+    win._close_sheets()
+    win._on_cta()                           # 작업 중 → 문구가 붙는다
+    win._open_settings()
+    h, want = win.settings_panel.height(), win.settings_panel.sizeHint().height()
+    check(h >= want, f"설정 패널(작업 중) 높이 {h} ≥ 내용이 요구하는 {want}")
     win.close()
 
 

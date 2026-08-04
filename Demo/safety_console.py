@@ -582,6 +582,12 @@ class SafetyConsole(QMainWindow):
             self.settings_panel.set_tool_editable(self.fsm.state == State.IDLE)
         self.settings_panel.setVisible(want)
         if want:
+            # 🔴 Task 3 과 같은 이유로 다시 배치한다 — 설정 패널은 높이를 지정하지
+            #    않아 sizeHint 로 앉는데, 「작업 중에는 변경할 수 없습니다」 문구가
+            #    생기면 필요 높이가 커진다. 다시 재지 않으면 **공구 라디오가 눌려
+            #    겹친다**(2026-08-04 확인). 메뉴·알림은 높이를 비율로 지정해 무관.
+            self.settings_panel.layout().activate()
+            self.settings_panel.relayout(self._root.rect())
             self.settings_panel.raise_()
         self._dim_others(self._any_sheet_open())
         self._sync_cta_visibility()

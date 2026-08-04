@@ -404,6 +404,9 @@ class SettingsPanel(_Sheet):
         self._tool_note.setText(
             "" if editable else "ⓘ 작업 중에는 변경할 수 없습니다")
         self._tool_note.setStyleSheet(theme.text_qss("warn", 600))
+        # 🔴 빈 문자열이어도 라벨은 높이를 차지한다(실측 37px) — 공구와 테마 사이가
+        #    빈칸으로 벌어졌다. 숨기면 공간까지 사라진다(2026-08-04).
+        self._tool_note.setVisible(not editable)
 
     def apply_theme(self):
         super().apply_theme()
