@@ -43,6 +43,9 @@ _MENU_POS = {"right": 0.14, "top": 0.15, "width": 0.195, "bottom": 0.05}
 _NOTIFY_POS = {"left": 0.14, "top": 0.42, "width": 0.27, "bottom": 0.15}
 _SETTINGS_W = 0.34
 
+# 알림 행의 좌우 여백 — 아이콘이 행 가장자리에 붙지 않게(2026-08-04)
+_NOTIFY_ROW_PAD = 12
+
 # 메뉴 항목의 좌측 들여쓰기 — 🔴 제목·「＋」·종료가 **같은 값**을 써야 글자
 #    시작점이 세로로 한 줄이 된다(2026-08-04. 종전 2px 라 왼쪽에 치우쳐 보였다).
 _MENU_PAD_LEFT = 12
@@ -288,7 +291,9 @@ class NotifyPanel(_Sheet):
         mark, token = NOTIFY_KINDS.get(kind, NOTIFY_KINDS["work"])
         row = QWidget()
         rl = QHBoxLayout(row)
-        rl.setContentsMargins(0, 0, 0, 0)
+        # 아이콘이 행 왼쪽 가장자리에 붙어 치우쳐 보였다 — 좌우 여백을 준다
+        # (2026-08-04). 값은 공정 단계 행과 같은 계열로 맞춘다.
+        rl.setContentsMargins(_NOTIFY_ROW_PAD, 0, _NOTIFY_ROW_PAD, 0)
         rl.setSpacing(8)
 
         icon = QLabel(mark)
@@ -328,7 +333,7 @@ class NotifyPanel(_Sheet):
             s.setStyleSheet(theme.text_qss("label", 500))
             s.setWordWrap(True)
             # 설명은 아이콘 폭만큼 들여쓴다 — 제목 글자와 왼쪽을 맞춘다.
-            s.setContentsMargins(26 + 8, 0, 0, 0)
+            s.setContentsMargins(26 + 8, 0, 0, 0)   # 아이콘 폭 + 간격
             col.addWidget(s)
 
         rl.addLayout(col, 1)
