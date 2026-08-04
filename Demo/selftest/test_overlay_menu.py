@@ -17,7 +17,7 @@ from PyQt6.QtCore import QRect
 from PyQt6.QtWidgets import QApplication, QWidget, QPushButton
 
 import theme
-from overlay_menu import MenuPanel, NotifyPanel, SettingsPanel, NOTIFY_KINDS
+from overlay_menu import MenuPanel, NotifyPanel, SettingsPanel, NOTIFY_KINDS, NotifyButton
 
 _app = QApplication.instance() or QApplication([])
 _fails = []
@@ -236,7 +236,11 @@ def test_notify_badge():
     b.set_count(150)
     check(b._badge.text() == "99+", f"큰 수는 99+ : '{b._badge.text()}'")
     g = b._badge.geometry()
-    check(g.y() < 0 and g.right() > b.width() - 5, f"우측 상단 꼭짓점에 걸침 {g.x()},{g.y()}")
+    # 🔴 2026-08-04 정정 — 종전에는 "꼭짓점에 걸침"(g.y() < 0)을 요구했으나,
+    #    걸치면 Qt 가 부모 경계에서 잘라내 배지가 반쪽만 보였다. **안쪽 우상단**으로
+    #    바꿨다(설계 §3). 잘림 검사는 test_badge_inside_button 이 맡는다.
+    check(g.top() >= 0 and g.right() <= b.width() and g.right() > b.width() * 0.5,
+          f"버튼 안 우상단 {g.x()},{g.y()} (버튼 폭 {b.width()})")
 
 
 def test_check_panel():
@@ -275,6 +279,27 @@ def test_record_panel():
     check(p._btn_full.isHidden(), "녹화 중 → 시작 버튼 숨김")
     p.set_state(False)
     check(p._btn_stop.isHidden(), "중지 → 시작 버튼 복귀")
+
+
+def test_badge_inside_button():
+    """🔴 배지가 버튼 안에 들어 있는가 — 밖으로 나가면 Qt 가 잘라낸다.
+
+    실측(2026-08-04): 버튼 (179,640,58,44) 안의 배지가 (45,-6,19,18) 이라
+    위 6px·오른쪽 6px 이 잘려 보였다.
+    """
+    print("\n[16] 알림 배지 잘림")
+    host = QWidget()
+    b = NotifyButton(host)
+    b.setGeometry(0, 0, 58, 44)
+    for n in (1, 9, 12, 150):
+        b.set_count(n)
+        r = b._badge.geometry()
+        inside = (r.left() >= 0 and r.top() >= 0
+                  and r.right() <= b.width() and r.bottom() <= b.height())
+        check(inside, f"{n}건 → 배지 {r.x()},{r.y()} {r.width()}×{r.height()} "
+                      f"⊂ 버튼 {b.width()}×{b.height()}")
+    b.set_count(0)
+    check(b._badge.isHidden(), "0건이면 배지 숨김")
 
 
 if __name__ == "__main__":

@@ -97,13 +97,17 @@ class NotifyButton(QPushButton):
         self._badge.raise_()
 
     def _place_badge(self):
-        d = max(18, self.height() // 3)                 # 배지 지름
+        # 🔴 배지는 **버튼 안**에 있어야 한다 — 밖으로 걸치면 Qt 가 부모 경계에서
+        #    잘라내 반쪽만 보인다(2026-08-04 실기동에서 확인).
+        #    종전: setGeometry(width - w + d//3, -d//3, ...) → 위·오른쪽 6px 잘림.
+        m = 3                                            # 버튼 안쪽 여백
+        d = max(16, self.height() // 3)                  # 배지 지름
         w = max(d, self._badge.fontMetrics().horizontalAdvance(self._badge.text()) + 10)
+        w = min(w, self.width() - 2 * m)                 # 폭이 넘치면 버튼에 맞춘다
         self._badge.setStyleSheet(
             f"background-color: {self.BADGE_BG}; color: {self.BADGE_FG};"
             f"border-radius: {d // 2}px; border: none;")
-        # 우측 상단 꼭짓점에 걸치게 — 절반이 버튼 밖으로 나간다
-        self._badge.setGeometry(self.width() - w + d // 3, -d // 3, w, d)
+        self._badge.setGeometry(self.width() - w - m, m, w, d)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
