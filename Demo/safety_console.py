@@ -35,7 +35,9 @@ from gpio_input import GpioInputController
 import theme
 from sub_task import SubTask
 from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, place
-from overlay_menu import MenuPanel, NotifyPanel, SettingsPanel
+from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
+                          NotifyButton, CheckPanel, RecordPanel)
+import precheck
 
 
 # =============================================================================
@@ -209,6 +211,14 @@ class SafetyConsole(QMainWindow):
         self._sub = None             # 진행 중인 SubTask
         self._sub_button = None      # 그 서브 작업을 시작시킨 버튼
         self._tool_override = None   # 설정 메뉴에서 바꾼 지정 공구(세션 한정)
+        self._unread = 0             # 안 읽은 알림 수 — 배지에 표시
+        self._recording_mode = "full"
+        self._recording_size = (WINDOW_WIDTH, WINDOW_HEIGHT)
+        self._recording_started = 0.0
+        self._last_frame_size = None     # 카메라 영역 녹화 크기 결정용
+        self._last_qimage = None         # 점검(손 검출 추론)용 최근 프레임(지연 변환)
+        self._last_frame_time = 0.0
+        self._seen_buttons = set()       # 2차 점검 — 지금 화면에 보이는 버튼
         self._sub_timer = QTimer()
         self._sub_timer.setInterval(200)
         self._sub_timer.timeout.connect(self._tick_sub)
@@ -342,7 +352,7 @@ class SafetyConsole(QMainWindow):
         #    _toggle_menu(show=False) 가 되어 **열자마자 닫힌다.** 인자를 버린다.
         self.btn_menu.clicked.connect(lambda: self._toggle_menu())
 
-        self.btn_notify = QPushButton("🔔", central)
+        self.btn_notify = NotifyButton(central)
         self.btn_notify.setFont(config.font("cta", 700))
         self.btn_notify.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_notify.clicked.connect(lambda: self._toggle_notify())
@@ -363,11 +373,21 @@ class SafetyConsole(QMainWindow):
         self.menu_panel.log_clicked.connect(self._show_log)
         self.menu_panel.calibrate_clicked.connect(lambda: self._open_calibration_dialog())
         self.menu_panel.cctv_clicked.connect(self._toggle_camera_source)
+        self.menu_panel.check_clicked.connect(self._open_check)
+        self.menu_panel.record_clicked.connect(self._open_record)
         self.menu_panel.settings_clicked.connect(self._open_settings)
         self.menu_panel.shutdown_clicked.connect(lambda: self._on_shutdown_clicked())
 
         self.notify_panel = NotifyPanel(central)
         self.notify_panel.closed.connect(lambda: self._toggle_notify(False))
+
+        self.check_panel = CheckPanel(central)
+        self.check_panel.retry_requested.connect(self._on_retry)
+        self.check_panel.recheck_requested.connect(self._run_manual_check)
+
+        self.record_panel = RecordPanel(central)
+        self.record_panel.start_requested.connect(self._start_recording)
+        self.record_panel.stop_requested.connect(self._stop_recording)
 
         self.settings_panel = SettingsPanel(central)
         self.settings_panel.closed.connect(lambda: self._toggle_settings(False))
@@ -411,6 +431,8 @@ class SafetyConsole(QMainWindow):
         self.menu_panel.relayout(r)
         self.notify_panel.relayout(r)
         self.settings_panel.relayout(r)
+        self.check_panel.relayout(r)
+        self.record_panel.relayout(r)
 
         place(self.btn_menu, r, right=0.14, top=0.05)
         place(self.btn_notify, r, left=0.14, bottom=0.05)
@@ -419,8 +441,9 @@ class SafetyConsole(QMainWindow):
                                      int(pw * 0.50), int(ph * 0.80))
         self.scrim.setGeometry(r)
 
-        for w in (self.glow, self.alert, self.menu_panel,
-                  self.notify_panel, self.settings_panel, self.log_browser):
+        for w in (self.glow, self.alert, self.menu_panel, self.notify_panel,
+                  self.settings_panel, self.check_panel, self.record_panel,
+                  self.log_browser, self.btn_menu, self.btn_notify):
             w.raise_()
 
     def resizeEvent(self, event):
@@ -430,7 +453,8 @@ class SafetyConsole(QMainWindow):
     def _apply_theme(self):
         """테마가 바뀌면 모든 오버레이에 다시 적용한다."""
         for w in (self.status_panel, self.gauge_panel, self.alert,
-                  self.menu_panel, self.notify_panel, self.settings_panel):
+                  self.menu_panel, self.notify_panel, self.settings_panel,
+                  self.check_panel, self.record_panel):
             w.apply_theme()
         btn_qss = (f"QPushButton {{ {theme.panel_qss('panel', padding='8px 14px')} }}"
                    f"QPushButton:hover {{ color: {theme.C('info')}; }}")
@@ -455,6 +479,7 @@ class SafetyConsole(QMainWindow):
     def _update_camera_frame(self, qt_image):
         if self._active_camera != "esp32":
             return
+        self._note_frame(qt_image)
         scaled = qt_image.scaled(
             self.camera_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
@@ -464,10 +489,33 @@ class SafetyConsole(QMainWindow):
     def _update_usb_frame(self, qt_image):
         if self._active_camera != "usb":
             return
+        self._note_frame(qt_image)
         scaled = qt_image.scaled(
             self.camera_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
         self.camera_label.setPixmap(QPixmap.fromImage(scaled))
+
+    def _note_frame(self, qt_image):
+        """프레임이 올 때마다 점검·녹화가 쓰는 정보를 갱신한다.
+
+        - `_last_frame_time` : 2차 점검의 「영상 수신」이 신선도를 본다
+        - `_last_frame_size` : 카메라 영역 녹화의 해상도
+        - 카메라 영역 녹화면 여기서 바로 기록한다(창 캡처 없음)
+        """
+        self._last_frame_time = time.time()
+        self._last_frame_size = (qt_image.width(), qt_image.height())
+        # ⚠️ numpy 변환은 **점검이 요청할 때만** 한다(_frame_for_check).
+        #    매 프레임 변환하면 GUI 스레드에 쓸데없는 부담이 생긴다.
+        self._last_qimage = qt_image
+        if self._recording and self._recording_mode == "camera":
+            try:
+                img = qt_image.convertToFormat(QImage.Format.Format_RGB888)
+                w, h = img.width(), img.height()
+                ptr = img.bits(); ptr.setsize(h * w * 3)
+                arr = np.array(ptr).reshape(h, w, 3)
+                self._record_camera_frame(cv2.cvtColor(arr, cv2.COLOR_RGB2BGR))
+            except Exception as e:
+                print(f"[녹화 프레임 오류] {e}")
 
     def _switch_camera(self, source):
         self._active_camera = source
@@ -506,6 +554,8 @@ class SafetyConsole(QMainWindow):
         self.notify_panel.setVisible(want)
         if want:
             self.notify_panel.raise_()
+            self._unread = 0                 # 열면 읽음 — 배지가 사라진다
+            self.btn_notify.set_count(0)
         self._dim_others(self._any_sheet_open())
 
     def _toggle_settings(self, show=None):
@@ -520,7 +570,8 @@ class SafetyConsole(QMainWindow):
         self._dim_others(self._any_sheet_open())
 
     def _sheets(self):
-        return (self.menu_panel, self.notify_panel, self.settings_panel)
+        return (self.menu_panel, self.notify_panel, self.settings_panel,
+                self.check_panel, self.record_panel)
 
     def _close_sheets(self, except_=None):
         """한 번에 하나만 열리게 한다 — 겹치면 뒤엣것을 못 읽는다."""
@@ -532,6 +583,75 @@ class SafetyConsole(QMainWindow):
 
     def _any_sheet_open(self):
         return any(not p.isHidden() for p in self._sheets())
+
+    def _open_check(self):
+        """메뉴 → 점검(연결). 🔴 재연결 5회 포기 후 다시 붙일 수 있는 유일한 수단."""
+        self._toggle_menu(False)
+        self._run_manual_check()
+        self._toggle_sheet(self.check_panel, True)
+
+    def _open_record(self):
+        self._toggle_menu(False)
+        self.record_panel.set_state(
+            self._recording, self._recording_path,
+            time.time() - self._recording_started if self._recording else 0)
+        self._toggle_sheet(self.record_panel, True)
+
+    def _run_manual_check(self):
+        """수동 점검 — 1차 항목을 지금 다시 본다."""
+        self.check_panel.update_results(precheck.run_stage1(self._check_ctx()))
+
+    def _check_ctx(self):
+        """점검이 보는 대상 묶음. 1·2차·수동이 같은 것을 본다."""
+        from camera_thread import DETECTOR_AVAILABLE
+        cam = (self.camera_thread if self._active_camera == "esp32"
+               else self.usb_camera_thread)
+        return dict(
+            camera_thread=cam,
+            detector_available=DETECTOR_AVAILABLE,
+            hand_tracker=getattr(cam, "_hand", None),
+            interlock=self.interlock,
+            gpio_input=self.gpio_input,
+            last_frame_time=self._last_frame_time,
+            last_frame=self._frame_for_check(),
+            seen_buttons=self._seen_buttons,
+        )
+
+    def _frame_for_check(self):
+        """점검용 프레임 — 요청 시에만 numpy 로 바꾼다."""
+        img = self._last_qimage
+        if img is None:
+            return None
+        try:
+            rgb = img.convertToFormat(QImage.Format.Format_RGB888)
+            w, h = rgb.width(), rgb.height()
+            ptr = rgb.bits(); ptr.setsize(h * w * 3)
+            return cv2.cvtColor(np.array(ptr).reshape(h, w, 3), cv2.COLOR_RGB2BGR)
+        except Exception:
+            return None
+
+    def _on_retry(self, key):
+        """점검 화면의 「재연결」 버튼."""
+        if key == "camera":
+            for cam in (self.camera_thread, self.usb_camera_thread):
+                if hasattr(cam, "retry_connect"):
+                    cam.retry_connect()
+            self._append_log("[점검] 카메라 재연결 요청")
+        elif key in ("interlock", "interlock_ack"):
+            self.interlock.retry_connect()
+            self._append_log("[점검] 인터락 재연결 요청")
+        else:
+            self._append_log(f"[점검] {key} 재확인")
+        QTimer.singleShot(1500, self._run_manual_check)
+
+    def _toggle_sheet(self, panel, show=None):
+        want = panel.isHidden() if show is None else show
+        if want:
+            self._close_sheets(except_=panel)
+        panel.setVisible(want)
+        if want:
+            panel.raise_()
+        self._dim_others(self._any_sheet_open())
 
     def _open_settings(self):
         self._toggle_menu(False)
@@ -560,6 +680,10 @@ class SafetyConsole(QMainWindow):
             for p in self._sheets():
                 if not p.isHidden():
                     p.raise_()
+            # 🔴 버튼은 스크림 **위**에 있어야 한다 — 가려지면 "같은 버튼을 다시 눌러
+            #    닫기"가 불가능해진다(2026-08-04 실기동에서 실제로 막혔다).
+            self.btn_menu.raise_()
+            self.btn_notify.raise_()
             if self.alert.mode:
                 self.glow.raise_()
                 self.alert.raise_()
@@ -608,9 +732,10 @@ class SafetyConsole(QMainWindow):
                      f"{tries}회 시도 후 중단 — 메뉴 → 점검(연결)에서 다시 시도")
 
     def _notify(self, kind, title, sub=""):
-        """알림 추가 + 버튼 뱃지 갱신."""
+        """알림 추가 + 배지 갱신. 배지는 **읽지 않은 수**를 보인다."""
         self.notify_panel.push(kind, title, sub)
-        self.btn_notify.setText(f"🔔 {self.notify_panel.count}")
+        self._unread += 1
+        self.btn_notify.set_count(self._unread)
 
     @pyqtSlot(str)
     def _append_log(self, message):
@@ -629,6 +754,7 @@ class SafetyConsole(QMainWindow):
     @pyqtSlot(list)
     def _on_yolo_detections(self, detections):
         current = set(d[0] for d in detections)
+        self._seen_buttons = current      # 2차 점검 「버튼 검출」이 본다
         if current != self._last_yolo_classes:
             if current:
                 self._append_log(f"[YOLO] 탐지: {', '.join(sorted(current))}")
@@ -956,27 +1082,53 @@ class SafetyConsole(QMainWindow):
     # =========================================================================
     # [녹화]
     # =========================================================================
-    def _start_recording(self):
+    def _start_recording(self, mode="full"):
+        """녹화 시작. 🔴 상시 자동이 아니라 **메뉴에서 켤 때만** 돈다.
+
+        mode:
+          "full"   — GUI 전체(오버레이 포함). 창을 grab() 하므로 GUI 스레드를 쓴다
+          "camera" — 카메라 프레임만. **창 캡처를 안 해 GUI 부담이 거의 0**이다
+
+        코덱은 H.264(.mp4) — config.RECORDING_CODEC. 실측 근거는 config 주석 참조.
+        """
         try:
             os.makedirs(RECORDING_SAVE_DIR, exist_ok=True)
-            timestamp            = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self._recording_path = os.path.join(RECORDING_SAVE_DIR, f"{timestamp}_recording.avi")
-            fourcc               = cv2.VideoWriter_fourcc(*RECORDING_CODEC)
-            self._video_writer   = cv2.VideoWriter(
-                self._recording_path, fourcc, RECORDING_FPS, (WINDOW_WIDTH, WINDOW_HEIGHT)
-            )
-            if self._video_writer.isOpened():
-                self._recording = True
-                self._recording_timer.start()
-                self._append_log(f"[녹화] 시작! 저장 위치: {self._recording_path}")
+            ext = getattr(config, "RECORDING_EXT", "mp4")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self._recording_path = os.path.join(
+                RECORDING_SAVE_DIR, f"{timestamp}_{mode}.{ext}")
+            self._recording_mode = mode
+
+            if mode == "camera":
+                size = self._last_frame_size or (640, 480)
             else:
-                self._append_log("[녹화] VideoWriter 생성 실패!")
+                size = (self.width(), self.height())
+            self._recording_size = size
+
+            fourcc = cv2.VideoWriter_fourcc(*RECORDING_CODEC)
+            self._video_writer = cv2.VideoWriter(
+                self._recording_path, fourcc, RECORDING_FPS, size)
+            if not self._video_writer.isOpened():
+                self._append_log(f"[녹화] VideoWriter 생성 실패 (코덱 {RECORDING_CODEC})")
                 self._video_writer = None
+                self._notify("warn", "녹화 시작 실패", f"코덱 {RECORDING_CODEC} 사용 불가")
+                return
+            self._recording = True
+            self._recording_started = time.time()
+            if mode == "full":
+                self._recording_timer.start()      # 창 캡처는 타이머가 민다
+            label = "전체 화면" if mode == "full" else "카메라 영역"
+            self._append_log(f"[녹화] {label} 시작 — {self._recording_path}")
+            self._notify("work", f"녹화 시작 ({label})", os.path.basename(self._recording_path))
+            self.record_panel.set_state(True, self._recording_path, 0)
         except Exception as e:
             self._append_log(f"[녹화] 시작 오류: {e}")
 
     def _capture_window_frame(self):
+        """Full 모드 전용 — 창 전체를 캡처한다. GUI 스레드에서 돈다."""
         if not self._recording or self._video_writer is None:
+            return
+        if self._recording_mode != "full":
             return
         try:
             pixmap = self.grab()
@@ -986,8 +1138,23 @@ class SafetyConsole(QMainWindow):
             ptr.setsize(h * w * 3)
             frame = np.array(ptr).reshape(h, w, 3)
             frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            if frame_bgr.shape[1] != WINDOW_WIDTH or frame_bgr.shape[0] != WINDOW_HEIGHT:
-                frame_bgr = cv2.resize(frame_bgr, (WINDOW_WIDTH, WINDOW_HEIGHT))
+            tw, th = self._recording_size
+            if frame_bgr.shape[1] != tw or frame_bgr.shape[0] != th:
+                frame_bgr = cv2.resize(frame_bgr, (tw, th))
+            self._video_writer.write(frame_bgr)
+        except Exception as e:
+            print(f"[녹화 프레임 오류] {e}")
+
+    def _record_camera_frame(self, frame_bgr):
+        """카메라 영역 모드 — 이미 받아 둔 프레임을 그대로 쓴다(창 캡처 없음)."""
+        if not self._recording or self._video_writer is None:
+            return
+        if self._recording_mode != "camera":
+            return
+        try:
+            tw, th = self._recording_size
+            if frame_bgr.shape[1] != tw or frame_bgr.shape[0] != th:
+                frame_bgr = cv2.resize(frame_bgr, (tw, th))
             self._video_writer.write(frame_bgr)
         except Exception as e:
             print(f"[녹화 프레임 오류] {e}")
@@ -998,7 +1165,13 @@ class SafetyConsole(QMainWindow):
             self._video_writer.release()
             self._video_writer = None
             self._recording    = False
-            self._append_log(f"[녹화] 종료. 저장: {self._recording_path}")
+            size_mb = (os.path.getsize(self._recording_path) / 1024 / 1024
+                       if os.path.exists(self._recording_path) else 0)
+            self._append_log(f"[녹화] 종료 — {self._recording_path} ({size_mb:.1f} MB)")
+            self._notify("work", "녹화 종료",
+                         f"{os.path.basename(self._recording_path)} · {size_mb:.1f} MB")
+        if hasattr(self, "record_panel"):
+            self.record_panel.set_state(False)
 
     # =========================================================================
     # [종료]

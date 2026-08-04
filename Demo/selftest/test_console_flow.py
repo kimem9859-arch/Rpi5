@@ -202,8 +202,14 @@ def test_notify_grows():
     n0 = win.notify_panel.count
     win._on_cta()                                   # 작업 시작 → 알림 1건
     check(win.notify_panel.count > n0, f"{n0} → {win.notify_panel.count}건")
-    check(str(win.notify_panel.count) in win.btn_notify.text(),
-          f"뱃지 {win.btn_notify.text()}")
+    # 🔴 배지는 버튼 글자가 아니라 별도 위젯이다(폰 앱 방식, 2026-08-04).
+    check(win.btn_notify.text() == "🔔", f"버튼 글자는 아이콘만: '{win.btn_notify.text()}'")
+    check(win.btn_notify._badge.text() == str(win._unread),
+          f"배지 숫자 '{win.btn_notify._badge.text()}' = 안 읽은 {win._unread}건")
+
+    win._toggle_notify(True)          # 열면 읽음 처리
+    check(win._unread == 0 and win.btn_notify._badge.isHidden(),
+          "알림을 열면 배지가 사라진다")
     win.close()
 
 

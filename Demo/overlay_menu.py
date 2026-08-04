@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QScrollArea, QRadioButton, QButtonGroup, QFrame,
 )
 
+import os
+
 import config
 import theme
 from overlay import place, _glow
@@ -30,8 +32,11 @@ NOTIFY_KINDS = {
     "danger": ("⛔", "danger"),   # 이벤트 — 위험
 }
 
-_MENU_POS = {"right": 0.14, "top": 0.05, "width": 0.13, "bottom": 0.05}
-_NOTIFY_POS = {"left": 0.14, "top": 0.48, "width": 0.27, "bottom": 0.05}
+# 🔴 패널이 **자기 버튼을 덮지 않게** 한다 (2026-08-04 실기동 피드백).
+#    버튼이 보여야 "같은 버튼을 다시 눌러 닫기"가 성립한다.
+#    메뉴 패널은 ☰ **아래**에서 시작, 알림 패널은 🔔 **위**에서 끝난다.
+_MENU_POS = {"right": 0.14, "top": 0.15, "width": 0.13, "bottom": 0.05}
+_NOTIFY_POS = {"left": 0.14, "top": 0.42, "width": 0.27, "bottom": 0.15}
 _SETTINGS_W = 0.34
 
 
@@ -60,6 +65,49 @@ def _row_button(text, token="text"):
     return b
 
 
+class NotifyButton(QPushButton):
+    """🔔 버튼 + 우측 상단 배지 — 폰 앱 알림처럼.
+
+    🔴 숫자를 버튼 글자에 넣지 않는다(종전 "🔔 3"). 빨강 원 안에 흰 숫자를
+       **우측 상단 꼭짓점**에 겹쳐 그린다. 0 이면 배지 자체를 숨긴다.
+    """
+
+    BADGE_BG = "#e02020"
+    BADGE_FG = "#ffffff"
+
+    def __init__(self, parent=None):
+        super().__init__("🔔", parent)
+        self._count = 0
+        self._badge = QLabel("", self)
+        self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._badge.setFont(config.font("small", 800))
+        self._badge.hide()
+
+    def set_count(self, n):
+        self._count = max(0, int(n))
+        if self._count == 0:
+            self._badge.hide()
+            return
+        self._badge.setText("99+" if self._count > 99 else str(self._count))
+        self._place_badge()
+        self._badge.show()
+        self._badge.raise_()
+
+    def _place_badge(self):
+        d = max(18, self.height() // 3)                 # 배지 지름
+        w = max(d, self._badge.fontMetrics().horizontalAdvance(self._badge.text()) + 10)
+        self._badge.setStyleSheet(
+            f"background-color: {self.BADGE_BG}; color: {self.BADGE_FG};"
+            f"border-radius: {d // 2}px; border: none;")
+        # 우측 상단 꼭짓점에 걸치게 — 절반이 버튼 밖으로 나간다
+        self._badge.setGeometry(self.width() - w + d // 3, -d // 3, w, d)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._count:
+            self._place_badge()
+
+
 class MenuPanel(_Sheet):
     """우상단 세로 메뉴 — design §4.7.
 
@@ -68,6 +116,8 @@ class MenuPanel(_Sheet):
     """
 
     log_clicked = pyqtSignal()
+    check_clicked = pyqtSignal()      # 점검(연결) — 수동 재연결·재확인
+    record_clicked = pyqtSignal()     # 녹화 — 필요할 때만 켠다
     calibrate_clicked = pyqtSignal()
     cctv_clicked = pyqtSignal()
     settings_clicked = pyqtSignal()
@@ -83,20 +133,16 @@ class MenuPanel(_Sheet):
         head = QHBoxLayout()
         self._title = QLabel("메뉴")
         self._title.setFont(config.font("small", 700))
-        close = QPushButton("✕")
-        close.setFont(config.font("body"))
-        close.setFlat(True)
-        close.setCursor(Qt.CursorShape.PointingHandCursor)
-        close.setStyleSheet("background: transparent; border: none;")
-        close.clicked.connect(self.closed.emit)
+        # 🔴 ✕ 버튼을 두지 않는다 — 같은 버튼(☰/🔔)을 다시 눌러 닫는다.
         head.addWidget(self._title)
         head.addStretch()
-        head.addWidget(close)
         lay.addLayout(head)
         lay.addWidget(self._hline())
 
         self._items = []
-        for text, sig in (("📜  로그", self.log_clicked),
+        for text, sig in (("🔧  점검 (연결)", self.check_clicked),
+                          ("⏺  녹화", self.record_clicked),
+                          ("📜  로그", self.log_clicked),
                           ("🎯  캘리브레이션", self.calibrate_clicked),
                           ("📹  CCTV 전환", self.cctv_clicked),
                           ("⚙  설정", self.settings_clicked)):
@@ -107,7 +153,7 @@ class MenuPanel(_Sheet):
 
         # 추후 항목 자리 3칸 — design §4.7
         self._free = []
-        for _ in range(3):
+        for _ in range(1):
             f = QLabel("＋")
             f.setFont(config.font("small"))
             f.setStyleSheet(f"color: {theme.C('todo')}; padding: 9px 2px;")
@@ -170,15 +216,9 @@ class NotifyPanel(_Sheet):
         head = QHBoxLayout()
         self._title = QLabel("🔔  알림")
         self._title.setFont(config.font("small", 700))
-        close = QPushButton("✕")
-        close.setFont(config.font("body"))
-        close.setFlat(True)
-        close.setCursor(Qt.CursorShape.PointingHandCursor)
-        close.setStyleSheet("background: transparent; border: none;")
-        close.clicked.connect(self.closed.emit)
+        # 🔴 ✕ 버튼을 두지 않는다 — 같은 버튼(☰/🔔)을 다시 눌러 닫는다.
         head.addWidget(self._title)
         head.addStretch()
-        head.addWidget(close)
         lay.addLayout(head)
 
         self._scroll = QScrollArea()
@@ -275,15 +315,9 @@ class SettingsPanel(_Sheet):
         head = QHBoxLayout()
         self._title = QLabel("⚙  설정")
         self._title.setFont(config.font("title", 800))
-        close = QPushButton("✕")
-        close.setFont(config.font("body"))
-        close.setFlat(True)
-        close.setCursor(Qt.CursorShape.PointingHandCursor)
-        close.setStyleSheet("background: transparent; border: none;")
-        close.clicked.connect(self.closed.emit)
+        # 🔴 ✕ 버튼을 두지 않는다 — 같은 버튼(☰/🔔)을 다시 눌러 닫는다.
         head.addWidget(self._title)
         head.addStretch()
-        head.addWidget(close)
         lay.addLayout(head)
 
         self._tool_caption = QLabel("4단계 지정 공구")
@@ -355,3 +389,175 @@ class SettingsPanel(_Sheet):
 
     def relayout(self, parent_rect):
         place(self, parent_rect, width=_SETTINGS_W)   # 가로·세로 중앙
+
+
+class CheckPanel(_Sheet):
+    """점검(연결) — 항목별 상태 + 수동 재연결 (design §4.2).
+
+    🔴 재연결 5회 실패 후 **다시 붙일 수 있는 유일한 수단**이다.
+       자동 재시도를 멈추기로 한 이상 이 화면이 없으면 프로그램을 껐다 켜야 한다.
+    """
+
+    retry_requested = pyqtSignal(str)     # 항목 key
+    recheck_requested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._rows = {}
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+
+        self._title = QLabel("🔧  점검 (연결)")
+        self._title.setFont(config.font("title", 800))
+        lay.addWidget(self._title)
+
+        self._body = QVBoxLayout()
+        self._body.setSpacing(4)
+        lay.addLayout(self._body)
+
+        lay.addStretch()
+        self._recheck = QPushButton("다시 점검")
+        self._recheck.setFont(config.font("body", 700))
+        self._recheck.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._recheck.clicked.connect(lambda: self.recheck_requested.emit())
+        lay.addWidget(self._recheck)
+
+    def update_results(self, results):
+        """CheckResult 목록을 그린다. 재연결 가능한 항목엔 버튼을 붙인다."""
+        for w in list(self._rows.values()):
+            w.setParent(None)
+        self._rows.clear()
+
+        for r in results:
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(8)
+
+            mark = QLabel(r.mark)
+            mark.setFont(config.font("body", 800))
+            mark.setStyleSheet(theme.text_qss("done" if r.ok else "danger", 800))
+            mark.setFixedWidth(18)
+
+            col = QVBoxLayout()
+            col.setSpacing(1)
+            name = QLabel(r.name)
+            name.setFont(config.font("body", 600))
+            name.setStyleSheet(theme.text_qss("text", 600))
+            detail = QLabel(r.detail)
+            detail.setFont(config.font("small"))
+            detail.setStyleSheet(theme.text_qss("label", 500))
+            col.addWidget(name)
+            col.addWidget(detail)
+
+            rl.addWidget(mark)
+            rl.addLayout(col, 1)
+
+            if r.retryable and not r.ok:
+                btn = QPushButton("재연결")
+                btn.setFont(config.font("small", 700))
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.setStyleSheet(
+                    f"QPushButton {{ background-color: {theme.C('cta_bg')};"
+                    f" color: {theme.C('cta_text')}; border: none;"
+                    f" border-radius: 5px; padding: 5px 12px; }}")
+                btn.clicked.connect(lambda _=False, k=r.key: self.retry_requested.emit(k))
+                rl.addWidget(btn)
+
+            self._body.addWidget(row)
+            self._rows[r.key] = row
+
+    def apply_theme(self):
+        super().apply_theme()
+        self._title.setStyleSheet(theme.text_qss("text", 800))
+        self._recheck.setStyleSheet(
+            f"QPushButton {{ background-color: {theme.C('cta_bg')};"
+            f" color: {theme.C('cta_text')}; border: 1px solid {theme.C('cta_border')};"
+            f" border-radius: 8px; padding: 10px 18px; }}")
+
+    def relayout(self, parent_rect):
+        place(self, parent_rect, width=0.34)
+
+
+class RecordPanel(_Sheet):
+    """녹화 — 필요할 때만 켠다 (design §8 갱신, 2026-08-04).
+
+    🔴 상시 자동 녹화를 폐기한 이유: 실측에서 **전체 부하 55.6% 중 약 40%p**가
+       녹화였다. GUI 스레드가 초당 15번 창 전체를 캡처하느라 화면이 버벅였다.
+
+    모드 2종:
+      Full        — GUI 전체(오버레이 포함). 시연 화면 그대로 남긴다
+      카메라 영역 — 받아 둔 프레임만. **창 캡처를 안 하므로 GUI 부담이 거의 0**
+    """
+
+    start_requested = pyqtSignal(str)      # "full" | "camera"
+    stop_requested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)
+
+        self._title = QLabel("⏺  녹화")
+        self._title.setFont(config.font("title", 800))
+        lay.addWidget(self._title)
+
+        self._state = QLabel("")
+        self._state.setFont(config.font("body", 600))
+        self._state.setWordWrap(True)
+        lay.addWidget(self._state)
+
+        self._btn_full = QPushButton("전체 화면 녹화 시작")
+        self._btn_cam = QPushButton("카메라 영역만 녹화 시작")
+        self._btn_stop = QPushButton("녹화 중지")
+        for b, mode in ((self._btn_full, "full"), (self._btn_cam, "camera")):
+            b.setFont(config.font("body", 700))
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _=False, m=mode: self.start_requested.emit(m))
+            lay.addWidget(b)
+        self._btn_stop.setFont(config.font("body", 700))
+        self._btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_stop.clicked.connect(lambda: self.stop_requested.emit())
+        lay.addWidget(self._btn_stop)
+
+        self._note = QLabel("")
+        self._note.setFont(config.font("small"))
+        self._note.setWordWrap(True)
+        lay.addWidget(self._note)
+        lay.addStretch()
+
+        self.set_state(False, "", 0)
+
+    def set_state(self, recording, path="", elapsed=0):
+        self._recording = recording
+        if recording:
+            self._state.setText(f"● 녹화 중 — {int(elapsed)}초")
+            self._state.setStyleSheet(theme.text_qss("danger", 700))
+            self._note.setText(os.path.basename(path) if path else "")
+        else:
+            self._state.setText("○ 녹화 중지 상태")
+            self._state.setStyleSheet(theme.text_qss("label", 600))
+            self._note.setText("H.264(.mp4)로 저장 — 약 0.3MB/분")
+        self._btn_full.setVisible(not recording)
+        self._btn_cam.setVisible(not recording)
+        self._btn_stop.setVisible(recording)
+        self._note.setStyleSheet(theme.text_qss("label", 500))
+
+    def apply_theme(self):
+        super().apply_theme()
+        self._title.setStyleSheet(theme.text_qss("text", 800))
+        cta = (f"QPushButton {{ background-color: {theme.C('cta_bg')};"
+               f" color: {theme.C('cta_text')}; border: 1px solid {theme.C('cta_border')};"
+               f" border-radius: 8px; padding: 10px 16px; text-align: left; }}")
+        self._btn_full.setStyleSheet(cta)
+        self._btn_cam.setStyleSheet(cta)
+        self._btn_stop.setStyleSheet(
+            f"QPushButton {{ background-color: {theme.C('danger')};"
+            f" color: #ffffff; border: none; border-radius: 8px; padding: 10px 16px; }}")
+        self.set_state(getattr(self, "_recording", False))
+
+    def relayout(self, parent_rect):
+        place(self, parent_rect, width=0.30)

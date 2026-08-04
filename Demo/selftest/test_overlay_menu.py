@@ -14,7 +14,7 @@ sys.path.insert(0, _DEMO_DIR)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QRect
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QWidget, QPushButton
 
 import theme
 from overlay_menu import MenuPanel, NotifyPanel, SettingsPanel, NOTIFY_KINDS
@@ -31,17 +31,24 @@ def check(cond, msg):
 
 
 def test_menu_signals():
-    """메뉴 항목 5개가 각각 신호를 낸다."""
+    """메뉴 항목 6개 + 종료가 각각 신호를 낸다.
+
+    구성(2026-08-04): 점검(연결) · 녹화 · 로그 · 캘리브레이션 · CCTV · 설정 + 종료
+    """
     print("\n[1] MenuPanel 신호")
     host = QWidget()
     m = MenuPanel(host)
     got = []
-    for name in ("log_clicked", "calibrate_clicked", "cctv_clicked",
-                 "settings_clicked", "shutdown_clicked"):
+    for name in ("check_clicked", "record_clicked", "log_clicked",
+                 "calibrate_clicked", "cctv_clicked", "settings_clicked",
+                 "shutdown_clicked"):
         getattr(m, name).connect(lambda n=name: got.append(n))
-    m._items[0].click(); m._items[1].click(); m._items[2].click(); m._items[3].click()
+    for b in m._items:
+        b.click()
     m._shutdown.click()
-    check(len(got) == 5, f"5개 신호 발생: {got}")
+    check(len(got) == 7, f"7개 신호 발생: {got}")
+    check("check_clicked" in got and "record_clicked" in got,
+          "점검(연결)·녹화 항목이 신설됨")
 
 
 def test_menu_shutdown_separated():
@@ -56,11 +63,15 @@ def test_menu_shutdown_separated():
 
 
 def test_menu_has_free_slots():
-    """추후 항목 자리 3칸이 있는가 (design §4.7)."""
+    """추후 항목 자리가 남아 있는가 (design §4.7).
+
+    항목이 4개 → 6개로 늘어 여유 자리는 3칸 → 1칸으로 줄였다.
+    """
     print("\n[3] 추후 항목 자리")
     host = QWidget()
     m = MenuPanel(host)
-    check(len(m._free) == 3, f"빈 자리 {len(m._free)}칸")
+    check(len(m._free) >= 1, f"빈 자리 {len(m._free)}칸")
+    check(len(m._items) == 6, f"메뉴 항목 {len(m._items)}개")
 
 
 def test_notify_kinds():
@@ -188,6 +199,82 @@ def test_both_themes():
                 print(f"     {t}/{type(p).__name__} → {type(e).__name__}: {e}")
     theme.set_theme("dark")
     check(ok, "다크·화이트 × 3패널 예외 없음")
+
+
+def test_panels_no_close_button():
+    """🔴 ✕ 버튼을 두지 않는다 — 같은 버튼(☰/🔔)을 다시 눌러 닫는다."""
+    print("\n[13] ✕ 버튼 없음")
+    host = QWidget()
+    for name, p in (("MenuPanel", MenuPanel(host)), ("NotifyPanel", NotifyPanel(host)),
+                    ("SettingsPanel", SettingsPanel(host))):
+        texts = [b.text() for b in p.findChildren(QPushButton)]
+        check("✕" not in texts, f"{name} 에 ✕ 없음 (버튼: {texts or '없음'})")
+
+
+def test_panels_do_not_cover_their_buttons():
+    """🔴 패널이 자기 버튼을 덮지 않는가 (2026-08-04 피드백).
+
+    메뉴 버튼은 top 5%, 알림 버튼은 bottom 5% 에 있다.
+    """
+    print("\n[14] 버튼 가림 방지")
+    from overlay_menu import _MENU_POS, _NOTIFY_POS
+    check(_MENU_POS["top"] > 0.05, f"메뉴 패널 top {_MENU_POS['top']:.2f} > 버튼 0.05")
+    check(_NOTIFY_POS["bottom"] > 0.05, f"알림 패널 bottom {_NOTIFY_POS['bottom']:.2f} > 버튼 0.05")
+
+
+def test_notify_badge():
+    """알림 배지 — 0이면 숨기고, 숫자는 버튼 글자에 넣지 않는다."""
+    print("\n[15] 알림 배지")
+    from overlay_menu import NotifyButton
+    host = QWidget(); host.resize(800, 600)
+    b = NotifyButton(host); b.setGeometry(0, 0, 60, 50)
+    b.set_count(0)
+    check(b._badge.isHidden(), "0 → 배지 숨김")
+    b.set_count(3)
+    check(not b._badge.isHidden() and b._badge.text() == "3", f"3 → 배지 '{b._badge.text()}'")
+    check(b.text() == "🔔", f"버튼 글자는 아이콘만: '{b.text()}'")
+    b.set_count(150)
+    check(b._badge.text() == "99+", f"큰 수는 99+ : '{b._badge.text()}'")
+    g = b._badge.geometry()
+    check(g.y() < 0 and g.right() > b.width() - 5, f"우측 상단 꼭짓점에 걸침 {g.x()},{g.y()}")
+
+
+def test_check_panel():
+    """점검 패널 — 결과를 그리고 실패 항목에 재연결 버튼을 붙인다."""
+    print("\n[16] 점검 패널")
+    from overlay_menu import CheckPanel
+    import precheck
+    host = QWidget()
+    p = CheckPanel(host)
+    results = [precheck.CheckResult("camera", "카메라 연결", False, "연결 실패", retryable=True),
+               precheck.CheckResult("hand", "손 검출 모델", True, "사용 가능")]
+    p.update_results(results)
+    check(len(p._rows) == 2, f"{len(p._rows)}행 표시")
+    got = []
+    p.retry_requested.connect(got.append)
+    btns = [b for b in p._rows["camera"].findChildren(QPushButton)]
+    check(len(btns) == 1, "실패+재시도가능 항목에 버튼 있음")
+    btns[0].click()
+    check(got == ["camera"], f"재연결 신호 {got}")
+    check(not p._rows["hand"].findChildren(QPushButton), "통과 항목엔 버튼 없음")
+
+
+def test_record_panel():
+    """녹화 패널 — 모드 2종, 중지 버튼 전환."""
+    print("\n[17] 녹화 패널")
+    from overlay_menu import RecordPanel
+    host = QWidget()
+    p = RecordPanel(host)
+    got = []
+    p.start_requested.connect(got.append)
+    p._btn_full.click(); p._btn_cam.click()
+    check(got == ["full", "camera"], f"모드 신호 {got}")
+
+    p.set_state(True, "/tmp/a.mp4", 12)
+    check(p._btn_stop.isVisible() or not p._btn_stop.isHidden(), "녹화 중 → 중지 버튼")
+    check(p._btn_full.isHidden(), "녹화 중 → 시작 버튼 숨김")
+    p.set_state(False)
+    check(p._btn_stop.isHidden(), "중지 → 시작 버튼 복귀")
 
 
 if __name__ == "__main__":
