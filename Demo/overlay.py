@@ -94,6 +94,8 @@ class _Panel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        # 🔴 스타일시트를 **이 위젯에만** 걸기 위한 이름 — 아래 apply_theme 참조.
+        self.setObjectName("glassPanel")
 
     def apply_theme(self):
         """🔴 맨 QWidget 은 WA_StyledBackground 없이는 스타일시트 배경을 **안 그린다**.
@@ -105,8 +107,13 @@ class _Panel(QWidget):
         """
         on = getattr(theme, "PANEL_BACKGROUND", True)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, on)
-        self.setStyleSheet(theme.panel_qss(self.KIND) if on
-                           else "background: transparent; border: none;")
+        # 🔴 selector(`#glassPanel`)를 붙여 **이 위젯에만** 건다 — selector 가 없으면
+        #    Qt 가 자식 위젯에도 규칙을 물려줘, 배경을 켤 때 panel_qss 의
+        #    padding(12px 14px)이 **행 라벨마다** 붙는다. 그래서 배경을 켜면
+        #    공정 단계 행 높이가 20 → 44px 로 뛰고 글자가 밀렸다(2026-08-04).
+        body = (theme.panel_qss(self.KIND) if on
+                else "background: transparent; border: none;")
+        self.setStyleSheet(f"QWidget#glassPanel {{ {body} }}")
         for lbl in self.findChildren(QLabel):
             _glow(lbl)
 

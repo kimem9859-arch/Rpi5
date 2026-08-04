@@ -307,6 +307,32 @@ def test_conn_bar_follows_given_rect():
           f"아래 여백 {gap_b}px ≈ 영상 높이의 4%({int(video.height() * 0.04)}px)")
 
 
+def test_panel_bg_does_not_move_rows():
+    """🔴 패널 배경을 켜도 글자 위치·크기가 그대로여야 한다 (2026-08-04).
+
+    종전에는 배경을 켜면 공정 단계 행 높이가 20 → 44px 로 뛰고 글자가 밀렸다.
+    원인은 selector 없는 스타일시트가 **자식 라벨에도 상속**되어
+    panel_qss 의 padding(12px 14px)이 행마다 붙은 것.
+    """
+    print("\n[N] 배경 켜도 행이 안 움직인다")
+    host = QWidget()
+    host.setGeometry(SCREEN)
+    p = StatusPanel(STEPS, host)
+    p.relayout(SCREEN)
+
+    # ⚠️ 이 결함은 **offscreen 에서 재현되지 않는다** — 배치가 아니라 스타일시트
+    #    상속이 원인이라, 실제로 그리는 환경(xcb)에서만 행 높이가 뛴다.
+    #    그래서 배치를 재지 않고 **원인 자체**(selector 유무)를 본다.
+    #    실측(2026-08-04, xcb 1920×1080): selector 없으면 행 20 → 44px.
+    for on in (False, True):
+        theme.PANEL_BACKGROUND = on
+        p.apply_theme()
+        qss = p.styleSheet()
+        check(qss.startswith("QWidget#glassPanel"),
+              f"배경 {'켬' if on else '끔'} — selector 로 자기 위젯에만: {qss[:28]}")
+    theme.PANEL_BACKGROUND = False
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
