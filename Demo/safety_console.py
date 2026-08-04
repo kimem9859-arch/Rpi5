@@ -465,7 +465,9 @@ class SafetyConsole(QMainWindow):
         self.settings_panel.relayout(r)
         self.check_panel.relayout(r)
         self.record_panel.relayout(r)
-        self.conn_bar.relayout(r)
+        # 🔴 상태바만 **영상 사각형** 기준이다 — 창 기준이면 오른쪽 검정
+        #    레터박스에 앉는다(2026-08-04).
+        self.conn_bar.relayout(self.camera_label.geometry())
 
         place(self.btn_menu, r, right=0.14, top=0.05)
         place(self.btn_notify, r, left=0.14, bottom=0.05)

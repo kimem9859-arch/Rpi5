@@ -43,7 +43,15 @@ VIDEO_WIDTH_RATIO = 0.75
 
 def place(widget, parent_rect, left=None, top=None, width=None,
           right=None, bottom=None, height=None):
-    """부모 사각형 안에 비율로 배치한다. 픽셀 계산을 한 곳에 모은다."""
+    """부모 사각형 안에 비율로 배치한다. 픽셀 계산을 한 곳에 모은다.
+
+    🔴 parent_rect 의 **좌상단 오프셋을 존중한다** — 창 전체가 아니라 영상 사각형
+       처럼 화면 일부를 넘겨받는 경우가 있다(연결 상태바, 2026-08-04).
+       종전에는 폭·높이만 쓰고 left/top 을 버려서, 영상 사각형을 넘겨도 창 기준으로
+       앉았다(상태바가 오른쪽 검정 레터박스에 놓였다).
+    ⚠️ 다른 오버레이는 영향받지 않는다 — `_relayout` 이 넘기는 `_root.rect()` 는
+       좌상단이 (0, 0) 이라 오프셋이 0 이다.
+    """
     pw, ph = parent_rect.width(), parent_rect.height()
     w = int(pw * width) if width is not None else widget.sizeHint().width()
     h = int(ph * height) if height is not None else widget.sizeHint().height()
@@ -59,7 +67,7 @@ def place(widget, parent_rect, left=None, top=None, width=None,
         y = ph - int(ph * bottom) - h
     else:
         y = (ph - h) // 2
-    widget.setGeometry(QRect(x, y, w, h))
+    widget.setGeometry(QRect(parent_rect.left() + x, parent_rect.top() + y, w, h))
 
 
 def _glow(widget):

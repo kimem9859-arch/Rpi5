@@ -282,6 +282,31 @@ def test_conn_bar():
           f"우하단: 중심 {r.center().x()},{r.center().y()}")
 
 
+def test_conn_bar_follows_given_rect():
+    """🔴 상태바는 **넘어온 사각형** 안에 앉는다 — 콘솔이 영상 사각형을 넘긴다.
+
+    종전에는 창 전체 기준이라 오른쪽 검정 레터박스에 앉았다(2026-08-04).
+    """
+    print("\n[N] 상태바 기준 사각형")
+    from overlay import ConnBar
+    host = QWidget()
+    c = ConnBar(host)
+
+    # 1920×1080 창 안의 4:3 영상 = 1440×1080, 좌우 240px 씩 레터박스
+    video = QRect(240, 0, 1440, 1080)
+    c.relayout(video)
+    r = c.geometry()
+    check(video.contains(r), f"영상 {video} 안: 상태바 {r}")
+    # 🔴 여백을 **영상 사각형 기준**으로 잰다 — "영상 안에 있다"만 보면
+    #    창 기준으로 앉아도 우연히 통과한다(레터박스 폭만큼 왼쪽에 앉는다).
+    gap_r = video.right() - r.right()
+    gap_b = video.bottom() - r.bottom()
+    check(abs(gap_r - int(video.width() * 0.03)) <= 2,
+          f"오른쪽 여백 {gap_r}px ≈ 영상 폭의 3%({int(video.width() * 0.03)}px)")
+    check(abs(gap_b - int(video.height() * 0.04)) <= 2,
+          f"아래 여백 {gap_b}px ≈ 영상 높이의 4%({int(video.height() * 0.04)}px)")
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
