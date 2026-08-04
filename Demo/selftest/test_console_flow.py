@@ -167,6 +167,42 @@ def test_panels_toggle():
     win.close()
 
 
+def test_cta_hidden_while_sheet_open():
+    """🔴 시트가 열려 있는 동안 CTA 를 감춘다 — 시트 배경이 10% 투과라 비친다.
+
+    ⚠️ 마지막 케이스가 핵심이다: **시트를 열어 둔 사이에 게이지가 다 차도**
+       닫으면 「다음 단계 진행」이 나와야 한다. 열기 직전 상태를 기억하는
+       방식으로 만들면 여기서 버튼이 영영 안 나온다.
+    """
+    print("\n[10] 시트 열림 중 CTA")
+    win = make_console()
+    check(not win.btn_cta.isHidden(), "IDLE — 「작업 시작」 보임")
+
+    win._open_settings()
+    check(win.btn_cta.isHidden(), "설정을 열면 CTA 가 감춰진다")
+    win._toggle_settings(False)
+    check(not win.btn_cta.isHidden(), "닫으면 다시 「작업 시작」")
+
+    win._on_cta()                                   # 작업 시작 → 눌림 대기
+    check(win.btn_cta.isHidden(), "버튼 눌림 대기 중엔 CTA 없음")
+    win._toggle_menu(True)
+    win._toggle_menu(False)
+    check(win.btn_cta.isHidden(), "메뉴를 여닫아도 되살아나지 않는다")
+
+    key(win, "1")                                   # B1 → 서브 작업
+    win._toggle_settings(True)                      # 시트를 열어 둔 채
+    if win._sub is not None and win._sub.is_active:
+        win._sub.tick(now=time.time() + 999)        # 게이지가 다 참
+        if win._sub.needs_tool:
+            win._sub.set_tool(win._sub.want_tool)
+        win._update_sub_view()
+        check(win.btn_cta.isHidden(), "시트가 열려 있는 동안엔 여전히 감춤")
+        win._toggle_settings(False)
+        check(not win.btn_cta.isHidden(),
+              "🔴 닫으면 「다음 단계 진행」이 나온다 — 기억 방식이면 여기서 실패")
+    win.close()
+
+
 def test_esc_closes_panels_first():
     """🔴 ESC 는 열린 패널부터 닫는다 — 한 번에 창을 닫지 않는다."""
     print("\n[7] ESC 탈출구")

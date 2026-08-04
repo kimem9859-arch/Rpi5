@@ -560,6 +560,7 @@ class SafetyConsole(QMainWindow):
         if want:
             self.menu_panel.raise_()
         self._dim_others(self._any_sheet_open())
+        self._sync_cta_visibility()
 
     def _toggle_notify(self, show=None):
         want = self.notify_panel.isHidden() if show is None else show
@@ -571,6 +572,7 @@ class SafetyConsole(QMainWindow):
             self._unread = 0                 # 열면 읽음 — 배지가 사라진다
             self.btn_notify.set_count(0)
         self._dim_others(self._any_sheet_open())
+        self._sync_cta_visibility()
 
     def _toggle_settings(self, show=None):
         want = self.settings_panel.isHidden() if show is None else show
@@ -582,6 +584,7 @@ class SafetyConsole(QMainWindow):
         if want:
             self.settings_panel.raise_()
         self._dim_others(self._any_sheet_open())
+        self._sync_cta_visibility()
 
     def _sheets(self):
         return (self.menu_panel, self.notify_panel, self.settings_panel,
@@ -597,6 +600,29 @@ class SafetyConsole(QMainWindow):
 
     def _any_sheet_open(self):
         return any(not p.isHidden() for p in self._sheets())
+
+    def _sync_cta_visibility(self):
+        """시트가 열려 있는 동안 정중앙 CTA 를 감춘다 (2026-08-04).
+
+        시트 배경이 rgba(…, 0.90) 이라 **뒤에 있는 파란 CTA 가 10% 배어 나온다.**
+        클릭은 시트가 정상적으로 받으므로 기능 문제는 아니고 시각 노이즈다.
+
+        🔴 시트를 닫을 때 무조건 show() 하면 안 된다 — CTA 가 숨어 있어야 하는
+           상태가 따로 있다(버튼 눌림을 기다리는 중, 게이지가 덜 찼을 때).
+           열기 직전 상태를 기억해 두는 방식도 안 된다. 시트를 열어 둔 사이에
+           게이지가 다 차면 기억값이 어긋나 **버튼이 영영 안 나온다.**
+           → 기억하지 말고 **상태에서 그때그때 계산한다.**
+        """
+        if self._any_sheet_open():
+            self.btn_cta.hide()
+            return
+        if self._sub is not None and self._sub.is_active:
+            show = self._sub.can_advance
+        else:
+            show = self.fsm.state == State.IDLE
+        self.btn_cta.setVisible(show)
+        if show:
+            self.btn_cta.raise_()
 
     def _open_check(self):
         """메뉴 → 점검(연결). 🔴 재연결 5회 포기 후 다시 붙일 수 있는 유일한 수단."""
@@ -666,6 +692,7 @@ class SafetyConsole(QMainWindow):
         if want:
             panel.raise_()
         self._dim_others(self._any_sheet_open())
+        self._sync_cta_visibility()
 
     def _open_settings(self):
         self._toggle_menu(False)
@@ -894,13 +921,11 @@ class SafetyConsole(QMainWindow):
             self.glow.set_level(None)
             self._dim_others(False)
 
-        # 진행 버튼은 조건을 다 채웠을 때만
+        # 진행 버튼은 조건을 다 채웠을 때만. 표시 여부는 _sync_cta_visibility 가
+        # 정한다 — 시트가 열려 있는 동안에는 여기서 되살리면 안 된다(뒤로 비친다).
         if sub.can_advance:
             self.btn_cta.setText("▶  다음 단계 진행")
-            self.btn_cta.show()
-            self.btn_cta.raise_()
-        else:
-            self.btn_cta.hide()
+        self._sync_cta_visibility()
 
     def _finish_sub(self):
         """「다음 단계 진행」 — 여기서 비로소 FSM 에 눌림을 전달한다."""
