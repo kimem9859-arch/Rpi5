@@ -537,7 +537,11 @@ class CheckPanel(_Sheet):
             col.addWidget(detail)
 
             rl.addWidget(mark)
-            rl.addLayout(col, 1)
+            # 🔴 남는 공간을 **이름 칸과 오른쪽 여백이 3:1 로 나눠 갖는다** —
+            #    이름 칸에 전부 주면(addLayout(col, 1)) 버튼이 패널 오른쪽 끝까지
+            #    밀려 항목 이름과 화면 폭만큼 벌어진다(2026-08-04).
+            #    ⚠️ stretch 를 이름과 버튼 **사이**에 두면 오히려 더 밀려난다.
+            rl.addLayout(col, 3)
 
             if r.retryable and not r.ok:
                 btn = QPushButton("재연결")
@@ -549,6 +553,7 @@ class CheckPanel(_Sheet):
                     f" border-radius: 5px; padding: 5px 12px; }}")
                 btn.clicked.connect(lambda _=False, k=r.key: self.retry_requested.emit(k))
                 rl.addWidget(btn)
+            rl.addStretch(1)          # 버튼 **뒤**의 여백 — 버튼을 안쪽으로 당긴다
 
             self._body.addWidget(row)
             self._rows[r.key] = row
