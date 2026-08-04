@@ -10,17 +10,18 @@
 색·글꼴:
     색은 `theme.py`, 글꼴은 `config.font()`. 이 파일에 색 코드를 직접 쓰지 않는다.
 
-글자 그림자:
-    Qt 스타일시트에는 text-shadow 가 없다. `QGraphicsDropShadowEffect` 로 대신하는데,
-    **위젯 하나에 효과 하나만** 걸 수 있어 3겹을 그대로 재현할 수는 없다.
-    → 가장 큰 효과 하나(퍼지는 후광)를 걸고, 색 대비(design §3)가 나머지를 맡는다.
+🔴 글자 그림자는 넣지 않는다 (2026-08-03 실기동에서 폐기):
+    Qt 스타일시트에 text-shadow 가 없어 QGraphicsDropShadowEffect 로 대신했더니
+    "QPainter::begin: A paint device can only be painted by one painter at a time" 가
+    끝없이 나면서 **화면이 안 그려지고 클릭도 안 먹었다**(CPU 60%).
+    효과가 걸린 위젯 안에 또 효과가 걸린 자식이 있으면 페인터가 충돌한다.
+    → 대비는 **색으로만** 낸다. design §3 의 색 대비가 원래 주된 수단이었다.
 """
 
 from PyQt6.QtCore import Qt, QRect, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QGraphicsDropShadowEffect,
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
 )
-from PyQt6.QtGui import QColor
 
 import config
 import theme
@@ -62,13 +63,19 @@ def place(widget, parent_rect, left=None, top=None, width=None,
 
 
 def _glow(widget):
-    """글자를 배경에서 떼어내는 후광. 테마에 따라 어둡게/밝게 뒤집는다."""
-    eff = QGraphicsDropShadowEffect(widget)
-    eff.setBlurRadius(12)
-    eff.setOffset(0, 1)
-    eff.setColor(QColor(0, 0, 0, 230) if theme.current() == "dark"
-                 else QColor(255, 255, 255, 240))
-    widget.setGraphicsEffect(eff)
+    """글자 후광 — 🔴 **쓰지 않는다.** (2026-08-03 실기동에서 폐기)
+
+    QGraphicsDropShadowEffect 를 패널 안 QLabel 마다 걸었더니 Qt 가
+        "QPainter::begin: A paint device can only be painted by one painter at a time"
+    를 끝없이 뱉으며 **화면이 안 그려지고 클릭도 안 먹었다.** CPU 도 60%를 태웠다.
+    효과가 걸린 위젯 안에 또 효과가 걸린 자식이 있으면 페인터가 충돌한다.
+
+    → 대비는 **색으로만** 낸다. design §3 이 정한 색 대비(순검정 판 60% + 예정단계
+      #c3c9cf 상향 등)가 원래 주된 수단이고 그림자는 보조였다. 보조를 뺀다.
+
+    함수는 호출부를 건드리지 않으려고 남겨 둔다 — 아무 일도 하지 않는다.
+    """
+    return
 
 
 class _Panel(QWidget):

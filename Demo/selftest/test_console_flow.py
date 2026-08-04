@@ -25,6 +25,16 @@ os.environ["SOP_USB_CAMERA"] = "0"          # 웹캠 점유 방지
 import config
 config.RECORDING_ENABLED = False            # 테스트가 녹화 파일을 남기지 않게
 
+# ⚠️ 카메라 스레드 정리를 빠르게 — win.close() 가 CameraThread.stop() → wait() 로
+#    스레드를 기다리는데, 죽은 IP 로 10초 타임아웃 + 3초 재연결 대기를 반복하면
+#    테스트가 창을 닫을 때마다 십수 초씩 멈춘다.
+#    127.0.0.1 은 리스너가 없어 **즉시 거절**되고, 대기도 0.1초로 줄인다.
+#    🔴 config 를 먼저 고친 뒤에 safety_console 을 import 해야 한다
+#       (camera_thread 가 import 시점에 from config import ... 로 값을 읽는다).
+config.CAMERA_TCP_HOST = "127.0.0.1"
+config.TCP_RECV_TIMEOUT_SEC = 0.3
+config.TCP_RECONNECT_DELAY_SEC = 0.1
+
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeyEvent

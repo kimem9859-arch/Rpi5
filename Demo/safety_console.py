@@ -8,7 +8,7 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QTextBrowser, QPushButton, QSizePolicy,
-    QDialog, QApplication, QMessageBox, QGraphicsOpacityEffect,
+    QDialog, QApplication, QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
@@ -313,6 +313,10 @@ class SafetyConsole(QMainWindow):
         self.camera_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.camera_label.setStyleSheet("background-color: #000000; color: #8d949a;")
 
+        # 패널이 열렸을 때 뒤를 어둡게 하는 반투명 판. 효과 대신 쓴다(_dim_others).
+        self.scrim = QWidget(central)
+        self.scrim.hide()
+
         # ── 오버레이 ───────────────────────────────────────────────────────
         steps = self._recipe["steps"] if self._recipe else [
             {"order": i + 1, "button": f"B{i + 1}", "name": f"{i + 1}단계"}
@@ -328,18 +332,20 @@ class SafetyConsole(QMainWindow):
         self.btn_menu = QPushButton("☰", central)
         self.btn_menu.setFont(config.font("cta", 700))
         self.btn_menu.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_menu.clicked.connect(self._toggle_menu)
+        # 🔴 clicked 는 checked(False) 를 인자로 보낸다 — 그대로 연결하면
+        #    _toggle_menu(show=False) 가 되어 **열자마자 닫힌다.** 인자를 버린다.
+        self.btn_menu.clicked.connect(lambda: self._toggle_menu())
 
         self.btn_notify = QPushButton("🔔", central)
         self.btn_notify.setFont(config.font("cta", 700))
         self.btn_notify.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_notify.clicked.connect(self._toggle_notify)
+        self.btn_notify.clicked.connect(lambda: self._toggle_notify())
 
         # 작업 시작 / 다음 단계 진행 — 화면 정중앙(design §4.1·§4.3)
         self.btn_cta = QPushButton("▶  작업 시작", central)
         self.btn_cta.setFont(config.font("cta", 800))
         self.btn_cta.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_cta.clicked.connect(self._on_cta)
+        self.btn_cta.clicked.connect(lambda: self._on_cta())
 
         # 🔴 버튼이 포커스를 가져가면 keyPressEvent(ESC·1~4·E)가 안 온다.
         for b in (self.btn_menu, self.btn_notify, self.btn_cta):
@@ -349,10 +355,10 @@ class SafetyConsole(QMainWindow):
         self.menu_panel = MenuPanel(central)
         self.menu_panel.closed.connect(lambda: self._toggle_menu(False))
         self.menu_panel.log_clicked.connect(self._show_log)
-        self.menu_panel.calibrate_clicked.connect(self._open_calibration_dialog)
+        self.menu_panel.calibrate_clicked.connect(lambda: self._open_calibration_dialog())
         self.menu_panel.cctv_clicked.connect(self._toggle_camera_source)
         self.menu_panel.settings_clicked.connect(self._open_settings)
-        self.menu_panel.shutdown_clicked.connect(self._on_shutdown_clicked)
+        self.menu_panel.shutdown_clicked.connect(lambda: self._on_shutdown_clicked())
 
         self.notify_panel = NotifyPanel(central)
         self.notify_panel.closed.connect(lambda: self._toggle_notify(False))
@@ -405,6 +411,7 @@ class SafetyConsole(QMainWindow):
         place(self.btn_cta, r)            # 정중앙
         self.log_browser.setGeometry(int(pw * 0.14), int(ph * 0.10),
                                      int(pw * 0.50), int(ph * 0.80))
+        self.scrim.setGeometry(r)
 
         for w in (self.glow, self.alert, self.menu_panel,
                   self.notify_panel, self.settings_panel, self.log_browser):
@@ -430,6 +437,9 @@ class SafetyConsole(QMainWindow):
         self.log_browser.setStyleSheet(
             theme.panel_qss("sheet", padding="10px 12px")
             + f"color: {theme.C('text')};")
+        self.scrim.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 0.55);" if theme.current() == "dark"
+            else "background-color: rgba(0, 0, 0, 0.35);")
 
 
     # =========================================================================
@@ -527,16 +537,28 @@ class SafetyConsole(QMainWindow):
         self.log_browser.raise_()
 
     def _dim_others(self, dimmed):
-        """열린 패널·경고가 주인공이 되도록 나머지를 낮춘다 (design §4.7·§4.5).
+        """열린 패널·경고가 주인공이 되도록 뒤를 어둡게 한다 (design §4.7·§4.5).
 
-        ⚠️ setWindowOpacity 는 **최상위 창에만** 먹는다. 자식 위젯은
-           QGraphicsOpacityEffect 를 걸어야 한다.
+        🔴 **그래픽 효과를 쓰지 않는다.** QGraphicsOpacityEffect·DropShadowEffect 를
+           오버레이에 걸었더니 Qt 가 "QPainter::begin: A paint device can only be
+           painted by one painter at a time" 를 끝없이 뱉으며 **화면이 안 그려지고
+           클릭도 안 먹었다**(2026-08-03 실기동에서 확인, CPU 60%).
+
+        → 대신 **반투명 판(scrim) 한 장**을 영상과 시트 사이에 끼운다.
+          위젯 하나뿐이라 효과가 겹칠 일이 없고, 영상과 뒤쪽 오버레이가 함께 어두워져
+          목업과 같은 그림이 된다.
         """
-        alpha = theme.DIM_OPACITY if dimmed else 1.0
-        for w in (self.status_panel, self.gauge_panel, self.btn_menu, self.btn_notify):
-            eff = QGraphicsOpacityEffect(w)
-            eff.setOpacity(alpha)
-            w.setGraphicsEffect(eff)
+        self.scrim.setVisible(dimmed)
+        if dimmed:
+            self.scrim.raise_()
+            for p in self._sheets():
+                if not p.isHidden():
+                    p.raise_()
+            if self.alert.mode:
+                self.glow.raise_()
+                self.alert.raise_()
+            if not self.log_browser.isHidden():
+                self.log_browser.raise_()
 
     # =========================================================================
     # [글라스 UI — 설정 반영]
