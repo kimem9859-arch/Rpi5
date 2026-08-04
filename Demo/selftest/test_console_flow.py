@@ -253,6 +253,25 @@ def test_notify_grows():
     win.close()
 
 
+def test_sheet_sized_on_first_open():
+    """🔴 처음 여는 패널도 내용에 맞는 크기여야 한다 (2026-08-04).
+
+    패널은 내용이 비었을 때 배치된 뒤 내용이 채워져도 다시 배치되지 않아,
+    첫 열기에서 높이가 89px(정상 496px)로 납작하게 눌려 글자가 겹쳤다.
+    """
+    print("\n[12] 첫 열기 크기")
+    win = make_console()
+    win._open_check()                       # 한 번도 연 적 없는 상태에서 연다
+    h, want = win.check_panel.height(), win.check_panel.sizeHint().height()
+    check(h >= want, f"점검 패널 높이 {h} ≥ 내용이 요구하는 {want}")
+
+    win._close_sheets()
+    win._open_record()
+    h, want = win.record_panel.height(), win.record_panel.sizeHint().height()
+    check(h >= want, f"녹화 패널 높이 {h} ≥ 내용이 요구하는 {want}")
+    win.close()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

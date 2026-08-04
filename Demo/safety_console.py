@@ -690,6 +690,12 @@ class SafetyConsole(QMainWindow):
             self._close_sheets(except_=panel)
         panel.setVisible(want)
         if want:
+            # 🔴 내용을 채운 뒤 **다시 배치**한다 — 패널은 내용이 비었을 때 잡힌
+            #    크기로 앉아 있어, 항목을 채워도 다시 재지 않으면 납작하게 눌린다
+            #    (2026-08-04: 점검 패널 첫 열기 89px, 정상 496px).
+            #    여기 한 곳에 두면 앞으로 생길 패널도 자동으로 덕을 본다.
+            panel.layout().activate()
+            panel.relayout(self._root.rect())
             panel.raise_()
         self._dim_others(self._any_sheet_open())
         self._sync_cta_visibility()
