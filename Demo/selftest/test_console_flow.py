@@ -280,6 +280,29 @@ def test_sheet_sized_on_first_open():
     win.close()
 
 
+def test_cctv_switch_needs_confirm():
+    """🔴 CCTV 전환은 확인을 받고 나서 바뀐다 (2026-08-04).
+
+    실수로 카메라가 바뀌면 감지가 끊긴다. 종료 확인창과 같은 방어다.
+    ⚠️ 모달을 실제로 띄우면 테스트가 응답을 기다리며 멎는다 — 확인 함수를
+       가짜로 바꿔 「응답을 받은 뒤」만 검사한다.
+    """
+    print("\n[13] CCTV 전환 확인")
+    win = make_console()
+    before = win._active_camera
+
+    win._confirm_camera_switch = lambda target: False      # 「아니요」
+    win._toggle_camera_source()
+    check(win._active_camera == before, f"거절하면 그대로: {win._active_camera}")
+
+    asked = []
+    win._confirm_camera_switch = lambda target: asked.append(target) or True   # 「예」
+    win._toggle_camera_source()
+    check(asked and asked[0] != before, f"전환할 카메라를 묻는다: {asked}")
+    check(win._active_camera != before, f"승낙하면 바뀐다: {win._active_camera}")
+    win.close()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

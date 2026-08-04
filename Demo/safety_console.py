@@ -582,10 +582,32 @@ class SafetyConsole(QMainWindow):
         if source == "esp32":
             self.camera_label.setText("ESP32-S3 연결 대기 중...")
 
+    def _confirm_camera_switch(self, target):
+        """전환 확인창. 🔴 모달은 **여기서만** 띄운다 — 분리해 두면 테스트가
+        이 함수를 가짜로 바꿔 「응답을 받은 뒤」만 검사할 수 있다.
+
+        기본 선택은 「아니요」다. 실수로 카메라가 바뀌면 감지가 끊긴다
+        (종료 확인창과 같은 방어).
+        """
+        name = "CCTV(USB 웹캠)" if target == "usb" else "초소형카메라(ESP32-S3)"
+        reply = QMessageBox.question(
+            self,
+            "카메라 전환 확인",
+            f"{name} 로 전환할까요?\n\n"
+            "전환하는 동안 잠시 영상이 끊깁니다.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,   # 기본 선택 = 아니오 (오동작 방지)
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
     def _toggle_camera_source(self):
-        """메뉴의 「CCTV 전환」 — 두 카메라를 번갈아 쓴다."""
-        self._switch_camera("usb" if self._active_camera == "esp32" else "esp32")
-        self._toggle_menu(False)
+        """메뉴의 「CCTV 전환」 — 두 카메라를 번갈아 쓴다. 🔴 확인을 받고 바꾼다."""
+        target = "usb" if self._active_camera == "esp32" else "esp32"
+        self._toggle_menu(False)          # 모달이 뜨는 동안 메뉴가 남아 있지 않게
+        if not self._confirm_camera_switch(target):
+            self._append_log("[카메라] 전환 취소됨")
+            return
+        self._switch_camera(target)
 
     # =========================================================================
     # [글라스 UI — 패널 열고 닫기]
