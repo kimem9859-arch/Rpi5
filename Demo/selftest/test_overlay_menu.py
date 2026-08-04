@@ -384,6 +384,36 @@ def test_notify_icons_are_emoji():
     check(pnl.count == 1, "알림 1건 추가")
 
 
+def test_notify_icon_aligned_with_title():
+    """🔴 아이콘은 **제목 줄**과 세로 중앙이 맞아야 한다 (2026-08-04).
+
+    종전에는 AlignTop 이라 행 좌상단 꼭짓점에 붙어 제목과 어긋나 보였다.
+    ⚠️ 행 전체의 중앙에 맞추면 2줄짜리 알림에서 제목과 설명 사이에 뜬다.
+    """
+    print("\n[21] 알림 아이콘 정렬")
+    from PyQt6.QtWidgets import QLabel
+    host = QWidget()
+    host.setGeometry(SCREEN)
+    pnl = NotifyPanel(host)
+    pnl.relayout(SCREEN)
+    pnl.push("warn", "순서가 다릅니다", "부가 설명 한 줄")
+    pnl.show()
+    # ⚠️ 스크롤 안쪽까지 레이아웃을 확정시켜야 좌표가 나온다 — 패널만 activate 하면
+    #    행 위젯의 geometry 가 계산 전 값으로 남는다(2026-08-04).
+    pnl.layout().activate()
+    pnl._body.layout().activate()
+    _app.processEvents()
+
+    row = pnl._rows[-1]
+    row.layout().activate()
+    _app.processEvents()
+    lbls = row.findChildren(QLabel)
+    icon, title = lbls[0], lbls[1]
+    ic, tc = icon.geometry().center().y(), title.geometry().center().y()
+    check(abs(ic - tc) <= 4, f"아이콘 중심 {ic} ≈ 제목 중심 {tc} (차이 {abs(ic - tc)}px)")
+    pnl.hide()
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

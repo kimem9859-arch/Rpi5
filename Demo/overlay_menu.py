@@ -292,7 +292,6 @@ class NotifyPanel(_Sheet):
         #    **글리프가 아예 안 그려졌다**(2026-08-04 확인).
         icon.setStyleSheet(theme.text_qss(token, 600) + "padding: 0;")
         icon.setFixedWidth(26)          # 이모지는 종전 기호보다 넓다(20 → 26)
-        icon.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         col = QVBoxLayout()
         col.setSpacing(1)
@@ -301,6 +300,12 @@ class NotifyPanel(_Sheet):
         t.setStyleSheet(theme.text_qss("text", 600))
         t.setWordWrap(True)
         col.addWidget(t)
+
+        # 🔴 **제목 줄**에 맞춘다 — AlignTop 이면 행 좌상단 꼭짓점에 붙어 어긋나고,
+        #    행 전체 중앙에 맞추면 2줄짜리에서 제목과 설명 사이에 뜬다(2026-08-04).
+        #    ⚠️ t 를 만든 **뒤**라야 제목 줄 높이를 알 수 있다.
+        icon.setFixedHeight(t.sizeHint().height())
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         if sub:
             s = QLabel(sub)
             s.setFont(config.font("small"))
@@ -308,7 +313,9 @@ class NotifyPanel(_Sheet):
             s.setWordWrap(True)
             col.addWidget(s)
 
-        rl.addWidget(icon)
+        # 아이콘 칸을 위로 붙인다 — 안 그러면 2줄일 때 칸이 세로로 늘어나
+        # 아이콘이 다시 가운데로 내려간다.
+        rl.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
         rl.addLayout(col, 1)
         self._list.addWidget(row)         # addStretch 뒤에 넣어 아래로 쌓인다
         self._rows.append(row)
