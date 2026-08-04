@@ -393,11 +393,17 @@ class SafetyConsole(QMainWindow):
         self.record_panel.start_requested.connect(self._start_recording)
         self.record_panel.stop_requested.connect(self._stop_recording)
 
+        # 🔴 항목 패널은 ✕ 로 닫는다 (2026-08-04) — 메뉴·알림 창 자체는 같은 버튼
+        #    재클릭으로 닫는 방식을 그대로 둔다. 캘리브레이션은 별도 대화상자라 제외.
+        self.check_panel.closed.connect(lambda: self._toggle_sheet(self.check_panel, False))
+        self.record_panel.closed.connect(lambda: self._toggle_sheet(self.record_panel, False))
+
         self.settings_panel = SettingsPanel(central)
         self.settings_panel.closed.connect(lambda: self._toggle_settings(False))
         self.settings_panel.tool_changed.connect(self._on_tool_changed)
         self.settings_panel.theme_changed.connect(self._on_theme_changed)
         self.settings_panel.panel_bg_changed.connect(self._on_panel_bg_changed)
+        self.settings_panel.closed.connect(lambda: self._toggle_settings(False))
         # 공구 선택지는 **레시피가 준다** — 목록을 코드에 박지 않는다(design §4.4).
         self._wire_tool_settings()
 
@@ -405,6 +411,18 @@ class SafetyConsole(QMainWindow):
         self.log_browser = QTextBrowser(central)
         self.log_browser.setFont(config.font("small"))
         self.log_browser.hide()
+        # 로그는 _Sheet 가 아니라 QTextBrowser 다 — ✕ 를 따로 얹는다.
+        # 🔴 부모를 log_browser 로 두면 **뷰포트가 그 위를 덮어 보이지 않는다**
+        #    (QAbstractScrollArea 는 자식을 뷰포트 아래에 둔다. 2026-08-04 확인).
+        #    그래서 central 의 자식으로 두고 _relayout 이 로그창 우상단에 앉힌다.
+        self._log_close = QPushButton("✕", central)
+        self._log_close.setFont(config.font("banner", 700))   # ✕ 글리프는 작게 그려진다
+        self._log_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._log_close.setFlat(True)
+        self._log_close.setFixedSize(32, 32)
+        self._log_close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._log_close.clicked.connect(lambda: self._set_log_visible(False))
+        self._log_close.hide()
 
         self._apply_theme()
         self._relayout()
@@ -444,6 +462,10 @@ class SafetyConsole(QMainWindow):
         place(self.btn_cta, r)            # 정중앙
         self.log_browser.setGeometry(int(pw * 0.14), int(ph * 0.10),
                                      int(pw * 0.50), int(ph * 0.80))
+        r_log = self.log_browser.geometry()
+        # 스크롤바(8px)와 겹치지 않게 안쪽으로 — 44 면 겹쳤다(2026-08-04).
+        self._log_close.move(r_log.right() - 58, r_log.top() + 8)
+        self._log_close.raise_()
         self.scrim.setGeometry(r)
 
         for w in (self.glow, self.alert, self.menu_panel, self.notify_panel,
@@ -472,6 +494,10 @@ class SafetyConsole(QMainWindow):
         self.log_browser.setStyleSheet(
             theme.panel_qss("sheet", padding="10px 12px")
             + f"color: {theme.C('text')};")
+        self._log_close.setStyleSheet(
+            f"QPushButton {{ color: {theme.C('text')}; background: transparent;"
+            f" border: none; }}"
+            f"QPushButton:hover {{ color: {theme.C('info')}; }}")
         self.scrim.setStyleSheet(
             "background-color: rgba(0, 0, 0, 0.55);" if theme.current() == "dark"
             else "background-color: rgba(0, 0, 0, 0.35);")
@@ -602,7 +628,7 @@ class SafetyConsole(QMainWindow):
             if p is not except_:
                 p.hide()
         if except_ is not self.log_browser:
-            self.log_browser.hide()
+            self._set_log_visible(False)
 
     def _any_sheet_open(self):
         return any(not p.isHidden() for p in self._sheets())
@@ -710,10 +736,18 @@ class SafetyConsole(QMainWindow):
         self._toggle_menu(False)
         self._toggle_settings(True)
 
+    def _set_log_visible(self, on):
+        """로그 창과 그 ✕ 는 항상 함께 뜨고 함께 사라진다 — ✕ 가 별도 위젯이라
+        (뷰포트에 가리지 않으려고 central 의 자식이다) 따로 두면 어긋난다."""
+        self.log_browser.setVisible(on)
+        self._log_close.setVisible(on)
+        if on:
+            self.log_browser.raise_()
+            self._log_close.raise_()
+
     def _show_log(self):
         self._toggle_menu(False)
-        self.log_browser.setVisible(not self.log_browser.isVisible())
-        self.log_browser.raise_()
+        self._set_log_visible(self.log_browser.isHidden())
 
     def _dim_others(self, dimmed):
         """열린 패널·경고가 주인공이 되도록 뒤를 어둡게 한다 (design §4.7·§4.5).
@@ -1002,7 +1036,7 @@ class SafetyConsole(QMainWindow):
                     self._dim_others(False)
                     return
             if not self.log_browser.isHidden():
-                self.log_browser.hide()
+                self._set_log_visible(False)
                 return
             self._append_log("[시스템] ESC — 창을 닫습니다")
             self.close()

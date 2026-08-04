@@ -202,11 +202,15 @@ def test_both_themes():
 
 
 def test_panels_no_close_button():
-    """🔴 ✕ 버튼을 두지 않는다 — 같은 버튼(☰/🔔)을 다시 눌러 닫는다."""
-    print("\n[13] ✕ 버튼 없음")
+    """🔴 메뉴·알림 **창 자체**에는 ✕ 를 두지 않는다 — 같은 버튼(☰/🔔)으로 닫는다.
+
+    🔴 2026-08-04 정정 — 설정은 이 목록에서 빠졌다. 메뉴에서 연 **항목 패널**
+       (점검·녹화·설정·로그)은 자기 버튼이 따로 없어 ✕ 가 필요하다
+       (test_item_sheets_have_close_button 참조).
+    """
+    print("\n[13] ✕ 버튼 없음 (메뉴·알림 창)")
     host = QWidget()
-    for name, p in (("MenuPanel", MenuPanel(host)), ("NotifyPanel", NotifyPanel(host)),
-                    ("SettingsPanel", SettingsPanel(host))):
+    for name, p in (("MenuPanel", MenuPanel(host)), ("NotifyPanel", NotifyPanel(host))):
         texts = [b.text() for b in p.findChildren(QPushButton)]
         check("✕" not in texts, f"{name} 에 ✕ 없음 (버튼: {texts or '없음'})")
 
@@ -340,6 +344,26 @@ def test_settings_note_hidden_when_empty():
     s.set_tool_editable(False)                 # 작업 중 — 문구 있음
     check(not s._tool_note.isHidden(), "작업 중이면 문구가 보인다")
     check("변경할 수 없습니다" in s._tool_note.text(), f"문구: {s._tool_note.text()}")
+
+
+def test_item_sheets_have_close_button():
+    """🔴 메뉴에서 연 항목 패널은 ✕ 로 닫는다 (2026-08-04).
+
+    종전에는 ☰ 를 다시 눌러야 닫혔다. 메뉴·알림 창 **자체**는 자기 버튼이
+    보이므로 재클릭으로 닫는 방식을 그대로 둔다 — ✕ 는 항목 패널에만 단다.
+    """
+    print("\n[19] 항목 패널 ✕")
+    from overlay_menu import CheckPanel, RecordPanel
+    host = QWidget()
+    for cls in (CheckPanel, RecordPanel, SettingsPanel):
+        pnl = cls(host)
+        btns = [b for b in pnl.findChildren(QPushButton) if b.text() == "✕"]
+        check(len(btns) == 1, f"{cls.__name__} 에 ✕ 1개")
+        if btns:
+            got = []
+            pnl.closed.connect(lambda: got.append(1))
+            btns[0].click()
+            check(got == [1], f"{cls.__name__} ✕ → closed 신호")
 
 
 if __name__ == "__main__":

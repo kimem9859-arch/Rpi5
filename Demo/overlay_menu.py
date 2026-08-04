@@ -45,9 +45,32 @@ _SETTINGS_W = 0.34
 class _Sheet(QWidget):
     """열었을 때만 나오는 진한 패널."""
 
+    closed = pyqtSignal()          # ✕ 를 누르면 나온다 (항목 패널만 ✕ 를 단다)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.hide()
+
+    def _make_close_button(self):
+        """우상단 ✕. 🔴 네 패널이 같은 모양·같은 자리여야 하므로 여기서만 만든다.
+
+        메뉴·알림 **창 자체**에는 달지 않는다 — 자기 버튼(☰/🔔)이 보이므로
+        재클릭으로 닫는다. ✕ 가 필요한 것은 자기 버튼이 없는 **항목 패널**이다.
+        """
+        # ⚠️ ✕ 글리프는 같은 pt 의 한글보다 훨씬 작게 그려진다 — body(12pt) 로는
+        #    8px 남짓이라 누를 자리가 잘 안 보였다(2026-08-04 확인). banner(16pt)로.
+        b = QPushButton("✕")
+        b.setFont(config.font("banner", 700))
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setFlat(True)
+        b.setFixedSize(32, 32)
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)     # ESC·1~4 키가 창으로 가게
+        b.setStyleSheet(
+            f"QPushButton {{ color: {theme.C('text')}; background: transparent;"
+            f" border: none; }}"
+            f"QPushButton:hover {{ color: {theme.C('info')}; }}")
+        b.clicked.connect(lambda: self.closed.emit())
+        return b
 
     def apply_theme(self):
         # 🔴 시트는 **항상 배경을 그린다** — 읽고 눌러야 하므로 가독성이 우선이다.
@@ -330,9 +353,9 @@ class SettingsPanel(_Sheet):
         head = QHBoxLayout()
         self._title = QLabel("⚙  설정")
         self._title.setFont(config.font("title", 800))
-        # 🔴 ✕ 버튼을 두지 않는다 — 같은 버튼(☰/🔔)을 다시 눌러 닫는다.
         head.addWidget(self._title)
         head.addStretch()
+        head.addWidget(self._make_close_button())
         lay.addLayout(head)
 
         self._tool_caption = QLabel("4단계 지정 공구")
@@ -442,9 +465,13 @@ class CheckPanel(_Sheet):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(6)
 
+        head = QHBoxLayout()
         self._title = QLabel("🔧  점검 (연결)")
         self._title.setFont(config.font("title", 800))
-        lay.addWidget(self._title)
+        head.addWidget(self._title)
+        head.addStretch()
+        head.addWidget(self._make_close_button())
+        lay.addLayout(head)
 
         self._body = QVBoxLayout()
         self._body.setSpacing(4)
@@ -534,9 +561,13 @@ class RecordPanel(_Sheet):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(8)
 
+        head = QHBoxLayout()
         self._title = QLabel("⏺  녹화")
         self._title.setFont(config.font("title", 800))
-        lay.addWidget(self._title)
+        head.addWidget(self._title)
+        head.addStretch()
+        head.addWidget(self._make_close_button())
+        lay.addLayout(head)
 
         self._state = QLabel("")
         self._state.setFont(config.font("body", 600))
