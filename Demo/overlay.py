@@ -118,6 +118,14 @@ class _Panel(QWidget):
             _glow(lbl)
 
 
+# 공정 단계 행의 안쪽 여백 — 🔴 **배경 유무와 무관하게 늘 같아야 한다.**
+#    종전에는 panel_qss 의 padding 이 자식에 상속돼 배경을 켤 때만 붙었고,
+#    상속을 막자 이번엔 늘 없어졌다. 사용자가 원한 것은 **넉넉한 쪽**이라
+#    여기서 명시적으로 준다(2026-08-04).
+_ROW_PAD_V, _ROW_PAD_H = 12, 14
+_ROW_BAR = 3                                    # 현재 단계의 왼쪽 막대 두께
+
+
 class StatusPanel(_Panel):
     """좌상단 — FSM 상태 + 공정 단계 목록. 기존 StepFlowWidget 을 대체한다."""
 
@@ -157,28 +165,36 @@ class StatusPanel(_Panel):
         else:
             cur_token, mark = "current", "▶"
 
+        # 상태·캡션도 행과 **같은 좌우 여백**을 준다 — 글자 시작점이 세로로
+        # 한 줄이 되게. 상하 여백은 주지 않는다(행만큼 벌어지면 머리가 커진다).
+        side = f"padding-left: {_ROW_PAD_H}px; padding-right: {_ROW_PAD_H}px;"
         self._state.setText(f"● {state_value}")
         self._state.setStyleSheet(theme.text_qss(
             "warn" if state_value == "WARNING" else
-            "danger" if state_value == "BLOCK" else "done", 800))
-        self._caption.setStyleSheet(theme.text_qss("label", 600))
+            "danger" if state_value == "BLOCK" else "done", 800) + side)
+        self._caption.setStyleSheet(theme.text_qss("label", 600) + side)
 
         for i, (s, row) in enumerate(zip(self._steps, self._rows)):
             order = i + 1
             text = f"{s['button']} {s.get('name', '')}"
+            pad = f"padding: {_ROW_PAD_V}px {_ROW_PAD_H}px;"
+            # 현재 단계는 왼쪽 막대가 붙으므로 그만큼 덜 띄워 **글자 시작점을 맞춘다**
+            pad_cur = (f"padding: {_ROW_PAD_V}px {_ROW_PAD_H}px"
+                       f" {_ROW_PAD_V}px {_ROW_PAD_H - _ROW_BAR}px;")
             if not started:
                 row.setText(f"○ {text}")
-                row.setStyleSheet(theme.text_qss("todo", 600))
+                row.setStyleSheet(theme.text_qss("todo", 600) + pad)
             elif order < expected_step:
                 row.setText(f"✓ {text}")
-                row.setStyleSheet(theme.text_qss("done", 600))
+                row.setStyleSheet(theme.text_qss("done", 600) + pad)
             elif order == expected_step:
                 row.setText(f"{mark} {text}")
                 row.setStyleSheet(theme.text_qss(cur_token, 800)
-                                  + f"border-left: 3px solid {theme.C(cur_token)}; padding-left: 7px;")
+                                  + f"border-left: {_ROW_BAR}px solid {theme.C(cur_token)};"
+                                  + pad_cur)
             else:
                 row.setText(f"○ {text}")
-                row.setStyleSheet(theme.text_qss("todo", 600))
+                row.setStyleSheet(theme.text_qss("todo", 600) + pad)
 
     def relayout(self, parent_rect):
         p = _POS["status"]
