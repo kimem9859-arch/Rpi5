@@ -366,6 +366,24 @@ def test_item_sheets_have_close_button():
             check(got == [1], f"{cls.__name__} ✕ → closed 신호")
 
 
+def test_notify_icons_are_emoji():
+    """알림 종류마다 눈에 띄는 아이콘 (2026-08-04).
+
+    종전 기호(✓ ▶ ⚠)는 흑백 글리프라 글자처럼 보였다.
+    """
+    print("\n[20] 알림 아이콘")
+    want = {"check": "✅", "work": "▶️", "warn": "⚠️", "danger": "⛔"}
+    check(set(NOTIFY_KINDS) == set(want), f"종류 4가지 유지: {sorted(NOTIFY_KINDS)}")
+    for k, icon in want.items():
+        got = NOTIFY_KINDS[k][0]
+        check(got == icon, f"{k} → {got}")
+
+    host = QWidget()
+    pnl = NotifyPanel(host)
+    pnl.push("danger", "전기 입력 차단됨", "1단계 B1")
+    check(pnl.count == 1, "알림 1건 추가")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

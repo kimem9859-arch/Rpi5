@@ -24,11 +24,13 @@ import theme
 from overlay import place, _glow
 
 
-# 알림 종류 — design §4.8. (기호, 색 토큰)
+# 알림 종류 — design §4.8. (아이콘, 색 토큰)
+# 🔴 컬러 이모지를 쓴다 — 종전 흑백 기호(✓ ▶ ⚠)는 본문 글자와 구별되지 않아
+#    목록이 글자 덩어리로 읽혔다(2026-08-04 실기동 피드백).
 NOTIFY_KINDS = {
-    "check": ("✓", "done"),      # 점검
-    "work":  ("▶", "info"),      # 이벤트 — 작업
-    "warn":  ("⚠", "warn"),      # 이벤트 — 경고
+    "check":  ("✅", "done"),     # 점검
+    "work":   ("▶️", "info"),     # 이벤트 — 작업
+    "warn":   ("⚠️", "warn"),     # 이벤트 — 경고
     "danger": ("⛔", "danger"),   # 이벤트 — 위험
 }
 
@@ -281,9 +283,15 @@ class NotifyPanel(_Sheet):
         rl.setSpacing(8)
 
         icon = QLabel(mark)
-        icon.setFont(config.font("body", 800))
-        icon.setStyleSheet(theme.text_qss(token, 800))
-        icon.setFixedWidth(20)
+        # ⚠️ weight 800 으로 두면 **이모지가 아예 안 그려진다** — Pretendard 에는
+        #    이모지 글리프가 없어 폴백해야 하는데, ExtraBold 에서는 폴백이 깨진다
+        #    (2026-08-04 확인. 메뉴 항목의 🔧📜🎯 는 600 이라 멀쩡했다).
+        icon.setFont(config.font("body", 600))
+        # 🔴 padding: 0 을 반드시 명시한다 — 시트의 padding(10px 12px)이 자식에
+        #    상속되는데, 아이콘은 폭이 26px 로 고정이라 좌우 24px 에 눌려
+        #    **글리프가 아예 안 그려졌다**(2026-08-04 확인).
+        icon.setStyleSheet(theme.text_qss(token, 600) + "padding: 0;")
+        icon.setFixedWidth(26)          # 이모지는 종전 기호보다 넓다(20 → 26)
         icon.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         col = QVBoxLayout()
