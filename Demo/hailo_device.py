@@ -14,6 +14,20 @@
    ROUND_ROBIN 스케줄러가 컨텍스트 전환을 관리하므로, 수동 활성화는 오히려 장치를
    독점해 다른 모델을 막는다. (2026-07-21 프로브에서 3모델 동시 구동 확인)
 
+   🔴 **미해결 — 외부 blaze 소스가 아직 `activate()` 를 부른다 (2026-08-03 확인)**
+   기동 때마다 이 경고가 뜬다:
+       WARNING:pyhailort:Calls to `activate()` when working with scheduler are
+       deprecated! On future versions this call will raise an error.
+   호출처는 우리 코드가 아니라 손 검출용 blaze 소스 3곳이다:
+       ~/hoi_probe/blaze_app_python/blaze_hailo/hailo_inference.py:134, 156
+       ~/hoi_probe/blaze_app_python/blaze_hailo/blazedetector.py:199
+       ~/hoi_probe/blaze_app_python/blaze_hailo/blazelandmark.py:126
+   **지금은 무해하다** — 세 모델이 정상 동작한다(위 프로브·현행 기동 로그).
+   문제가 되는 시점 = **HailoRT 를 5.x 로 올릴 때**. 그때는 `.hef` 재변환
+   (현행 .hef 는 DFC 3.33.1 산출물이라 4.x 전용)과 **묶어서** 이 3곳도 고쳐야 한다.
+   ⚠️ 그 소스는 repo 밖에 있어 클론·sop-pi-2 에서는 손 검출이 자동 비활성된다
+      (vendoring 미결) — 두 문제를 같이 처리하는 편이 낫다.
+
 성능 영향 (2026-07-21 A/B 실측):
     console_v2 단독 8.15ms vs 팜+핸드 동시 로드 8.14ms — **평균 저하 없음**.
     p95 만 9.24 → 11.33ms 로 소폭 증가하나 프레임 간격(약 80ms) 대비 여유 5배.
