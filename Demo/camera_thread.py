@@ -16,6 +16,7 @@ from config import (
     CAMERA_FLIP_VERTICAL,
     CAMERA_TCP_HOST, CAMERA_TCP_PORT,
     TCP_RECV_TIMEOUT_SEC, TCP_RECONNECT_DELAY_SEC, TCP_MAX_FRAME_BYTES,
+    CONNECT_MAX_TRIES,
     YOLO_CALIBRATION_PATH,
     YOLO_CONF_HIGH, YOLO_IOU_MATCH, YOLO_MAX_MISS,
 )
@@ -154,6 +155,7 @@ class CameraThread(QThread):
                                                      # 단계 2=박스 안(위험) / 1=링(접근). roi_zones 참조
     raw_frame_signal          = pyqtSignal(object)
     calibration_needed_signal = pyqtSignal()
+    connect_failed_signal     = pyqtSignal(int)   # 연속 실패 횟수 — 알림용
 
     def __init__(self):
         super().__init__()
@@ -173,6 +175,11 @@ class CameraThread(QThread):
         self._raw_event    = threading.Event()
         self._recv_error   = False
 
+        # 재연결 제한 — 무한 재시도로 로그가 쌓이는 것을 막는다.
+        self._fail_count   = 0
+        self._give_up      = False
+        self._retry_event  = threading.Event()
+
         # 손 검출 — MediaPipe 프레임워크는 Python 3.13/aarch64 휠이 없어 못 쓴다.
         # 대신 같은 모델(BlazePalm·BlazeHandLandmark)을 Hailo에서 돌린다(hand_tracker).
         # 모델이 없으면 조용히 비활성되고 detect()가 None을 주므로, 손 검출이 없던
@@ -184,6 +191,20 @@ class CameraThread(QThread):
             self._is_active = active
             if not active:
                 self._tracks = []
+
+    def retry_connect(self):
+        """수동 재연결 — 메뉴 → 점검(연결) 에서 부른다.
+
+        자동 재시도를 포기한 뒤 다시 붙일 수 있는 **유일한 수단**이다.
+        """
+        self._fail_count = 0
+        self._give_up = False
+        self._retry_event.set()
+        self.log_signal.emit("[카메라] 수동 재연결 시도")
+
+    @property
+    def gave_up(self):
+        return self._give_up
 
     def set_host(self, host):
         with self._lock:
@@ -262,13 +283,33 @@ class CameraThread(QThread):
         calibration_initialized = False
 
         while self._running:
+            # 🔴 무한 재시도 금지 — 3초마다 영원히 돌면 로그가 계속 쌓인다(3분에 약 60줄).
+            #    CONNECT_MAX_TRIES 회 실패하면 멈추고 신호를 낸다. 다시 시도하려면
+            #    메뉴 → 점검(연결) 에서 retry_connect() 를 부른다.
+            if self._give_up:
+                self._retry_event.wait(timeout=0.5)
+                self._retry_event.clear()
+                continue
+
             self.sock = self._connect_tcp()
             if self.sock is None:
                 if not self._running:
                     break
-                self.log_signal.emit(f"[카메라] {TCP_RECONNECT_DELAY_SEC:.0f}초 후 재연결...")
+                self._fail_count += 1
+                if self._fail_count >= CONNECT_MAX_TRIES:
+                    self._give_up = True
+                    self.log_signal.emit(
+                        f"[카메라] 🔴 {CONNECT_MAX_TRIES}회 연결 실패 — 자동 재시도를 멈춥니다. "
+                        f"메뉴 → 점검(연결) 에서 다시 시도하세요.")
+                    self.connect_failed_signal.emit(CONNECT_MAX_TRIES)
+                    continue
+                self.log_signal.emit(
+                    f"[카메라] {TCP_RECONNECT_DELAY_SEC:.0f}초 후 재연결... "
+                    f"({self._fail_count}/{CONNECT_MAX_TRIES})")
                 time.sleep(TCP_RECONNECT_DELAY_SEC)
                 continue
+
+            self._fail_count = 0          # 붙었으면 카운터를 되돌린다
 
             self._recv_error = False
             self._raw_event.clear()

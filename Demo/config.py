@@ -160,6 +160,11 @@ TCP_RECV_TIMEOUT_SEC    = 10.0
 TCP_RECONNECT_DELAY_SEC = 3.0
 TCP_MAX_FRAME_BYTES     = 500000
 
+# 🔴 연결 재시도 상한 — 무한 재시도는 로그를 계속 불린다(3분에 약 60줄).
+#    이 횟수만큼 실패하면 자동 재시도를 멈추고 알림을 띄운다.
+#    다시 붙이려면 메뉴 → 점검(연결) 에서 수동으로 시도한다.
+CONNECT_MAX_TRIES = 5
+
 # =============================================================================
 # [인터락 설정] — 트랙 A 물리 차단 (FSM 콜백 → pyserial → Arduino 릴레이)
 # 결선도 정본: ../dev/interlock/결선도_초안.md §5 (RUN/WARN/BLOCK + ACK)

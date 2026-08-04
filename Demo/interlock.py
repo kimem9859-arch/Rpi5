@@ -47,11 +47,15 @@ class InterlockController:
     """
 
     def __init__(self, port=None, baud=None, timeout=None,
-                 enabled=None, log=None, on_fault=None):
+                 enabled=None, log=None, on_fault=None, on_give_up=None):
         self._port    = port if port is not None else config.INTERLOCK_PORT
         self._baud    = baud if baud is not None else config.INTERLOCK_BAUD
         self._timeout = timeout if timeout is not None else config.INTERLOCK_TIMEOUT
         self._reconnect_delay = getattr(config, "INTERLOCK_RECONNECT_DELAY_SEC", 3.0)
+        # 재연결 제한 — 무한 재시도로 로그가 쌓이는 것을 막는다.
+        self._fail_count = 0
+        self._give_up = False
+        self._on_give_up = on_give_up
         self._block_retries = getattr(config, "INTERLOCK_BLOCK_ACK_RETRIES", 2)
         self._enabled = config.INTERLOCK_ENABLED if enabled is None else enabled
 
@@ -124,14 +128,46 @@ class InterlockController:
         self._write(cmd, force=True)
 
     def _reconnect_loop(self):
-        """연결이 없을 때 주기적으로 재연결을 시도하는 백그라운드 루프."""
+        """연결이 없을 때 주기적으로 재연결을 시도하는 백그라운드 루프.
+
+        🔴 무한 재시도 금지 — 3초마다 영원히 돌면 "연결 실패" 로그가 계속 쌓인다.
+           CONNECT_MAX_TRIES 회 실패하면 멈추고 on_give_up 을 부른다.
+           다시 붙이려면 메뉴 → 점검(연결) 에서 retry_connect() 를 부른다.
+        """
+        max_tries = getattr(config, "CONNECT_MAX_TRIES", 5)
         while not self._closing:
             connected = self._ser is not None and getattr(self._ser, "is_open", False)
-            if not connected and serial is not None:
+            if connected:
+                self._fail_count = 0
+                self._give_up = False
+            elif self._give_up:
+                pass                       # 포기 상태 — 수동 재시도를 기다린다
+            elif serial is not None:
                 if self._open():
-                    # 재연결 성공 → 현재 FSM 상태(또는 최초면 RUN)를 릴레이에 반영
+                    self._fail_count = 0
                     self._sync_after_open()
+                else:
+                    self._fail_count += 1
+                    if self._fail_count >= max_tries:
+                        self._give_up = True
+                        self._log(f"[인터락] 🔴 {max_tries}회 연결 실패 — 자동 재시도를 멈춥니다. "
+                                  f"메뉴 → 점검(연결) 에서 다시 시도하세요.")
+                        if self._on_give_up:
+                            try:
+                                self._on_give_up(max_tries)
+                            except Exception:
+                                pass
             time.sleep(self._reconnect_delay)
+
+    def retry_connect(self):
+        """수동 재연결 — 메뉴 → 점검(연결) 에서 부른다."""
+        self._fail_count = 0
+        self._give_up = False
+        self._log("[인터락] 수동 재연결 시도")
+
+    @property
+    def gave_up(self):
+        return self._give_up
 
     # -------------------------------------------------------------- 전송 코어
     def _write(self, cmd, force=False):

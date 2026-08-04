@@ -188,6 +188,8 @@ class SafetyConsole(QMainWindow):
     bg_log_signal = pyqtSignal(str)
     # 인터락 폴트(BLOCK 차단 미확인) → GUI 스레드 알람.
     interlock_fault_signal = pyqtSignal(str)
+    # 연결 포기(5회 실패) → 알림. 인터락은 워커 스레드에서 오므로 마샬링이 필요하다.
+    connect_gave_up_signal = pyqtSignal(str, int)
 
     def __init__(self):
         super().__init__()
@@ -248,9 +250,11 @@ class SafetyConsole(QMainWindow):
         # _append_log 가 쓰는 log_browser·_log_file_path 가 준비된 _init_ui 이후 생성.
         self.bg_log_signal.connect(self._append_log)
         self.interlock_fault_signal.connect(self._on_interlock_fault)
+        self.connect_gave_up_signal.connect(self._on_connect_gave_up)
         self.interlock = InterlockController(
             log=self.bg_log_signal.emit,
-            on_fault=self.interlock_fault_signal.emit)
+            on_fault=self.interlock_fault_signal.emit,
+            on_give_up=lambda n: self.connect_gave_up_signal.emit("인터락", n))
 
         # 트랙 A 물리 입력 — 버튼 B1~B4·EMO(GPIO) → FSM. gpiozero 콜백은 별도 스레드라
         # 시그널로 GUI 스레드의 _press_button 에 마샬링(직접 GUI 접근 금지). 미연결·비-Pi
@@ -265,6 +269,8 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.yolo_detections_signal.connect(self._on_yolo_detections)
         self.camera_thread.roi_signal.connect(self._on_roi)
         self.camera_thread.calibration_needed_signal.connect(self._on_calibration_needed)
+        self.camera_thread.connect_failed_signal.connect(
+            lambda n: self._on_connect_gave_up("카메라", n))
         self.camera_thread.start()
 
         self.usb_camera_thread = UsbCameraThread()
@@ -594,6 +600,12 @@ class SafetyConsole(QMainWindow):
             if key in (sub.get("tools") or []):
                 return sub.get("tool_names", {}).get(key, key)
         return key
+
+    @pyqtSlot(str, int)
+    def _on_connect_gave_up(self, what, tries):
+        """연결을 포기했을 때 — 로그를 계속 쌓는 대신 알림 1건으로 알린다."""
+        self._notify("warn", f"{what} 연결 실패",
+                     f"{tries}회 시도 후 중단 — 메뉴 → 점검(연결)에서 다시 시도")
 
     def _notify(self, kind, title, sub=""):
         """알림 추가 + 버튼 뱃지 갱신."""
