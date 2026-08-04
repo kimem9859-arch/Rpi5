@@ -14,7 +14,7 @@
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
-    QScrollArea, QRadioButton, QButtonGroup, QFrame,
+    QScrollArea, QRadioButton, QButtonGroup, QFrame, QSizePolicy,
 )
 
 import os
@@ -302,29 +302,35 @@ class NotifyPanel(_Sheet):
         icon.setStyleSheet(theme.text_qss(token, 600) + "padding: 0;")
         icon.setFixedWidth(26)          # 이모지는 종전 기호보다 넓다(20 → 26)
 
-        col = QVBoxLayout()
-        col.setSpacing(1)
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         t = QLabel(title)
         t.setFont(config.font("body", 600))
         t.setStyleSheet(theme.text_qss("text", 600))
         t.setWordWrap(True)
-        col.addWidget(t)
 
-        # 🔴 **제목 줄**에 맞춘다 — AlignTop 이면 행 좌상단 꼭짓점에 붙어 어긋나고,
-        #    행 전체 중앙에 맞추면 2줄짜리에서 제목과 설명 사이에 뜬다(2026-08-04).
-        #    ⚠️ t 를 만든 **뒤**라야 제목 줄 높이를 알 수 있다.
-        icon.setFixedHeight(t.sizeHint().height())
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # 🔴 아이콘과 제목을 **같은 줄**에 넣는다 — 레이아웃이 세로 중앙을 맞춰 준다.
+        #    높이를 계산해 맞추려 했더니(setFixedHeight + sizeHint) 창 크기에 따라
+        #    제목 라벨이 늘어나 글자가 그 중앙으로 내려가면서 어긋났다
+        #    (1280 에선 맞고 1920 에선 10px 어긋남, 2026-08-04). 구조로 푼다.
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(8)
+        head.addWidget(icon)
+        head.addWidget(t, 1)
+
+        col = QVBoxLayout()
+        col.setSpacing(1)
+        col.addLayout(head)
         if sub:
             s = QLabel(sub)
             s.setFont(config.font("small"))
             s.setStyleSheet(theme.text_qss("label", 500))
             s.setWordWrap(True)
+            # 설명은 아이콘 폭만큼 들여쓴다 — 제목 글자와 왼쪽을 맞춘다.
+            s.setContentsMargins(26 + 8, 0, 0, 0)
             col.addWidget(s)
 
-        # 아이콘 칸을 위로 붙인다 — 안 그러면 2줄일 때 칸이 세로로 늘어나
-        # 아이콘이 다시 가운데로 내려간다.
-        rl.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
         rl.addLayout(col, 1)
         self._list.addWidget(row)         # addStretch 뒤에 넣어 아래로 쌓인다
         self._rows.append(row)
