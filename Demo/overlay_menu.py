@@ -460,9 +460,19 @@ class SettingsPanel(_Sheet):
         self._title.setStyleSheet(theme.text_qss("text", 800))
         for cap in (self._tool_caption, self._theme_caption, self._bg_caption):
             cap.setStyleSheet(theme.text_qss("label", 700))
-        radio_qss = (f"QRadioButton {{ color: {theme.C('text')}; background: transparent;"
-                     f" padding: 3px 2px; }}"
-                     f"QRadioButton:disabled {{ color: {theme.C('todo')}; }}")
+        # 🔴 인디케이터(동그라미)를 명시한다 — Qt 기본 렌더는 **선택 안 된 것을
+        #    거의 안 그려서**, 선택된 줄과 아닌 줄의 글자 시작점이 어긋나 보였다
+        #    (2026-08-04. 「없음」과 「있음」의 위치가 다르다는 피드백의 원인).
+        #    spacing 은 동그라미와 글자 사이 — 값이 없으면 항목마다 달라질 수 있다.
+        radio_qss = (
+            f"QRadioButton {{ color: {theme.C('text')}; background: transparent;"
+            f" padding: 3px 2px; spacing: 8px; }}"
+            f"QRadioButton::indicator {{ width: 12px; height: 12px;"
+            f" border-radius: 8px; border: 2px solid {theme.C('todo')};"
+            f" background: transparent; }}"
+            f"QRadioButton::indicator:checked {{ border-color: {theme.C('info')};"
+            f" background-color: {theme.C('info')}; }}"
+            f"QRadioButton:disabled {{ color: {theme.C('todo')}; }}")
         for b in (list(self._tool_buttons.values()) + list(self._theme_group.buttons())
                   + list(self._bg_group.buttons())):
             b.setStyleSheet(radio_qss)

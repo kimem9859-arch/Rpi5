@@ -451,6 +451,25 @@ def test_record_folder_row():
     check(got == [1], f"누르면 신호: {got}")
 
 
+def test_settings_radios_uniform():
+    """🔴 라디오 4개(테마 2 + 배경 2)의 글자 크기·시작점이 같아야 한다 (2026-08-04)."""
+    print("\n[24] 설정 라디오 통일")
+    host = QWidget()
+    s = SettingsPanel(host)
+    s.set_tools(["spanner", "driver"], "spanner")
+    s.apply_theme()
+
+    radios = (list(s._tool_buttons.values()) + list(s._theme_group.buttons())
+              + list(s._bg_group.buttons()))
+    sizes = {b.font().pointSize() for b in radios}
+    check(len(sizes) == 1, f"글자 크기 하나로: {sizes}")
+
+    qss = {b.styleSheet() for b in radios}
+    check(len(qss) == 1, f"스타일 하나로: {len(qss)}가지")
+    check(all("padding" in q for q in qss), "여백이 명시돼 있다")
+    check(all("spacing" in q for q in qss), "동그라미-글자 간격이 명시돼 있다")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
