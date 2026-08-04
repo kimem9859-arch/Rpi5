@@ -43,6 +43,10 @@ _MENU_POS = {"right": 0.14, "top": 0.15, "width": 0.195, "bottom": 0.05}
 _NOTIFY_POS = {"left": 0.14, "top": 0.42, "width": 0.27, "bottom": 0.15}
 _SETTINGS_W = 0.34
 
+# 메뉴 항목의 좌측 들여쓰기 — 🔴 제목·「＋」·종료가 **같은 값**을 써야 글자
+#    시작점이 세로로 한 줄이 된다(2026-08-04. 종전 2px 라 왼쪽에 치우쳐 보였다).
+_MENU_PAD_LEFT = 12
+
 
 class _Sheet(QWidget):
     """열었을 때만 나오는 진한 패널."""
@@ -90,7 +94,7 @@ def _row_button(text, token="text"):
     b.setFlat(True)
     b.setStyleSheet(
         f"QPushButton {{ color: {theme.C(token)}; background: transparent; border: none;"
-        f" text-align: left; padding: 9px 2px; }}"
+        f" text-align: left; padding: 9px 2px 9px {_MENU_PAD_LEFT}px; }}"
         f"QPushButton:hover {{ color: {theme.C('info')}; }}")
     return b
 
@@ -194,7 +198,8 @@ class MenuPanel(_Sheet):
         for _ in range(1):
             f = QLabel("＋")
             f.setFont(config.font("small"))
-            f.setStyleSheet(f"color: {theme.C('todo')}; padding: 9px 2px;")
+            f.setStyleSheet(f"color: {theme.C('todo')};"
+                            f" padding: 9px 2px 9px {_MENU_PAD_LEFT}px;")
             lay.addWidget(f)
             self._free.append(f)
 
@@ -214,17 +219,21 @@ class MenuPanel(_Sheet):
 
     def apply_theme(self):
         super().apply_theme()
-        self._title.setStyleSheet(theme.text_qss("label", 700))
+        self._title.setStyleSheet(theme.text_qss("label", 700)
+                                  + f"padding-left: {_MENU_PAD_LEFT}px;")
         for b in self._items:
             b.setStyleSheet(
                 f"QPushButton {{ color: {theme.C('text')}; background: transparent;"
-                f" border: none; text-align: left; padding: 9px 2px; }}"
+                f" border: none; text-align: left;"
+                f" padding: 9px 2px 9px {_MENU_PAD_LEFT}px; }}"
                 f"QPushButton:hover {{ color: {theme.C('info')}; }}")
         self._shutdown.setStyleSheet(
             f"QPushButton {{ color: {theme.C('danger')}; background: transparent;"
-            f" border: none; text-align: left; padding: 9px 2px; font-weight: 700; }}")
+            f" border: none; text-align: left;"
+            f" padding: 9px 2px 9px {_MENU_PAD_LEFT}px; font-weight: 700; }}")
         for f in self._free:
-            f.setStyleSheet(f"color: {theme.C('todo')}; padding: 9px 2px; background: transparent;")
+            f.setStyleSheet(f"color: {theme.C('todo')}; background: transparent;"
+                            f" padding: 9px 2px 9px {_MENU_PAD_LEFT}px;")
         for line in self._lines:
             line.setStyleSheet(f"background-color: {theme.C('panel_border')}; border: none;")
 
