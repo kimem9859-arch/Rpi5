@@ -302,6 +302,28 @@ def test_badge_inside_button():
     check(b._badge.isHidden(), "0건이면 배지 숨김")
 
 
+def test_menu_width_widened():
+    """메뉴 폭 1.5배 — 항목 글자가 오른쪽 경계에 닿아 답답했다(2026-08-04).
+
+    🔴 글자 크기는 유지한다. 멀리서 보는 화면이라 줄이면 가독성을 잃는다(사용자 결정).
+    """
+    print("\n[17] 메뉴 폭")
+    from overlay_menu import _MENU_POS
+    check(abs(_MENU_POS["width"] - 0.195) < 1e-6,
+          f"폭 비율 {_MENU_POS['width']} (종전 0.13 의 1.5배)")
+
+    host = QWidget()
+    m = MenuPanel(host)
+    m.relayout(SCREEN)
+    check(m.width() == int(SCREEN.width() * 0.195),
+          f"1920 기준 폭 {m.width()}px")
+    # 가장 긴 항목이 폭 안에 들어가는가 (좌우 여백 24px 감안)
+    longest = max(m._items, key=lambda b: b.fontMetrics().horizontalAdvance(b.text()))
+    need = longest.fontMetrics().horizontalAdvance(longest.text())
+    check(need + 24 <= m.width(),
+          f"가장 긴 항목 '{longest.text()}' {need}px + 여백 ≤ {m.width()}px")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

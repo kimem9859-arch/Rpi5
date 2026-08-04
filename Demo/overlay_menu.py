@@ -35,7 +35,9 @@ NOTIFY_KINDS = {
 # 🔴 패널이 **자기 버튼을 덮지 않게** 한다 (2026-08-04 실기동 피드백).
 #    버튼이 보여야 "같은 버튼을 다시 눌러 닫기"가 성립한다.
 #    메뉴 패널은 ☰ **아래**에서 시작, 알림 패널은 🔔 **위**에서 끝난다.
-_MENU_POS = {"right": 0.14, "top": 0.15, "width": 0.13, "bottom": 0.05}
+#    폭은 2026-08-04 실기동 피드백으로 1.5배(0.13 → 0.195). 항목 글자가 오른쪽
+#    경계에 닿아 답답했다. 🔴 글자 크기는 유지한다 — 멀리서 보는 화면이다.
+_MENU_POS = {"right": 0.14, "top": 0.15, "width": 0.195, "bottom": 0.05}
 _NOTIFY_POS = {"left": 0.14, "top": 0.42, "width": 0.27, "bottom": 0.15}
 _SETTINGS_W = 0.34
 
@@ -144,7 +146,11 @@ class MenuPanel(_Sheet):
         head.addWidget(self._title)
         head.addStretch()
         lay.addLayout(head)
-        lay.addWidget(self._hline())
+        # 🔴 구분선은 목록으로 들고 있는다 — apply_theme 에서 findChildren(QFrame) 로
+        #    찾으면 **QLabel 까지 잡힌다**(QLabel 은 QFrame 의 하위 클래스). 그래서
+        #    선에 칠하려던 배경색이 제목·「＋」에 덮여 회색 박스로 보였다(2026-08-04).
+        self._lines = [self._hline()]
+        lay.addWidget(self._lines[0])
 
         self._items = []
         for text, sig in (("🔧  점검 (연결)", self.check_clicked),
@@ -168,7 +174,8 @@ class MenuPanel(_Sheet):
             self._free.append(f)
 
         lay.addStretch()
-        lay.addWidget(self._hline())
+        self._lines.append(self._hline())
+        lay.addWidget(self._lines[-1])
         self._shutdown = _row_button("⏻  시스템 종료", "danger")
         self._shutdown.clicked.connect(self.shutdown_clicked.emit)
         lay.addWidget(self._shutdown)
@@ -193,7 +200,7 @@ class MenuPanel(_Sheet):
             f" border: none; text-align: left; padding: 9px 2px; font-weight: 700; }}")
         for f in self._free:
             f.setStyleSheet(f"color: {theme.C('todo')}; padding: 9px 2px; background: transparent;")
-        for line in self.findChildren(QFrame):
+        for line in self._lines:
             line.setStyleSheet(f"background-color: {theme.C('panel_border')}; border: none;")
 
     def relayout(self, parent_rect):
