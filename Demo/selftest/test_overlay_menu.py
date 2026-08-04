@@ -414,6 +414,43 @@ def test_notify_icon_aligned_with_title():
     pnl.hide()
 
 
+def test_record_buttons_side_by_side():
+    """🔴 시작 버튼 2개는 가로로 나란히 (2026-08-04).
+
+    세로로 쌓여 있어 패널이 가로로 지나치게 길었다.
+    """
+    print("\n[22] 녹화 버튼 가로 배치")
+    from overlay_menu import RecordPanel
+    host = QWidget()
+    host.setGeometry(SCREEN)
+    p = RecordPanel(host)
+    p.relayout(SCREEN)
+    p.show()
+    p.layout().activate()
+    _app.processEvents()
+
+    a, b = p._btn_full.geometry(), p._btn_cam.geometry()
+    check(abs(a.center().y() - b.center().y()) <= 2,
+          f"두 버튼이 같은 줄: y={a.center().y()} / {b.center().y()}")
+    check(a.right() <= b.left(), f"가로로 나란히: {a.right()} ≤ {b.left()}")
+    p.hide()
+
+
+def test_record_folder_row():
+    """저장 경로를 보여 주고, 누르면 폴더 열기 신호가 나온다."""
+    print("\n[23] 녹화 저장 폴더")
+    from overlay_menu import RecordPanel
+    host = QWidget()
+    p = RecordPanel(host)
+    p.set_save_dir("/home/pi/sop-project/Rpi5/Demo/recordings")
+    check("recordings" in p._folder.text(), f"경로 표시: {p._folder.text()}")
+
+    got = []
+    p.open_folder_requested.connect(lambda: got.append(1))
+    p._folder.click()
+    check(got == [1], f"누르면 신호: {got}")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

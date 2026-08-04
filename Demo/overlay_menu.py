@@ -583,6 +583,7 @@ class RecordPanel(_Sheet):
 
     start_requested = pyqtSignal(str)      # "full" | "camera"
     stop_requested = pyqtSignal()
+    open_folder_requested = pyqtSignal()      # 저장 폴더를 열어 달라
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -603,14 +604,19 @@ class RecordPanel(_Sheet):
         self._state.setWordWrap(True)
         lay.addWidget(self._state)
 
-        self._btn_full = QPushButton("전체 화면 녹화 시작")
-        self._btn_cam = QPushButton("카메라 영역만 녹화 시작")
+        # 🔴 시작 버튼 2개는 **가로로** 나란히 — 세로로 쌓으니 패널이 가로로
+        #    지나치게 길었다(2026-08-04). 글자도 짧게 줄인다.
+        self._btn_full = QPushButton("전체 화면")
+        self._btn_cam = QPushButton("카메라 영역")
         self._btn_stop = QPushButton("녹화 중지")
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
         for b, mode in ((self._btn_full, "full"), (self._btn_cam, "camera")):
             b.setFont(config.font("body", 700))
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(lambda _=False, m=mode: self.start_requested.emit(m))
-            lay.addWidget(b)
+            btn_row.addWidget(b)
+        lay.addLayout(btn_row)
         self._btn_stop.setFont(config.font("body", 700))
         self._btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_stop.clicked.connect(lambda: self.stop_requested.emit())
@@ -620,9 +626,25 @@ class RecordPanel(_Sheet):
         self._note.setFont(config.font("small"))
         self._note.setWordWrap(True)
         lay.addWidget(self._note)
+
+        # 저장 폴더 — 누르면 파일관리자로 연다(design §7)
+        self._save_dir = ""
+        self._folder = QPushButton("")
+        self._folder.setFont(config.font("small", 600))
+        self._folder.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._folder.setFlat(True)
+        self._folder.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._folder.clicked.connect(lambda: self.open_folder_requested.emit())
+        lay.addWidget(self._folder)
+
         lay.addStretch()
 
         self.set_state(False, "", 0)
+
+    def set_save_dir(self, path):
+        """화면에 보일 저장 경로. 🔴 경로를 코드에 박지 않는다 — config 가 정본이다."""
+        self._save_dir = path
+        self._folder.setText(f"📁  {path}")
 
     def set_state(self, recording, path="", elapsed=0):
         self._recording = recording
@@ -642,6 +664,10 @@ class RecordPanel(_Sheet):
     def apply_theme(self):
         super().apply_theme()
         self._title.setStyleSheet(theme.text_qss("text", 800))
+        self._folder.setStyleSheet(
+            f"QPushButton {{ color: {theme.C('label')}; background: transparent;"
+            f" border: none; text-align: left; padding: 4px 2px; }}"
+            f"QPushButton:hover {{ color: {theme.C('info')}; }}")
         cta = (f"QPushButton {{ background-color: {theme.C('cta_bg')};"
                f" color: {theme.C('cta_text')}; border: 1px solid {theme.C('cta_border')};"
                f" border-radius: 8px; padding: 10px 16px; text-align: left; }}")

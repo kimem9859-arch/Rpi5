@@ -392,6 +392,8 @@ class SafetyConsole(QMainWindow):
         self.record_panel = RecordPanel(central)
         self.record_panel.start_requested.connect(self._start_recording)
         self.record_panel.stop_requested.connect(self._stop_recording)
+        self.record_panel.set_save_dir(RECORDING_SAVE_DIR)
+        self.record_panel.open_folder_requested.connect(self._open_recordings_folder)
 
         # 🔴 항목 패널은 ✕ 로 닫는다 (2026-08-04) — 메뉴·알림 창 자체는 같은 버튼
         #    재클릭으로 닫는 방식을 그대로 둔다. 캘리브레이션은 별도 대화상자라 제외.
@@ -680,6 +682,20 @@ class SafetyConsole(QMainWindow):
             self._recording, self._recording_path,
             time.time() - self._recording_started if self._recording else 0)
         self._toggle_sheet(self.record_panel, True)
+
+    def _open_recordings_folder(self):
+        """저장 폴더를 파일관리자로 연다 (design §7).
+
+        🔴 실패해도 GUI 가 멈추면 안 된다 — 파일관리자가 없거나 실행이 실패하면
+           경로를 로그에 남기고 조용히 넘어간다. 시연 중에 예외로 죽는 쪽이 훨씬 나쁘다.
+        """
+        try:
+            os.makedirs(RECORDING_SAVE_DIR, exist_ok=True)
+            subprocess.Popen(["xdg-open", RECORDING_SAVE_DIR])
+            self._append_log(f"[녹화] 저장 폴더 열기: {RECORDING_SAVE_DIR}")
+        except Exception as e:
+            self._append_log(
+                f"[녹화] 폴더 열기 실패({type(e).__name__}) — 경로: {RECORDING_SAVE_DIR}")
 
     def _run_manual_check(self):
         """수동 점검 — 1차 항목을 지금 다시 본다."""
