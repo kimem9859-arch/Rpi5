@@ -18,6 +18,7 @@
     python3 hand_tracker.py <이미지.png> [출력.png]
 """
 
+import contextlib
 import os
 import sys
 import threading
@@ -41,6 +42,34 @@ def _prepare_paths():
     _paths_ready = True
 
 
+class _NoActivateGroup:
+    """network_group 얇은 감싸개 — deprecated `activate()` 만 가로챈다.
+
+    🔴 왜 필요한가: blaze 소스가 **추론할 때마다** `network_group.activate()` 를
+       부른다(blazedetector.py:199 · blazelandmark.py:126 · hailo_inference.py:134·156).
+       우리는 ROUND_ROBIN 스케줄러를 쓰므로 pyhailort 는 그 호출을 **무시하고
+       경고만** 낸다(pyhailort.py:581) — 손 추론이 도는 프레임마다 터미널에
+       "Calls to `activate()` when working with scheduler are deprecated!" 가 쌓인다.
+
+    ⚠️ 감싸개를 여기 두는 이유: blaze 소스는 **repo 밖**(`~/hoi_probe/`)이라
+       고쳐도 클론·sop-pi-2 에 따라가지 않는다. 우리가 넘겨주는 쪽을 감싸면
+       repo 코드만으로 어디서나 같게 동작한다.
+
+    동작은 바뀌지 않는다 — 스케줄러가 켜져 있으면 pyhailort 의 activate() 도
+    아무 일도 하지 않고 빈 컨텍스트 매니저를 돌려줄 뿐이다(같은 pyhailort.py:583).
+    """
+
+    def __init__(self, network_group):
+        self._ng = network_group
+
+    def activate(self, network_group_params=None):
+        return contextlib.nullcontext()
+
+    def __getattr__(self, name):
+        # InferVStreams 는 `_configured_network` 같은 비공개 속성도 직접 집는다.
+        return getattr(self._ng, name)
+
+
 class _SharedInference:
     """blaze 의 HailoInference 를 흉내 내되 **공유 VDevice** 를 쓴다.
 
@@ -57,6 +86,13 @@ class _SharedInference:
         self.network_group_params_list = []
         self.input_vstreams_params_list = []
         self.output_vstreams_params_list = []
+
+    def _configure_and_get_network_group(self, hef, target):
+        """원본 그대로 올리되, 돌려주는 network_group 을 감싼다(위 _NoActivateGroup)."""
+        _prepare_paths()
+        from hailo_inference import HailoInference
+        ng = HailoInference._configure_and_get_network_group(self, hef, target)
+        return _NoActivateGroup(ng)
 
     # blaze 의 HailoInference 메서드를 그대로 빌려 쓴다
     def __getattr__(self, name):
