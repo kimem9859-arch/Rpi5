@@ -12,5 +12,12 @@ status=$?
 
 echo
 echo "=== 종료 (exit code: $status) ==="
-echo "창을 닫으려면 Enter 를 누르세요."
-read -r _
+
+# 🔴 정상 종료면 **창도 함께 닫는다** — 시연 중에 빈 터미널이 남지 않게.
+#    오류로 죽었을 때만 붙잡아 둔다. 그때는 여기가 원인을 볼 유일한 자리다
+#    (GUI 로그는 logs/ 에 남지만 파이썬 트레이스백은 이 창에만 나온다).
+if [ "$status" -ne 0 ]; then
+    echo "창을 닫으려면 Enter 를 누르세요."
+    read -r _
+fi
+exit "$status"
