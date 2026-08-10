@@ -163,6 +163,10 @@ bool tryConnect(const char* ssid, const char* pass, int timeoutSec) {
 
 void connectWiFiByPriority() {
   WiFi.mode(WIFI_STA);
+  // 절전 끔 — 기본값(WIFI_PS_MIN_MODEM)은 AP의 DTIM 주기에만 깨어나 RTT 가
+  // 20~250ms 로 요동친다. 스트리밍은 지연 균일성이 곧 FPS 라 절전을 끈다.
+  // 대가는 소비전력 증가뿐이며, 이 보드는 상시 전원으로 쓴다.
+  WiFi.setSleep(false);
 
   while (true) {
     Serial.println("Scanning networks...");
@@ -252,10 +256,14 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.frame_size   = FRAMESIZE_VGA;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.grab_mode    = CAMERA_GRAB_WHEN_EMPTY;
+  // 버퍼 2개 + LATEST — fb_count=1 이면 전송이 끝나야 다음 캡처가 시작돼
+  // 캡처·전송 태스크를 코어까지 나눠 놓고도 직렬화된다(2026-08-10 실측:
+  // 프레임 간격 93ms 고정 ≈ 10.7fps, 대역폭은 1.2%만 사용). 버퍼를 2개로
+  // 두어 캡처와 전송을 겹치고, 밀리면 최신 프레임을 우선한다(지연 누적 방지).
+  config.grab_mode    = CAMERA_GRAB_LATEST;
   config.fb_location  = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 15;
-  config.fb_count     = 1;
+  config.fb_count     = 2;
 
   if (esp_camera_init(&config) != ESP_OK) {
     Serial.println("Camera init failed, restarting in 3s...");

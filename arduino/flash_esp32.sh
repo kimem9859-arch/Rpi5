@@ -26,7 +26,9 @@ fail() { echo; echo "❌ $1"; echo; read -rp "Enter 키를 누르면 닫힙니�
 CRED="$(dirname "$SKETCH_DIR")/wifi_credentials.h"
 [ -f "$CRED" ] || fail "wifi_credentials.h 가 없습니다.
    $CRED 를 만들고 SSID·비밀번호를 넣으세요."
-if grep -q '여기에\|<.*비밀번호>' "$CRED"; then
+# 주석(//)은 제외하고 검사한다 — 사용법 안내 주석의 "<비밀번호>" 를
+# 자리표시자로 오인해 굽기가 막히는 일이 있었다(2026-08-10).
+if grep -v '^[[:space:]]*//' "$CRED" | grep -q '여기에\|<.*비밀번호>'; then
   fail "wifi_credentials.h 에 비밀번호가 아직 안 들어갔습니다."
 fi
 
