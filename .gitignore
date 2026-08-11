@@ -58,3 +58,10 @@ arduino/camera_stream_tcp/wifi_credentials.h
 Demo/dataset/
 .rfvenv/
 !.env.example
+
+# 공구 검출 모델 가중치 — repo 밖에서 관리한다(Colab → Google Drive → 파이).
+# 학습이 Colab 에서 돌고 산출물이 Drive 에 남는 흐름이라 repo 가 정본이 아니다
+# (통합문서 §10.36-(6)). 아직 시연에 쓸 수 있는 모델이 없어(§10.38) 버전이 계속
+# 갈릴 예정이라, 6MB 짜리를 매번 커밋하면 이력만 무거워진다.
+# ⚠️ 확정 모델이 나오면 이 줄을 지우고 커밋할 것 — console_v1/v2.hef 는 추적 중이다.
+Demo/models/tool_*.pt
