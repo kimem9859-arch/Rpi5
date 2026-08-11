@@ -15,9 +15,10 @@
     ② 기본 설치가 NVIDIA CUDA 스택을 끌어와 디스크 5GB 를 잠식한다 — 파이엔 GPU 가 없다.
     두 함정을 같이 피하는 방법:
 
-        uv venv --python 3.12 rfenv
-        VIRTUAL_ENV=$PWD/rfenv uv pip install --torch-backend cpu inference
-        ./rfenv/bin/python run_tool_infer.py <프레임_디렉터리>
+    ✅ **이미 만들어 둔 환경이 `~/rfenv` 에 있다** — `~/rfenv/bin/python run_tool_infer.py <디렉터리>`
+    없으면 다시 만든다:
+        uv venv --python 3.12 ~/rfenv
+        VIRTUAL_ENV=~/rfenv uv pip install --torch-backend cpu inference ultralytics
 
 ⚠️ 모델 ID 는 `TOOL_MODEL_ID` 환경변수로 바꾼다. **데이터셋 최신 버전 ≠ 모델 버전** —
    모델이 없는 버전을 부르면 404 다. 어느 버전에 모델이 붙었는지는 아래로 확인:

@@ -13,9 +13,12 @@
    상단 띠에 video/infer fps 를 따로 표시하니 둘을 혼동하지 말 것.
 
 ⚠️ 실행 환경: 파이 기본 Python 3.13 에는 ultralytics 가 없다(§10.35-(7) 함정).
-       uv venv --python 3.12 rfenv
-       VIRTUAL_ENV=$PWD/rfenv uv pip install --torch-backend cpu ultralytics
-       ./rfenv/bin/python tool_live.py
+   ✅ **이미 만들어 둔 환경이 `~/rfenv` 에 있다** — 그냥 쓰면 된다:
+       ~/rfenv/bin/python tool_live.py
+   없으면 다시 만든다(약 10분). 🔴 `--torch-backend cpu` 를 빼면 NVIDIA CUDA
+   스택을 끌어와 디스크 5GB 를 잠식한다(파이엔 GPU 가 없다):
+       uv venv --python 3.12 ~/rfenv
+       VIRTUAL_ENV=~/rfenv uv pip install --torch-backend cpu ultralytics inference
 
 🔑 **자동 캡처** — 공구를 들고 찍는 동안 키를 누를 수 없어서(2026-08-11 사용자 요청)
    **검출이 뜬 프레임만 스스로 저장**한다. 저장 위치 = `~/tool_live_shots/`.
