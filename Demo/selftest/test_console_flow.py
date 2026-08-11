@@ -130,6 +130,48 @@ def test_wrong_button_during_sub_is_violation():
     win.close()
 
 
+def test_same_button_during_sub_is_ignored():
+    """🔴 대기 중 **같은** 버튼 재입력은 무시된다 (§10.32-(6)③ 결함 회귀 방지).
+
+    고치기 전에는 여기서 단계가 올라갔다 — 서브 대기 중에는 expected_step 이
+    아직 안 올라가 correct_roi 가 여전히 그 버튼이라, FSM 이 "정답"으로 받아
+    can_advance(시간 AND 공구) 검사를 통째로 건너뛰었다.
+    """
+    print("\n[4-1] 대기 중 같은 버튼 재입력")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")                                   # B1 → 서브 작업 시작
+    check(win._sub is not None and win._sub.is_active, "B1 서브 작업 진행 중")
+    before = win.fsm.expected_step
+
+    key(win, "1")                                   # 🔴 같은 버튼 재입력
+    check(win.fsm.expected_step == before,
+          f"기대단계가 안 올라간다({before}) — can_advance 우회 차단")
+    check(win._sub is not None and win._sub.is_active,
+          "서브 작업이 계속 진행 중이다")
+    check(win.fsm.state != State.BLOCK,
+          f"위반 처리도 하지 않는다({win.fsm.state.value}) — 조급함이지 순서 위반이 아니다")
+    win.close()
+
+
+def test_emo_during_sub_still_works():
+    """🔴 서브 대기 중에도 EMO 는 통과해야 한다.
+
+    재입력 필터가 EMO 를 삼키면 비상정지가 죽는다. `_sub_button` 에는 레시피
+    단계 버튼만 들어가므로 구조적으로 안전하지만, 그 전제를 여기서 못박는다.
+    """
+    print("\n[4-2] 대기 중 EMO")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")                                   # B1 → 서브 작업 시작
+    check(win._sub is not None and win._sub.is_active, "B1 서브 작업 진행 중")
+
+    key(win, "E")                                   # 비상정지
+    check(win.fsm.state == State.BLOCK,
+          f"EMO 가 서브 대기를 뚫고 BLOCK 을 만든다({win.fsm.state.value})")
+    win.close()
+
+
 def test_theme_switch():
     """설정에서 테마를 바꾸면 오버레이에 반영되는가."""
     print("\n[5] 테마 전환")

@@ -954,9 +954,19 @@ class SafetyConsole(QMainWindow):
         """
         self._append_log(f"[버튼] {button} 눌림")
 
-        # 서브 작업 진행 중이면 어떤 버튼이든 FSM 으로 보낸다 → 오답이면 위반 판정
+        # 서브 작업 진행 중 — 같은 버튼 재입력만 걸러내고 나머지는 FSM 으로 보낸다.
         if self._sub is not None and self._sub.is_active:
-            self._commit_button(button)
+            # 🔴 같은 버튼 재입력을 FSM 에 보내면 안 된다 — 서브 대기 중에는
+            #    expected_step 이 아직 안 올라가 correct_roi 가 여전히 이 버튼이라,
+            #    FSM 이 "정답"으로 받아 단계를 올린다. 그러면 can_advance
+            #    (시간 AND 공구) 검사가 통째로 우회된다(§10.32-(6)③ 결함).
+            #    EMO 는 여기 걸리지 않는다 — _sub_button 에는 _begin_sub() 를 통해
+            #    레시피 단계 버튼(B1~B4)만 들어가므로 EMO 와 같아질 수 없고,
+            #    아래 _commit_button 으로 그대로 가서 비상정지가 동작한다.
+            if button == self._sub_button:
+                self._append_log(f"[서브] {button} 재입력 무시 — {self._sub.label} 진행 중")
+                return
+            self._commit_button(button)   # 다른 버튼 → FSM 이 오답 판정
             return
 
         spec = self._sub_spec_for(button)
