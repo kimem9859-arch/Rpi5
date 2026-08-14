@@ -28,6 +28,18 @@ from hand_tracker import HandTracker
 import roi_zones
 
 # =============================================================================
+# [공구 검출] — 서브 작업(wait_tool) 동안만 도는 CPU 추론 (A-2)
+# 설계 = ../docs/superpowers/specs/2026-08-14-공구입력-A2-design.md
+# ⚠️ HandTracker 와 같은 방침 — 없으면 조용히 비활성되고 종전과 같이 동작한다.
+# =============================================================================
+try:
+    from tool_gate import ToolGate
+    TOOL_GATE_AVAILABLE = True
+except Exception:                                    # noqa: BLE001
+    ToolGate = None
+    TOOL_GATE_AVAILABLE = False
+
+# =============================================================================
 # [Detector] config.INFERENCE_BACKEND selects PyTorch or Hailo backend
 # =============================================================================
 DETECTOR_AVAILABLE = False
@@ -156,6 +168,10 @@ class CameraThread(QThread):
     raw_frame_signal          = pyqtSignal(object)
     calibration_needed_signal = pyqtSignal()
     connect_failed_signal     = pyqtSignal(int)   # 연속 실패 횟수 — 알림용
+    tool_signal               = pyqtSignal(list, object)  # (dets, fingertip) — A-2 공구 판정 입력
+                                                 # dets = [(클래스명, 점수, x1,y1,x2,y2), ...]
+                                                 # fingertip = 그 프레임의 손끝 (x,y) 또는 None
+                                                 # 🔴 @pyqtSlot(list, object) 와 짝을 맞출 것
 
     def __init__(self):
         super().__init__()
@@ -185,6 +201,31 @@ class CameraThread(QThread):
         # 모델이 없으면 조용히 비활성되고 detect()가 None을 주므로, 손 검출이 없던
         # 종전과 정확히 같게 동작한다.
         self._hand = HandTracker(log=lambda m: self.log_signal.emit(m))
+
+        # 공구 검출(A-2) — 서브 작업(wait_tool) 동안에만 돈다. 상시 작업이 아니다.
+        # ⚠️ UsbCameraThread 에는 넣지 않았다 — 시연은 ESP32 1인칭 기준이다.
+        self._tool_gate = (ToolGate(log=lambda m: self.log_signal.emit(m))
+                           if (TOOL_GATE_AVAILABLE and config.TOOL_ENABLED) else None)
+        self._tool_scan = False
+        self._tool_last = 0.0
+
+    def set_tool_scan(self, on):
+        """공구 추론을 켜고 끈다 — `wait_tool` 서브 작업 동안에만 켠다.
+
+        🔴 끄는 것을 빠뜨리면 워커가 계속 CPU 를 먹는다. 서브 작업이 끝나거나
+           중단되는 **모든 경로**에서 꺼야 한다(safety_console 쪽 책임).
+        """
+        if self._tool_gate is None:
+            if on:
+                self.log_signal.emit("[공구] ⚠️ 비활성 — 공구 지참 단계가 "
+                                     "자동으로 넘어가지 않습니다.")
+            return
+        self._tool_scan = bool(on)
+        if on:
+            self._tool_last = 0.0
+            self._tool_gate.start()
+        else:
+            self._tool_gate.stop()
 
     def set_active(self, active):
         with self._lock:
@@ -387,6 +428,12 @@ class CameraThread(QThread):
         h, w, _ = frame.shape
         frame = self._undistort(frame)
 
+        # 🔴 공구 추론에는 **오버레이가 없는 사본**을 보낸다 — 아래에서 버튼 박스와
+        #    손 랜드마크가 frame 에 직접 그려지고, 그 선이 공구 위에 겹치면 검출이
+        #    달라진다. 스캔 중일 때만 복사한다(매 프레임 복사는 낭비).
+        tool_frame = (frame.copy()
+                      if (self._tool_scan and self._tool_gate is not None) else None)
+
         if DETECTOR_AVAILABLE:
             dets = _detector.detect(frame)
             with self._lock:
@@ -399,6 +446,19 @@ class CameraThread(QThread):
 
         # 손 검출 → 검지 끝. 랜드마크 표시는 hand_tracker 가 frame 에 직접 그린다.
         fingertip = self._hand.detect(frame, draw_on=frame)
+
+        # 공구 검출(A-2) — 서브 작업 동안만. 🔑 손끝을 **같은 프레임의 것**으로
+        # 함께 보낸다(§4.6 — 결과가 약 0.5초 뒤에 오므로 짝을 맞춰야 한다).
+        if self._tool_scan and self._tool_gate is not None:
+            now = time.time()
+            if tool_frame is not None and now - self._tool_last >= config.TOOL_SCAN_INTERVAL_SEC:
+                self._tool_last = now
+                self._tool_gate.request(tool_frame, fingertip)
+            # 🔴 request 는 1초에 한 번, poll 은 매 프레임이다 — poll 을 스로틀
+            #    안에 넣으면 결과가 1초씩 더 늦는다.
+            got = self._tool_gate.poll()
+            if got is not None:
+                self.tool_signal.emit(got[0], got[1])
 
         # HOI → FSM: 손끝이 든 버튼 ROI 라벨을 통지 (없으면 "")
         roi, level = zone_at_point(*fingertip, self._tracks) if fingertip else (None, None)
