@@ -229,6 +229,29 @@ USB_CAMERA_ENABLED = os.environ.get("SOP_USB_CAMERA", "1") != "0"
 HAND_DRAW          = True     # 화면에 랜드마크·검지끝 표시
 
 # =============================================================================
+# [공구 검출 설정] — 서브 작업(wait_tool)의 공구 지참 판정 (A-2, 2026-08-14)
+# 설계 = ../docs/superpowers/specs/2026-08-14-공구입력-A2-design.md
+#
+# 🔴 CPU 추론이다. GUI(시스템 파이썬)엔 ultralytics·torch 가 **없다** — rfenv 안에만
+#    있다. 그래서 rfenv 파이썬으로 워커 프로세스를 띄우고 /dev/shm 파일로 주고받는다.
+#    .hef 가 생기면 tool_gate.py 안만 갈아끼우고 tool_worker.py 는 삭제한다.
+#
+# ⚠️ 모델·rfenv 가 없으면 공구 감지는 **자동 비활성**된다(손 검출과 같은 방침).
+#    🔴 그 경우 2단계 게이트가 영영 안 열리므로 로그에 눈에 띄게 남는다.
+# =============================================================================
+TOOL_ENABLED           = os.environ.get("SOP_TOOL", "1") != "0"
+# 🔴 YOLO_CONF_HIGH 와 값이 같지만 목적이 달라 따로 둔다 — 묶으면 한쪽을 조정할 때
+#    다른 쪽이 딸려간다. 0.65 = §10.42 에서 시연 3종이 잘 잡힌 구간(0.66~0.81).
+TOOL_CONF              = 0.65
+# 공구 판정은 상시 작업이 아니다 — 서브 대기 중에만 돈다. 추론 약 0.5초의 2배 여유.
+TOOL_SCAN_INTERVAL_SEC = 1.0
+# 「넣음」 확정에 필요한 연속 확인 횟수. 1프레임 미검출로 넘어가지 않게 하는 장치다.
+TOOL_PLACED_COUNT      = 3
+TOOL_MODEL_PATH        = os.path.join(_BASE_DIR, 'models', 'tool_v3.pt')
+TOOL_WORKER_PYTHON     = os.path.expanduser("~/rfenv/bin/python")
+TOOL_SHM_DIR           = "/dev/shm/sop_tool"
+
+# =============================================================================
 # [GPIO 입력 설정] — 물리 버튼 B1~B4·EMO → Pi GPIO → FSM (트랙 A 입력부)
 # 결선도 정본: ../dev/interlock/결선도_초안.md §3.1
 #   버튼 = active-low (INPUT_PULLUP, 눌림=LOW)

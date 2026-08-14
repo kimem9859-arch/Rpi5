@@ -12,9 +12,9 @@
       "order": 2, "button": "B2", "name": "펌프/퍼지",
       "sub": {
         "type": "wait_tool", "sec": 30, "label": "N2 퍼지",
-        "tool": "spanner",
-        "tools": ["spanner", "driver", "wrench"],
-        "tool_names": {"spanner": "스패너", "driver": "드라이버", "wrench": "렌치"}
+        "tool": "wrench",
+        "tools": ["driver", "wrench", "pliers"],
+        "tool_names": {"driver": "드라이버", "wrench": "렌치", "pliers": "플라이어"}
       }
     },
     {

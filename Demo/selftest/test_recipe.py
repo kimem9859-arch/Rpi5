@@ -159,7 +159,9 @@ def test_real_recipe_has_scenario():
     assert subs[1] and subs[1]["type"] == "wait_tool" and subs[1]["sec"] == 30
     assert subs[2] and subs[2]["type"] == "wait" and subs[2]["sec"] == 30
     assert subs[3] is None, "4단계는 서브 작업이 없다(챔버 개방 = 시연 범위 밖)"
-    assert set(subs[1]["tools"]) == {"spanner", "driver", "wrench"}
+    # 🔑 A-2(2026-08-14) — tool_v3 의 클래스로 교체됐다. `spanner`(몽키)는 없어지고
+    #    `pliers` 가 생겼다. 우리 오픈엔드 스패너의 정답은 `wrench`(§10.39-(6)).
+    assert set(subs[1]["tools"]) == {"driver", "wrench", "pliers"}
     print("  PASS  recipe.json 시나리오 — 대기 30s×3 + 2단계 공구 3종")
 
 

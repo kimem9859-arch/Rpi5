@@ -29,7 +29,11 @@ class SubTask:
         self._spec = spec or None
         self._start = time.time() if now is None else now
         self._now = self._start
-        self._tool = None          # 지금 놓여 있는 공구(없으면 None)
+        # 공구 판정 결과(A-2). 🔑 두 경우에만 값이 들어온다 —
+        #   ① 오답 공구를 **쥐었을 때** 그 공구(→ wrong_tool 경고)
+        #   ② 정답 공구를 지정 공간에 **넣었을 때** 그 공구(→ tool_ok)
+        # 정답을 쥐고만 있는 동안은 None 이다. 판정 = tool_state.ToolState
+        self._tool = None
 
     # ------------------------------------------------------------------ 상태
     @property
@@ -119,9 +123,11 @@ class SubTask:
         self._now = time.time() if now is None else now
 
     def set_tool(self, name):
-        """지금 놓여 있는 공구를 갱신한다(없으면 None).
+        """지정 공간에 넣은 공구를 갱신한다(아직 안 넣었으면 None).
 
-        공구 감지 모델이 붙기 전에는 사람이 눈으로 확인하고
-        「다음 단계 진행」을 누르는 것으로 대신한다 — design §5.
+        🔑 A-2(2026-08-14)부터 의미가 바뀌었다 — 「지금 놓여 있는 공구」가 아니라
+           **「콘솔 지정 공간에 넣은 공구」**다. 쥐고만 있으면 아직 None 이다.
+           판정은 `tool_state.ToolState` 가 하고 여기로 결과만 들어온다.
+           설계 = ../docs/superpowers/specs/2026-08-14-공구입력-A2-design.md §4.5
         """
         self._tool = name or None
