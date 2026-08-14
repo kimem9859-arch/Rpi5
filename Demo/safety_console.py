@@ -34,6 +34,7 @@ from gpio_input import GpioInputController
 
 import theme
 from sub_task import SubTask
+from tool_state import ToolState
 from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, place
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
                           NotifyButton, CheckPanel, RecordPanel)
@@ -210,6 +211,7 @@ class SafetyConsole(QMainWindow):
         # 서브 작업(대기·공구) — design §5. FSM 을 고치지 않는 대신 여기서 굴린다.
         self._sub = None             # 진행 중인 SubTask
         self._sub_button = None      # 그 서브 작업을 시작시킨 버튼
+        self._tool_state = None      # 공구 판정 상태기계(A-2) — wait_tool 동안만 존재
         self._tool_override = None   # 설정 메뉴에서 바꾼 지정 공구(세션 한정)
         self._unread = 0             # 안 읽은 알림 수 — 배지에 표시
         self._recording_mode = "full"
@@ -278,6 +280,8 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.log_signal.connect(self._append_log)
         self.camera_thread.yolo_detections_signal.connect(self._on_yolo_detections)
         self.camera_thread.roi_signal.connect(self._on_roi)
+        # 공구 판정(A-2) — ESP32 1인칭에만 붙인다(USB 는 시연 경로가 아니다).
+        self.camera_thread.tool_signal.connect(self._on_tool)
         self.camera_thread.calibration_needed_signal.connect(self._on_calibration_needed)
         self.camera_thread.connect_failed_signal.connect(
             lambda n: self._on_connect_gave_up("카메라", n))
@@ -305,6 +309,13 @@ class SafetyConsole(QMainWindow):
         #    아직 연결되기 전이다 — GUI 로그에는 안 남는다. 그래서 여기서 다시 적는다.
         _hand = self.camera_thread._hand
         self._append_log(f"[시스템] 손 검출(HOI): {'사용 가능' if _hand.available else '비활성 — ' + _hand.reason}")
+        # 공구 검출(A-2)도 같은 이유로 시작 로그에 못 박는다 — 비활성이면 공구 지참
+        # 단계의 게이트가 **영영 안 열린다**. 그 사실을 2단계에 가서야 알면 늦다.
+        # ⚠️ 여기서는 「띄울 준비가 됐는가」까지만 안다 — 워커는 서브 작업 시작 시에
+        #    비로소 뜬다(상시 추론이 아니다).
+        self._append_log("[시스템] 공구 검출: " + (
+            "사용 가능" if self.camera_thread._tool_gate is not None
+            else "비활성 — 공구 지참 단계가 자동으로 넘어가지 않습니다"))
         # 🔴 폰트가 조용히 폴백되면 알 방법이 없다 — 2026-08-03 이전 3개월간 Consolas 요청이
         #    중국어 폰트로 대체되고 있었다. 요청/실제를 여기서 못 박는다.
         self._append_log(f"[시스템] UI 폰트: {config.font_report()}")
@@ -933,6 +944,28 @@ class SafetyConsole(QMainWindow):
                                  f"{roi} ({'박스 안' if level == ZONE_INSIDE else '링'})")
             self._last_roi = (roi, level)
 
+    @pyqtSlot(list, object)   # 🔴 tool_signal(list, object)과 반드시 일치 — 어긋나면 기동 즉시 TypeError
+    def _on_tool(self, dets, fingertip):
+        """공구 검출 결과를 판정에 먹이고 그 결과를 SubTask 로 넘긴다 (A-2).
+
+        판정 규칙은 전부 `tool_state.ToolState` 에 있다 — 여기서 다시 쓰지 않는다.
+        설계 = ../docs/superpowers/specs/2026-08-14-공구입력-A2-design.md §4
+        """
+        if self._sub is None or self._tool_state is None:
+            return
+
+        before = self._tool_state.phase
+        tool = self._tool_state.update(dets, fingertip)
+        self._sub.set_tool(tool)
+
+        # 마디가 바뀔 때만 로그를 남긴다 — 1초에 한 번씩 쌓으면 로그가 묻힌다.
+        if self._tool_state.phase != before:
+            names = {"search": "찾기", "grasped": "쥠", "placed": "넣음"}
+            self._append_log(f"[공구] {names.get(before, before)} → "
+                             f"{names.get(self._tool_state.phase, self._tool_state.phase)}"
+                             f" ({self._tool_state.want_tool})")
+        self._update_sub_view()
+
     def _on_start_process(self):
         self.fsm.load_recipe()
         self._append_log(f"[FSM] 작업 시작 — {self.fsm.expected_step}단계: "
@@ -1007,7 +1040,23 @@ class SafetyConsole(QMainWindow):
         self._sub_button = button
         self._sub_timer.start()
         self._append_log(f"[서브] {spec['label']} 시작 ({spec['sec']}초)")
+        # 공구 판정(A-2) — wait_tool 일 때만 상태기계를 만들고 스캔을 켠다.
+        # 🔑 요구 공구는 spec 에서 읽는다 — _press_button 이 설정값(_tool_override)을
+        #    이미 spec 에 반영해 넘겨준다(safety_console.py 의 spec 덮어쓰기).
+        if spec.get("type") == "wait_tool":
+            self._tool_state = ToolState(spec.get("tool"), config.TOOL_PLACED_COUNT)
+            self.camera_thread.set_tool_scan(True)
         self._update_sub_view()
+
+    def _end_tool_scan(self):
+        """공구 스캔을 끄고 판정 상태를 버린다.
+
+        🔴 서브 작업이 끝나거나 중단되는 **모든 경로**에서 불러야 한다 —
+           빠뜨리면 워커가 계속 CPU 를 먹는다.
+        """
+        if self._tool_state is not None:
+            self._tool_state = None
+        self.camera_thread.set_tool_scan(False)
 
     def _tick_sub(self):
         if self._sub is None or not self._sub.is_active:
@@ -1049,6 +1098,7 @@ class SafetyConsole(QMainWindow):
         """「다음 단계 진행」 — 여기서 비로소 FSM 에 눌림을 전달한다."""
         button = self._sub_button
         self._sub_timer.stop()
+        self._end_tool_scan()
         self._sub = None
         self._sub_button = None
         self.gauge_panel.update_view(None)
@@ -1153,6 +1203,7 @@ class SafetyConsole(QMainWindow):
         # IDLE 로 돌아오면 다시 「작업 시작」을 띄운다
         if new == State.IDLE:
             self._sub_timer.stop()
+            self._end_tool_scan()
             self._sub = None
             self._sub_button = None
             self.gauge_panel.update_view(None)

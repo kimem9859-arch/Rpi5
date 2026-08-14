@@ -115,6 +115,79 @@ def test_scenario_runs_to_end():
     win.close()
 
 
+def test_tool_signal_drives_gate():
+    """🔴 공구 판정(A-2)이 실제 GUI 를 통과해 게이트를 여는가.
+
+    🔑 이것이 `@pyqtSlot(list, object)` 시그니처 불일치를 잡는 유일한 관문이다 —
+       불일치는 connect 시점이 아니라 **emit 시점**에 TypeError 로 터지므로
+       import 검사·기동 확인으로는 못 잡는다(실제로 GUI 가 즉사한 전례가 있다).
+
+    설계 = ../docs/superpowers/specs/2026-08-14-공구입력-A2-design.md §4
+    """
+    print("\n[3-b] 공구 판정 경로")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")                                    # B1 — 공구 없는 서브
+    check(win._tool_state is None, "wait 서브에는 공구 판정이 붙지 않는다")
+    win._sub.tick(now=time.time() + 999)
+    win._finish_sub()
+
+    key(win, "2")                                    # B2 — wait_tool 서브
+    check(win._sub is not None and win._sub.needs_tool, "B2 서브는 공구를 요구한다")
+    check(win._tool_state is not None, "공구 판정 상태기계가 생긴다")
+    want = win._sub.want_tool
+    check(win._tool_state.want_tool == want, f"요구 공구 일치({want})")
+
+    box_want = (want, 0.80, 100, 100, 200, 200)
+    box_other = ("pliers" if want != "pliers" else "driver", 0.90, 300, 100, 400, 200)
+
+    # ① 다른 공구를 쥐면 경고 — 🔑 emit 을 통과시켜 시그니처까지 검증한다
+    win.camera_thread.tool_signal.emit([box_want, box_other], (350, 150))
+    check(win._sub.wrong_tool == box_other[0],
+          f"다른 공구를 쥐면 wrong_tool={box_other[0]}")
+
+    # ② 정답으로 바꿔 쥐면 풀린다
+    win.camera_thread.tool_signal.emit([box_want, box_other], (150, 150))
+    check(win._sub.wrong_tool is None, "정답으로 바꿔 쥐면 경고가 풀린다")
+    check(win._tool_state.phase == "grasped", "쥠 확정")
+    check(not win._sub.tool_ok, "쥐기만 했을 때는 아직 통과가 아니다")
+
+    # ③ 시간을 채워도 넣기 전에는 게이트가 안 열린다
+    win._sub.tick(now=time.time() + 999)
+    win._update_sub_view()
+    check(not win._sub.can_advance, "🔴 시간만 찼다고 넘어가지 않는다")
+
+    # ④ 손은 보이는데 공구가 사라짐 — 연속 N회로 완료
+    for i in range(config.TOOL_PLACED_COUNT):
+        win.camera_thread.tool_signal.emit([box_other], (900, 900))
+    check(win._sub.tool_ok, f"{config.TOOL_PLACED_COUNT}회 후 tool_ok")
+    check(win._sub.can_advance, "게이트가 열린다")
+
+    # ⑤ 서브 작업이 끝나면 스캔이 꺼진다 (🔴 안 끄면 워커가 CPU 를 계속 먹는다)
+    win._finish_sub()
+    check(win._tool_state is None, "판정 상태가 정리된다")
+    check(win.camera_thread._tool_scan is False, "스캔이 꺼진다")
+    win.close()
+
+
+def test_tool_hand_unseen_does_not_advance():
+    """🔴 손이 안 보이면 완료되지 않는다 — 부재를 증거로 쓰지 않는다(§4.4)."""
+    print("\n[3-c] 손이 증인이다")
+    win = make_console()
+    win._on_cta()
+    key(win, "1"); win._sub.tick(now=time.time() + 999); win._finish_sub()
+    key(win, "2")
+    want = win._sub.want_tool
+    win.camera_thread.tool_signal.emit([(want, 0.8, 100, 100, 200, 200)], (150, 150))
+    check(win._tool_state.phase == "grasped", "쥠 확정")
+
+    for _ in range(config.TOOL_PLACED_COUNT * 3):
+        win.camera_thread.tool_signal.emit([], None)      # 손·공구 함께 사라짐
+    check(not win._sub.tool_ok, "고개를 돌려도 완료되지 않는다")
+    check(win._tool_state.miss_count == 0, "한 번도 세지 않았다")
+    win.close()
+
+
 def test_wrong_button_during_sub_is_violation():
     """🔴 대기 중 다른 버튼 = 순서 위반 (design §5의 핵심 명제)."""
     print("\n[4] 대기 중 오조작")
