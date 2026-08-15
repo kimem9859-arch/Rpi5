@@ -25,12 +25,30 @@ from PyQt6.QtWidgets import QApplication, QWidget, QLabel
 import config
 import theme
 import anim
+from overlay import StatusPanel, GaugePanel, AlertBanner
 
 _app = QApplication.instance() or QApplication([])
 _w = QWidget()
 _fails = []
 
 SCREEN = QRect(0, 0, 1920, 1080)
+STEPS = [
+    {"order": 1, "button": "B1", "name": "클린·가스차단"},
+    {"order": 2, "button": "B2", "name": "펌프/퍼지"},
+    {"order": 3, "button": "B3", "name": "전극 냉각"},
+    {"order": 4, "button": "B4", "name": "챔버 벤트"},
+]
+
+
+class _FakeSub:
+    """GaugePanel.update_view 가 읽는 속성만 갖는 더미 — 시간을 실제로 흘리지 않는다."""
+
+    def __init__(self, progress, tool_ok, wrong_tool, needs_tool=False):
+        self.is_active, self.label = True, "테스트"
+        self.total_sec, self.elapsed_sec = 30, 30 * progress
+        self.progress, self.time_done = progress, progress >= 1.0
+        self.needs_tool, self.want_tool_name = needs_tool, "렌치"
+        self.tool_ok, self.wrong_tool = tool_ok, wrong_tool
 
 
 def check(cond, msg):
@@ -74,6 +92,30 @@ def test_busy_flag():
     lbl = QLabel(_w)
     anim.slide_in(lbl, QRect(0, 0, 10, 10))
     check(anim.busy(lbl), "슬라이드 중 busy")
+
+
+def test_gauge_no_restart_on_same_value():
+    """🔴 관문 ② — _sub_timer 가 200ms 마다 같은 값을 다시 넣어도 재시작하지 않는다."""
+    print("\n[게이지 재시작 방지]")
+    g = GaugePanel(_w)
+    sub = _FakeSub(progress=0.5, tool_ok=False, wrong_tool=None)
+    g.update_view(sub)
+    first = g._gauge_anim
+    for _ in range(5):
+        g.update_view(sub)                      # 같은 값 반복 — 실제 런타임의 5Hz 호출
+    check(g._gauge_anim is first, "같은 값 반복 호출은 애니메이션을 재시작하지 않는다")
+
+
+def test_gauge_flashes_only_on_tool_change():
+    """공구 상태가 바뀐 순간에만 번진다."""
+    print("\n[공구 상태 변화 감지]")
+    g = GaugePanel(_w)
+    sub = _FakeSub(progress=0.3, tool_ok=False, wrong_tool=None, needs_tool=True)
+    g.update_view(sub)
+    check(g._prev_tool == (False, None), "직전 공구 상태를 기억한다")
+    sub.tool_ok = True
+    g.update_view(sub)
+    check(g._prev_tool == (True, None), "바뀐 값으로 갱신된다")
 
 
 if __name__ == "__main__":

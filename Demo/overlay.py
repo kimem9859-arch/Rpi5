@@ -18,11 +18,12 @@
     → 대비는 **색으로만** 낸다. design §3 의 색 대비가 원래 주된 수단이었다.
 """
 
-from PyQt6.QtCore import Qt, QRect, pyqtSignal
+from PyQt6.QtCore import Qt, QRect, QEasingCurve, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
 )
 
+import anim
 import config
 import theme
 
@@ -211,6 +212,13 @@ class GaugePanel(_Panel):
         super().__init__(parent)
         self._needs_tool = False
 
+        # 애니메이션용 직전 상태 — 🔴 _sub_timer 가 200ms 마다 같은 값을 다시 넣는다.
+        #    비교 없이 애니메이션을 걸면 초당 5번 재시작돼 끝나지 않는다.
+        self._shown_progress = 0.0      # 지금 화면에 그려진 채움 비율
+        self._target_progress = 0.0
+        self._gauge_anim = None
+        self._prev_tool = None          # (tool_ok, wrong_tool)
+
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(5)
@@ -268,8 +276,21 @@ class GaugePanel(_Panel):
         self._time.setStyleSheet(theme.text_qss(remain_token, 700))
 
         self._track.setStyleSheet(theme.gauge_qss())
-        w = int(self._track.width() * sub.progress)
-        self._fill.setGeometry(0, 0, w, 8)
+        # 목표만 갱신하고, 그리는 것은 보간에 맡긴다. 같은 목표면 아무 일도 하지 않는다.
+        if abs(sub.progress - self._target_progress) > 1e-6:
+            start = self._shown_progress
+            self._target_progress = sub.progress
+
+            def _step(t, s=start, e=sub.progress):
+                self._shown_progress = s + (e - s) * float(t)
+                self._fill.setGeometry(
+                    0, 0, int(self._track.width() * self._shown_progress), 8)
+
+            self._gauge_anim = anim.tween(self, anim.D_GAUGE, _step,
+                                          curve=QEasingCurve.Type.Linear)
+        else:
+            self._fill.setGeometry(
+                0, 0, int(self._track.width() * self._shown_progress), 8)
         fill_color = theme.C("done") if sub.time_done else theme.C("gauge_to")
         self._fill.setStyleSheet(
             f"background-color: {fill_color}; border-radius: 4px;")
@@ -289,6 +310,11 @@ class GaugePanel(_Panel):
                 state, token = "○ 손에 쥐면 확인됩니다", "todo"
             self._tool_state.setText(state)
             self._tool_state.setStyleSheet(theme.text_qss(token, 600))
+            # 바뀐 순간에만 번진다 — 200ms 주기 반복 호출에서 매번 번지면 안 된다.
+            now_tool = (sub.tool_ok, sub.wrong_tool)
+            if self._prev_tool is not None and now_tool != self._prev_tool:
+                anim.flash(self._tool_state, theme.C(token))
+            self._prev_tool = now_tool
         else:
             self._tool_box.hide()
 
