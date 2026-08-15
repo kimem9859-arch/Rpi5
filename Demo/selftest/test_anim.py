@@ -168,6 +168,16 @@ def test_alert_relayout_skips_while_sliding():
     a.hide_all()
 
 
+def test_fps_from_intervals():
+    """도착 간격 목록에서 FPS 를 낸다. 카메라가 없으면 None."""
+    print("\n[FPS 계산]")
+    from safety_console import fps_from_intervals
+    check(fps_from_intervals([]) is None, "표본 없음 → None (카메라 없을 때)")
+    check(abs(fps_from_intervals([0.1] * 10) - 10.0) < 0.01, "0.1초 간격 → 10.0fps")
+    check(abs(fps_from_intervals([0.1, 0.1, 5.0]) - 10.0) < 0.01,
+          "중앙값이라 멈춤 구간 하나에 흔들리지 않는다")
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

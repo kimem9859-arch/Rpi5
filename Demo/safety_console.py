@@ -44,6 +44,20 @@ import precheck
 # =============================================================================
 # [캘리브레이션 다이얼로그]
 # =============================================================================
+def fps_from_intervals(intervals):
+    """프레임 도착 간격(초) 목록 → 실측 FPS. 표본이 없으면 None.
+
+    🔴 평균이 아니라 **중앙값**이다 — 재연결·정지 구간의 큰 간격 하나가
+       평균을 통째로 무너뜨린다(측정이 아니라 사고를 재는 꼴이 된다).
+    """
+    vals = sorted(v for v in intervals if v > 0)
+    if not vals:
+        return None
+    mid = vals[len(vals) // 2] if len(vals) % 2 else \
+        (vals[len(vals) // 2 - 1] + vals[len(vals) // 2]) / 2
+    return 1.0 / mid if mid > 0 else None
+
+
 class CalibrationDialog(QDialog):
     CHESSBOARD   = (7, 5)
     SAMPLE_COUNT = 20
@@ -220,6 +234,8 @@ class SafetyConsole(QMainWindow):
         self._last_frame_size = None     # 카메라 영역 녹화 크기 결정용
         self._last_qimage = None         # 점검(손 검출 추론)용 최근 프레임(지연 변환)
         self._last_frame_time = 0.0
+        self._fps_intervals = []         # 최근 프레임 도착 간격(초) — 실측 FPS 용
+        self._fps_log_at = 0.0
         self._seen_buttons = set()       # 2차 점검 — 지금 화면에 보이는 버튼
         self._sub_timer = QTimer()
         self._sub_timer.setInterval(200)
@@ -424,6 +440,13 @@ class SafetyConsole(QMainWindow):
         self.conn_bar = ConnBar(central)
         self.conn_bar.show()
 
+        # 실측 FPS — 기본은 로그에만 남긴다(시연 화면에 숫자를 띄우지 않는다).
+        #    SOP_SHOW_FPS=1 로 켤 때만 보인다.
+        self.fps_label = QLabel("", central)
+        self.fps_label.setFont(config.font("small", 700))
+        self.fps_label.setStyleSheet(theme.text_qss("label", 700))
+        self.fps_label.setVisible(config.SHOW_FPS)
+
         # 로그는 메뉴 안으로 — 평소엔 숨는다(design §4.7)
         self.log_browser = QTextBrowser(central)
         self.log_browser.setFont(config.font("small"))
@@ -481,6 +504,10 @@ class SafetyConsole(QMainWindow):
         # 🔴 상태바만 **영상 사각형** 기준이다 — 창 기준이면 오른쪽 검정
         #    레터박스에 앉는다(2026-08-04).
         self.conn_bar.relayout(self.camera_label.geometry())
+        if config.SHOW_FPS:
+            self.fps_label.adjustSize()
+            place(self.fps_label, self.camera_label.geometry(),
+                  right=0.03, bottom=0.10)
 
         place(self.btn_menu, r, right=0.14, top=0.05)
         place(self.btn_notify, r, left=0.14, bottom=0.05)
@@ -558,7 +585,12 @@ class SafetyConsole(QMainWindow):
         - `_last_frame_size` : 카메라 영역 녹화의 해상도
         - 카메라 영역 녹화면 여기서 바로 기록한다(창 캡처 없음)
         """
-        self._last_frame_time = time.time()
+        now = time.time()
+        if self._last_frame_time:
+            self._fps_intervals.append(now - self._last_frame_time)
+            if len(self._fps_intervals) > 60:        # 최근 60프레임만
+                self._fps_intervals.pop(0)
+        self._last_frame_time = now
         self._last_frame_size = (qt_image.width(), qt_image.height())
         # ⚠️ numpy 변환은 **점검이 요청할 때만** 한다(_frame_for_check).
         #    매 프레임 변환하면 GUI 스레드에 쓸데없는 부담이 생긴다.
@@ -741,6 +773,16 @@ class SafetyConsole(QMainWindow):
         """
         ok = {r.key: r.ok for r in precheck.run_stage1(self._check_ctx(with_frame=False))}
         self.conn_bar.update_state({k: ok.get(k) for k in ("camera", "interlock", "gpio")})
+
+        # 실측 FPS — 🔴 재는 것은 프레임 도착 간격이라 **카메라가 없으면 None** 이다.
+        #    성능 판정은 카메라가 돌아오는 시나리오 테스트에서 한다(spec §4).
+        fps = fps_from_intervals(self._fps_intervals)
+        if fps is not None and time.time() - self._fps_log_at >= 10:
+            self._fps_log_at = time.time()
+            self._append_log(
+                f"[FPS] {fps:.1f} (애니메이션 {'on' if config.UI_ANIMATION else 'off'})")
+        if config.SHOW_FPS:
+            self.fps_label.setText("" if fps is None else f"{fps:.1f} fps")
 
     def _check_ctx(self, with_frame=True):
         """점검이 보는 대상 묶음. 1·2차·수동이 같은 것을 본다.
