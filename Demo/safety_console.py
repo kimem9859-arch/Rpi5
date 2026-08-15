@@ -958,9 +958,8 @@ class SafetyConsole(QMainWindow):
         tool = self._tool_state.update(dets, fingertip)
         self._sub.set_tool(tool)
 
-        # 화면 자막 — ⚠️ cv2.putText 는 한글을 못 그린다(물음표가 된다). 영문으로.
-        self.camera_thread.set_tool_phase(
-            f"TOOL {self._tool_state.want_tool}: {self._tool_state.phase}")
+        # 🔑 판정 단계 표시는 게이지 패널이 맡는다(_update_sub_view → GaugePanel).
+        #    grasped ⟺ tool_ok 라 SubTask 만 넘겨도 찾기/쥠이 구분된다.
 
         # 마디가 바뀔 때만 로그를 남긴다 — 1초에 한 번씩 쌓으면 로그가 묻힌다.
         if self._tool_state.phase != before:

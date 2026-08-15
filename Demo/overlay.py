@@ -275,15 +275,20 @@ class GaugePanel(_Panel):
             f"background-color: {fill_color}; border-radius: 4px;")
 
         if sub.needs_tool:
+            # 윗줄 = 무엇이 필요한가 / 아랫줄 = 지금 어디까지 왔나.
+            # 🔑 완료 기준은 「손으로 쥠」이다(2026-08-16, 통합문서 §10.44-(8)).
+            #    grasped ⟺ tool_ok 라 phase 를 따로 받지 않아도 구분된다.
             self._tool_box.show()
-            self._tool_text.setText(f"{sub.want_tool_name}를 가져오세요")
+            self._tool_text.setText(f"{sub.want_tool_name}가 필요합니다")
             self._tool_text.setStyleSheet(theme.text_qss("text", 800))
             if sub.tool_ok:
-                self._tool_state.setText(f"✓ {sub.want_tool_name} 확인됨")
-                self._tool_state.setStyleSheet(theme.text_qss("done", 600))
+                state, token = f"✓ {sub.want_tool_name}를 쥐었습니다", "done"
+            elif sub.wrong_tool:
+                state, token = "⚠ 다른 공구를 쥐고 있습니다", "warn"
             else:
-                self._tool_state.setText("○ 콘솔 앞에 놓으면 확인됩니다")
-                self._tool_state.setStyleSheet(theme.text_qss("label", 600))
+                state, token = "○ 손에 쥐면 확인됩니다", "todo"
+            self._tool_state.setText(state)
+            self._tool_state.setStyleSheet(theme.text_qss(token, 600))
         else:
             self._tool_box.hide()
 
@@ -407,7 +412,7 @@ class AlertBanner(_Panel):
         """공구 오선택 — 🔴 해제 버튼 없음. 문장이 짧아 들여쓰기도 하지 않는다."""
         self._mode = "tool"
         self._paint("warn", "⚠", "다른 공구입니다",
-                    f"가져온 것: {wrong_name} — {want_name}로 바꿔 주세요",
+                    f"쥔 것: {wrong_name} — {want_name}로 바꿔 주세요",
                     "", release_text=None, indent2=False)
 
     def show_block(self, reason="순서 위반이 계속되어 인터락이 작동했습니다"):

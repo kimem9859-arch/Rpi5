@@ -210,11 +210,6 @@ class CameraThread(QThread):
         self._tool_last = 0.0
         self._tool_dets = []          # 마지막 검출 결과 — 화면 표시용
         self._tool_dets_at = 0.0      # 그 결과가 온 시각(오래되면 지운다)
-        self._tool_phase = ""         # 찾기/쥠/넣음 — safety_console 이 알려준다
-
-    def set_tool_phase(self, text):
-        """공구 판정 단계를 화면 자막용으로 받아 둔다(판정에는 쓰지 않는다)."""
-        self._tool_phase = text or ""
 
     def set_tool_scan(self, on):
         """공구 추론을 켜고 끈다 — `wait_tool` 서브 작업 동안에만 켠다.
@@ -234,7 +229,6 @@ class CameraThread(QThread):
         else:
             self._tool_gate.stop()
             self._tool_dets = []
-            self._tool_phase = ""
 
     def set_active(self, active):
         with self._lock:
@@ -305,12 +299,14 @@ class CameraThread(QThread):
         return frame
 
     def _draw_tools(self, frame):
-        """공구 검출 박스와 판정 단계를 그린다 — **표시 전용**.
+        """공구 검출 박스를 그린다 — **표시 전용**.
 
         ⚠️ 박스 좌표는 최대 약 1초 전 프레임의 것이다(추론이 그만큼 걸린다).
            손이 움직이면 실물과 어긋나 보이는 것이 정상이며, 이 그림은 판정에
            쓰이지 않는다(판정 = tool_state, 입력 = 오버레이 없는 사본).
         🔴 버튼(초록)과 헷갈리지 않게 **주황**으로 그린다.
+        🔑 판정 단계(찾기/쥠)는 여기 그리지 않는다 — 게이지 패널이 한글·테마로
+           맡는다(overlay.GaugePanel). cv2 는 한글을 못 그린다.
         """
         if time.time() - self._tool_dets_at > config.TOOL_SCAN_INTERVAL_SEC * 2:
             self._tool_dets = []      # 결과가 끊기면 유령 박스를 남기지 않는다
@@ -320,10 +316,6 @@ class CameraThread(QThread):
             cv2.rectangle(frame, p1, p2, (0, 165, 255), 2)
             cv2.putText(frame, f"{name} {score:.2f}", (p1[0], p1[1] - 6),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
-
-        if self._tool_phase:
-            cv2.putText(frame, self._tool_phase, (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
         return frame
 
     # =========================================================================
