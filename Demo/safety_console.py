@@ -39,25 +39,12 @@ from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, pl
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
                           NotifyButton, CheckPanel, RecordPanel)
 import precheck
+from fps import fps_from_intervals
 
 
 # =============================================================================
 # [캘리브레이션 다이얼로그]
 # =============================================================================
-def fps_from_intervals(intervals):
-    """프레임 도착 간격(초) 목록 → 실측 FPS. 표본이 없으면 None.
-
-    🔴 평균이 아니라 **중앙값**이다 — 재연결·정지 구간의 큰 간격 하나가
-       평균을 통째로 무너뜨린다(측정이 아니라 사고를 재는 꼴이 된다).
-    """
-    vals = sorted(v for v in intervals if v > 0)
-    if not vals:
-        return None
-    mid = vals[len(vals) // 2] if len(vals) % 2 else \
-        (vals[len(vals) // 2 - 1] + vals[len(vals) // 2]) / 2
-    return 1.0 / mid if mid > 0 else None
-
-
 class CalibrationDialog(QDialog):
     CHESSBOARD   = (7, 5)
     SAMPLE_COUNT = 20

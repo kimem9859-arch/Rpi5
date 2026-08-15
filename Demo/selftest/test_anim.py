@@ -171,7 +171,9 @@ def test_alert_relayout_skips_while_sliding():
 def test_fps_from_intervals():
     """도착 간격 목록에서 FPS 를 낸다. 카메라가 없으면 None."""
     print("\n[FPS 계산]")
-    from safety_console import fps_from_intervals
+    # 🔴 safety_console 이 아니라 fps 모듈에서 가져온다 — GUI 모듈을 import 하면
+    #    Hailo 백엔드가 함께 열리고 종료 시 죽어서(기존 현상) exit code 판정이 막힌다.
+    from fps import fps_from_intervals
     check(fps_from_intervals([]) is None, "표본 없음 → None (카메라 없을 때)")
     check(abs(fps_from_intervals([0.1] * 10) - 10.0) < 0.01, "0.1초 간격 → 10.0fps")
     check(abs(fps_from_intervals([0.1, 0.1, 5.0]) - 10.0) < 0.01,
