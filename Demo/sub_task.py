@@ -30,9 +30,9 @@ class SubTask:
         self._start = time.time() if now is None else now
         self._now = self._start
         # 공구 판정 결과(A-2). 🔑 두 경우에만 값이 들어온다 —
-        #   ① 오답 공구를 **쥐었을 때** 그 공구(→ wrong_tool 경고)
-        #   ② 정답 공구를 지정 공간에 **넣었을 때** 그 공구(→ tool_ok)
-        # 정답을 쥐고만 있는 동안은 None 이다. 판정 = tool_state.ToolState
+        #   ① 오답 공구를 쥐었을 때 그 공구(→ wrong_tool 경고)
+        #   ② 정답 공구를 쥐었을 때 그 공구(→ tool_ok, 그 뒤로 유지)
+        # 아무것도 안 쥔 동안은 None 이다. 판정 = tool_state.ToolState
         self._tool = None
 
     # ------------------------------------------------------------------ 상태
@@ -123,10 +123,13 @@ class SubTask:
         self._now = time.time() if now is None else now
 
     def set_tool(self, name):
-        """지정 공간에 넣은 공구를 갱신한다(아직 안 넣었으면 None).
+        """손으로 쥔 공구를 갱신한다(아직 안 쥐었으면 None).
 
-        🔑 A-2(2026-08-14)부터 의미가 바뀌었다 — 「지금 놓여 있는 공구」가 아니라
-           **「콘솔 지정 공간에 넣은 공구」**다. 쥐고만 있으면 아직 None 이다.
+        🔑 의미가 두 번 바뀌었다 — 「지금 놓여 있는 공구」(원래) → 「지정 공간에
+           넣은 공구」(A-2, 2026-08-14) → **「손으로 쥔 공구」(2026-08-16)**.
+           지금은 요구 공구를 쥐는 순간 그 키가 들어오고, 그것이 완료 조건이다.
+           「넣음」 판정은 폐기됐다 — 미검출과 구별할 수 없어 오완료가 났다
+           (경위 = 통합문서 §10.44).
            판정은 `tool_state.ToolState` 가 하고 여기로 결과만 들어온다.
            설계 = ../docs/superpowers/specs/2026-08-14-공구입력-A2-design.md §4.5
         """

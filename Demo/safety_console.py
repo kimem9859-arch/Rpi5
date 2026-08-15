@@ -964,7 +964,7 @@ class SafetyConsole(QMainWindow):
 
         # 마디가 바뀔 때만 로그를 남긴다 — 1초에 한 번씩 쌓으면 로그가 묻힌다.
         if self._tool_state.phase != before:
-            names = {"search": "찾기", "grasped": "쥠", "placed": "넣음"}
+            names = {"search": "찾기", "grasped": "쥠"}
             self._append_log(f"[공구] {names.get(before, before)} → "
                              f"{names.get(self._tool_state.phase, self._tool_state.phase)}"
                              f" ({self._tool_state.want_tool})")
@@ -1048,7 +1048,7 @@ class SafetyConsole(QMainWindow):
         # 🔑 요구 공구는 spec 에서 읽는다 — _press_button 이 설정값(_tool_override)을
         #    이미 spec 에 반영해 넘겨준다(safety_console.py 의 spec 덮어쓰기).
         if spec.get("type") == "wait_tool":
-            self._tool_state = ToolState(spec.get("tool"), config.TOOL_PLACED_COUNT)
+            self._tool_state = ToolState(spec.get("tool"))
             self.camera_thread.set_tool_scan(True)
         self._update_sub_view()
 

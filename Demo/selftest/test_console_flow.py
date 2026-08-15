@@ -146,24 +146,26 @@ def test_tool_signal_drives_gate():
     check(win._sub.wrong_tool == box_other[0],
           f"다른 공구를 쥐면 wrong_tool={box_other[0]}")
 
-    # ② 정답으로 바꿔 쥐면 풀린다
+    # ② 정답으로 바꿔 쥐면 그 자리에서 통과 (2026-08-16 — 「넣음」 마디 폐기)
     win.camera_thread.tool_signal.emit([box_want, box_other], (150, 150))
     check(win._sub.wrong_tool is None, "정답으로 바꿔 쥐면 경고가 풀린다")
     check(win._tool_state.phase == "grasped", "쥠 확정")
-    check(not win._sub.tool_ok, "쥐기만 했을 때는 아직 통과가 아니다")
+    check(win._sub.tool_ok, "쥐는 즉시 tool_ok")
 
-    # ③ 시간을 채워도 넣기 전에는 게이트가 안 열린다
+    # ③ 🔴 공구는 됐어도 시간이 안 찼으면 게이트는 닫혀 있다 (시간 AND 공구)
+    check(not win._sub.can_advance, "🔴 공구만 됐다고 넘어가지 않는다")
+
+    # ④ 시간까지 차면 열린다
     win._sub.tick(now=time.time() + 999)
     win._update_sub_view()
-    check(not win._sub.can_advance, "🔴 시간만 찼다고 넘어가지 않는다")
+    check(win._sub.can_advance, "시간까지 차면 게이트가 열린다")
 
-    # ④ 손은 보이는데 공구가 사라짐 — 연속 N회로 완료
-    for i in range(config.TOOL_PLACED_COUNT):
-        win.camera_thread.tool_signal.emit([box_other], (900, 900))
-    check(win._sub.tool_ok, f"{config.TOOL_PLACED_COUNT}회 후 tool_ok")
-    check(win._sub.can_advance, "게이트가 열린다")
+    # ⑤ 손을 떼도 통과는 유지된다 — 안 그러면 「다음 단계 진행」을 누를 수 없다
+    win.camera_thread.tool_signal.emit([], None)
+    check(win._sub.tool_ok, "손을 떼도 유지")
+    check(win._sub.can_advance, "게이트도 열린 채 유지")
 
-    # ⑤ 서브 작업이 끝나면 스캔이 꺼진다 (🔴 안 끄면 워커가 CPU 를 계속 먹는다)
+    # ⑥ 서브 작업이 끝나면 스캔이 꺼진다 (🔴 안 끄면 워커가 CPU 를 계속 먹는다)
     win._finish_sub()
     check(win._tool_state is None, "판정 상태가 정리된다")
     check(win.camera_thread._tool_scan is False, "스캔이 꺼진다")
@@ -171,20 +173,27 @@ def test_tool_signal_drives_gate():
 
 
 def test_tool_hand_unseen_does_not_advance():
-    """🔴 손이 안 보이면 완료되지 않는다 — 부재를 증거로 쓰지 않는다(§4.4)."""
-    print("\n[3-c] 손이 증인이다")
+    """🔴 쥐기 전에는 무엇으로도 완료되지 않는다 — 부재를 증거로 쓰지 않는다(§4.4).
+
+    🔑 구 3마디 설계의 오완료(통합문서 §10.44-(3))에 대한 **회귀 테스트**를
+       GUI 배선까지 통과시켜 확인한다. 단위 검증은 test_tool_state.py.
+    """
+    print("\n[3-c] 쥐기 전에는 완료되지 않는다")
     win = make_console()
     win._on_cta()
     key(win, "1"); win._sub.tick(now=time.time() + 999); win._finish_sub()
     key(win, "2")
-    want = win._sub.want_tool
-    win.camera_thread.tool_signal.emit([(want, 0.8, 100, 100, 200, 200)], (150, 150))
-    check(win._tool_state.phase == "grasped", "쥠 확정")
+    win._sub.tick(now=time.time() + 999)                  # 시간은 이미 찼다
 
-    for _ in range(config.TOOL_PLACED_COUNT * 3):
+    for _ in range(10):
         win.camera_thread.tool_signal.emit([], None)      # 손·공구 함께 사라짐
     check(not win._sub.tool_ok, "고개를 돌려도 완료되지 않는다")
-    check(win._tool_state.miss_count == 0, "한 번도 세지 않았다")
+
+    for _ in range(10):
+        win.camera_thread.tool_signal.emit([], (150, 150))   # 손만 보이고 공구 미검출
+    check(not win._sub.tool_ok, "🔴 공구를 못 잡아도 완료되지 않는다(§10.44 회귀)")
+    check(not win._sub.can_advance, "게이트도 닫힌 채")
+    check(win._tool_state.phase == "search", "search 에 머문다")
     win.close()
 
 

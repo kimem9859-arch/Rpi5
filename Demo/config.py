@@ -245,8 +245,8 @@ TOOL_ENABLED           = os.environ.get("SOP_TOOL", "1") != "0"
 TOOL_CONF              = 0.65
 # 공구 판정은 상시 작업이 아니다 — 서브 대기 중에만 돈다. 추론 약 0.5초의 2배 여유.
 TOOL_SCAN_INTERVAL_SEC = 1.0
-# 「넣음」 확정에 필요한 연속 확인 횟수. 1프레임 미검출로 넘어가지 않게 하는 장치다.
-TOOL_PLACED_COUNT      = 3
+# 🗑️ TOOL_PLACED_COUNT 는 2026-08-16 에 사라졌다 — 「넣음」 마디를 없애면서
+#    연속 미검출을 셀 일이 없어졌다(경위 = 통합문서 §10.44).
 TOOL_MODEL_PATH        = os.path.join(_BASE_DIR, 'models', 'tool_v3.pt')
 TOOL_WORKER_PYTHON     = os.path.expanduser("~/rfenv/bin/python")
 TOOL_SHM_DIR           = "/dev/shm/sop_tool"
