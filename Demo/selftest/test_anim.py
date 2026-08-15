@@ -118,6 +118,19 @@ def test_gauge_flashes_only_on_tool_change():
     check(g._prev_tool == (True, None), "바뀐 값으로 갱신된다")
 
 
+def test_status_step_change_gate():
+    """단계가 바뀐 순간에만 전환 연출을 건다."""
+    print("\n[단계 전환 감지]")
+    s = StatusPanel(STEPS, _w)
+    s.update_view("PROCESS_RUN", 1)
+    check(s._prev_step == 1, "직전 단계를 기억한다")
+    for _ in range(3):
+        s.update_view("PROCESS_RUN", 1)         # 같은 단계 반복
+    check(s._prev_step == 1, "같은 단계 반복은 상태를 바꾸지 않는다")
+    s.update_view("PROCESS_RUN", 2)
+    check(s._prev_step == 2, "단계가 바뀌면 갱신된다")
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

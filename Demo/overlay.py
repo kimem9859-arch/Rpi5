@@ -133,6 +133,7 @@ class StatusPanel(_Panel):
     def __init__(self, steps, parent=None):
         super().__init__(parent)
         self._steps = list(steps)
+        self._prev_step = None          # 애니메이션 트리거용 직전 expected_step
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -196,6 +197,24 @@ class StatusPanel(_Panel):
             else:
                 row.setText(f"○ {text}")
                 row.setStyleSheet(theme.text_qss("todo", 600) + pad)
+
+        # 단계가 바뀐 순간에만 — 끝난 줄이 완료색으로 반짝하고,
+        # 새 현재 줄의 왼쪽 막대가 자라며 자리 잡는다.
+        if started and self._prev_step is not None and expected_step != self._prev_step:
+            old = self._prev_step - 1
+            if 0 <= old < len(self._rows):
+                anim.flash(self._rows[old], theme.C("done"))
+            idx = expected_step - 1
+            if 0 <= idx < len(self._rows):
+                row = self._rows[idx]
+                base = row.styleSheet()
+                color = theme.C(cur_token)
+                anim.tween(
+                    row, anim.D_BAR,
+                    lambda t, r=row, b=base, c=color: r.setStyleSheet(
+                        b + f"border-left: {max(1, int(_ROW_BAR * float(t)))}px solid {c};"),
+                    on_done=lambda r=row, b=base: r.setStyleSheet(b))
+        self._prev_step = expected_step
 
     def relayout(self, parent_rect):
         p = _POS["status"]
