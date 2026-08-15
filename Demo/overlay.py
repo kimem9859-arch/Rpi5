@@ -413,6 +413,13 @@ class AlertBanner(_Panel):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self._mode = None
 
+        # 차단 맥박 — 🔴 mode 를 벗어나거나 숨길 때 반드시 stop() 한다.
+        self._pulse = anim.Pulse(
+            self, lambda: theme.panel_qss("sheet", padding="14px 18px"),
+            theme.C("danger"))
+        self._shown_mode = None         # 화면에 그려져 있는 mode (등장 트리거 비교용)
+        self._needs_entrance = False    # 다음 relayout 에서 미끄러져 들어올 것
+
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(14)
@@ -467,6 +474,10 @@ class AlertBanner(_Panel):
                     release_text="차단 해제", indent2=False)
 
     def _paint(self, token, mark, title, line1, line2, release_text, indent2):
+        # 🔴 self._mode 는 show_* 가 여기 오기 **전에** 이미 새 값이다. 그래서 화면에
+        #    그려져 있던 모드를 따로 들고 비교한다.
+        prev_mode = self._shown_mode
+        self._shown_mode = self._mode
         c = theme.C(token)
         self._icon.setText(mark)
         self._icon.setStyleSheet(theme.text_qss(token, 800))
@@ -493,6 +504,15 @@ class AlertBanner(_Panel):
         for lbl in (self._icon, self._title, self._line1, self._line2):
             _glow(lbl)
         self.raise_()
+        # mode 가 바뀐 순간에만 등장을 예약한다 — 같은 mode 로 다시 그려질 때는
+        # 이미 자리에 있으므로 움직이지 않는다(공구 배너는 200ms 주기로 다시 온다).
+        # 🔴 등장을 여기서 **시작하지 않는다** — 호출부가 _paint 뒤에 relayout 을
+        #    부르므로, 지금은 배너가 앉을 최종 위치가 아직 정해지지 않았다.
+        if self._mode != prev_mode:
+            self._pulse.stop()
+            self._needs_entrance = True
+            if self._mode == "block":
+                self._pulse.start()
         self.show()
 
     @property
@@ -501,14 +521,25 @@ class AlertBanner(_Panel):
 
     def hide_all(self):
         self._mode = None
+        self._shown_mode = None
+        self._needs_entrance = False
+        self._pulse.stop()              # 🔴 살아남으면 QSS 재적용으로 CPU 를 태운다
         self.hide()
 
     def relayout(self, parent_rect):
+        # 🔴 슬라이드 중에는 geometry 를 건드리지 않는다 — _update_sub_view 가 200ms
+        #    마다 relayout 을 부르므로, 그대로 두면 등장 중에 위치가 튄다.
+        if anim.busy(self):
+            return
         if self._mode == "block":
             place(self, parent_rect, width=_BLOCK_POS["width"])       # 중앙을 가린다
         else:
             place(self, parent_rect, width=_BANNER_POS["width"],
                   bottom=_BANNER_POS["bottom"])
+        # 위치가 정해진 **지금** 등장한다(_paint 시점에는 목표 위치를 몰랐다).
+        if self._needs_entrance:
+            self._needs_entrance = False
+            anim.slide_in(self, self.geometry())
 
 
 class ConnBar(_Panel):

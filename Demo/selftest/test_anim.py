@@ -131,6 +131,43 @@ def test_status_step_change_gate():
     check(s._prev_step == 2, "단계가 바뀌면 갱신된다")
 
 
+def test_alert_pulse_lifecycle():
+    """🔴 차단에서만 맥박하고, 벗어나면 반드시 멈춘다."""
+    print("\n[배너 맥박 수명]")
+    a = AlertBanner(_w)
+    a.show_order_violation("B2", "펌프/퍼지")
+    check(not a._pulse.active(), "경고에서는 맥박하지 않는다")
+    a.show_block()
+    check(a._pulse.active(), "차단에서 맥박한다")
+    a.show_order_violation("B2", "펌프/퍼지")
+    check(not a._pulse.active(), "차단을 벗어나면 멈춘다")
+    a.show_block()
+    a.hide_all()
+    check(not a._pulse.active(), "숨기면 멈춘다")
+
+
+def test_alert_entrance_happens_at_relayout():
+    """등장은 위치를 정하는 relayout 이 실행한다 — _paint 는 예약만."""
+    print("\n[배너 등장 시점]")
+    a = AlertBanner(_w)
+    a.show_order_violation("B2", "펌프/퍼지")
+    check(a._needs_entrance, "_paint 는 등장을 예약만 한다")
+    a.relayout(SCREEN)
+    check(not a._needs_entrance, "relayout 이 등장을 실행하고 예약을 지운다")
+
+
+def test_alert_relayout_skips_while_sliding():
+    """슬라이드 중 relayout 이 geometry 를 덮어쓰면 위치가 튄다."""
+    print("\n[슬라이드 중 relayout 회피]")
+    a = AlertBanner(_w)
+    a.show_block()
+    anim.slide_in(a, QRect(0, 0, 100, 50))
+    before = a.geometry()
+    a.relayout(SCREEN)
+    check(a.geometry() == before, "슬라이드 중에는 relayout 이 geometry 를 건드리지 않는다")
+    a.hide_all()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

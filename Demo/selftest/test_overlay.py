@@ -19,9 +19,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import QRect
 from PyQt6.QtWidgets import QApplication, QWidget
 
+import config
 import theme
 from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, place
 from sub_task import SubTask
+
+# 🔴 배치 검사는 애니메이션과 무관해야 한다 — 켜 두면 relayout 직후의 geometry 가
+#    「등장 슬라이드의 시작 위치」(목표보다 40px 아래)라 위치 검사가 어긋난다.
+#    움직임 자체는 selftest/test_anim.py 가 본다.
+config.UI_ANIMATION = False
 
 _app = QApplication.instance() or QApplication([])
 _fails = []
