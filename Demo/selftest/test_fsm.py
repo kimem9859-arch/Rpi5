@@ -348,6 +348,61 @@ def test_warning_state_transition_still_blocked():
     print("  PASS  WARNING 중 상태 전이는 관측과 무관하게 막힌다")
 
 
+# ------------------------------------------------- 작업 초기화 (reset)
+def test_reset_from_mid_process():
+    """진행 중이던 작업을 「작업 시작」 직전 상태로 되돌린다."""
+    fsm, _ = make_fsm()
+    run(fsm)
+    fsm.press_button("B1")                   # 2단계까지 진행
+    assert fsm.expected_step == 2
+    fsm.reset()
+    assert fsm.state == State.IDLE
+    assert fsm.expected_step == 1
+
+
+def test_reset_from_block_releases_interlock():
+    """차단 중 초기화 — 릴레이(인터락)도 함께 풀려야 한다."""
+    fsm, log = make_fsm()
+    run(fsm)
+    fsm.press_button("B2")                   # 오답 눌림 → 즉시 BLOCK
+    assert fsm.state == State.BLOCK
+    assert log["interlock"][-1] is True
+    fsm.reset()
+    assert fsm.state == State.IDLE
+    assert log["interlock"][-1] is False, "차단에서 나오면 인터락이 풀린다"
+
+
+def test_reset_clears_emo_flag():
+    """EMO 로 걸린 차단도 초기화가 정리한다(GUI 가 EMO 물리 상태를 따로 막는다)."""
+    fsm, _ = make_fsm()
+    run(fsm)
+    fsm.press_button("EMO")
+    assert fsm.state == State.BLOCK
+    fsm.reset()
+    assert fsm.state == State.IDLE
+    assert fsm._emo_active is False
+
+
+def test_reset_when_already_idle():
+    """이미 IDLE 이면 아무 일도 일어나지 않는다(중복 호출 안전)."""
+    fsm, log = make_fsm()
+    before = len(log["states"])
+    fsm.reset()
+    assert fsm.state == State.IDLE
+    assert fsm.expected_step == 1
+    assert len(log["states"]) == before, "상태 변화가 없으면 콜백도 부르지 않는다"
+
+
+def test_reset_clears_dwell():
+    """체류 누적이 남아 초기화 직후 오판정하면 안 된다."""
+    fsm, _ = make_fsm(threshold=1.0)
+    run(fsm)
+    fsm.update_vision("B2", now=0.0)         # 오답 ROI 체류 시작
+    fsm.reset()
+    assert fsm._dwell_roi is None
+    assert fsm._dwell_start is None
+
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

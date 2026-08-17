@@ -394,6 +394,7 @@ class SafetyConsole(QMainWindow):
         self.menu_panel.check_clicked.connect(self._open_check)
         self.menu_panel.record_clicked.connect(self._open_record)
         self.menu_panel.settings_clicked.connect(self._open_settings)
+        self.menu_panel.reset_clicked.connect(self._on_reset_clicked)
         self.menu_panel.shutdown_clicked.connect(lambda: self._on_shutdown_clicked())
 
         self.notify_panel = NotifyPanel(central)
@@ -1171,6 +1172,66 @@ class SafetyConsole(QMainWindow):
             box.show()
             return
         self.fsm.release_block()
+
+    # =========================================================================
+    # [작업 초기화] — 「작업 시작」을 누르기 직전 상태로 되돌린다
+    # =========================================================================
+    def _on_reset_clicked(self):
+        """≡ 메뉴 → 「↺ 작업 초기화」.
+
+        🔴 EMO 가 물리적으로 복귀되지 않았으면 거부한다 — 「차단 해제」와 같은 규칙이다.
+           여기를 열어두면 비상정지가 눌린 채로 인터락이 풀려(reset → IDLE 전이가
+           on_interlock(False) 를 부른다) 무방비 상태가 된다.
+        ⚠️ 녹화·로그·카메라·설정은 건드리지 않는다 — 되돌리는 것은 **작업 상태**뿐이다.
+        """
+        if self.gpio_input.emo_active():
+            self._append_log("[FSM] 🚫 작업 초기화 거부 — EMO 미복귀(눌림/단선)")
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("초기화 거부")
+            box.setText("EMO가 아직 복귀되지 않았습니다.\n"
+                        "비상정지 버튼을 돌려 복귀(또는 EMO 배선 점검) 후 다시 시도하세요.")
+            box.setStandardButtons(QMessageBox.StandardButton.Ok)
+            box.setModal(False)
+            box.show()
+            return
+
+        # 진행 중이던 작업이 사라지는 비가역 동작 — 한 번 더 확인한다.
+        reply = QMessageBox.question(
+            self,
+            "작업 초기화 확인",
+            "지금까지의 진행을 버리고 「작업 시작」 전 상태로 되돌립니다.\n"
+            "(녹화·로그는 그대로 유지됩니다)\n\n"
+            "초기화할까요?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,   # 기본 선택 = 아니오 (오동작 방지)
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            self._append_log("[FSM] 작업 초기화 취소됨")
+            return
+
+        self._reset_work()
+
+    def _reset_work(self):
+        """실제 되돌리기. 확인창 없이 부르는 경로가 생길 수 있어 따로 둔다."""
+        self._append_log("[FSM] 작업 초기화 — 「작업 시작」 전 상태로 되돌립니다")
+        self.fsm.reset()
+
+        # 🔴 FSM 이 **이미 IDLE 이면** 상태 전이가 없어 _on_fsm_state 가 불리지 않는다.
+        #    그 경로가 하던 정리를 여기서 한 번 더 한다(중복 호출은 무해하다).
+        self._sub_timer.stop()
+        self._end_tool_scan()
+        self._sub = None
+        self._sub_button = None
+        self.gauge_panel.update_view(None)
+        self.alert.hide_all()
+        self.glow.set_level(None)
+        self._dim_others(False)
+        self.btn_cta.setText("▶  작업 시작")
+        self._toggle_menu(False)
+        self._sync_cta_visibility()
+        self._notify("work", "작업 초기화", "「작업 시작」 전 상태로 되돌렸습니다")
+        self._relayout()
 
     def keyPressEvent(self, event):
         """시연용 버튼 입력: 1~4 = B1~B4 눌림, E = 비상정지(EMO).

@@ -31,9 +31,10 @@ def check(cond, msg):
 
 
 def test_menu_signals():
-    """메뉴 항목 6개 + 종료가 각각 신호를 낸다.
+    """메뉴 항목 7개 + 종료가 각각 신호를 낸다.
 
-    구성(2026-08-04): 점검(연결) · 녹화 · 로그 · 캘리브레이션 · CCTV · 설정 + 종료
+    구성(2026-08-16): 점검(연결) · 녹화 · 로그 · 캘리브레이션 · CCTV · 설정 ·
+    작업 초기화 + 종료
     """
     print("\n[1] MenuPanel 신호")
     host = QWidget()
@@ -41,14 +42,15 @@ def test_menu_signals():
     got = []
     for name in ("check_clicked", "record_clicked", "log_clicked",
                  "calibrate_clicked", "cctv_clicked", "settings_clicked",
-                 "shutdown_clicked"):
+                 "reset_clicked", "shutdown_clicked"):
         getattr(m, name).connect(lambda n=name: got.append(n))
     for b in m._items:
         b.click()
     m._shutdown.click()
-    check(len(got) == 7, f"7개 신호 발생: {got}")
+    check(len(got) == 8, f"8개 신호 발생: {got}")
     check("check_clicked" in got and "record_clicked" in got,
           "점검(연결)·녹화 항목이 신설됨")
+    check("reset_clicked" in got, "작업 초기화 항목이 신호를 낸다")
 
 
 def test_menu_shutdown_separated():
@@ -63,15 +65,16 @@ def test_menu_shutdown_separated():
 
 
 def test_menu_has_free_slots():
-    """추후 항목 자리가 남아 있는가 (design §4.7).
+    """항목 수와 남은 자리 (design §4.7).
 
-    항목이 4개 → 6개로 늘어 여유 자리는 3칸 → 1칸으로 줄였다.
+    항목 4개 → 6개(2026-08-04) → **7개**(2026-08-16 「작업 초기화」).
+    남은 여유 자리는 3칸 → 1칸 → **0칸**이다.
     """
     print("\n[3] 추후 항목 자리")
     host = QWidget()
     m = MenuPanel(host)
-    check(len(m._free) >= 1, f"빈 자리 {len(m._free)}칸")
-    check(len(m._items) == 6, f"메뉴 항목 {len(m._items)}개")
+    check(len(m._free) == 0, f"빈 자리 {len(m._free)}칸")
+    check(len(m._items) == 7, f"메뉴 항목 {len(m._items)}개")
 
 
 def test_notify_kinds():

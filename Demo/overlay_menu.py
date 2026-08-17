@@ -162,6 +162,7 @@ class MenuPanel(_Sheet):
     calibrate_clicked = pyqtSignal()
     cctv_clicked = pyqtSignal()
     settings_clicked = pyqtSignal()
+    reset_clicked = pyqtSignal()      # 작업 초기화 — 「작업 시작」 직전으로 되돌린다
     shutdown_clicked = pyqtSignal()
     closed = pyqtSignal()
 
@@ -190,15 +191,16 @@ class MenuPanel(_Sheet):
                           ("📜  로그", self.log_clicked),
                           ("🎯  캘리브레이션", self.calibrate_clicked),
                           ("📹  CCTV 전환", self.cctv_clicked),
-                          ("⚙  설정", self.settings_clicked)):
+                          ("⚙  설정", self.settings_clicked),
+                          ("↺  작업 초기화", self.reset_clicked)):
             b = _row_button(text)
             b.clicked.connect(sig.emit)
             lay.addWidget(b)
             self._items.append(b)
 
-        # 추후 항목 자리 3칸 — design §4.7
+        # 추후 항목 자리 — design §4.7. 🔴 남은 칸은 0 이다(2026-08-16 「작업 초기화」가 채움).
         self._free = []
-        for _ in range(1):
+        for _ in range(0):
             f = QLabel("＋")
             f.setFont(config.font("small"))
             f.setStyleSheet(f"color: {theme.C('todo')};"

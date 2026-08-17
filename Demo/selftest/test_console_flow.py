@@ -427,6 +427,52 @@ def test_cctv_switch_needs_confirm():
     win.close()
 
 
+def test_reset_returns_to_prestart():
+    """🔴 작업 초기화 — 진행 중이던 작업을 「작업 시작」 직전으로 되돌린다."""
+    print("\n[작업 초기화]")
+    win = make_console()
+    win._on_cta()                                   # 작업 시작
+    key(win, "1")                                   # B1 눌림 → 서브 작업 시작
+    check(win.fsm.state != State.IDLE, "초기화 전에는 작업 중")
+
+    win._reset_work()                               # 확인창을 건너뛴 실제 되돌리기
+    check(win.fsm.state == State.IDLE, f"IDLE 복귀 (실제 {win.fsm.state.value})")
+    check(win.fsm.expected_step == 1, f"1단계로 (실제 {win.fsm.expected_step})")
+    check(win._sub is None, "서브 작업이 지워졌다")
+    check(win._sub_button is None, "서브 작업 버튼 기억도 지워졌다")
+    check(not win._sub_timer.isActive(), "서브 타이머가 멈췄다")
+    check(win.alert.mode is None, "경고·차단 배너가 사라졌다")
+    check(win.gauge_panel.isHidden(), "게이지가 숨겨졌다")
+    check(win.btn_cta.text().endswith("작업 시작"), f"CTA 문구 {win.btn_cta.text()!r}")
+    check(not win.btn_cta.isHidden(), "「작업 시작」 버튼이 다시 보인다")
+    win.close()
+
+
+def test_reset_after_block_clears_alert():
+    """차단 상태에서 초기화 — 배너·발광까지 정리된다."""
+    print("\n[차단 중 초기화]")
+    win = make_console()
+    win._on_cta()
+    key(win, "2")                                   # 오답 버튼 → 즉시 BLOCK
+    check(win.fsm.state == State.BLOCK, f"차단 상태 (실제 {win.fsm.state.value})")
+
+    win._reset_work()
+    check(win.fsm.state == State.IDLE, "IDLE 복귀")
+    check(win.alert.mode is None, "차단 배너가 사라졌다")
+    check(win.glow.level is None, f"발광이 꺼졌다 (실제 {win.glow.level})")
+    win.close()
+
+
+def test_reset_when_idle_is_safe():
+    """이미 「작업 시작」 전이면 눌러도 아무 문제가 없다."""
+    print("\n[IDLE 에서 초기화]")
+    win = make_console()
+    win._reset_work()
+    check(win.fsm.state == State.IDLE, "IDLE 유지")
+    check(not win.btn_cta.isHidden(), "「작업 시작」 버튼 유지")
+    win.close()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

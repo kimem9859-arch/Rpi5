@@ -254,6 +254,23 @@ class SafetyFSM:
     _emo_active = False
 
     # ------------------------------------------------------ 해제 버튼 2종 (§9.3 6·7)
+    # ------------------------------------------------------ 작업 초기화
+    def reset(self):
+        """「작업 시작」을 누르기 직전 상태로 되돌린다 — IDLE · 기대단계 1.
+
+        🔑 인터락 해제를 여기서 따로 하지 않는다 — `_goto` 가 BLOCK 에서 빠져나올 때
+           이미 `on_interlock(False)` 를 부른다. 여기서 또 부르면 이중 송신이 된다.
+
+        ⚠️ **EMO 물리 상태는 여기서 못 본다** — FSM 은 하드웨어를 모른다.
+           비상정지 버튼이 눌린 채로의 초기화 거부는 **GUI 가** 막는다
+           (`safety_console._on_reset_clicked` 가 `gpio_input.emo_active()` 를 본다).
+           여기서는 다음 작업이 깨끗이 시작되도록 플래그만 정리한다.
+        """
+        self._reset_dwell()
+        self._emo_active = False
+        self.expected_step = 1
+        self._goto(State.IDLE)          # 이미 IDLE 이면 아무 일도 하지 않는다
+
     def release_warning(self):
         """WARNING 해제 버튼 → MONITOR 복귀. (기대단계 유지)"""
         if self.state == State.WARNING:
