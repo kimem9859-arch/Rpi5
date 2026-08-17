@@ -119,6 +119,20 @@ class _Panel(QWidget):
             _glow(lbl)
 
 
+# 상태 표시명 — 화면 전용 번역. 정본 = design §4.1 표(이것은 그 사본이다).
+#    🔴 FSM·로그·통합문서 §9 의 **영문 값은 바꾸지 않는다.** 여기서만 옮긴다.
+#    🔴 종전에는 기동 직후 화면에 `STANDBY`(FSM 에 없는 이름)가 하드코딩돼 있어,
+#       작업 초기화 후의 `IDLE` 과 **같은 상태가 두 이름으로** 보였다(2026-08-16).
+_STATE_LABEL = {
+    "IDLE":        "대기 중",
+    "READY":       "준비",
+    "PROCESS RUN": "작업 진행 중",
+    "MONITOR":     "감시 중",
+    "WARNING":     "경고",
+    "BLOCK":       "차단됨",
+}
+
+
 # 공정 단계 행의 안쪽 여백 — 🔴 **배경 유무와 무관하게 늘 같아야 한다.**
 #    종전에는 panel_qss 의 padding 이 자식에 상속돼 배경을 켤 때만 붙었고,
 #    상속을 막자 이번엔 늘 없어졌다. 사용자가 원한 것은 **넉넉한 쪽**이라
@@ -139,7 +153,7 @@ class StatusPanel(_Panel):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(4)
 
-        self._state = QLabel("● STANDBY")
+        self._state = QLabel(f"● {_STATE_LABEL['IDLE']}")
         self._state.setFont(config.font("state", 800))
         lay.addWidget(self._state)
 
@@ -155,7 +169,10 @@ class StatusPanel(_Panel):
             lay.addWidget(row)
             self._rows.append(row)
 
-        self.update_view("STANDBY", 1)
+        # 🔴 기동 직후도 **실제 FSM 상태(IDLE)** 로 그린다 — 종전의 "STANDBY"
+        #    하드코딩은 이름만 어긋난 게 아니라, 아래 started 판정을 통과해
+        #    **1단계를 ▶ 로 강조**시켰다(작업 시작 전인데도).
+        self.update_view("IDLE", 1)
 
     def update_view(self, state_value, expected_step, sub_running=False):
         """state_value = FSM State.value 문자열. sub_running 이면 현재 단계를 '진행 중'으로."""
@@ -170,7 +187,7 @@ class StatusPanel(_Panel):
         # 상태·캡션도 행과 **같은 좌우 여백**을 준다 — 글자 시작점이 세로로
         # 한 줄이 되게. 상하 여백은 주지 않는다(행만큼 벌어지면 머리가 커진다).
         side = f"padding-left: {_ROW_PAD_H}px; padding-right: {_ROW_PAD_H}px;"
-        self._state.setText(f"● {state_value}")
+        self._state.setText(f"● {_STATE_LABEL.get(state_value, state_value)}")
         self._state.setStyleSheet(theme.text_qss(
             "warn" if state_value == "WARNING" else
             "danger" if state_value == "BLOCK" else "done", 800) + side)

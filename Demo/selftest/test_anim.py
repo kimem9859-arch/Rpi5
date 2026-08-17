@@ -168,6 +168,44 @@ def test_alert_relayout_skips_while_sliding():
     a.hide_all()
 
 
+def test_status_label_is_korean_and_consistent():
+    """🔴 상태 표시명 — 기동 직후와 작업 초기화 후가 **같아야 한다**.
+
+    2026-08-16: 종전에는 기동 직후 화면에 `STANDBY`(FSM 에 없는 하드코딩)가 뜨고
+    초기화 후에는 `IDLE` 이 떠서, 같은 상태가 두 이름으로 보였다.
+    표시명 정본 = 상위 specs/2026-08-03-uiux-글라스-design.md §4.1 표.
+    """
+    print("\n[상태 표시명]")
+    s = StatusPanel(STEPS, _w)
+    boot_text = s._state.text()                 # 만들자마자 = 기동 직후 화면
+    check("대기 중" in boot_text, f"기동 직후 「대기 중」 (실제 {boot_text!r})")
+
+    s.update_view("PROCESS RUN", 2)
+    s.update_view("IDLE", 1)                    # 작업 초기화가 넣는 값
+    check(s._state.text() == boot_text,
+          f"초기화 후가 기동 직후와 같다 ({s._state.text()!r} vs {boot_text!r})")
+
+    for value, label in (("PROCESS RUN", "작업 진행 중"), ("WARNING", "경고"),
+                         ("BLOCK", "차단됨"), ("MONITOR", "감시 중"), ("READY", "준비")):
+        s.update_view(value, 1)
+        check(label in s._state.text(), f"{value} → {label} (실제 {s._state.text()!r})")
+
+
+def test_status_steps_all_pending_before_start():
+    """🔴 작업 시작 전에는 어느 단계도 「현재」로 강조되지 않는다(design §4.1).
+
+    종전 STANDBY 하드코딩 탓에 기동 직후 1단계가 ▶ 로 강조돼 있었다.
+    """
+    print("\n[시작 전 단계 표시]")
+    s = StatusPanel(STEPS, _w)
+    marks = [r.text()[0] for r in s._rows]
+    check(all(m == "○" for m in marks), f"전부 ○ (실제 {marks})")
+
+    s.update_view("IDLE", 1)
+    marks = [r.text()[0] for r in s._rows]
+    check(all(m == "○" for m in marks), f"초기화 후에도 전부 ○ (실제 {marks})")
+
+
 def test_fps_from_intervals():
     """도착 간격 목록에서 FPS 를 낸다. 카메라가 없으면 None."""
     print("\n[FPS 계산]")
