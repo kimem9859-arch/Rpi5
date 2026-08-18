@@ -536,6 +536,32 @@ def test_reset_when_idle_is_safe():
     win.close()
 
 
+def test_detect_box_toggle():
+    """🔴 설정에서 탐지 박스를 끄면 두 카메라 스레드에 모두 전달되는가.
+
+    🔑 표시만 끄는 것이다 — 끈 상태에서도 순서 위반 판정은 그대로 돈다(설계 §4.2).
+    """
+    print("\n[N] 탐지 박스 토글")
+    win = make_console()
+    check(win.camera_thread.draw_boxes() is True, "기본은 켜짐")
+
+    win.settings_panel._box_buttons[False].setChecked(True)
+    check(win.camera_thread.draw_boxes() is False, "끄면 ESP32 스레드에 전달")
+    check(win.usb_camera_thread.draw_boxes() is False, "끄면 USB 스레드에도 전달")
+
+    # 끈 상태에서도 판정은 살아 있다
+    win._on_cta()
+    before = win.fsm.expected_step
+    key(win, "1")
+    check(win._sub is not None and win._sub.is_active,
+          "박스를 꺼도 서브 작업이 시작된다 — 판정은 표시와 무관하다")
+    check(win.fsm.expected_step == before, "기대단계 유지")
+
+    win.settings_panel._box_buttons[True].setChecked(True)
+    check(win.camera_thread.draw_boxes() is True, "다시 켜진다")
+    win.close()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

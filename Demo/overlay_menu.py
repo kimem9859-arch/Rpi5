@@ -377,6 +377,7 @@ class SettingsPanel(_Sheet):
     tool_changed = pyqtSignal(str)
     theme_changed = pyqtSignal(str)
     panel_bg_changed = pyqtSignal(bool)
+    boxes_changed = pyqtSignal(bool)
     closed = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -437,6 +438,28 @@ class SettingsPanel(_Sheet):
             self._bg_group.addButton(rb)
             lay.addWidget(rb)
 
+        self._box_caption = QLabel("탐지 박스 표시")
+        self._box_caption.setFont(config.font("small", 700))
+        lay.addWidget(self._box_caption)
+
+        self._box_group = QButtonGroup(self)
+        self._box_buttons = {}
+        for on, text in ((True, "있음  (기본)"), (False, "없음  (영상만)")):
+            rb = QRadioButton(text)
+            rb.setFont(config.font("body", 600))
+            rb.setCursor(Qt.CursorShape.PointingHandCursor)
+            rb.setChecked(on == config.SHOW_DETECT_BOXES)
+            rb.toggled.connect(lambda chk, v=on: chk and self.boxes_changed.emit(v))
+            self._box_group.addButton(rb)
+            self._box_buttons[on] = rb
+            lay.addWidget(rb)
+
+        # 🔴 이 문장을 빼면 "박스를 끄면 감시도 꺼지나?"를 반드시 묻게 된다(설계 §4.2).
+        self._box_note = QLabel("ⓘ 표시만 끕니다 — 순서 위반 감지는 그대로 작동합니다")
+        self._box_note.setFont(config.font("small"))
+        self._box_note.setWordWrap(True)
+        lay.addWidget(self._box_note)
+
         lay.addStretch()
 
     def set_tools(self, tools, current_tool, tool_names=None):
@@ -471,8 +494,9 @@ class SettingsPanel(_Sheet):
     def apply_theme(self):
         super().apply_theme()
         self._title.setStyleSheet(theme.text_qss("text", 800))
-        for cap in (self._tool_caption, self._theme_caption, self._bg_caption):
+        for cap in (self._tool_caption, self._theme_caption, self._bg_caption, self._box_caption):
             cap.setStyleSheet(theme.text_qss("label", 700))
+        self._box_note.setStyleSheet(theme.text_qss("label", 600))
         # 🔴 인디케이터(동그라미)를 명시한다 — Qt 기본 렌더는 **선택 안 된 것을
         #    거의 안 그려서**, 선택된 줄과 아닌 줄의 글자 시작점이 어긋나 보였다
         #    (2026-08-04. 「없음」과 「있음」의 위치가 다르다는 피드백의 원인).
@@ -487,7 +511,7 @@ class SettingsPanel(_Sheet):
             f" background-color: {theme.C('info')}; }}"
             f"QRadioButton:disabled {{ color: {theme.C('todo')}; }}")
         for b in (list(self._tool_buttons.values()) + list(self._theme_group.buttons())
-                  + list(self._bg_group.buttons())):
+                  + list(self._bg_group.buttons()) + list(self._box_group.buttons())):
             b.setStyleSheet(radio_qss)
 
     def relayout(self, parent_rect):

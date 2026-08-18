@@ -420,6 +420,7 @@ class SafetyConsole(QMainWindow):
         self.settings_panel.tool_changed.connect(self._on_tool_changed)
         self.settings_panel.theme_changed.connect(self._on_theme_changed)
         self.settings_panel.panel_bg_changed.connect(self._on_panel_bg_changed)
+        self.settings_panel.boxes_changed.connect(self._on_boxes_changed)
         self.settings_panel.closed.connect(lambda: self._toggle_settings(False))
         # 공구 선택지는 **레시피가 준다** — 목록을 코드에 박지 않는다(design §4.4).
         self._wire_tool_settings()
@@ -912,6 +913,15 @@ class SafetyConsole(QMainWindow):
         self._apply_theme()
         self._relayout()
         self._append_log(f"[설정] 패널 배경 → {'있음' if on else '없음'}")
+
+    def _on_boxes_changed(self, on):
+        """탐지 박스 표시 on/off — 🔴 **두 카메라 스레드 모두**에 전달한다.
+
+        한쪽만 바꾸면 CCTV 로 전환했을 때 설정이 안 먹은 것처럼 보인다.
+        """
+        self.camera_thread.set_draw_boxes(on)
+        self.usb_camera_thread.set_draw_boxes(on)
+        self._append_log(f"[설정] 탐지 박스 표시 → {'있음' if on else '없음'}")
 
     def _tool_display_name(self, key):
         for s in (self._recipe or {}).get("steps", []):

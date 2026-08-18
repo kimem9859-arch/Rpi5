@@ -191,6 +191,7 @@ class CameraThread(QThread):
         self.sock                = None
         self._host               = CAMERA_TCP_HOST
         self._is_active          = True
+        self._draw_boxes         = config.SHOW_DETECT_BOXES
         self._tracks             = []
         self._undistort_map      = None
         self._lock               = threading.Lock()
@@ -247,6 +248,15 @@ class CameraThread(QThread):
             self._is_active = active
             if not active:
                 self._tracks = []
+
+    def set_draw_boxes(self, on):
+        """탐지 박스·손 랜드마크를 그릴지. 🔴 **표시만** 바뀐다 — 검출·판정은 그대로."""
+        with self._lock:
+            self._draw_boxes = bool(on)
+
+    def draw_boxes(self):
+        with self._lock:
+            return self._draw_boxes
 
     def retry_connect(self):
         """수동 재연결 — 메뉴 → 점검(연결) 에서 부른다.
@@ -459,6 +469,7 @@ class CameraThread(QThread):
 
         with self._lock:
             is_active = self._is_active
+            draw = self._draw_boxes
 
         if not is_active:
             return frame
@@ -477,13 +488,15 @@ class CameraThread(QThread):
             with self._lock:
                 self._tracks = _update_tracks(self._tracks, dets)
                 tracks = self._tracks
-            frame = self._draw_yolo(frame, tracks)
+            if draw:
+                frame = self._draw_yolo(frame, tracks)
             self.yolo_detections_signal.emit([
                 (_detector.class_name(t['cls']), t['score'], *t['box']) for t in tracks
             ])
 
         # 손 검출 → 검지 끝. 랜드마크 표시는 hand_tracker 가 frame 에 직접 그린다.
-        fingertip = self._hand.detect(frame, draw_on=frame)
+        # 🔴 draw_on=None 이어도 검출은 그대로 한다 — 반환값(손끝)은 ROI 판정에 쓴다.
+        fingertip = self._hand.detect(frame, draw_on=frame if draw else None)
 
         # 공구 검출(A-2) — 서브 작업 동안만. 🔑 손끝을 **같은 프레임의 것**으로
         # 함께 보낸다(§4.6 — 결과가 약 0.5초 뒤에 오므로 짝을 맞춰야 한다).
@@ -499,7 +512,8 @@ class CameraThread(QThread):
                 self._tool_dets = got[0]
                 self._tool_dets_at = now
                 self.tool_signal.emit(got[0], got[1])
-            frame = self._draw_tools(frame)
+            if draw:
+                frame = self._draw_tools(frame)
 
         # HOI → FSM: 손끝이 든 버튼 ROI 라벨을 통지 (없으면 "")
         roi, level = zone_at_point(*fingertip, self._tracks) if fingertip else (None, None)
@@ -590,6 +604,7 @@ class UsbCameraThread(QThread):
         super().__init__()
         self._running   = True
         self._is_active = False
+        self._draw_boxes = config.SHOW_DETECT_BOXES
         self._tracks    = []
         self._lock      = threading.Lock()
 
@@ -602,9 +617,19 @@ class UsbCameraThread(QThread):
             if not active:
                 self._tracks = []
 
+    def set_draw_boxes(self, on):
+        """탐지 박스·손 랜드마크를 그릴지. 🔴 **표시만** 바뀐다 — 검출·판정은 그대로."""
+        with self._lock:
+            self._draw_boxes = bool(on)
+
+    def draw_boxes(self):
+        with self._lock:
+            return self._draw_boxes
+
     def _process_frame(self, frame):
         with self._lock:
             is_active = self._is_active
+            draw = self._draw_boxes
 
         if not is_active:
             return frame
@@ -616,20 +641,22 @@ class UsbCameraThread(QThread):
             with self._lock:
                 self._tracks = _update_tracks(self._tracks, dets)
                 tracks = self._tracks
-            for t in tracks:
-                x1, y1, x2, y2 = t['box']
-                name = _detector.class_name(t['cls'])
-                color = box_bgr(name)
-                label = f"{name} {t['score']:.2f}"
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(frame, label, (x1, y1 - 6),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            if draw:
+                for t in tracks:
+                    x1, y1, x2, y2 = t['box']
+                    name = _detector.class_name(t['cls'])
+                    color = box_bgr(name)
+                    label = f"{name} {t['score']:.2f}"
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(frame, label, (x1, y1 - 6),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             self.yolo_detections_signal.emit([
                 (_detector.class_name(t['cls']), t['score'], *t['box']) for t in self._tracks
             ])
 
         # 손 검출 → 검지 끝. 랜드마크 표시는 hand_tracker 가 frame 에 직접 그린다.
-        fingertip = self._hand.detect(frame, draw_on=frame)
+        # 🔴 draw_on=None 이어도 검출은 그대로 한다 — 반환값(손끝)은 ROI 판정에 쓴다.
+        fingertip = self._hand.detect(frame, draw_on=frame if draw else None)
 
         roi, level = zone_at_point(*fingertip, self._tracks) if fingertip else (None, None)
         self.roi_signal.emit(roi or "", level or 0)
