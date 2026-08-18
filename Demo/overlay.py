@@ -289,6 +289,14 @@ class GaugePanel(_Panel):
         self._tool_text.setFont(config.font("body", 800))
         self._tool_state = QLabel("")
         self._tool_state.setFont(config.font("small"))
+        # 공구 문구 맥박 — 🔴 **상태가 바뀔 때만** start/stop 한다.
+        #    _sub_timer 가 200ms 마다 update_view 를 부르므로, 비교 없이 걸면
+        #    초당 5번 재시작돼 끝나지 않는 애니메이션이 된다.
+        self._pulse_text = anim.TextPulse(
+            self._tool_text, lambda: theme.C("tool_plate_text"), weight=800)
+        self._pulse_state = anim.TextPulse(
+            self._tool_state, lambda: theme.C("current"), weight=700)
+        self._pulsing = False
         col = QVBoxLayout()
         col.setSpacing(2)
         col.addWidget(self._tool_text)
@@ -303,6 +311,7 @@ class GaugePanel(_Panel):
     def update_view(self, sub):
         """sub = SubTask 또는 None. None 이면 패널을 숨긴다."""
         if sub is None or not sub.is_active:
+            self._stop_pulse()
             self.hide()
             return
 
@@ -344,9 +353,6 @@ class GaugePanel(_Panel):
                 f"background-color: {theme.C('tool_plate')}; border-radius: 6px;")
             self._tool_box.show()
             self._tool_text.setText(f"{sub.want_tool_name}가 필요합니다")
-            self._tool_text.setStyleSheet(
-                f"color: {theme.C('tool_plate_text')}; font-weight: 800;"
-                f" border: none; background: transparent;")
             if sub.tool_ok:
                 state, token = f"✓ {sub.want_tool_name}를 쥐었습니다", "done"
             elif sub.wrong_tool:
@@ -354,18 +360,46 @@ class GaugePanel(_Panel):
             else:
                 state, token = "○ 손에 쥐면 확인됩니다", "todo"
             self._tool_state.setText(state)
-            self._tool_state.setStyleSheet(theme.text_qss(token, 600))
+
+            # 「중」 강도 — 상태줄 + 요구 문구가 함께 맥박한다(🔧 아이콘은 제외).
+            # 조건을 채웠거나(쥠) 오답 경고 중이면 멈춘다.
+            want_pulse = not (sub.tool_ok or sub.wrong_tool)
+            if want_pulse != self._pulsing:
+                if want_pulse:
+                    self._pulse_text.start()
+                    self._pulse_state.start()
+                else:
+                    self._pulse_text.stop()
+                    self._pulse_state.stop()
+                self._pulsing = want_pulse
+
+            # 🔴 맥박이 도는 동안은 그 두 줄의 setStyleSheet 를 건너뛴다 —
+            #    매번 덮어쓰면 깜빡임이 죽는다.
+            if not want_pulse:
+                self._tool_text.setStyleSheet(
+                    f"color: {theme.C('tool_plate_text')}; font-weight: 800;"
+                    f" border: none; background: transparent;")
+                self._tool_state.setStyleSheet(theme.text_qss(token, 600))
+
             # 바뀐 순간에만 번진다 — 200ms 주기 반복 호출에서 매번 번지면 안 된다.
             now_tool = (sub.tool_ok, sub.wrong_tool)
             if self._prev_tool is not None and now_tool != self._prev_tool:
                 anim.flash(self._tool_state, theme.C(token))
             self._prev_tool = now_tool
         else:
+            self._stop_pulse()
             self._tool_box.hide()
 
         # 🔴 호출부는 update_view() **뒤에** relayout 한다 — 판이 붙으면 높이가
         #    늘어나므로 순서가 반대면 판이 글자를 자른다(설계 §6.2).
         self.show()
+
+    def _stop_pulse(self):
+        """🔴 서브 작업이 끝나는 **모든 경로**에서 부른다 — 안 멈추면 CPU 를 먹는다."""
+        if self._pulsing:
+            self._pulse_text.stop()
+            self._pulse_state.stop()
+            self._pulsing = False
 
     def relayout(self, parent_rect):
         p = _POS["gauge"]

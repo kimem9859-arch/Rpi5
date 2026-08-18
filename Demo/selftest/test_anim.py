@@ -206,6 +206,30 @@ def test_status_steps_all_pending_before_start():
     check(all(m == "○" for m in marks), f"초기화 후에도 전부 ○ (실제 {marks})")
 
 
+def test_text_pulse():
+    """🔴 글자 맥박 — 시작·정지가 되고, 꺼져 있으면 최종값만 먹는가."""
+    print("\n[N] 글자 맥박")
+    from PyQt6.QtWidgets import QLabel
+    lbl = QLabel("렌치가 필요합니다")
+
+    config.UI_ANIMATION = True
+    p = anim.TextPulse(lbl, lambda: "#ffffff")
+    p.start()
+    check(p.active(), "start() → 돈다")
+    p.start()
+    check(p.active(), "두 번 불러도 재시작하지 않는다")
+    p.stop()
+    check(not p.active(), "stop() → 멈춘다")
+
+    config.UI_ANIMATION = False
+    p2 = anim.TextPulse(lbl, lambda: "#ffffff")
+    p2.start()
+    check(not p2.active(), "애니메이션 OFF → 애니메이션을 만들지 않는다")
+    check("255,255,255" in lbl.styleSheet().replace(" ", ""),
+          "OFF 여도 최종 색은 적용된다")
+    config.UI_ANIMATION = True
+
+
 def test_fps_from_intervals():
     """도착 간격 목록에서 FPS 를 낸다. 카메라가 없으면 None."""
     print("\n[FPS 계산]")

@@ -25,6 +25,7 @@ D_SLIDE = 260      # 배너 등장
 D_BAR   = 300      # 현재 단계 막대
 D_GAUGE = 200      # 게이지 따라가기 (_sub_timer 주기와 같게 — 끊기지 않는다)
 D_PULSE = 620      # 차단 맥박 반주기
+D_TEXT_PULSE = 1600   # 글자 맥박 한 바퀴(ms) — 실기동 목업에서 정한 값
 SLIDE_DY = 40      # 배너가 아래에서 올라오는 거리(px)
 
 _BUSY = "_anim_busy"
@@ -123,6 +124,54 @@ class Pulse:
         if self._anim is not None:
             self._anim.stop()
             self._anim = None
+
+    def active(self):
+        return self._anim is not None
+
+
+class TextPulse:
+    """글자색 알파가 천천히 오르내린다(공구 문구).
+
+    🔴 반드시 stop() 으로 멈춘다 — 살아남으면 QSS 를 계속 재적용해 CPU 를 태운다.
+    🔴 크기·두께가 아니라 **색만** 흔든다 — 굵기를 흔들면 레이아웃이 밀린다.
+    color_fn: 그때그때 색(#RRGGBB)을 주는 함수(테마 전환 대응).
+    """
+
+    def __init__(self, widget, color_fn, weight=800, floor=0.40, ms=D_TEXT_PULSE):
+        self._w = widget
+        self._color = color_fn
+        self._weight = weight
+        self._floor = floor
+        self._ms = ms
+        self._anim = None
+
+    def _apply(self, a):
+        c = QColor(self._color())
+        self._w.setStyleSheet(
+            f"color: rgba({c.red()},{c.green()},{c.blue()},{a:.3f});"
+            f"font-weight: {self._weight}; border: none; background: transparent;")
+
+    def start(self):
+        if self._anim is not None:
+            return                      # 이미 뛰고 있으면 재시작하지 않는다
+        if not enabled():
+            self._apply(1.0)
+            return
+        floor = self._floor
+
+        def step(t):
+            # 0→1 을 삼각파로 접어 한 바퀴에 밝아졌다 어두워진다
+            u = 1.0 - abs(2.0 * float(t) - 1.0)
+            self._apply(floor + (1.0 - floor) * u)
+
+        self._anim = tween(self._w, self._ms, step,
+                           curve=QEasingCurve.Type.InOutSine, loops=-1)
+
+    def stop(self):
+        if self._anim is not None:
+            self._anim.stop()
+            self._anim = None
+        self._apply(1.0)               # 멈추면 또렷한 상태로 남는다
 
     def active(self):
         return self._anim is not None
