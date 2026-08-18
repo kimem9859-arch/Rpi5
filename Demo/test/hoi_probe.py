@@ -17,8 +17,8 @@
     python3 test/hoi_probe.py --image <png> --with-console --frames 30
 
 전제:
-    ~/hoi_probe/hailo8/{palm_detection_lite,hand_landmark_lite}.hef
-    ~/hoi_probe/blaze_app_python/  (blaze_hailo·blaze_common)
+    ~/lab/hoi/hailo8/{palm_detection_lite,hand_landmark_lite}.hef
+    ~/lab/hoi/blaze_app_python/  (blaze_hailo·blaze_common)
 """
 
 import argparse
@@ -30,8 +30,8 @@ import cv2
 import numpy as np
 
 _DEMO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_BLAZE = os.path.expanduser("~/hoi_probe/blaze_app_python")
-_MODELS = os.path.expanduser("~/hoi_probe/hailo8")
+_BLAZE = os.path.expanduser("~/lab/hoi/blaze_app_python")
+_MODELS = os.path.expanduser("~/lab/hoi/hailo8")
 
 sys.path.insert(0, _DEMO)
 sys.path.insert(0, os.path.join(_BLAZE, "blaze_common"))

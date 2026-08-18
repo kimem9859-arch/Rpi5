@@ -208,8 +208,8 @@ INTERLOCK_RECONNECT_DELAY_SEC = 3.0 # 연결 실패/끊김 시 재연결 시도 
 #    모델·소스는 아직 repo 밖에 있다 — vendoring 여부는 별도 결정 사항.
 # =============================================================================
 HAND_ENABLED       = True
-HAND_MODELS_DIR    = os.path.expanduser("~/hoi_probe/hailo8")
-HAND_BLAZE_DIR     = os.path.expanduser("~/hoi_probe/blaze_app_python")
+HAND_MODELS_DIR    = os.path.expanduser("~/lab/hoi/hailo8")
+HAND_BLAZE_DIR     = os.path.expanduser("~/lab/hoi/blaze_app_python")
 # 랜드마크 신뢰도 하한. 미만이면 손 없음으로 본다.
 # 🔴 0.5는 **정확한 검출까지 버리고 있었다** — 손끝이 버튼 중심 6~10px인 프레임의
 #    flag가 0.11~0.13이었다(§10.22). flag는 손이 버튼을 누르느라 가려질 때 떨어지는데
@@ -259,7 +259,7 @@ TOOL_SCAN_INTERVAL_SEC = 1.0
 # 🗑️ TOOL_PLACED_COUNT 는 2026-08-16 에 사라졌다 — 「넣음」 마디를 없애면서
 #    연속 미검출을 셀 일이 없어졌다(경위 = 통합문서 §10.44).
 TOOL_MODEL_PATH        = os.path.join(_BASE_DIR, 'models', 'tool_v3.pt')
-TOOL_WORKER_PYTHON     = os.path.expanduser("~/rfenv/bin/python")
+TOOL_WORKER_PYTHON     = os.path.expanduser("~/env/rfenv/bin/python")
 TOOL_SHM_DIR           = "/dev/shm/sop_tool"
 
 # =============================================================================

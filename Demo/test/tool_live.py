@@ -21,7 +21,7 @@
        VIRTUAL_ENV=~/rfenv uv pip install --torch-backend cpu ultralytics inference
 
 🔑 **자동 캡처** — 공구를 들고 찍는 동안 키를 누를 수 없어서(2026-08-11 사용자 요청)
-   **검출이 뜬 프레임만 스스로 저장**한다. 저장 위치 = `~/tool_live_shots/`.
+   **검출이 뜬 프레임만 스스로 저장**한다. 저장 위치 = `~/lab/tool-detect/tool_live_shots/`.
    파일명에 **모델·클래스·신뢰도**가 들어가 나중에 정렬·판독이 쉽다:
        v1_wrench-0.72_143052.png
    같은 장면이 쏟아지지 않게 **최소 간격(AUTO_MIN_GAP)** 을 두고, 클래스 조합이
@@ -60,7 +60,7 @@ COLOR = {"spanner": (255, 120, 0), "driver": (0, 220, 255), "wrench": (0, 255, 1
          "pliers": (255, 80, 255)}
 MAX_FRAME_BYTES = 512 * 1024
 
-SHOT_DIR = os.path.expanduser("~/tool_live_shots")
+SHOT_DIR = os.path.expanduser("~/lab/tool-detect/tool_live_shots")
 AUTO_MIN_GAP = 1.5      # 초 — 같은 장면이 수백 장 쌓이는 것을 막는다
 AUTO_MAX_SHOTS = 300    # 디스크·검토 부담 상한. 넘으면 자동 캡처만 멈춘다
 
