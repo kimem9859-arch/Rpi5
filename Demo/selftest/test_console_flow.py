@@ -197,6 +197,10 @@ def test_tool_signal_drives_gate():
     # ④ 손을 떼도 통과는 유지된다 — 안 그러면 자동 진행 조건을 못 채운다
     win.camera_thread.tool_signal.emit([], None)
     check(win._sub.tool_ok, "손을 떼도 유지")
+    # 🔑 "게이트가 열린 채 유지"를 여기서 따로 확인하지 않는다 — 자동 진행 후에는
+    #    win._sub 가 None 이 되어 관찰할 대상 자체가 사라진다(구 설계엔 「다음 단계
+    #    진행」 버튼을 누르기 전까지 열린 게이트를 볼 창이 있었지만 지금은 없다).
+    #    아래 ⑤에서 시간을 채우면 곧바로 자동 진행되는 것 자체가 그 증거다.
 
     # ⑤ 시간까지 차면 (시간 AND 공구) 조건이 다 채워져 **버튼 없이** 자동 진행하고,
     #    서브 작업이 끝나면 스캔이 꺼진다 (🔴 안 끄면 워커가 CPU 를 계속 먹는다)
@@ -330,10 +334,17 @@ def test_panels_toggle():
 def test_cta_hidden_while_sheet_open():
     """🔴 시트가 열려 있는 동안 CTA 를 감춘다 — 시트 배경이 10% 투과라 비친다.
 
-    ⚠️ 마지막 케이스가 핵심이다: **시트를 열어 둔 사이에 서브 작업이 스스로
-       끝나도(2026-08-19 자동 진행)** 상태가 여전히 IDLE 이 아니면 CTA 는
-       나오면 안 된다. 열기 직전 상태를 기억하는 방식으로 만들면 이 경우를
-       놓친다 — 그때그때 상태에서 계산해야 한다.
+    ⚠️ 마지막 두 케이스가 핵심이다.
+       ① **시트를 열어 둔 사이에 서브 작업이 스스로 끝나도**(2026-08-19
+          자동 진행) 상태가 여전히 IDLE 이 아니면 CTA 는 나오면 안 된다.
+       ② **열기 직전의 CTA 값을 기억했다가 그대로 복원하면 안 된다.**
+          IDLE(CTA 보임)에서 시트를 연 뒤, 시트가 열린 채로 작업을 시작해
+          상태를 IDLE 밖으로 보내면 — 재계산 구현은 닫을 때 CTA 가
+          **숨어 있어야** 하고, 열기 직전 값을 기억해 복원하는 구현은
+          **보이게 되어** 여기서 갈린다. 🔑 ①만으로는 판별력이 없다 —
+          열기 직전에도 이미 hidden(서브 작업 중)이라 기억값과 재계산값이
+          우연히 같아진다. 상태가 IDLE→비IDLE 로 **바뀌는** ②라야
+          "기억 vs 재계산"이 실제로 갈린다.
     """
     print("\n[10] 시트 열림 중 CTA")
     win = make_console()
@@ -363,6 +374,20 @@ def test_cta_hidden_while_sheet_open():
         check(win.btn_cta.isHidden(),
               "🔴 닫아도 CTA 는 안 나온다 — IDLE 이 아니다(자동 진행)")
     win.close()
+
+    # ② 판별 케이스 — 열기 직전엔 IDLE(CTA 보임)이었는데, 시트가 열린 채로
+    # 상태가 IDLE 을 벗어난다. 기억 방식이면 열기 직전 값(보임)을 그대로
+    # 복원해 여기서 실패하고, 재계산 방식이면 닫아도 숨은 채 유지된다.
+    win2 = make_console()
+    check(not win2.btn_cta.isHidden(), "새 창 — IDLE, CTA 보임")
+    win2._open_settings()
+    check(win2.btn_cta.isHidden(), "시트를 열면 감춰진다(이 시점 상태는 아직 IDLE)")
+    win2._on_start_process()                        # 시트가 열린 채로 상태만 바꾼다 — CTA 는 안 건드린다
+    check(win2.fsm.state != State.IDLE, "상태가 IDLE 을 벗어났다")
+    win2._toggle_settings(False)
+    check(win2.btn_cta.isHidden(),
+          "🔴 닫아도 CTA 안 나옴 — 기억 방식이면 열기 직전 값(보임)을 복원해 여기서 실패")
+    win2.close()
 
 
 def test_esc_closes_panels_first():
