@@ -149,20 +149,20 @@ def test_sub_rejects_bad():
 def test_real_recipe_has_scenario():
     """실제 recipe.json 이 확정 시나리오를 담고 있는가 (design §5).
 
-    대기 3회(30초) + 2단계에 공구. 4단계는 서브 작업 없음.
+    대기 3회(10초) + 2단계에 공구. 4단계는 서브 작업 없음.
     """
     r = load_recipe()
     steps = r["steps"]
     subs = [s.get("sub") for s in steps]
 
-    assert subs[0] and subs[0]["type"] == "wait" and subs[0]["sec"] == 30
-    assert subs[1] and subs[1]["type"] == "wait_tool" and subs[1]["sec"] == 30
-    assert subs[2] and subs[2]["type"] == "wait" and subs[2]["sec"] == 30
+    assert subs[0] and subs[0]["type"] == "wait" and subs[0]["sec"] == 10
+    assert subs[1] and subs[1]["type"] == "wait_tool" and subs[1]["sec"] == 10
+    assert subs[2] and subs[2]["type"] == "wait" and subs[2]["sec"] == 10
     assert subs[3] is None, "4단계는 서브 작업이 없다(챔버 개방 = 시연 범위 밖)"
     # 🔑 A-2(2026-08-14) — tool_v3 의 클래스로 교체됐다. `spanner`(몽키)는 없어지고
     #    `pliers` 가 생겼다. 우리 오픈엔드 스패너의 정답은 `wrench`(§10.39-(6)).
     assert set(subs[1]["tools"]) == {"driver", "wrench", "pliers"}
-    print("  PASS  recipe.json 시나리오 — 대기 30s×3 + 2단계 공구 3종")
+    print("  PASS  recipe.json 시나리오 — 대기 10s×3 + 2단계 공구 3종")
 
 
 def test_custom_sequence_non_b_labels():
@@ -176,6 +176,20 @@ def test_custom_sequence_non_b_labels():
     fsm.press_button("LOAD")
     assert fsm.correct_roi == "VAC"
     print("  PASS  임의 라벨 시퀀스(LOAD/VAC)도 동작")
+
+
+def test_wait_seconds_are_ten():
+    """🔴 서브 작업 대기는 10초다 (2026-08-19 설계 §1-②).
+
+    30초는 시연이 늘어져 못 쓴다. 값이 되돌아가면 여기서 잡는다.
+    """
+    r = load_recipe()
+    for step in r["steps"]:
+        sub = step.get("sub")
+        if not sub:
+            continue
+        assert sub["sec"] == 10, f"{step['button']} 대기 {sub['sec']}초 — 10초여야 한다"
+    print("  PASS  서브 작업 대기 10초")
 
 
 if __name__ == "__main__":
