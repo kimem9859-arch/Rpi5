@@ -707,7 +707,7 @@ class SafetyConsole(QMainWindow):
         클릭은 시트가 정상적으로 받으므로 기능 문제는 아니고 시각 노이즈다.
 
         🔴 시트를 닫을 때 무조건 show() 하면 안 된다 — CTA 가 숨어 있어야 하는
-           상태가 따로 있다(버튼 눌림을 기다리는 중, 게이지가 덜 찼을 때).
+           상태가 따로 있다(버튼 눌림을 기다리는 중, 작업이 진행 중일 때).
            열기 직전 상태를 기억해 두는 방식도 안 된다. 시트를 열어 둔 사이에
            게이지가 다 차면 기억값이 어긋나 **버튼이 영영 안 나온다.**
            → 기억하지 말고 **상태에서 그때그때 계산한다.**
@@ -715,10 +715,8 @@ class SafetyConsole(QMainWindow):
         if self._any_sheet_open():
             self.btn_cta.hide()
             return
-        if self._sub is not None and self._sub.is_active:
-            show = self._sub.can_advance
-        else:
-            show = self.fsm.state == State.IDLE
+        # 🔑 서브 작업 분기는 없다 — 진행은 자동이라 띄울 버튼이 없다(설계 §2.2).
+        show = self.fsm.state == State.IDLE
         self.btn_cta.setVisible(show)
         if show:
             self.btn_cta.raise_()
@@ -1121,10 +1119,12 @@ class SafetyConsole(QMainWindow):
             self.glow.set_level(None)
             self._dim_others(False)
 
-        # 진행 버튼은 조건을 다 채웠을 때만. 표시 여부는 _sync_cta_visibility 가
-        # 정한다 — 시트가 열려 있는 동안에는 여기서 되살리면 안 된다(뒤로 비친다).
+        # 조건(시간 AND 공구)을 다 채우면 **버튼 없이 스스로** 진행한다.
+        # 🔑 _finish_sub() 가 self._sub = None 을 먼저 하므로 _tick_sub() 의
+        #    이른 리턴에 걸려 재진입하지 않는다. 별도 플래그를 두지 않는다.
         if sub.can_advance:
-            self.btn_cta.setText("▶  다음 단계 진행")
+            self._finish_sub()
+            return
         self._sync_cta_visibility()
 
     def _finish_sub(self):
@@ -1140,12 +1140,13 @@ class SafetyConsole(QMainWindow):
             self._commit_button(button)
 
     def _on_cta(self):
-        """화면 정중앙 버튼 — IDLE 이면 「작업 시작」, 서브 작업 중이면 「다음 단계 진행」."""
-        if self._sub is not None and self._sub.is_active:
-            self._finish_sub()
-        else:
-            self._on_start_process()
-            self.btn_cta.hide()
+        """화면 정중앙 버튼 — **「작업 시작」 전용**이다.
+
+        🔴 「다음 단계 진행」은 2026-08-19 에 사라졌다 — 조건을 채우면
+           _update_sub_view() 가 스스로 진행한다(설계 §2.1).
+        """
+        self._on_start_process()
+        self.btn_cta.hide()
 
     def _on_alert_release(self):
         """경고·차단 배너의 해제 버튼."""

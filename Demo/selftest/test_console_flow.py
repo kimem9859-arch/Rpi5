@@ -107,11 +107,50 @@ def test_scenario_runs_to_end():
             win._sub.tick(now=time.time() + 999)    # 시간 채움
             if win._sub.needs_tool:
                 win._sub.set_tool(win._sub.want_tool)
-            win._update_sub_view()
-            check(win._sub.can_advance, f"{btn} 서브 작업 조건 충족")
-            win._finish_sub()                       # 「다음 단계 진행」
+            win._update_sub_view()                  # 조건 충족 → 자동 진행
         check(win.fsm.expected_step == before + 1 or win.fsm.state == State.IDLE,
               f"{btn} → 기대단계 {win.fsm.expected_step}")
+    win.close()
+
+
+def test_auto_advance_without_button():
+    """🔴 대기가 차면 **버튼 없이** 다음 단계로 간다 (설계 §2.1)."""
+    print("\n[3-c] 자동 진행")
+    win = make_console()
+    win._on_cta()                                   # 작업 시작
+    before = win.fsm.expected_step
+    key(win, "1")                                   # B1 물리 버튼
+    check(win.fsm.expected_step == before,
+          f"누른 직후엔 기대단계 {before} 유지 — 서브 작업 중")
+    win._sub.tick(now=time.time() + 999)            # 대기 시간을 채운다
+    win._update_sub_view()                          # 타이머가 부르는 것과 같다
+    check(win._sub is None, "조건 충족 → 서브 작업이 스스로 끝난다")
+    check(win.fsm.expected_step == before + 1,
+          f"버튼 없이 다음 단계 → {win.fsm.expected_step}")
+    check(win.btn_cta.isHidden(), "「다음 단계 진행」 버튼은 뜨지 않는다")
+    win.close()
+
+
+def test_tool_step_waits_until_grasped():
+    """🔴 B2 는 시간만 차서는 넘어가지 않는다 — 쥘 때까지 대기 (설계 §2.4)."""
+    print("\n[3-d] 공구 대기")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")
+    win._sub.tick(now=time.time() + 999)
+    win._update_sub_view()                          # B1 자동 통과
+
+    key(win, "2")                                   # B2 — 공구 요구
+    before = win.fsm.expected_step
+    win._sub.tick(now=time.time() + 999)
+    win._update_sub_view()
+    check(win._sub is not None and win._sub.is_active,
+          "시간이 차도 공구가 없으면 안 넘어간다")
+    check(win.fsm.expected_step == before, f"기대단계 {before} 유지")
+
+    win._sub.set_tool(win._sub.want_tool)           # 렌치를 쥔다
+    win._update_sub_view()
+    check(win.fsm.expected_step == before + 1, "쥐는 순간 자동 진행")
     win.close()
 
 
@@ -130,7 +169,7 @@ def test_tool_signal_drives_gate():
     key(win, "1")                                    # B1 — 공구 없는 서브
     check(win._tool_state is None, "wait 서브에는 공구 판정이 붙지 않는다")
     win._sub.tick(now=time.time() + 999)
-    win._finish_sub()
+    win._update_sub_view()
 
     key(win, "2")                                    # B2 — wait_tool 서브
     check(win._sub is not None and win._sub.needs_tool, "B2 서브는 공구를 요구한다")
@@ -155,18 +194,15 @@ def test_tool_signal_drives_gate():
     # ③ 🔴 공구는 됐어도 시간이 안 찼으면 게이트는 닫혀 있다 (시간 AND 공구)
     check(not win._sub.can_advance, "🔴 공구만 됐다고 넘어가지 않는다")
 
-    # ④ 시간까지 차면 열린다
-    win._sub.tick(now=time.time() + 999)
-    win._update_sub_view()
-    check(win._sub.can_advance, "시간까지 차면 게이트가 열린다")
-
-    # ⑤ 손을 떼도 통과는 유지된다 — 안 그러면 「다음 단계 진행」을 누를 수 없다
+    # ④ 손을 떼도 통과는 유지된다 — 안 그러면 자동 진행 조건을 못 채운다
     win.camera_thread.tool_signal.emit([], None)
     check(win._sub.tool_ok, "손을 떼도 유지")
-    check(win._sub.can_advance, "게이트도 열린 채 유지")
 
-    # ⑥ 서브 작업이 끝나면 스캔이 꺼진다 (🔴 안 끄면 워커가 CPU 를 계속 먹는다)
-    win._finish_sub()
+    # ⑤ 시간까지 차면 (시간 AND 공구) 조건이 다 채워져 **버튼 없이** 자동 진행하고,
+    #    서브 작업이 끝나면 스캔이 꺼진다 (🔴 안 끄면 워커가 CPU 를 계속 먹는다)
+    win._sub.tick(now=time.time() + 999)
+    win._update_sub_view()
+    check(win._sub is None, "시간까지 차면 자동 진행")
     check(win._tool_state is None, "판정 상태가 정리된다")
     check(win.camera_thread._tool_scan is False, "스캔이 꺼진다")
     win.close()
@@ -294,9 +330,10 @@ def test_panels_toggle():
 def test_cta_hidden_while_sheet_open():
     """🔴 시트가 열려 있는 동안 CTA 를 감춘다 — 시트 배경이 10% 투과라 비친다.
 
-    ⚠️ 마지막 케이스가 핵심이다: **시트를 열어 둔 사이에 게이지가 다 차도**
-       닫으면 「다음 단계 진행」이 나와야 한다. 열기 직전 상태를 기억하는
-       방식으로 만들면 여기서 버튼이 영영 안 나온다.
+    ⚠️ 마지막 케이스가 핵심이다: **시트를 열어 둔 사이에 서브 작업이 스스로
+       끝나도(2026-08-19 자동 진행)** 상태가 여전히 IDLE 이 아니면 CTA 는
+       나오면 안 된다. 열기 직전 상태를 기억하는 방식으로 만들면 이 경우를
+       놓친다 — 그때그때 상태에서 계산해야 한다.
     """
     print("\n[10] 시트 열림 중 CTA")
     win = make_console()
@@ -307,8 +344,8 @@ def test_cta_hidden_while_sheet_open():
     win._toggle_settings(False)
     check(not win.btn_cta.isHidden(), "닫으면 다시 「작업 시작」")
 
-    win._on_cta()                                   # 작업 시작 → 눌림 대기
-    check(win.btn_cta.isHidden(), "버튼 눌림 대기 중엔 CTA 없음")
+    win._on_cta()                                   # 작업 시작 → IDLE 아님
+    check(win.btn_cta.isHidden(), "작업 시작 후엔 CTA 없음")
     win._toggle_menu(True)
     win._toggle_menu(False)
     check(win.btn_cta.isHidden(), "메뉴를 여닫아도 되살아나지 않는다")
@@ -316,14 +353,15 @@ def test_cta_hidden_while_sheet_open():
     key(win, "1")                                   # B1 → 서브 작업
     win._toggle_settings(True)                      # 시트를 열어 둔 채
     if win._sub is not None and win._sub.is_active:
-        win._sub.tick(now=time.time() + 999)        # 게이지가 다 참
+        win._sub.tick(now=time.time() + 999)        # 시간이 다 참
         if win._sub.needs_tool:
             win._sub.set_tool(win._sub.want_tool)
-        win._update_sub_view()
+        win._update_sub_view()                      # 시트가 열려 있어도 스스로 진행한다
+        check(win._sub is None, "시트가 열려 있어도 자동 진행은 막히지 않는다")
         check(win.btn_cta.isHidden(), "시트가 열려 있는 동안엔 여전히 감춤")
         win._toggle_settings(False)
-        check(not win.btn_cta.isHidden(),
-              "🔴 닫으면 「다음 단계 진행」이 나온다 — 기억 방식이면 여기서 실패")
+        check(win.btn_cta.isHidden(),
+              "🔴 닫아도 CTA 는 안 나온다 — IDLE 이 아니다(자동 진행)")
     win.close()
 
 
