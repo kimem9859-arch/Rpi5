@@ -156,6 +156,18 @@ def _load_undistort_map(path, w, h):
     return (map1, map2), 'ok'
 
 
+def box_bgr(name, tool=False):
+    """클래스 이름 → cv2 색(BGR).
+
+    🔴 16진수를 뒤집는 곳은 **여기 하나뿐이다.** 두 군데가 되면 반드시 한쪽이
+       틀린다(cv2 는 RGB 가 아니라 BGR 이다).
+    색표 정본 = config.DETECT_BOX_COLORS · TOOL_BOX_COLORS (설계 §5.1)
+    """
+    table = config.TOOL_BOX_COLORS if tool else config.DETECT_BOX_COLORS
+    h = table.get(name, config.DETECT_BOX_FALLBACK).lstrip("#")
+    return (int(h[4:6], 16), int(h[2:4], 16), int(h[0:2], 16))
+
+
 # =============================================================================
 # [CameraThread] ESP32-S3 TCP 스트림
 # =============================================================================
@@ -292,10 +304,12 @@ class CameraThread(QThread):
         for t in tracks:
             cls_id = t['cls']
             x1, y1, x2, y2 = t['box']
-            label = f"{_detector.class_name(cls_id)} {t['score']:.2f}"
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            name = _detector.class_name(cls_id)
+            color = box_bgr(name)
+            label = f"{name} {t['score']:.2f}"
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(frame, label, (x1, y1 - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         return frame
 
     def _draw_tools(self, frame):
@@ -304,7 +318,7 @@ class CameraThread(QThread):
         ⚠️ 박스 좌표는 최대 약 1초 전 프레임의 것이다(추론이 그만큼 걸린다).
            손이 움직이면 실물과 어긋나 보이는 것이 정상이며, 이 그림은 판정에
            쓰이지 않는다(판정 = tool_state, 입력 = 오버레이 없는 사본).
-        🔴 버튼(초록)과 헷갈리지 않게 **주황**으로 그린다.
+        🔴 공구는 **종류별 색**이고 버튼 5색과 겹치지 않는다(설계 §5.1).
         🔑 판정 단계(찾기/쥠)는 여기 그리지 않는다 — 게이지 패널이 한글·테마로
            맡는다(overlay.GaugePanel). cv2 는 한글을 못 그린다.
         """
@@ -313,9 +327,10 @@ class CameraThread(QThread):
 
         for name, score, x1, y1, x2, y2 in self._tool_dets:
             p1, p2 = (int(x1), int(y1)), (int(x2), int(y2))
-            cv2.rectangle(frame, p1, p2, (0, 165, 255), 2)
+            color = box_bgr(name, tool=True)
+            cv2.rectangle(frame, p1, p2, color, 2)
             cv2.putText(frame, f"{name} {score:.2f}", (p1[0], p1[1] - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         return frame
 
     # =========================================================================
@@ -603,10 +618,12 @@ class UsbCameraThread(QThread):
                 tracks = self._tracks
             for t in tracks:
                 x1, y1, x2, y2 = t['box']
-                label = f"{_detector.class_name(t['cls'])} {t['score']:.2f}"
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                name = _detector.class_name(t['cls'])
+                color = box_bgr(name)
+                label = f"{name} {t['score']:.2f}"
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(frame, label, (x1, y1 - 6),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             self.yolo_detections_signal.emit([
                 (_detector.class_name(t['cls']), t['score'], *t['box']) for t in self._tracks
             ])
