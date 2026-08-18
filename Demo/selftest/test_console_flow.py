@@ -562,6 +562,37 @@ def test_detect_box_toggle():
     win.close()
 
 
+def test_result_panel_on_completion():
+    """🔴 4단계를 마치면 결과창이 뜨고, 그 동안 「작업 시작」이 비치지 않는가."""
+    print("\n[N] 결과창")
+    win = make_console()
+    win._on_cta()
+    for step in ("1", "2", "3", "4"):
+        key(win, step)
+        if win._sub is not None and win._sub.is_active:
+            win._sub.tick(now=time.time() + 999)
+            if win._sub.needs_tool:
+                win._sub.set_tool(win._sub.want_tool)
+            win._update_sub_view()
+    check(not win.result_panel.isHidden(), "완주 → 결과창이 뜬다")
+    check(win.btn_cta.isHidden(), "🔴 결과창 뒤로 「작업 시작」이 비치지 않는다")
+    win.result_panel.closed.emit()
+    check(win.result_panel.isHidden(), "닫으면 사라진다")
+    check(not win.btn_cta.isHidden(), "닫으면 「작업 시작」이 돌아온다")
+    win.close()
+
+
+def test_reset_does_not_show_result():
+    """🔴 작업 초기화로는 결과창이 뜨지 않는다 — 완주가 아니다(설계 §3.1)."""
+    print("\n[N+1] 초기화")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")
+    win._reset_work()
+    check(win.result_panel.isHidden(), "초기화로는 결과창이 뜨지 않는다")
+    win.close()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

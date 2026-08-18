@@ -31,6 +31,7 @@ from roi_zones import INSIDE as ZONE_INSIDE
 from recipe import load_recipe, RecipeError
 from interlock import InterlockController
 from gpio_input import GpioInputController
+from session_stats import SessionStats
 
 import theme
 from sub_task import SubTask
@@ -38,6 +39,7 @@ from tool_state import ToolState
 from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, place
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
                           NotifyButton, CheckPanel, RecordPanel)
+from overlay_result import ResultPanel
 import precheck
 from fps import fps_from_intervals
 
@@ -224,6 +226,9 @@ class SafetyConsole(QMainWindow):
         self._fps_intervals = []         # 최근 프레임 도착 간격(초) — 실측 FPS 용
         self._fps_log_at = 0.0
         self._seen_buttons = set()       # 2차 점검 — 지금 화면에 보이는 버튼
+        self._last_button = None         # 마지막으로 눌린 버튼 — 결과 집계(위반 시 actual)용
+        self._hand_seen = False          # 결과 집계 — 이번 프레임에 손이 보였는가
+        self._tool_dets_for_stats = []   # 결과 집계 — 이번 프레임의 공구 검출
         self._sub_timer = QTimer()
         self._sub_timer.setInterval(200)
         self._sub_timer.timeout.connect(self._tick_sub)
@@ -283,6 +288,7 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.log_signal.connect(self._append_log)
         self.camera_thread.yolo_detections_signal.connect(self._on_yolo_detections)
         self.camera_thread.roi_signal.connect(self._on_roi)
+        self.camera_thread.hand_signal.connect(self._on_hand)
         # 공구 판정(A-2) — ESP32 1인칭에만 붙인다(USB 는 시연 경로가 아니다).
         self.camera_thread.tool_signal.connect(self._on_tool)
         self.camera_thread.calibration_needed_signal.connect(self._on_calibration_needed)
@@ -298,6 +304,7 @@ class SafetyConsole(QMainWindow):
         self.usb_camera_thread.log_signal.connect(self._append_log)
         self.usb_camera_thread.yolo_detections_signal.connect(self._on_yolo_detections)
         self.usb_camera_thread.roi_signal.connect(self._on_roi)
+        self.usb_camera_thread.hand_signal.connect(self._on_hand)
         # start() 는 _switch_camera 가 필요할 때만 부른다 — 아래 초기 전환에서 결정된다.
 
         self._switch_camera("esp32", quiet=True)   # 기동 시 ESP32 만 — USB 는 CCTV 전환 때 연다
@@ -425,6 +432,10 @@ class SafetyConsole(QMainWindow):
         # 공구 선택지는 **레시피가 준다** — 목록을 코드에 박지 않는다(design §4.4).
         self._wire_tool_settings()
 
+        self.result_panel = ResultPanel(central)
+        self.result_panel.closed.connect(self._close_result)
+        self._stats = SessionStats()
+
         # 우하단 연결 상태 표시바 — 상시 노출(design §9)
         self.conn_bar = ConnBar(central)
         self.conn_bar.show()
@@ -490,6 +501,7 @@ class SafetyConsole(QMainWindow):
         self.settings_panel.relayout(r)
         self.check_panel.relayout(r)
         self.record_panel.relayout(r)
+        self.result_panel.relayout(r)
         # 🔴 상태바만 **영상 사각형** 기준이다 — 창 기준이면 오른쪽 검정
         #    레터박스에 앉는다(2026-08-04).
         self.conn_bar.relayout(self.camera_label.geometry())
@@ -511,7 +523,7 @@ class SafetyConsole(QMainWindow):
 
         for w in (self.glow, self.alert, self.menu_panel, self.notify_panel,
                   self.settings_panel, self.check_panel, self.record_panel,
-                  self.log_browser, self.btn_menu, self.btn_notify):
+                  self.result_panel, self.log_browser, self.btn_menu, self.btn_notify):
             w.raise_()
 
     def resizeEvent(self, event):
@@ -522,7 +534,8 @@ class SafetyConsole(QMainWindow):
         """테마가 바뀌면 모든 오버레이에 다시 적용한다."""
         for w in (self.status_panel, self.gauge_panel, self.alert,
                   self.menu_panel, self.notify_panel, self.settings_panel,
-                  self.check_panel, self.record_panel, self.conn_bar):
+                  self.check_panel, self.record_panel, self.result_panel,
+                  self.conn_bar):
             w.apply_theme()
         btn_qss = (f"QPushButton {{ {theme.panel_qss('panel', padding='8px 14px')} }}"
                    f"QPushButton:hover {{ color: {theme.C('info')}; }}")
@@ -688,7 +701,7 @@ class SafetyConsole(QMainWindow):
 
     def _sheets(self):
         return (self.menu_panel, self.notify_panel, self.settings_panel,
-                self.check_panel, self.record_panel)
+                self.check_panel, self.record_panel, self.result_panel)
 
     def _close_sheets(self, except_=None):
         """한 번에 하나만 열리게 한다 — 겹치면 뒤엣것을 못 읽는다."""
@@ -964,6 +977,16 @@ class SafetyConsole(QMainWindow):
             if current:
                 self._append_log(f"[YOLO] 탐지: {', '.join(sorted(current))}")
             self._last_yolo_classes = current
+        # 결과창 검출 집계 — 프레임 1장의 기준을 여기로 삼는다(design §3.6).
+        if self._stats.running:
+            names = [(d[0], d[1]) for d in detections]
+            if self._hand_seen:
+                names.append(("손", 1.0))
+            names += list(self._tool_dets_for_stats)
+            self._stats.frame(names)
+
+    def _on_hand(self, seen):
+        self._hand_seen = bool(seen)
 
     # =========================================================================
     # [판정부 FSM — 인식 입력 / 상태 출력]  통합문서 §8·§9
@@ -989,6 +1012,8 @@ class SafetyConsole(QMainWindow):
         판정 규칙은 전부 `tool_state.ToolState` 에 있다 — 여기서 다시 쓰지 않는다.
         설계 = ../docs/superpowers/specs/2026-08-14-공구입력-A2-design.md §4
         """
+        # dets = [(이름, 신뢰도, x1, y1, x2, y2), ...]
+        self._tool_dets_for_stats = [(d[0], d[1]) for d in dets]
         if self._sub is None or self._tool_state is None:
             return
 
@@ -1005,6 +1030,8 @@ class SafetyConsole(QMainWindow):
             self._append_log(f"[공구] {names.get(before, before)} → "
                              f"{names.get(self._tool_state.phase, self._tool_state.phase)}"
                              f" ({self._tool_state.want_tool})")
+            if self._tool_state.phase == "grasped":
+                self._stats.tool_grasped(self._tool_state.want_tool, True)
         self._update_sub_view()
 
     def _on_start_process(self):
@@ -1014,6 +1041,7 @@ class SafetyConsole(QMainWindow):
         self._notify("work", "작업 시작",
                      f"{(self._recipe or {}).get('process_name', '기본 시퀀스')} "
                      f"{self.fsm.step_count}단계")
+        self._stats.start((self._recipe or {}).get("process_name", "기본 시퀀스"), self.fsm.step_count)
 
     # =========================================================================
     # [서브 작업] design §5 — 메인 버튼과 다음 버튼 사이에 끼는 작업
@@ -1026,6 +1054,7 @@ class SafetyConsole(QMainWindow):
            그 지연 덕분에 대기 중 다른 버튼을 누르면 기대단계가 아직 안 올라가 있어
            FSM 이 **자동으로 오답 판정**한다 — FSM 을 고칠 필요가 없다(design §5).
         """
+        self._last_button = button
         self._append_log(f"[버튼] {button} 눌림")
 
         # 서브 작업 진행 중 — 같은 버튼 재입력만 걸러내고 나머지는 FSM 으로 보낸다.
@@ -1053,12 +1082,34 @@ class SafetyConsole(QMainWindow):
     def _commit_button(self, button):
         """FSM 에 실제로 눌림을 전달한다."""
         before = self.fsm.expected_step
+        self._stats.button_pressed(button, self.fsm.correct_roi, button == self.fsm.correct_roi)
         self.fsm.press_button(button, time.time())
         if self.fsm.expected_step != before and self.fsm.state != State.IDLE:
+            self._stats.step_done(before, button, self._step_name(before))
             self._append_log(f"[FSM] 단계 진행 → {self.fsm.expected_step}단계: "
                              f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
             self._notify("work", f"{before}단계 완료",
                          f"{button} {self._step_name(before)}")
+
+        # 마지막 단계의 정답 눌림 → 공정 완료. 작업 초기화는 이 경로를 타지 않는다.
+        if before == self.fsm.step_count and self.fsm.state == State.IDLE:
+            self._stats.step_done(before, button, self._step_name(before))
+            self._show_result()
+
+    def _show_result(self):
+        data = self._stats.finish()
+        self._close_sheets()
+        self.result_panel.relayout(self._root.rect())
+        self.result_panel.show_result(data)
+        self._dim_others(True)
+        self._sync_cta_visibility()
+        self._append_log(f"[결과] 작업 완료 — {'위반 없음' if data['ok'] else '위반 있음'}"
+                         f" · 총 {data['total_sec']:.0f}초")
+
+    def _close_result(self):
+        self.result_panel.hide()
+        self._dim_others(self._any_sheet_open())
+        self._sync_cta_visibility()
 
     def _sub_spec_for(self, button):
         """그 버튼 단계의 서브 작업 사양. 없으면 None."""
@@ -1088,6 +1139,7 @@ class SafetyConsole(QMainWindow):
             self._tool_state = ToolState(spec.get("tool"))
             self.camera_thread.set_tool_scan(True)
         self._update_sub_view()
+        self._stats.sub_started(button, spec)
 
     def _end_tool_scan(self):
         """공구 스캔을 끄고 판정 상태를 버린다.
@@ -1123,6 +1175,7 @@ class SafetyConsole(QMainWindow):
                 self._dim_others(True)
                 self._notify("warn", "다른 공구입니다",
                              f"{sub.wrong_tool_name} → {sub.want_tool_name} 필요")
+                self._stats.tool_grasped(sub.wrong_tool, False)
                 self._relayout()
         elif self.alert.mode == "tool":
             self.alert.hide_all()
@@ -1147,6 +1200,7 @@ class SafetyConsole(QMainWindow):
         self.gauge_panel.update_view(None)
         self.btn_cta.hide()
         if button:
+            self._stats.sub_done(button)
             self._commit_button(button)
 
     def _on_cta(self):
@@ -1286,12 +1340,14 @@ class SafetyConsole(QMainWindow):
 
         # 발광·배너는 상태에 따라 — 🔴 발광은 영상 영역에만(GlowFrame 이 담당)
         if new == State.BLOCK:
+            self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "block")
             self.glow.set_level("block")
             self.alert.show_block()
             self._dim_others(True)
             self._notify("danger", "전기 입력 차단됨",
                          f"{self.fsm.expected_step}단계 {self.fsm.correct_roi}")
         elif new == State.WARNING:
+            self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "warn")
             self.glow.set_level("warn")
             self.alert.show_order_violation(self.fsm.correct_roi, self.fsm.current_step_name)
             self._dim_others(True)
@@ -1312,11 +1368,14 @@ class SafetyConsole(QMainWindow):
             self._sub_button = None
             self.gauge_panel.update_view(None)
             self.btn_cta.setText("▶  작업 시작")
-            self.btn_cta.show()
+            # 🔴 show() 를 직접 부르지 않는다 — 결과창이 떠 있으면 그 뒤로 비친다.
+            #    "기억하지 말고 상태에서 그때그때 계산한다"(_sync_cta_visibility).
+            self._sync_cta_visibility()
 
         self._relayout()
 
     def _on_interlock(self, engaged):
+        self._stats.interlock(engaged)
         # Arduino Serial 로 릴레이 차단/복구 (트랙 A, interlock.py). BLOCK 진입 시
         # 가장 빠른 차단 경로(engaged=True → 즉시 BLOCK 송신). 해제는 뒤따르는
         # on_feedback(NONE)→RUN 이 처리한다.
