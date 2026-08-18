@@ -62,7 +62,7 @@ class SessionStats:
     # ------------------------------------------------------------------ 서브
     def sub_started(self, button, spec, now=None):
         self._tools.append({"button": button, "want": (spec or {}).get("tool"),
-                            "start": _now(now), "grasp_sec": None, "wrong": []})
+                            "_start": _now(now), "grasp_sec": None, "wrong": []})
 
     def sub_done(self, button, now=None):
         pass          # 쥔 시각은 tool_grasped 가 이미 기록한다
@@ -73,7 +73,7 @@ class SessionStats:
         cur = self._tools[-1]
         if ok:
             if cur["grasp_sec"] is None:
-                cur["grasp_sec"] = _now(now) - cur["start"]
+                cur["grasp_sec"] = _now(now) - cur["_start"]
         elif key and key not in cur["wrong"]:
             cur["wrong"].append(key)
 
@@ -112,7 +112,9 @@ class SessionStats:
             "steps": list(self._steps),
             "violations": list(self._violations),
             "interlocks": list(self._interlocks),
-            "tools": list(self._tools),
+            "tools": [{"button": x["button"], "want": x["want"],
+                       "grasp_sec": x["grasp_sec"], "wrong": list(x["wrong"])}
+                      for x in self._tools],
             "frames": self._frames,
             "detections": {k: dict(v) for k, v in self._dets.items()},
         }

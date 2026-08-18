@@ -43,6 +43,8 @@ def test_clean_run():
     check(abs(out["total_sec"] - 50.0) < 1e-6, f"총 시간 {out['total_sec']}s")
     check(abs(out["steps"][0]["sec"] - 10.0) < 1e-6,
           f"1단계 소요 {out['steps'][0]['sec']}s")
+    check(set(out["steps"][0]) == {"order", "button", "name", "pressed_at", "done_at", "sec"},
+          f"steps 항목 키 집합 {sorted(out['steps'][0])} — 스키마와 정확히 일치")
 
 
 def test_violation_and_interlock():
@@ -61,6 +63,10 @@ def test_violation_and_interlock():
           f"기대 {v['expected']} → 실제 {v['actual']} ({v['level']})")
     check(len(out["interlocks"]) == 1 and out["interlocks"][0]["released_at"] == 9.0,
           "인터락 1건 · 해제 시각 기록")
+    check(set(v) == {"at", "expected", "actual", "level"},
+          f"violations 항목 키 집합 {sorted(v)} — 스키마와 정확히 일치")
+    check(set(out["interlocks"][0]) == {"at", "released_at"},
+          f"interlocks 항목 키 집합 {sorted(out['interlocks'][0])} — 스키마와 정확히 일치")
 
 
 def test_tool_subtask():
@@ -77,6 +83,8 @@ def test_tool_subtask():
     check(t["want"] == "wrench", f"요구 공구 {t['want']}")
     check(abs(t["grasp_sec"] - 7.5) < 1e-6, f"쥐기까지 {t['grasp_sec']}s")
     check(t["wrong"] == ["driver"], f"오답 공구 {t['wrong']}")
+    check(set(t) == {"button", "want", "grasp_sec", "wrong"},
+          f"tools 항목 키 집합 {sorted(t)} — 스키마와 정확히 일치")
 
 
 def test_detection_counts():
