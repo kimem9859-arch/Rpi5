@@ -37,7 +37,7 @@
 - `CameraThread`(QThread) — ESP32-S3 TCP 스트림: 4바이트 헤더+JPEG, 수신 전용 스레드+처리 루프 분리(최신 프레임만), 자동 재연결. 처리순서: 수직 플립 → undistort → detector(YOLO) → **손 검출(`hand_tracker`)** → `roi_at_point` → `roi_signal` → FSM.
 - `UsbCameraThread` — USB 웹캠 동일 처리.
 - `_update_tracks()` — IoU 간이 트래킹, `YOLO_MAX_MISS` 초과 제거(**가림 대응**). YOLO `try/except` 선택 로드.
-- 🆕 **`hand_tracker.py`(2026-07-22)** — **MediaPipe 프레임워크는 안 쓴다**(Python 3.13/aarch64 휠 없음). 같은 **모델**(BlazePalm·BlazeHandLandmark)을 Hailo `.hef`로 돌린다. `detect(frame)` → 검지끝 좌표. 장치는 `hailo_device`의 **공유 VDevice**(여기서 VDevice를 만들면 버튼 모델과 충돌). ⚠️ 모델·소스가 없거나 `HAND_ENABLED=False`면 **조용히 비활성**되고 `detect()`가 None → 손 검출이 없던 종전과 동일 동작. 🔴 모델·blaze 소스가 **repo 밖**(`~/hoi_probe/`)이라 클론·sop-pi-2에선 자동 비활성(vendoring 미결).
+- 🆕 **`hand_tracker.py`(2026-07-22)** — **MediaPipe 프레임워크는 안 쓴다**(Python 3.13/aarch64 휠 없음). 같은 **모델**(BlazePalm·BlazeHandLandmark)을 Hailo `.hef`로 돌린다. `detect(frame)` → 검지끝 좌표. 장치는 `hailo_device`의 **공유 VDevice**(여기서 VDevice를 만들면 버튼 모델과 충돌). ⚠️ 모델·소스가 없거나 `HAND_ENABLED=False`면 **조용히 비활성**되고 `detect()`가 None → 손 검출이 없던 종전과 동일 동작. 🔴 모델·blaze 소스가 **repo 밖**(`~/lab/hoi/`)이라 클론·sop-pi-2에선 자동 비활성(vendoring 미결).
 - 🔴 **`safety_console`이 `camera_thread`에서 import하는 이름이 사라지면 GUI가 통째로 죽는다** — 실제로 발생(2026-07-22, `MEDIAPIPE_AVAILABLE`). 방어 = **`Demo/selftest/test_imports.py`**(GUI 진입점 import + AST로 import 이름 실재 대조). `camera_thread`의 최상위 이름을 바꾸면 **이 테스트를 반드시 돌릴 것**.
 - 신호: `change_pixmap_signal`/`log_signal`/`yolo_detections_signal`/`raw_frame_signal`/`calibration_needed_signal`.
 

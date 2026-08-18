@@ -8,7 +8,7 @@
 
 왜 별도 프로세스인가:
     🔴 GUI 는 **시스템 파이썬**(PyQt6 + hailo_platform)으로 도는데 거기엔
-    `ultralytics` 도 `torch` 도 없다. 둘은 `~/rfenv` 안에만 있다. 두 파이썬이
+    `ultralytics` 도 `torch` 도 없다. 둘은 `~/env/rfenv` 안에만 있다. 두 파이썬이
     서로 남이므로 같은 프로세스에서 `tool_v3.pt` 를 못 돌린다.
 
     시스템 파이썬에 torch 를 설치하는 방법도 있으나(약 2GB), Hailo·PyQt6 가
@@ -17,7 +17,7 @@
 사용법:
     <rfenv python> tool_worker.py <shm_dir> <model_path> <conf>
 
-    예) ~/rfenv/bin/python tool_worker.py /dev/shm/sop_tool models/tool_v3.pt 0.65
+    예) ~/env/rfenv/bin/python tool_worker.py /dev/shm/sop_tool models/tool_v3.pt 0.65
 
     ⚠️ config 를 import 하지 않고 **인자로 받는다** — rfenv 에서 config import 가
        되기는 하지만, 인자로 받으면 이 워커를 단독으로 시험할 수 있다.

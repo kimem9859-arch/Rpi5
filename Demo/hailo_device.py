@@ -18,9 +18,9 @@
        WARNING:pyhailort:Calls to `activate()` when working with scheduler are
        deprecated! On future versions this call will raise an error.
    호출처는 우리 코드가 아니라 손 검출용 blaze 소스다:
-       ~/hoi_probe/blaze_app_python/blaze_hailo/hailo_inference.py:134, 156
-       ~/hoi_probe/blaze_app_python/blaze_hailo/blazedetector.py:199
-       ~/hoi_probe/blaze_app_python/blaze_hailo/blazelandmark.py:126
+       ~/lab/hoi/blaze_app_python/blaze_hailo/hailo_inference.py:134, 156
+       ~/lab/hoi/blaze_app_python/blaze_hailo/blazedetector.py:199
+       ~/lab/hoi/blaze_app_python/blaze_hailo/blazelandmark.py:126
    그 소스는 **repo 밖**이라 고쳐도 클론·sop-pi-2 에 따라가지 않는다. 그래서
    `hand_tracker._NoActivateGroup` 이 넘겨주는 network_group 을 감싸 호출을
    가로챈다 — 검증 = `selftest/test_hand_group.py` + 실추론 대조(같은 8프레임에서

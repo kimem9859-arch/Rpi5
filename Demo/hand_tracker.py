@@ -51,7 +51,7 @@ class _NoActivateGroup:
        경고만** 낸다(pyhailort.py:581) — 손 추론이 도는 프레임마다 터미널에
        "Calls to `activate()` when working with scheduler are deprecated!" 가 쌓인다.
 
-    ⚠️ 감싸개를 여기 두는 이유: blaze 소스는 **repo 밖**(`~/hoi_probe/`)이라
+    ⚠️ 감싸개를 여기 두는 이유: blaze 소스는 **repo 밖**(`~/lab/hoi/`)이라
        고쳐도 클론·sop-pi-2 에 따라가지 않는다. 우리가 넘겨주는 쪽을 감싸면
        repo 코드만으로 어디서나 같게 동작한다.
 
