@@ -339,6 +339,32 @@ def test_panel_bg_does_not_move_rows():
     theme.PANEL_BACKGROUND = False
 
 
+def test_tool_plate_does_not_clip_text():
+    """🔴 공구 칸에 판을 깔아도 글자가 잘리지 않는가 (설계 §6.2).
+
+    목업에서 실제로 잘렸다 — QSS padding 은 sizeHint 와 어긋난다.
+    여백은 레이아웃 contentsMargins 로 줘야 한다.
+    """
+    print("\n[N] 공구 판")
+    from sub_task import SubTask
+    spec = {"type": "wait_tool", "sec": 10, "label": "N2 퍼지", "tool": "wrench",
+            "tools": ["driver", "wrench", "pliers"],
+            "tool_names": {"driver": "드라이버", "wrench": "렌치", "pliers": "플라이어"}}
+    for name in ("dark", "light"):
+        theme.set_theme(name)
+        p = GaugePanel()
+        p.apply_theme()
+        p.update_view(SubTask(spec, now=0.0))
+        p.adjustSize()
+        need = (p._tool_text.sizeHint().height()
+                + p._tool_state.sizeHint().height() + 16)   # 위아래 여백 8+8
+        got = p._tool_box.sizeHint().height()
+        check(got >= need, f"{name}: 공구 칸 높이 {got} ≥ 글자+여백 {need}")
+        check("rgba(0, 0, 0, 0.50)" in p._tool_box.styleSheet(),
+              f"{name}: 판 알파 0.50")
+    theme.set_theme("dark")
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

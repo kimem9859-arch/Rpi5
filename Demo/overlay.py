@@ -276,8 +276,12 @@ class GaugePanel(_Panel):
 
         # 공구 칸 — wait_tool 일 때만 보인다
         self._tool_box = QWidget()
+        # 🔴 맨 QWidget 은 이 속성 없이는 스타일시트 배경을 안 그린다(2026-08-04 확인).
+        self._tool_box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         tb = QHBoxLayout(self._tool_box)
-        tb.setContentsMargins(0, 8, 0, 0)
+        # 🔴 여백을 QSS padding 으로 주지 않는다 — sizeHint 와 어긋나 글자가 잘린다
+        #    (목업에서 실제로 잘렸다, 설계 §6.2).
+        tb.setContentsMargins(10, 8, 10, 8)
         tb.setSpacing(8)
         self._tool_icon = QLabel("🔧")
         self._tool_icon.setFont(config.font("banner"))
@@ -335,9 +339,14 @@ class GaugePanel(_Panel):
             # 윗줄 = 무엇이 필요한가 / 아랫줄 = 지금 어디까지 왔나.
             # 🔑 완료 기준은 「손으로 쥠」이다(2026-08-16, 통합문서 §10.44-(8)).
             #    grasped ⟺ tool_ok 라 phase 를 따로 받지 않아도 구분된다.
+            # 공구 문구 판 — 밝은 배경(노란 책상) 위에서 글자가 묻히는 것을 막는다.
+            self._tool_box.setStyleSheet(
+                f"background-color: {theme.C('tool_plate')}; border-radius: 6px;")
             self._tool_box.show()
             self._tool_text.setText(f"{sub.want_tool_name}가 필요합니다")
-            self._tool_text.setStyleSheet(theme.text_qss("text", 800))
+            self._tool_text.setStyleSheet(
+                f"color: {theme.C('tool_plate_text')}; font-weight: 800;"
+                f" border: none; background: transparent;")
             if sub.tool_ok:
                 state, token = f"✓ {sub.want_tool_name}를 쥐었습니다", "done"
             elif sub.wrong_tool:
@@ -354,6 +363,8 @@ class GaugePanel(_Panel):
         else:
             self._tool_box.hide()
 
+        # 🔴 호출부는 update_view() **뒤에** relayout 한다 — 판이 붙으면 높이가
+        #    늘어나므로 순서가 반대면 판이 글자를 자른다(설계 §6.2).
         self.show()
 
     def relayout(self, parent_rect):
