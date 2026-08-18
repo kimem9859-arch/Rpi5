@@ -184,6 +184,7 @@ class CameraThread(QThread):
                                                  # dets = [(클래스명, 점수, x1,y1,x2,y2), ...]
                                                  # fingertip = 그 프레임의 손끝 (x,y) 또는 None
                                                  # 🔴 @pyqtSlot(list, object) 와 짝을 맞출 것
+    hand_signal                = pyqtSignal(bool)      # 이 프레임에서 손이 검출됐는가 (집계 전용)
 
     def __init__(self):
         super().__init__()
@@ -498,6 +499,10 @@ class CameraThread(QThread):
         # 🔴 draw_on=None 이어도 검출은 그대로 한다 — 반환값(손끝)은 ROI 판정에 쓴다.
         fingertip = self._hand.detect(frame, draw_on=frame if draw else None)
 
+        # 🔴 집계 전용이다 — 판정에 쓰지 않는다. roi_signal 은 ROI 라벨만 주므로
+        #    「ROI 밖의 손」과 「손 없음」이 구별되지 않는다(설계 §3.6).
+        self.hand_signal.emit(fingertip is not None)
+
         # 공구 검출(A-2) — 서브 작업 동안만. 🔑 손끝을 **같은 프레임의 것**으로
         # 함께 보낸다(§4.6 — 결과가 약 0.5초 뒤에 오므로 짝을 맞춰야 한다).
         if self._tool_scan and self._tool_gate is not None:
@@ -597,6 +602,7 @@ class UsbCameraThread(QThread):
     log_signal             = pyqtSignal(str)
     yolo_detections_signal = pyqtSignal(list)
     roi_signal             = pyqtSignal(str, int)  # (버튼 ROI 라벨, 단계) — ""·0 = 없음
+    hand_signal            = pyqtSignal(bool)      # 이 프레임에서 손이 검출됐는가 (집계 전용)
 
     USB_DEVICE_INDEX = 0
 
@@ -657,6 +663,10 @@ class UsbCameraThread(QThread):
         # 손 검출 → 검지 끝. 랜드마크 표시는 hand_tracker 가 frame 에 직접 그린다.
         # 🔴 draw_on=None 이어도 검출은 그대로 한다 — 반환값(손끝)은 ROI 판정에 쓴다.
         fingertip = self._hand.detect(frame, draw_on=frame if draw else None)
+
+        # 🔴 집계 전용이다 — 판정에 쓰지 않는다. roi_signal 은 ROI 라벨만 주므로
+        #    「ROI 밖의 손」과 「손 없음」이 구별되지 않는다(설계 §3.6).
+        self.hand_signal.emit(fingertip is not None)
 
         roi, level = zone_at_point(*fingertip, self._tracks) if fingertip else (None, None)
         self.roi_signal.emit(roi or "", level or 0)

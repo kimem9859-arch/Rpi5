@@ -34,6 +34,12 @@ def test_gui_entrypoints_import():
     print("  PASS  시연 경로 import: main · safety_console")
 
 
+def test_session_stats_imports():
+    """session_stats 가 Qt 없이도 import 되는가 — 시연 경로가 이걸 끌어다 쓴다."""
+    import session_stats            # noqa: F401
+    print("  PASS  session_stats import")
+
+
 def test_camera_thread_exports():
     """safety_console 이 camera_thread 에서 가져다 쓰는 이름이 실제로 있는가."""
     import ast
