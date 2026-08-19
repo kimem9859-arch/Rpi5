@@ -1074,8 +1074,16 @@ class SafetyConsole(QMainWindow):
         #    「소요 시간」이 전 단계 0초로 나온다(2026-08-19 리뷰 C1).
         #    _commit_button 에 이르는 모든 경로가 여기를 먼저 지나므로 집계
         #    범위는 그대로다.
-        self._stats.button_pressed(button, self.fsm.correct_roi,
-                                   button == self.fsm.correct_roi)
+        # 🔴 단, 서브 대기 중 **같은 버튼**의 재입력(아래에서 무시되는 경로)은
+        #    기록하지 않는다 — 기록하면 그 단계의 눌림 시각이 재입력 시각으로
+        #    덮어써져 결과창의 「소요 시간」이 실제보다 짧게(0초에 가깝게)
+        #    틀어진다(2026-08-19 리뷰 재발). 대기 중 **다른** 버튼(순서 위반)과
+        #    서브 작업이 없을 때의 눌림은 지금처럼 계속 기록해야 하므로, 재입력
+        #    무시 조건과 정확히 같은 조건으로만 건너뛴다.
+        if not (self._sub is not None and self._sub.is_active
+                and button == self._sub_button):
+            self._stats.button_pressed(button, self.fsm.correct_roi,
+                                       button == self.fsm.correct_roi)
         self._append_log(f"[버튼] {button} 눌림")
 
         # 서브 작업 진행 중 — 같은 버튼 재입력만 걸러내고 나머지는 FSM 으로 보낸다.
@@ -1367,7 +1375,10 @@ class SafetyConsole(QMainWindow):
             # 🔴 비상정지(EMO)는 순서 위반이 아니다 — 정당한 안전 조작이다. 위반으로
             #    적으면 결과창 머리가 「⚠ 위반이 있었습니다」로 뒤집힌다(리뷰 I2).
             #    작동 시각은 아래 인터락 기록이 이미 담고 있어 정보 손실이 없다.
-            emo = (self._recipe or {}).get("emo_button", config.FSM_EMO_BUTTON)
+            # 🔴 .get(...) 기본값은 키가 "없을 때"만 적용된다 — emo_button 키가
+            #    있는데 값이 null(None)이면 여전히 None 이 돌아와 fsm.py 의
+            #    config 폴백과 어긋난다. `or` 로 None 도 폴백시킨다.
+            emo = (self._recipe or {}).get("emo_button") or config.FSM_EMO_BUTTON
             if self._last_button != emo:
                 self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "block")
             self.glow.set_level("block")

@@ -711,6 +711,42 @@ def test_reset_does_not_show_result():
     win.close()
 
 
+def test_stats_wiring_reentry_keeps_press_time():
+    """🔴 서브 대기 중 같은 버튼 재입력이 눌림 시각을 덮어쓰지 않는가 — 2026-08-19 리뷰 회귀 방어.
+
+    고치기 전에는 재입력에도 `button_pressed` 가 다시 불려 눌림 시각이 재입력
+    시각으로 덮어써졌다 — 결과창의 그 단계 「소요 시간」이 실제 경과(최대
+    대기 시간)와 무관하게 재입력~완료 사이의 짧은 값(~0.005초)으로 준다.
+    """
+    print("\n[21] 집계 배선 — 재입력이 눌림 시각을 덮어쓰지 않는다")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")                                    # B1 → 서브 작업 시작(첫 눌림)
+    check(win._sub is not None and win._sub.is_active, "B1 서브 작업 진행 중")
+
+    time.sleep(0.12)                                 # 🔑 첫 눌림과 재입력 사이 실제 경과
+    key(win, "1")                                     # 🔴 같은 버튼 재입력(무시돼야 함)
+    check(win._sub is not None and win._sub.is_active, "재입력 후에도 서브 작업 계속 진행")
+
+    win._sub.tick(now=time.time() + 999)             # 대기 시간 채움 → 자동 진행
+    win._update_sub_view()
+
+    for step in ("2", "3", "4"):                     # 나머지 단계를 채워 완주
+        key(win, step)
+        if win._sub is not None and win._sub.is_active:
+            win._sub.tick(now=time.time() + 999)
+            if win._sub.needs_tool:
+                win._sub.set_tool(win._sub.want_tool)
+            win._update_sub_view()
+
+    out = win._stats.finish()
+    b1 = next((s for s in out["steps"] if s["button"] == "B1"), None)
+    check(b1 is not None, "B1 단계 기록이 있다")
+    check(b1 is not None and b1["sec"] > 0.05,
+          f"B1 소요 시간이 재입력으로 줄지 않는다 — {b1['sec'] if b1 else '?'}초")
+    win.close()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
