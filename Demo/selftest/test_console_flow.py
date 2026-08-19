@@ -576,6 +576,11 @@ def test_result_panel_on_completion():
             win._update_sub_view()
     check(not win.result_panel.isHidden(), "완주 → 결과창이 뜬다")
     check(win.btn_cta.isHidden(), "🔴 결과창 뒤로 「작업 시작」이 비치지 않는다")
+    # 🔑 finish() 는 완주 시 이미 한 번 불렸다(SessionStats.finish() 가 부작용으로
+    #    _started 를 지운다) — 여기서 다시 불러도 steps 목록은 그대로 남는다
+    #    (총 시간·시작시각만 "지금" 기준으로 바뀐다. session_stats.py 참고).
+    check([s["button"] for s in win._stats.finish()["steps"]] == ["B1", "B2", "B3", "B4"],
+          "네 단계가 모두 기록된다 — B4 가 「단계 진행」 분기 밖에서도 빠지지 않는다")
     win.result_panel.closed.emit()
     check(win.result_panel.isHidden(), "닫으면 사라진다")
     check(not win.btn_cta.isHidden(), "닫으면 「작업 시작」이 돌아온다")

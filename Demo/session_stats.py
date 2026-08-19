@@ -103,7 +103,7 @@ class SessionStats:
     def finish(self, now=None):
         t = _now(now)
         started = self._started if self._started is not None else t
-        return {
+        out = {
             "recipe": self._recipe,
             "started_at": started,
             "finished_at": t,
@@ -118,3 +118,11 @@ class SessionStats:
             "frames": self._frames,
             "detections": {k: dict(v) for k, v in self._dets.items()},
         }
+        # 🔴 완주 후에는 running 을 꺼 집계를 멈춘다. 「작업 시작」을 거치지 않고
+        # 다시 PROCESS_RUN 으로 돌아가는 경로(EMO→BLOCK→차단 해제)가 있어, 다음
+        # start() 를 안 거치면 이전 작업의 결과에 새 프레임·위반이 계속 더해진다
+        # (2026-08-19 코드리뷰). ⚠️ finish() 를 또 부르면 이번엔 _started 가 없어
+        # total_sec·started_at 은 "지금"을 기준으로 다시 계산된다 — steps·
+        # violations 등 나머지 목록은 그대로다(별도 필드라 안 지워진다).
+        self._started = None
+        return out

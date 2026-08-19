@@ -982,7 +982,16 @@ class SafetyConsole(QMainWindow):
             names = [(d[0], d[1]) for d in detections]
             if self._hand_seen:
                 names.append(("손", 1.0))
-            names += list(self._tool_dets_for_stats)
+            # 🔴 공구 검출은 **결과가 도착한 프레임 수**를 센다 — 「공구가 화면에
+            #    보인 프레임 수」가 아니다. tool_signal 은 ≈1초에 한 번만 온다
+            #    (camera_thread.py 의 TOOL_SCAN_INTERVAL_SEC 스로틀). 소비하지
+            #    않고 계속 들고 있으면 다음 결과가 올 때까지의 모든 YOLO 프레임에
+            #    같은 값을 반복해서 더해 **몇 배로 부풀려진다**. 여기서 한 번
+            #    쓰고 비워, 결과가 도착한 그 프레임 한 장에만 계상한다 — 과대계상
+            #    대신 과소계상 쪽으로 정직하게 치우친다(1초 사이 프레임은 0으로 샌다).
+            if self._tool_dets_for_stats:
+                names += self._tool_dets_for_stats
+                self._tool_dets_for_stats = []
             self._stats.frame(names)
 
     def _on_hand(self, seen):
