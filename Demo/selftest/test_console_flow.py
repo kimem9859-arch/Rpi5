@@ -541,7 +541,7 @@ def test_detect_box_toggle():
 
     🔑 표시만 끄는 것이다 — 끈 상태에서도 순서 위반 판정은 그대로 돈다(설계 §4.2).
     """
-    print("\n[N] 탐지 박스 토글")
+    print("\n[14] 탐지 박스 토글")
     win = make_console()
     check(win.camera_thread.draw_boxes() is True, "기본은 켜짐")
 
@@ -564,7 +564,7 @@ def test_detect_box_toggle():
 
 def test_result_panel_on_completion():
     """🔴 4단계를 마치면 결과창이 뜨고, 그 동안 「작업 시작」이 비치지 않는가."""
-    print("\n[N] 결과창")
+    print("\n[15] 결과창")
     win = make_console()
     win._on_cta()
     for step in ("1", "2", "3", "4"):
@@ -589,7 +589,7 @@ def test_result_panel_on_completion():
 
 def test_reset_does_not_show_result():
     """🔴 작업 초기화로는 결과창이 뜨지 않는다 — 완주가 아니다(설계 §3.1)."""
-    print("\n[N+1] 초기화")
+    print("\n[16] 결과창 초기화")
     win = make_console()
     win._on_cta()
     key(win, "1")

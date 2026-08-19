@@ -981,7 +981,10 @@ class SafetyConsole(QMainWindow):
         if self._stats.running:
             names = [(d[0], d[1]) for d in detections]
             if self._hand_seen:
-                names.append(("손", 1.0))
+                # 🔴 손은 **점수가 없다** — 자리표시자 1.0 을 넣으면 결과창에
+                #    「평균 신뢰도 1.00」이라는 근거 없는 수치가 나간다. None 은
+                #    session_stats 가 "점수 표본 없음"으로 받는다(리뷰 I3).
+                names.append(("손", None))
             # 🔴 공구 검출은 **결과가 도착한 프레임 수**를 센다 — 「공구가 화면에
             #    보인 프레임 수」가 아니다. tool_signal 은 ≈1초에 한 번만 온다
             #    (camera_thread.py 의 TOOL_SCAN_INTERVAL_SEC 스로틀). 소비하지
@@ -994,6 +997,7 @@ class SafetyConsole(QMainWindow):
                 self._tool_dets_for_stats = []
             self._stats.frame(names)
 
+    @pyqtSlot(bool)   # 🔴 시그널(bool)과 반드시 일치해야 한다 — 어긋나면 기동 즉시 TypeError
     def _on_hand(self, seen):
         self._hand_seen = bool(seen)
 
@@ -1064,6 +1068,14 @@ class SafetyConsole(QMainWindow):
            FSM 이 **자동으로 오답 판정**한다 — FSM 을 고칠 필요가 없다(design §5).
         """
         self._last_button = button
+        # 🔴 눌림 시각은 **여기서** 찍는다 — _commit_button 이 아니다. 서브 작업이
+        #    있는 단계에서 _commit_button 은 10초 대기가 끝난 뒤에 불려, 거기서
+        #    찍으면 button_pressed 와 step_done 의 시각이 같아져 결과창의
+        #    「소요 시간」이 전 단계 0초로 나온다(2026-08-19 리뷰 C1).
+        #    _commit_button 에 이르는 모든 경로가 여기를 먼저 지나므로 집계
+        #    범위는 그대로다.
+        self._stats.button_pressed(button, self.fsm.correct_roi,
+                                   button == self.fsm.correct_roi)
         self._append_log(f"[버튼] {button} 눌림")
 
         # 서브 작업 진행 중 — 같은 버튼 재입력만 걸러내고 나머지는 FSM 으로 보낸다.
@@ -1091,7 +1103,6 @@ class SafetyConsole(QMainWindow):
     def _commit_button(self, button):
         """FSM 에 실제로 눌림을 전달한다."""
         before = self.fsm.expected_step
-        self._stats.button_pressed(button, self.fsm.correct_roi, button == self.fsm.correct_roi)
         self.fsm.press_button(button, time.time())
         if self.fsm.expected_step != before and self.fsm.state != State.IDLE:
             self._stats.step_done(before, button, self._step_name(before))
@@ -1319,10 +1330,14 @@ class SafetyConsole(QMainWindow):
             # 열려 있는 패널부터 닫는다 — 한 번에 창을 닫지 않는다(오조작 방지)
             # ⚠️ isVisible() 이 아니라 isHidden() 을 본다 — 창이 아직 안 보이는
             #    상태에서는 자식의 isVisible() 이 항상 False 라 이 분기가 통째로 죽는다.
-            for panel in (self.settings_panel, self.menu_panel, self.notify_panel):
+            # 🔴 열린 시트 **전부**를 본다 — 목록을 손으로 적어두면 새 시트
+            #    (결과창·2차 점검·녹화)를 빠뜨려 ESC 가 곧장 앱 종료로 떨어진다.
+            #    특히 결과창은 시연의 마지막 화면이라 반사적으로 눌리기 쉽다(리뷰 I6).
+            for panel in self._sheets():
                 if not panel.isHidden():
-                    panel.hide()
-                    self._dim_others(False)
+                    # 결과창은 hide() 만으로는 dim·CTA 정리가 안 된다 — closed 를
+                    # 태워 각 시트가 제 뒷정리(_close_result 등)를 하게 한다.
+                    panel.closed.emit()
                     return
             if not self.log_browser.isHidden():
                 self._set_log_visible(False)
@@ -1349,14 +1364,23 @@ class SafetyConsole(QMainWindow):
 
         # 발광·배너는 상태에 따라 — 🔴 발광은 영상 영역에만(GlowFrame 이 담당)
         if new == State.BLOCK:
-            self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "block")
+            # 🔴 비상정지(EMO)는 순서 위반이 아니다 — 정당한 안전 조작이다. 위반으로
+            #    적으면 결과창 머리가 「⚠ 위반이 있었습니다」로 뒤집힌다(리뷰 I2).
+            #    작동 시각은 아래 인터락 기록이 이미 담고 있어 정보 손실이 없다.
+            emo = (self._recipe or {}).get("emo_button", config.FSM_EMO_BUTTON)
+            if self._last_button != emo:
+                self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "block")
             self.glow.set_level("block")
             self.alert.show_block()
             self._dim_others(True)
             self._notify("danger", "전기 입력 차단됨",
                          f"{self.fsm.expected_step}단계 {self.fsm.correct_roi}")
         elif new == State.WARNING:
-            self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "warn")
+            # 🔴 경고는 **버튼을 누르지 않고** 손이 오답 ROI 에 머물러 난 것이다 —
+            #    「실제」에 마지막 물리 눌림(_last_button)을 적으면 방금 정상
+            #    완료한 단계가 위반으로 찍힌다(리뷰 I1). fsm 의 _goto(WARNING) 는
+            #    _reset_dwell() 보다 먼저라 지금 last_roi 가 그 오답 ROI 다.
+            self._stats.violation(self.fsm.correct_roi, self.fsm.last_roi or "?", "warn")
             self.glow.set_level("warn")
             self.alert.show_order_violation(self.fsm.correct_roi, self.fsm.current_step_name)
             self._dim_others(True)

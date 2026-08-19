@@ -383,7 +383,11 @@ class GaugePanel(_Panel):
 
             # 바뀐 순간에만 번진다 — 200ms 주기 반복 호출에서 매번 번지면 안 된다.
             now_tool = (sub.tool_ok, sub.wrong_tool)
-            if self._prev_tool is not None and now_tool != self._prev_tool:
+            # 🔴 맥박이 도는 동안은 번지지 않는다 — flash 는 base QSS 를 캡처했다가
+            #    되돌리는데, 맥박 중간 프레임을 base 로 집어 그 색에 고정해버린다
+            #    (오답 공구를 놓아 맥박이 재개되는 순간이 정확히 그 경우다).
+            if (self._prev_tool is not None and now_tool != self._prev_tool
+                    and not want_pulse):
                 anim.flash(self._tool_state, theme.C(token))
             self._prev_tool = now_tool
         else:
@@ -396,6 +400,9 @@ class GaugePanel(_Panel):
 
     def _stop_pulse(self):
         """🔴 서브 작업이 끝나는 **모든 경로**에서 부른다 — 안 멈추면 CPU 를 먹는다."""
+        # 🔴 직전 상태도 함께 지운다 — 안 지우면 다음 작업의 첫 공구 화면이
+        #    지난 작업 끝 상태와 비교돼 불필요한 flash 가 한 번 튄다.
+        self._prev_tool = None
         if self._pulsing:
             self._pulse_text.stop()
             self._pulse_state.stop()

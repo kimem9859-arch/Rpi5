@@ -264,7 +264,7 @@ def test_conn_bar():
 
     컬러 이모지는 color: 로 물들지 않는다. 그래서 알약 배경색으로 구분한다.
     """
-    print("\n[N] 연결 상태바")
+    print("\n[14] 연결 상태바")
     from overlay import ConnBar
     host = QWidget()
     c = ConnBar(host)
@@ -293,7 +293,7 @@ def test_conn_bar_follows_given_rect():
 
     종전에는 창 전체 기준이라 오른쪽 검정 레터박스에 앉았다(2026-08-04).
     """
-    print("\n[N] 상태바 기준 사각형")
+    print("\n[15] 상태바 기준 사각형")
     from overlay import ConnBar
     host = QWidget()
     c = ConnBar(host)
@@ -320,7 +320,7 @@ def test_panel_bg_does_not_move_rows():
     원인은 selector 없는 스타일시트가 **자식 라벨에도 상속**되어
     panel_qss 의 padding(12px 14px)이 행마다 붙은 것.
     """
-    print("\n[N] 배경 켜도 행이 안 움직인다")
+    print("\n[16] 배경 켜도 행이 안 움직인다")
     host = QWidget()
     host.setGeometry(SCREEN)
     p = StatusPanel(STEPS, host)
@@ -345,7 +345,7 @@ def test_tool_plate_does_not_clip_text():
     목업에서 실제로 잘렸다 — QSS padding 은 sizeHint 와 어긋난다.
     여백은 레이아웃 contentsMargins 로 줘야 한다.
     """
-    print("\n[N] 공구 판")
+    print("\n[17] 공구 판")
     from sub_task import SubTask
     spec = {"type": "wait_tool", "sec": 10, "label": "N2 퍼지", "tool": "wrench",
             "tools": ["driver", "wrench", "pliers"],

@@ -208,7 +208,7 @@ def test_status_steps_all_pending_before_start():
 
 def test_text_pulse():
     """🔴 글자 맥박 — 시작·정지가 되고, 꺼져 있으면 최종값만 먹는가."""
-    print("\n[N] 글자 맥박")
+    print("\n[글자 맥박]")
     from PyQt6.QtWidgets import QLabel
     lbl = QLabel("렌치가 필요합니다")
 
