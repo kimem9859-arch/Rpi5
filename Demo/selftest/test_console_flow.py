@@ -581,9 +581,122 @@ def test_result_panel_on_completion():
     #    (총 시간·시작시각만 "지금" 기준으로 바뀐다. session_stats.py 참고).
     check([s["button"] for s in win._stats.finish()["steps"]] == ["B1", "B2", "B3", "B4"],
           "네 단계가 모두 기록된다 — B4 가 「단계 진행」 분기 밖에서도 빠지지 않는다")
-    win.result_panel.closed.emit()
-    check(win.result_panel.isHidden(), "닫으면 사라진다")
+    # 🔴 ESC 로 닫는다 — 결과창은 시연의 마지막 화면이라 발표자가 반사적으로
+    #    누를 가능성이 가장 높은데, 고치기 전에는 여기서 **앱이 종료됐다**(리뷰 I6).
+    seen_close = []
+    orig_close = win.close
+    win.close = lambda *a, **k: (seen_close.append(1), orig_close())[-1]
+    ev = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                   Qt.KeyboardModifier.NoModifier)
+    win.keyPressEvent(ev)
+    check(not seen_close, "🔴 결과창이 떠 있을 때 ESC 가 앱을 닫지 않는다")
+    check(win.result_panel.isHidden(), "ESC 로 결과창이 닫힌다")
     check(not win.btn_cta.isHidden(), "닫으면 「작업 시작」이 돌아온다")
+    win.close = orig_close
+    win.close()
+
+
+def test_stats_wiring_step_seconds():
+    """🔴 결과창 「소요 시간」이 실제 경과를 담는가 — 리뷰 C1 회귀 방어.
+
+    🔑 이 층(**GUI 배선이 집계 모듈에 무엇을 먹이는가**)이 비어 있어 「— 0초」
+       네 줄이 여덟 번의 리뷰를 통과했다. test_session_stats 는 모듈에 손으로
+       올바른 값을 먹여 재므로 배선이 틀린 것을 볼 수 없다.
+
+    고치기 전에는 `button_pressed` 가 `_commit_button` 안에 있어, 서브 작업이
+    있는 단계에서 눌림 시각이 **10초 대기가 끝난 뒤**로 찍혔다 — `step_done`
+    과 같은 순간이라 전 단계가 0초였다.
+    """
+    print("\n[17] 집계 배선 — 단계 소요 시간")
+    win = make_console()
+    win._on_cta()
+    for step in ("1", "2", "3", "4"):
+        key(win, step)
+        if win._sub is not None and win._sub.is_active:
+            # 🔑 실제로 시간을 흘려보낸다 — 이것이 있어야 「눌림 시각을 언제
+            #    찍었나」가 값의 차이로 드러난다(버그 상태의 sec 은 ~0.003초).
+            time.sleep(0.12)
+            win._sub.tick(now=time.time() + 999)
+            if win._sub.needs_tool:
+                win._sub.set_tool(win._sub.want_tool)
+            win._update_sub_view()
+    out = win._stats.finish()
+    subs = [s for s in out["steps"] if s["button"] in ("B1", "B2", "B3")]
+    check(len(subs) == 3, f"서브가 있는 단계 {len(subs)}개")
+    worst = min((s["sec"] for s in subs), default=0.0)
+    check(worst > 0.05,
+          f"서브 단계 소요 시간이 실제 경과를 담는다 — 최소 {worst:.3f}초")
+    win.close()
+
+
+def test_stats_wiring_tools_only():
+    """🔴 `tools` 에 공구 없는 단계가 섞이지 않는가 — 리뷰 C2 회귀 방어.
+
+    섞이면 결과창에 「B1 — 요구 None · 쥐지 않음」 줄이 나간다.
+    """
+    print("\n[18] 집계 배선 — 공구 서브만")
+    win = make_console()
+    win._on_cta()
+    for step in ("1", "2", "3", "4"):
+        key(win, step)
+        if win._sub is not None and win._sub.is_active:
+            win._sub.tick(now=time.time() + 999)
+            if win._sub.needs_tool:
+                win._sub.set_tool(win._sub.want_tool)
+            win._update_sub_view()
+    out = win._stats.finish()
+    check(all(t["want"] for t in out["tools"]),
+          f"요구 공구가 None 인 항목이 없다 — {[t['want'] for t in out['tools']]}")
+    check([t["button"] for t in out["tools"]] == ["B2"],
+          f"공구 서브(B2)만 담긴다 — {[t['button'] for t in out['tools']]}")
+    win.close()
+
+
+def test_stats_wiring_dwell_violation_actual():
+    """🔴 체류 경고의 「실제」가 **손을 얹은 그 ROI** 인가 — 리뷰 I1 회귀 방어.
+
+    경고는 버튼을 **누르지 않고** 오답 ROI 에 머물러 난 것이라, 마지막 물리
+    눌림(`_last_button`)을 적으면 방금 정상 완료한 단계가 위반으로 찍힌다.
+    """
+    print("\n[19] 집계 배선 — 체류 경고 대상")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")                                   # B1 을 정상 완료해 둔다
+    win._sub.tick(now=time.time() + 999)
+    win._update_sub_view()
+    check(win._last_button == "B1", "마지막 물리 눌림 = B1")
+
+    # 오답 ROI(B4)에 임계(레시피 1.0초)를 넘겨 머문다 — 시각을 주입한다.
+    t0 = time.time()
+    win.fsm.update_vision("B4", t0)
+    win.fsm.update_vision("B4", t0 + 1.5)
+    check(win.fsm.state == State.WARNING, f"체류 경고 발생({win.fsm.state.value})")
+
+    out = win._stats.finish()
+    v = out["violations"][-1]
+    check(v["level"] == "warn" and v["actual"] == "B4",
+          f"기대 {v['expected']} → 실제 {v['actual']} — 손을 얹은 ROI 여야 한다")
+    win.close()
+
+
+def test_stats_wiring_emo_is_not_violation():
+    """🔴 EMO 는 순서 위반이 아니다 — 리뷰 I2 회귀 방어.
+
+    비상정지는 정당한 안전 조작이다. 위반으로 적으면 결과창 머리가
+    「⚠ 위반이 있었습니다」로 뒤집힌다. 작동 시각은 인터락 구획이 담는다.
+    """
+    print("\n[20] 집계 배선 — EMO 는 위반이 아니다")
+    win = make_console()
+    win._on_cta()
+    key(win, "E")                                   # 비상정지
+    check(win.fsm.state == State.BLOCK, f"BLOCK({win.fsm.state.value})")
+
+    out = win._stats.finish()
+    check(not any(v["actual"] == "EMO" for v in out["violations"]),
+          f"위반 목록에 EMO 가 없다 — {out['violations']}")
+    check(out["ok"] is True, "판정이 뒤집히지 않는다")
+    check(len(out["interlocks"]) == 1,
+          f"인터락 기록은 남는다 — {len(out['interlocks'])}건")
     win.close()
 
 

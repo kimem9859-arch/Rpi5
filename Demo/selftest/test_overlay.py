@@ -17,7 +17,7 @@ sys.path.insert(0, _DEMO_DIR)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QRect
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 import config
 import theme
@@ -363,6 +363,109 @@ def test_tool_plate_does_not_clip_text():
         check("rgba(0, 0, 0, 0.50)" in p._tool_box.styleSheet(),
               f"{name}: 판 알파 0.50")
     theme.set_theme("dark")
+
+
+def test_gauge_pulse_lifecycle():
+    """🔴 공구 문구 맥박이 재시작되지 않고, 끝나는 **모든 경로**에서 멈추는가.
+
+    맥박은 살아남으면 QSS 를 계속 재적용해 CPU 를 태우고, 재시작되면 끝나지
+    않는 애니메이션이 된다 — `_sub_timer` 가 200ms 마다 같은 값을 다시 넣기
+    때문에 「상태가 바뀔 때만」이 지켜져야 한다.
+
+    ⚠️ 이 파일은 import 시점에 `config.UI_ANIMATION = False` 를 세팅한다 —
+       꺼진 상태에서는 `TextPulse.start()` 가 애니메이션 객체를 만들지 않아
+       이 검사가 통째로 무의미해진다. 여기서만 잠시 켰다가 **반드시 되돌린다**
+       (다른 테스트가 꺼진 값을 전제로 배치를 잰다).
+    """
+    print("\n[18] 공구 문구 맥박 수명")
+    _prev_anim = config.UI_ANIMATION
+    config.UI_ANIMATION = True
+    try:
+        p = GaugePanel()
+        p.apply_theme()
+        sub = SubTask(TOOL, now=0.0)
+        p.update_view(sub)
+        check(p._pulse_text.active() and p._pulse_state.active(),
+              "공구를 기다리는 동안 맥박이 돈다")
+        first = p._pulse_text._anim
+        for _ in range(5):
+            p.update_view(sub)                  # 200ms 타이머가 하는 것과 같다
+        check(p._pulse_text._anim is first,
+              "🔴 같은 상태로 반복 호출해도 재시작되지 않는다")
+
+        # 끝나는 경로 4종 — 하나라도 새면 맥박이 남는다.
+        def fresh():
+            q = GaugePanel()
+            q.apply_theme()
+            t = SubTask(TOOL, now=0.0)
+            q.update_view(t)
+            return q, t
+
+        q, t = fresh()
+        t.set_tool(TOOL["tool"])                # ① 요구 공구를 쥠
+        q.update_view(t)
+        check(not q._pulse_text.active() and not q._pulse_state.active(),
+              "① 쥐면 멈춘다")
+
+        q, t = fresh()
+        t.set_tool("driver")                    # ② 다른 공구를 쥠
+        q.update_view(t)
+        check(not q._pulse_text.active() and not q._pulse_state.active(),
+              "② 오답 공구 경고 중에는 멈춘다")
+
+        q, _t = fresh()
+        q.update_view(SubTask(WAIT, now=0.0))   # ③ 공구가 필요 없는 서브로 교체
+        check(not q._pulse_text.active() and not q._pulse_state.active(),
+              "③ 공구가 필요 없는 단계로 바뀌면 멈춘다")
+
+        q, _t = fresh()
+        q.update_view(None)                     # ④ 서브 작업 종료
+        check(not q._pulse_text.active() and not q._pulse_state.active(),
+              "④ 서브 작업이 끝나면 멈춘다")
+    finally:
+        config.UI_ANIMATION = _prev_anim        # 🔴 반드시 복구
+
+
+def test_result_panel_shows():
+    """🔴 `show_result()` 가 실제로 창을 띄우는가.
+
+    꼬리의 `apply_theme/show/raise_` 가 return 뒤로 밀려 죽은 코드가 되면
+    데이터는 다 채워지는데 **창이 안 뜬다** — 실제로 그렇게 깨져 있었다
+    (2026-08-19). 값 검사만으로는 잡히지 않으므로 표시 여부를 따로 건다.
+    """
+    print("\n[19] 결과창 표시")
+    from overlay_result import ResultPanel
+    host = QWidget()
+    host.resize(1920, 1080)
+    panel = ResultPanel(host)
+    check(panel.isHidden(), "만든 직후엔 숨어 있다")
+    panel.relayout(SCREEN)
+    panel.show_result({
+        "recipe": "t", "started_at": 0.0, "finished_at": 30.0, "total_sec": 30.0,
+        "ok": True,
+        "steps": [{"order": 1, "button": "B1", "name": "클린·가스차단",
+                   "pressed_at": 0.0, "done_at": 12.0, "sec": 12.0}],
+        "violations": [], "interlocks": [],
+        "tools": [{"button": "B2", "want": "wrench", "grasp_sec": 3.0,
+                   "wrong": {"driver": 2}}],
+        "tool_names": {"wrench": "렌치", "driver": "드라이버"},
+        "frames": 100,
+        "detections": {"B1": {"frames": 80, "score_sum": 64.0, "score_frames": 80},
+                       "손": {"frames": 50, "score_sum": 0.0, "score_frames": 0},
+                       "wrench": {"frames": 9, "score_sum": 7.2, "score_frames": 9}},
+    })
+    check(not panel.isHidden(), "🔴 show_result() 하면 창이 뜬다")
+
+    texts = [w.text() for w in panel._body.findChildren(QLabel)]
+    check(any("다른 공구 2회" in t for t in texts),
+          "오답 공구는 **횟수**로 보인다")
+    check(any("렌치" in t for t in texts), "공구는 표시명으로 보인다")
+    check(any(t.startswith("손 — 검출 50 프레임") and "신뢰도" not in t
+              for t in texts),
+          "🔴 점수 표본이 없는 검출에는 신뢰도를 적지 않는다")
+    check(any("분모가 다릅니다" in t for t in texts),
+          "공구 검출은 분모가 다르다고 밝힌다")
+    panel.hide()
 
 
 if __name__ == "__main__":
