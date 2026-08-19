@@ -1047,6 +1047,33 @@ class SafetyConsole(QMainWindow):
                 self._stats.tool_grasped(self._tool_state.want_tool, True)
         self._update_sub_view()
 
+    def _sim_tool_grasped(self):
+        """시연용 `t` — 요구 공구를 **쥔 것으로** 처리한다.
+
+        🔑 카메라·실물 공구 없이 시나리오를 B4 까지 굴리기 위한 것이다. 물리 버튼을
+           `1`~`4` 로 흉내내는 것과 **같은 층**의 우회다(둘 다 상시 켜져 있다).
+        🔑 「찾기」와 「집기」가 따로 있지 않다 — 진행 조건은 `SubTask.tool_ok`
+           하나뿐이라 이 한 번으로 둘 다 채워진다. 판정기(`tool_state.ToolState`)는
+           통째로 우회한다.
+        ⚠️ 시간 조건은 **우회하지 않는다** — 대기가 남았으면 그대로 기다렸다가
+           10초가 차는 순간 자동 진행한다(진행 조건은 시간 AND 공구 그대로).
+        🔴 로그에 우회 사실을 남긴다 — 나중에 로그를 볼 때 실제 검출이었는지
+           키보드였는지 구별되지 않으면 안 된다.
+        """
+        sub = self._sub
+        if sub is None or not sub.is_active or not sub.needs_tool:
+            self._append_log("[시험] t — 지금은 공구를 요구하는 단계가 아닙니다")
+            return
+        if sub.tool_ok:
+            self._append_log(f"[시험] t — {sub.want_tool_name} 는 이미 쥔 상태입니다")
+            return
+
+        sub.set_tool(sub.want_tool)
+        self._stats.tool_grasped(sub.want_tool, True)
+        self._append_log(f"[시험] t — 공구 「{sub.want_tool_name}」를 쥔 것으로 "
+                         f"처리(키보드 우회)")
+        self._update_sub_view()
+
     def _on_start_process(self):
         self.fsm.load_recipe()
         self._append_log(f"[FSM] 작업 시작 — {self.fsm.expected_step}단계: "
@@ -1327,7 +1354,8 @@ class SafetyConsole(QMainWindow):
         self._relayout()
 
     def keyPressEvent(self, event):
-        """시연용 버튼 입력: 1~4 = B1~B4 눌림, E = 비상정지(EMO).
+        """시연용 버튼 입력: 1~4 = B1~B4 눌림, E = 비상정지(EMO),
+        T = 요구 공구를 쥔 것으로 처리(카메라·실물 공구 없이 시나리오를 굴릴 때).
 
         🔴 ESC = 탈출구 — Full Screen 이라 메뉴가 유일한 출구다(design §7).
            마우스·터치가 안 먹거나 메뉴가 안 열려도 여기로 빠져나온다.
@@ -1359,6 +1387,8 @@ class SafetyConsole(QMainWindow):
             self._press_button(f"B{key}")
         elif key == "E":
             self._press_button("EMO")
+        elif key == "T":
+            self._sim_tool_grasped()
         else:
             super().keyPressEvent(event)
 

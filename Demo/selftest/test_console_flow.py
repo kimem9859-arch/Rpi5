@@ -747,6 +747,62 @@ def test_stats_wiring_reentry_keeps_press_time():
     win.close()
 
 
+def test_sim_tool_key_completes_tool_subtask():
+    """🔴 시연용 `t` 키가 공구 서브 작업을 완료시키는가.
+
+    카메라·실물 공구 없이 시나리오를 B4 까지 굴리기 위한 우회다. 「찾기」와
+    「집기」가 따로 없고 한 번으로 둘 다 채워진다(진행 조건 = SubTask.tool_ok).
+
+    ⚠️ **시간 조건은 우회하지 않는다** — 대기가 남아 있으면 t 를 눌러도 넘어가지
+       않아야 한다. 그것까지 건너뛰면 「시간 AND 공구」 규칙이 무너진다.
+    """
+    print("\n[22] 시연용 t — 공구 서브 작업 완료")
+    win = make_console()
+    win._on_cta()
+
+    key(win, "1")                                    # B1 — 공구 없는 서브
+    win._sub.tick(now=time.time() + 999)
+    win._update_sub_view()                           # 자동 진행 → B2 기대
+
+    key(win, "2")                                    # B2 — 공구를 요구하는 서브
+    check(win._sub is not None and win._sub.needs_tool, "B2 서브는 공구를 요구한다")
+    before = win.fsm.expected_step
+
+    key(win, "t")                                    # 🔑 공구를 쥔 것으로 처리
+    check(win._sub is not None and win._sub.tool_ok, "t → 요구 공구를 쥔 상태가 된다")
+    check(win.fsm.expected_step == before,
+          "🔴 시간이 안 찼으면 t 만으로는 넘어가지 않는다")
+
+    win._sub.tick(now=time.time() + 999)             # 시간까지 채움
+    win._update_sub_view()
+    check(win.fsm.expected_step == before + 1, "시간까지 차면 자동 진행")
+
+    # 집계에도 남아 결과창의 「N초 만에 쥠」이 채워진다
+    key(win, "3")
+    win._sub.tick(now=time.time() + 999)
+    win._update_sub_view()
+    key(win, "4")
+    out = win._stats.finish()
+    check(len(out["tools"]) == 1 and out["tools"][0]["button"] == "B2",
+          f"공구 기록은 B2 하나 — {[t['button'] for t in out['tools']]}")
+    check(out["tools"][0]["grasp_sec"] is not None,
+          f"쥔 시각이 집계된다 — {out['tools'][0]['grasp_sec']}")
+    win.close()
+
+
+def test_sim_tool_key_outside_tool_step_is_ignored():
+    """공구 단계가 아닐 때 t 를 눌러도 아무 일도 일어나지 않는다."""
+    print("\n[23] 시연용 t — 공구 단계가 아닐 때")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")                                    # B1 — 공구 없는 서브
+    before = win.fsm.expected_step
+    key(win, "t")
+    check(win.fsm.expected_step == before, "기대단계가 움직이지 않는다")
+    check(win._sub is not None and win._sub.is_active, "서브 작업도 그대로다")
+    win.close()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
