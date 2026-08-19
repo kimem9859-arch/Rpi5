@@ -45,6 +45,12 @@ def test_clean_run():
           f"1단계 소요 {out['steps'][0]['sec']}s")
     check(set(out["steps"][0]) == {"order", "button", "name", "pressed_at", "done_at", "sec"},
           f"steps 항목 키 집합 {sorted(out['steps'][0])} — 스키마와 정확히 일치")
+    # 🔑 tool_names 는 설계 §3.5 목록에 없지만 결과창이 표시명을 쓰려면 필요하다
+    #    (2026-08-19 승인 — 설계는 별도로 갱신).
+    check(set(out) == {"recipe", "started_at", "finished_at", "total_sec", "ok",
+                       "steps", "violations", "interlocks", "tools", "tool_names",
+                       "frames", "detections"},
+          f"finish() 최상위 키 집합 {sorted(out)} — 스키마와 정확히 일치")
 
 
 def test_violation_and_interlock():
@@ -74,17 +80,26 @@ def test_tool_subtask():
     print("\n[3] 공구")
     s = SessionStats()
     s.start("t", 4, now=0.0)
-    s.sub_started("B2", {"type": "wait_tool", "sec": 10, "tool": "wrench"}, now=0.0)
+    s.sub_started("B2", {"type": "wait_tool", "sec": 10, "tool": "wrench",
+                         "tool_names": {"wrench": "렌치", "driver": "드라이버"}},
+                  now=0.0)
     s.tool_grasped("driver", False, now=3.0)      # 다른 공구를 집었다
+    s.tool_grasped("driver", False, now=4.0)      # 또 집었다 — **횟수**로 세야 한다
     s.tool_grasped("wrench", True, now=7.5)       # 요구 공구를 쥐었다
     s.sub_done("B2", now=7.5)
+    # 🔴 공구가 없는 서브(wait)는 담지 않는다 — 「요구 None」 줄이 나가면 안 된다
+    s.sub_started("B3", {"type": "wait", "sec": 10}, now=8.0)
     out = s.finish(now=10.0)
     t = out["tools"][0]
     check(t["want"] == "wrench", f"요구 공구 {t['want']}")
     check(abs(t["grasp_sec"] - 7.5) < 1e-6, f"쥐기까지 {t['grasp_sec']}s")
-    check(t["wrong"] == ["driver"], f"오답 공구 {t['wrong']}")
+    check(t["wrong"] == {"driver": 2}, f"오답 공구 {t['wrong']} — 종류가 아니라 횟수")
     check(set(t) == {"button", "want", "grasp_sec", "wrong"},
           f"tools 항목 키 집합 {sorted(t)} — 스키마와 정확히 일치")
+    check(len(out["tools"]) == 1 and all(x["want"] for x in out["tools"]),
+          f"공구 서브만 담긴다 — tools {len(out['tools'])}건, want 가 None 인 항목 없음")
+    check(out["tool_names"].get("wrench") == "렌치",
+          f"표시명 사전 {out['tool_names']} — 결과창이 키 대신 표시명을 쓴다")
 
 
 def test_detection_counts():
@@ -92,14 +107,21 @@ def test_detection_counts():
     print("\n[4] 검출")
     s = SessionStats()
     s.start("t", 4, now=0.0)
-    s.frame([("B1", 0.90), ("손", 0.80)])
+    s.frame([("B1", 0.90), ("손", None)])
     s.frame([("B1", 0.80)])
     s.frame([])
     out = s.finish(now=1.0)
     check(out["frames"] == 3, f"전체 프레임 {out['frames']}")
     check(out["detections"]["B1"]["frames"] == 2, "B1 검출 2프레임")
     check(abs(out["detections"]["B1"]["score_sum"] - 1.70) < 1e-6, "신뢰도 합 1.70")
+    check(out["detections"]["B1"]["score_frames"] == 2, "B1 점수 표본 2프레임")
     check(out["detections"]["손"]["frames"] == 1, "손 검출 1프레임")
+    # 🔴 점수가 없는 검출(손)은 표본으로 세지 않는다 — 자리표시자를 평균 내면
+    #    화면에 근거 없는 「평균 신뢰도 1.00」이 나간다.
+    check(out["detections"]["손"]["score_frames"] == 0,
+          f"손 점수 표본 {out['detections']['손']['score_frames']}프레임 — 신뢰도 없음")
+    check(set(out["detections"]["B1"]) == {"frames", "score_sum", "score_frames"},
+          f"detections 항목 키 집합 {sorted(out['detections']['B1'])} — 스키마와 정확히 일치")
     check("rate" not in out["detections"]["B1"],
           "🔴 비율(rate)을 만들지 않는다 — 손 없는 프레임이 분모에 섞인다")
 

@@ -32,9 +32,10 @@ class SessionStats:
         self._pending = {}         # button -> pressed_at
         self._violations = []
         self._interlocks = []
-        self._tools = []           # {button, want, start, grasp_sec, wrong[]}
+        self._tools = []           # {button, want, start, grasp_sec, wrong{키:횟수}}
+        self._tool_names = {}      # 공구 키 -> 표시명(레시피 sub.tool_names)
         self._frames = 0
-        self._dets = {}            # name -> {frames, score_sum}
+        self._dets = {}            # name -> {frames, score_sum, score_frames}
 
     # ------------------------------------------------------------------ 시작
     def start(self, recipe_name, step_count, now=None):
@@ -61,8 +62,19 @@ class SessionStats:
 
     # ------------------------------------------------------------------ 서브
     def sub_started(self, button, spec, now=None):
-        self._tools.append({"button": button, "want": (spec or {}).get("tool"),
-                            "_start": _now(now), "grasp_sec": None, "wrong": []})
+        """🔴 **공구 서브만** 담는다 — 집계 계약이다.
+
+        공구가 필요 없는 단계(`wait`)까지 담으면 결과창에 「요구 None」 줄이
+        찍힌다(2026-08-19 리뷰 C2). 덤으로 `tool_grasped` 가 `self._tools[-1]`
+        을 쓰는 구조적 위험도 사라진다 — 공구 없는 단계가 마지막 항목이 되어
+        늦게 도착한 공구 결과를 잘못 받아 적는 일이 없어진다.
+        """
+        spec = spec or {}
+        if not spec.get("tool"):
+            return
+        self._tool_names.update(spec.get("tool_names") or {})
+        self._tools.append({"button": button, "want": spec.get("tool"),
+                            "_start": _now(now), "grasp_sec": None, "wrong": {}})
 
     def sub_done(self, button, now=None):
         pass          # 쥔 시각은 tool_grasped 가 이미 기록한다
@@ -74,8 +86,10 @@ class SessionStats:
         if ok:
             if cur["grasp_sec"] is None:
                 cur["grasp_sec"] = _now(now) - cur["_start"]
-        elif key and key not in cur["wrong"]:
-            cur["wrong"].append(key)
+        elif key:
+            # 🔴 **횟수**를 센다 — 종류당 1회만 남기면 세 번 집어도 「1회」로 보인다
+            #    (설계 §3.3 은 횟수·종류 둘 다를 요구한다).
+            cur["wrong"][key] = cur["wrong"].get(key, 0) + 1
 
     # ------------------------------------------------------------------ 위반
     def violation(self, expected, actual, level, now=None):
@@ -91,13 +105,21 @@ class SessionStats:
 
     # ------------------------------------------------------------------ 검출
     def frame(self, names):
-        """프레임 1장의 검출 목록. names = [(이름, 신뢰도), ...] 또는 [이름, ...]"""
+        """프레임 1장의 검출 목록. names = [(이름, 신뢰도), ...] 또는 [이름, ...]
+
+        🔴 신뢰도가 **None** 이면 점수를 더하지 않고 표본으로도 세지 않는다 —
+           점수가 없는 검출(손 like/unlike 판정)에 자리표시자 1.0 을 넣으면
+           화면에 「평균 신뢰도 1.00」이라는 근거 없는 수치가 나간다.
+        """
         self._frames += 1
         for item in names:
             name, score = item if isinstance(item, (tuple, list)) else (item, 0.0)
-            d = self._dets.setdefault(name, {"frames": 0, "score_sum": 0.0})
+            d = self._dets.setdefault(name, {"frames": 0, "score_sum": 0.0,
+                                             "score_frames": 0})
             d["frames"] += 1
-            d["score_sum"] += float(score)
+            if score is not None:
+                d["score_sum"] += float(score)
+                d["score_frames"] += 1
 
     # ------------------------------------------------------------------ 마감
     def finish(self, now=None):
@@ -113,8 +135,9 @@ class SessionStats:
             "violations": list(self._violations),
             "interlocks": list(self._interlocks),
             "tools": [{"button": x["button"], "want": x["want"],
-                       "grasp_sec": x["grasp_sec"], "wrong": list(x["wrong"])}
+                       "grasp_sec": x["grasp_sec"], "wrong": dict(x["wrong"])}
                       for x in self._tools],
+            "tool_names": dict(self._tool_names),
             "frames": self._frames,
             "detections": {k: dict(v) for k, v in self._dets.items()},
         }

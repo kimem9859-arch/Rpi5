@@ -10,7 +10,6 @@
 
 import time
 
-from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QLabel, QVBoxLayout, QScrollArea, QWidget,
                              QHBoxLayout)
 
@@ -32,9 +31,11 @@ def _stamp(ts):
 
 
 class ResultPanel(_Sheet):
-    """작업 완료 결과. 내용이 길어 스크롤한다."""
+    """작업 완료 결과. 내용이 길어 스크롤한다.
 
-    closed = pyqtSignal()
+    🔴 `closed` 시그널을 여기서 다시 선언하지 않는다 — 기반 클래스 `_Sheet.closed`
+       를 가려, 기반 클래스 타입으로 connect 한 곳이 조용히 끊긴다.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -101,26 +102,52 @@ class ResultPanel(_Sheet):
             + (f" → {_stamp(x['released_at'])} 해제" if x["released_at"] else " (해제 안 됨)")
             for i, x in enumerate(ils, 1)] or ["없음"])
 
+        # 🔑 공구는 키(wrench)가 아니라 표시명(렌치)으로 보인다 — 나머지 UI 와 같게.
+        names = d.get("tool_names") or {}
+
+        def tname(key):
+            return names.get(key, key)
+
         rows = []
         for t in d["tools"]:
             got = f"{t['grasp_sec']:.1f}초 만에 쥠" if t["grasp_sec"] is not None else "쥐지 않음"
-            rows.append(f"{t['button']} — 요구 {t['want']} · {got}")
+            rows.append(f"{t['button']} — 요구 {tname(t['want'])} · {got}")
             if t["wrong"]:
-                rows.append(f"    다른 공구 {len(t['wrong'])}회: {', '.join(t['wrong'])}")
+                # 🔴 **횟수**를 보인다 — 종류 수가 아니다(설계 §3.3).
+                total = sum(t["wrong"].values())
+                detail = ", ".join(f"{tname(k)} {n}회"
+                                   for k, n in sorted(t["wrong"].items()))
+                rows.append(f"    다른 공구 {total}회: {detail}")
         self._section("공구 서브 작업", rows or ["없음"])
 
         det = d["detections"]
         frames = d["frames"]
+        tool_keys = set(getattr(config, "TOOL_BOX_COLORS", {})) | set(names)
         rows = [f"전체 {frames} 프레임"]
+        tool_rows = []
         for name in sorted(det):
             v = det[name]
-            avg = v["score_sum"] / v["frames"] if v["frames"] else 0.0
-            rows.append(f"{name} — 검출 {v['frames']} 프레임 · 평균 신뢰도 {avg:.2f}")
+            (tool_rows if name in tool_keys else rows).append(
+                self._det_line(tname(name) if name in tool_keys else name, v))
         self._section("AI 검출", rows)
+        if tool_rows:
+            # 🔴 공구는 분모가 다르다 — 같은 표에 놓으면 「거의 안 잡혔다」로 읽힌다.
+            self._section("AI 검출 — 공구", tool_rows + [
+                "공구는 약 1초에 1회만 추론하므로 위 전체 프레임 수와 분모가 다릅니다"])
 
         self.apply_theme()
         self.show()
         self.raise_()
+
+    @staticmethod
+    def _det_line(name, v):
+        """검출 한 줄. 🔴 점수 표본이 없으면 신뢰도를 **적지 않는다** —
+        자리표시자를 평균 내면 근거 없는 「평균 신뢰도 1.00」이 나간다."""
+        n = v.get("score_frames", 0)
+        if not n:
+            return f"{name} — 검출 {v['frames']} 프레임"
+        return (f"{name} — 검출 {v['frames']} 프레임 · "
+                f"평균 신뢰도 {v['score_sum'] / n:.2f}")
 
     def _section(self, title, lines):
         cap = QLabel(title)
