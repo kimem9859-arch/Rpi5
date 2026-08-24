@@ -1,13 +1,18 @@
-"""발표용 차트 3종 생성 — 표준 라이브러리만 (인라인 SVG).
+"""발표용 차트 8종 생성 — 표준 라이브러리만 (인라인 SVG).
 
 왜 이 방식인가:
     파이에 matplotlib 이 없고, `db_report.py` 가 이미 "표준 라이브러리 + 인라인 SVG"
     로 리포트를 만드는 선례가 있다. 같은 방식을 따른다.
 
 만드는 것 (전부 로컬 데이터·추가 촬영 불필요):
-    1) 02_채점.svg      ← test/logs/score_*_console_v2.csv  (§10.20)
-    2) 04_체류분포.svg  ← test/hoi.db  palm_frames + presses
-    3) 05_버튼y.svg     ← test/hoi.db  (판정 규칙은 `hoi_metrics.py` 단일 출처)
+    01 파랑스티커  ← test/raw/  ESP32 원본 프레임 2장 (§10.12)
+    02 채점        ← test/logs/score_*_console_v2.csv (§10.20)
+    03 HOI 구조    ← 작도 (§10.21)
+    04 체류분포    ← test/hoi.db  palm_frames + presses
+    05 버튼y       ← test/hoi.db  (판정 규칙은 `hoi_metrics.py` 단일 출처)
+    06 오경보      ← §10.31 측정값을 1분 축에 옮긴 도식
+    07 FPS         ← test/logs/20260810_*_fps-*_perf_log.csv (§10.34)
+    08 tool_v3     ← ~/lab/tool-detect/tool_live_shots/ (§10.41·§10.42, repo 밖)
 
 🔴 지표 이름을 섞지 않는다 — 각 차트의 부제에 **무엇을 잰 값인지·조건**을 박아 넣는다.
    특히 2)는 §10.23 의 57%/14% 와 **다른 모집단**(전체 눌림 407건, 22세션 통합)이므로
@@ -15,9 +20,18 @@
 
 사용:
     python3 test/slide_charts.py [--out <디렉터리>]
+
+PNG 로 굽기 (파이엔 rsvg/cairosvg 가 없어 헤드리스 크로미움을 쓴다):
+    chromium --headless --disable-gpu --no-sandbox --hide-scrollbars \
+             --force-device-scale-factor=2 --window-size=1616,916 \
+             --screenshot=out.png file://$PWD/01_....svg
+    # 그 뒤 가장자리 16px 를 잘라내면 정확히 3200x1800 이 된다.
+    # 🔴 1600x900 으로 찍으면 body 기본 여백(8px) 때문에 **아래쪽 글이 잘린다** —
+    #    여백만큼 키워 찍고 잘라내는 것이 유일하게 확실했다.
 """
 
 import argparse
+import base64
 import csv
 import glob
 import os
@@ -59,6 +73,19 @@ def line(x1, y1, x2, y2, stroke=GRID, width=1, dash=None):
     d = f' stroke-dasharray="{dash}"' if dash else ""
     return (f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
             f'stroke="{stroke}" stroke-width="{width}"{d}/>')
+
+
+def image(path, x, y, w, h, fit="slice"):
+    """PNG 을 base64 로 박아 넣는다 — SVG 를 자립형으로 유지(외부 파일 의존 금지).
+
+    🔴 `fit="slice"` 는 넘치는 쪽을 잘라낸다 — **잘리면 안 되는 증거 사진은 "meet"**.
+    (검정 B4 가 프레임 아래쪽에 있어 slice 로는 화면 밖으로 나갔다.)
+    """
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("ascii")
+    return (f'<image x="{x}" y="{y}" width="{w}" height="{h}" '
+            f'preserveAspectRatio="xMidYMid {fit}" '
+            f'href="data:image/png;base64,{b64}"/>')
 
 
 def svg_page(title, subtitle, body):
@@ -280,14 +307,259 @@ def chart_button_y(out_dir):
         "".join(b)))
 
 
+# ───────────────────────────────────────────────── 4) B4 파랑 스티커 Before/After
+_RAW = os.path.join(_TEST_DIR, "raw")
+STICKER_BEFORE = os.path.join(_RAW, "20260710_173555_esp32", "f00050.png")
+STICKER_AFTER = os.path.join(_RAW, "20260713_174153_esp32", "f00051.png")
+
+
+def chart_sticker(out_dir):
+    b = []
+    iw, ih, iy = 560, 420, 168
+    for i, (path, cap, sub, color) in enumerate((
+            (STICKER_BEFORE, "BEFORE — 검정 B4", "2026-07-10 · 검정 버튼 on 검정 패널", WARN),
+            (STICKER_AFTER, "AFTER — 🔵 파랑 스티커", "2026-07-13 · 같은 모조 콘솔", OK))):
+        x = 130 + i * (iw + 220)
+        b.append(rect(x - 6, iy - 6, iw + 12, ih + 12, color, rx=8))
+        b.append(image(path, x, iy, iw, ih, fit="meet"))
+        b.append(txt(x, iy - 22, cap, 26, color, weight="bold"))
+        b.append(txt(x + iw, iy - 22, sub, 17, MUTED, anchor="end"))
+
+    y = iy + ih + 56
+    b.append(txt(90, y, "B4(우하단) 버튼만 바뀌었다 — 모델도 카메라도 그대로다.", 24, INK,
+                 weight="bold"))
+
+    # 채도 대비 막대
+    by, bh, bx, bmax = y + 36, 36, 300, 860
+    for i, (lab, v, color) in enumerate((("검정 B4", 9.1, WARN), ("파랑 B4", 98.0, OK))):
+        yy = by + i * (bh + 22)
+        b.append(txt(280, yy + bh - 12, lab, 21, INK, anchor="end"))
+        b.append(rect(bx, yy, bmax * v / 100, bh, color, rx=5))
+        b.append(txt(bx + bmax * v / 100 + 14, yy + bh - 12, f"ΔS {v}", 24, color,
+                     weight="bold"))
+    b.append(txt(90, by - 14, "주변 대비 채도 차이 (ΔS) — 10.8배", 20, MUTED))
+    b.append(txt(bx, by + 2 * (bh + 22) + 26,
+                 "열화 내성: 블러 σ3.0 · JPEG q12 · 해상도 25% · 3중 복합 — 전부 ΔS 98 이상 유지",
+                 19, INK))
+
+    return write(out_dir, "01_파랑스티커_전후.svg", svg_page(
+        "B4 미검출 — 재학습이 아니라 스티커로 풀었다",
+        "ESP32 원본 프레임(무손실 PNG) · 통합문서 §10.12. "
+        "검정 버튼은 패널과 대비 15/255 라 모델이 경계선에만 의존했다.", "".join(b)))
+
+
+# ─────────────────────────────────────────────────────────── 5) HOI 통합 구조
+def chart_hoi(out_dir):
+    b = []
+    cy = 205
+    for side, (title, color) in enumerate((("BEFORE", WARN), ("AFTER", OK))):
+        x0 = 90 + side * 800
+        b.append(txt(x0, cy - 40, title, 28, color, weight="bold"))
+        b.append(rect(x0, cy, 660, 380, "#fafafa", rx=10))
+        for i, name in enumerate(("버튼 검출 모델", "손 검출 모델")):
+            bx = x0 + 40 + i * 300
+            b.append(rect(bx, cy + 40, 260, 90, "#e8eefc", rx=8))
+            b.append(txt(bx + 130, cy + 92, name, 21, INK, anchor="middle"))
+            if side == 0:
+                b.append(rect(bx, cy + 170, 260, 70, "#fde8e8", rx=8))
+                b.append(txt(bx + 130, cy + 212, "자체 VDevice", 20, WARN,
+                             anchor="middle"))
+                b.append(line(bx + 130, cy + 130, bx + 130, cy + 170, MUTED, 3))
+        if side == 0:
+            b.append(rect(x0 + 40, cy + 290, 560, 70, "#fde8e8", rx=8))
+            b.append(txt(x0 + 320, cy + 332, "NPU 1개를 두 모델이 다툰다 → 동시 실행 불가",
+                         21, WARN, anchor="middle"))
+        else:
+            for i in range(2):
+                b.append(line(x0 + 170 + i * 300, cy + 130, x0 + 330, cy + 200,
+                              MUTED, 3))
+            b.append(rect(x0 + 40, cy + 200, 560, 80, "#dcfce7", rx=8))
+            b.append(txt(x0 + 320, cy + 248,
+                         "hailo_device.py — 공유 스케줄러 (ROUND_ROBIN)", 21, OK,
+                         anchor="middle"))
+            b.append(rect(x0 + 40, cy + 310, 560, 70, "#dcfce7", rx=8))
+            b.append(txt(x0 + 320, cy + 352, "버튼 + 손을 같은 프레임에서 동시 추론",
+                         21, OK, anchor="middle"))
+    b.append(txt(770, cy + 230, "→", 60, MUTED, anchor="middle"))
+
+    y = cy + 470
+    b.append(txt(90, y, "구조를 합치자 코드는 오히려 줄었다", 26, INK, weight="bold"))
+    for i, (lab, val, color) in enumerate((("삭제", "− 81줄", OK), ("추가", "+ 15줄", MUTED))):
+        b.append(txt(90 + i * 260, y + 52, f"{lab}  {val}", 30, color, weight="bold"))
+    b.append(txt(700, y + 52,
+                 "MediaPipe 블록 4곳을 hand_tracker.py 로 교체 (Rpi5 0953294)", 20, MUTED))
+    b.append(txt(90, y + 100,
+                 "🔑 이 시점에 「감지」가 코드로 성립했다 — 이후 과제는 전부 성능 문제다.",
+                 22, ACCENT))
+
+    return write(out_dir, "03_HOI_통합구조.svg", svg_page(
+        "HOI 통합 — 버튼과 손을 한 장치에서",
+        "통합문서 §10.21 · Rpi5 d9b5077(VDevice 공유) · 0953294(손 검출 연결)",
+        "".join(b)))
+
+
+# ────────────────────────────────────────────────── 6) E2E 오경보 (부정 결과)
+FALSE_ALARM_PER_MIN = 15.46   # §10.31 — 창 ON. 대조군(창 OFF) 15.32
+
+
+def chart_false_alarm(out_dir):
+    b = []
+    x0, y0, w = 110, 400, 1380
+    b.append(txt(x0, y0 - 140, f"{FALSE_ALARM_PER_MIN}", 110, WARN, weight="bold"))
+    b.append(txt(x0 + 300, y0 - 150, "회 / 분", 40, WARN, weight="bold"))
+    b.append(txt(x0 + 300, y0 - 108, "정상 작업 중 발생한 오경보", 24, MUTED))
+
+    b.append(line(x0, y0, x0 + w, y0, MUTED, 3))
+    n = int(round(FALSE_ALARM_PER_MIN))
+    for i in range(n):
+        x = x0 + w * (i + 0.5) / n
+        b.append(line(x, y0 - 60, x, y0, WARN, 5))
+        b.append(f'<circle cx="{x:.1f}" cy="{y0 - 66}" r="9" fill="{WARN}"/>')
+    for s in range(0, 61, 10):
+        x = x0 + w * s / 60
+        b.append(line(x, y0, x, y0 + 12, MUTED, 2))
+        b.append(txt(x, y0 + 40, f"{s}초", 18, MUTED, anchor="middle"))
+    b.append(txt(x0, y0 + 100, "= 약 4초에 한 번 차단", 34, INK, weight="bold"))
+
+    y = y0 + 170
+    for i, (head, body_txt, color) in enumerate((
+            ("층1 · 경고", "화면·타워램프로 알린다 — 오경보가 나도 작업은 이어진다", OK),
+            ("층2 · 물리 차단", "전기를 끊는다 — 오경보 1건마다 라인이 멈춘다", WARN))):
+        yy = y + i * 96
+        b.append(rect(x0, yy, 1380, 78, "#dcfce7" if color == OK else "#fee2e2", rx=8))
+        b.append(txt(x0 + 26, yy + 48, head, 24, color, weight="bold"))
+        b.append(txt(x0 + 260, yy + 48, body_txt, 21, INK))
+    b.append(txt(x0, y + 232,
+                 "🔴 결론 = 층2는 현재 성립 불가. 선행 조건은 오경보 저감이며, "
+                 "재기 전에는 설계할 수 없다.", 22, WARN, weight="bold"))
+
+    return write(out_dir, "06_E2E_오경보.svg", svg_page(
+        "차단을 설계하기 전에 오경보를 재지 않았다",
+        "통합문서 §10.31 · 시뮬레이션 정책 4종 적용값이라 실제 GUI 운용과 다르다. "
+        "아래 눈금은 분당 발생 횟수를 1분 축에 옮긴 도식.", "".join(b)))
+
+
+# ──────────────────────────────────────────────────────── 7) FPS 병목 해소
+FPS_BEFORE = os.path.join(_TEST_DIR, "logs",
+                          "20260810_141413_esp32_fps-eungmin-hoi_console_v2_perf_log.csv")
+FPS_AFTER = os.path.join(_TEST_DIR, "logs",
+                         "20260810_143036_esp32_fps-after-fbcount2-hoi_console_v2_perf_log.csv")
+
+
+def _fps(path):
+    return [float(r["fps"]) for r in csv.DictReader(open(path, encoding="utf-8"))][1:]
+
+
+def chart_fps(out_dir):
+    before, after = _fps(FPS_BEFORE), _fps(FPS_AFTER)
+    b = []
+    x0, y0, plotw, hmax, ymax = 130, 530, 1000, 360, 35.0
+    for v in range(0, int(ymax) + 1, 5):
+        gy = y0 - hmax * v / ymax
+        b.append(line(x0, gy, x0 + plotw, gy))
+        b.append(txt(x0 - 16, gy + 7, v, 16, MUTED, anchor="end"))
+    gy15 = y0 - hmax * 15 / ymax
+    b.append(line(x0, gy15, x0 + plotw, gy15, "#111827", 3, dash="10 6"))
+    b.append(rect(x0 + 6, gy15 - 34, 172, 28, "#ffffff", rx=4, opacity=0.88))
+    b.append(txt(x0 + 14, gy15 - 14, "NFR-1  15 fps", 20, INK, weight="bold"))
+
+    for series, color in ((before, WARN), (after, OK)):
+        pts = " ".join(f"{x0 + plotw * i / (len(series) - 1):.1f},"
+                       f"{y0 - hmax * min(v, ymax) / ymax:.1f}"
+                       for i, v in enumerate(series))
+        b.append(f'<polyline points="{pts}" fill="none" stroke="{color}" '
+                 f'stroke-width="2.5" opacity="0.9"/>')
+    b.append(txt(x0, y0 + 34, "프레임 (각 300장, 같은 장면·같은 코드)", 19, MUTED))
+
+    px = x0 + plotw + 60
+    for i, (lab, series, color) in enumerate((("BEFORE  fb_count=1", before, WARN),
+                                              ("AFTER  fb_count=2", after, OK))):
+        yy = 190 + i * 200
+        b.append(txt(px, yy, lab, 24, color, weight="bold"))
+        b.append(txt(px, yy + 56, f"{statistics.mean(series):.2f} fps", 46, color,
+                     weight="bold"))
+        b.append(txt(px, yy + 96, f"15fps 미만 프레임 "
+                                  f"{100 * sum(1 for v in series if v < 15) / len(series):.0f}%",
+                     21, INK))
+        b.append(txt(px, yy + 128, f"최저 {min(series):.1f} fps", 20, MUTED))
+
+    y = y0 + 90
+    b.append(txt(x0, y, "바꾼 것은 ESP32 펌웨어 3줄", 26, INK, weight="bold"))
+    b.append(rect(x0, y + 22, 900, 116, "#f4f4f5", rx=8))
+    for i, ln in enumerate(("config.fb_count = 2;",
+                            "config.grab_mode = CAMERA_GRAB_LATEST;",
+                            "WiFi.setSleep(false);")):
+        b.append(txt(x0 + 24, y + 56 + i * 34, ln, 21, INK))
+    b.append(txt(x0 + 960, y + 56,
+                 "🔴 두 달간의 진단은 「TCP 전송·하드웨어 한계」였다.", 21, WARN,
+                 weight="bold"))
+    b.append(txt(x0 + 960, y + 92, "실제 대역폭 사용률은 1.2% — 전송은 범인이 아니었다.",
+                 20, INK))
+    b.append(txt(x0 + 960, y + 124, "병목은 ESP32 안에서 프레임을 1장만 쥐고 있던 것.",
+                 20, INK))
+
+    return write(out_dir, "07_FPS_병목해소.svg", svg_page(
+        "FPS 10 → 24 — 원인을 두 달간 잘못 짚었다",
+        "2026-08-10 · ESP32 경로 · 손 검출 포함 · 통합문서 §10.34. "
+        "🔴 손 없는 정지 장면·단일 조건이며 최저 5.1fps 구간이 남아 있다.", "".join(b)))
+
+
+# ─────────────────────────────────────────────────────── 8) tool_v3 공구 검출
+_SHOTS = os.path.expanduser("~/lab/tool-detect/tool_live_shots")
+TOOL_SHOTS = (("드라이버", "tool_v3_driver-0.75_161444.png"),
+              ("렌치", "tool_v3_wrench-0.79_161344.png"),
+              ("플라이어", "tool_v3_pliers-0.80_161453.png"))
+
+
+def chart_tool(out_dir):
+    b = []
+    iw, ih, iy = 440, 330, 200
+    for i, (name, fn) in enumerate(TOOL_SHOTS):
+        path = os.path.join(_SHOTS, fn)
+        if not os.path.exists(path):
+            continue
+        x = 90 + i * (iw + 40)
+        b.append(rect(x - 5, iy - 5, iw + 10, ih + 10, OK, rx=8))
+        b.append(image(path, x, iy, iw, ih))
+        b.append(txt(x, iy - 20, name, 24, INK, weight="bold"))
+        conf = fn.split("-")[1].split("_")[0]
+        b.append(txt(x + iw, iy - 20, f"conf {conf}", 20, OK, anchor="end"))
+
+    y = iy + ih + 70
+    b.append(txt(90, y, "바꾼 변수는 데이터 하나 — 하이퍼파라미터는 tool_v1 과 같다",
+                 26, INK, weight="bold"))
+    for i, (lab, val, note, color) in enumerate((
+            ("tool_v1 (ARCAD 3클래스)", "사용 불가", "렌치를 다른 공구로 오분류", WARN),
+            ("tool_v3 (병합 데이터셋)", "29,809장", "train 26,817 / valid 2,992 · 누출 0건", OK))):
+        yy = y + 44 + i * 96
+        b.append(rect(90, yy, 1420, 78, "#fee2e2" if color == WARN else "#dcfce7", rx=8))
+        b.append(txt(116, yy + 48, lab, 22, INK))
+        b.append(txt(560, yy + 48, val, 26, color, weight="bold"))
+        b.append(txt(820, yy + 48, note, 20, MUTED))
+    b.append(txt(90, y + 232,
+                 "🔴 배경 오검출이 남아 있다 — 키보드를 렌치로 0.79. "
+                 "실험실 책상·형광등·단일 세션 값이며 시연 사용 가능 판정이 아니다.",
+                 21, WARN))
+
+    return write(out_dir, "08_tool_v3_공구검출.svg", svg_page(
+        "공구 검출 — 실패 원인은 데이터 양이 아니라 다양성",
+        "tool_live.py 실시간 캡처(뷰어 임계 0.60, 운용 임계 0.65 기준값 아님) · 통합문서 §10.41·§10.42",
+        "".join(b)))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(_TEST_DIR, "slides"))
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
+    chart_sticker(args.out)
     chart_score(args.out)
+    chart_hoi(args.out)
     chart_dwell(args.out)
     chart_button_y(args.out)
+    chart_false_alarm(args.out)
+    chart_fps(args.out)
+    chart_tool(args.out)
 
 
 if __name__ == "__main__":
