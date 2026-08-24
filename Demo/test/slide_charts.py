@@ -49,9 +49,9 @@ W, H = 1600, 900
 
 # 브랜드 팔레트 (2026-08-24 사용자 지정) — 여기만 고치면 8장 전부 따라온다.
 FONT = "Pretendard, NanumGothic, sans-serif"
-FONT_TITLE = "Pretendard ExtraBold, Pretendard, sans-serif"
-# ⚠️ 지정은 Pretendard **Black**(900)이나 이 파이엔 미설치(Regular/SemiBold/Bold/
-#    ExtraBold 뿐)라 **ExtraBold(800)로 대체**했다. Black 을 깔면 여기만 바꾸면 된다.
+FONT_TITLE = "Pretendard Black, Pretendard, sans-serif"
+# 제목 = Pretendard Black(900). 2026-08-24 에 공식 배포처(orioncactus/pretendard)에서
+# 받아 `~/.local/share/fonts/Pretendard/` 에 깔았다 — 없으면 ExtraBold 로 떨어진다.
 
 INK = "#1A1A1A"       # 본문
 MUTED = "#6E5F55"     # 보조 설명 (배경 톤과 어울리는 웜 그레이)
@@ -111,7 +111,7 @@ def svg_page(title, subtitle, body):
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
             f'viewBox="0 0 {W} {H}">'
             + rect(0, 0, W, H, BG)
-            + txt(70, 78, title, 40, INK, weight="800", font=FONT_TITLE)
+            + txt(70, 78, title, 40, INK, weight="900", font=FONT_TITLE)
             + txt(70, 118, subtitle, 22, MUTED)
             + body + "</svg>")
 
@@ -418,7 +418,7 @@ FALSE_ALARM_PER_MIN = 15.46   # §10.31 — 창 ON. 대조군(창 OFF) 15.32
 def chart_false_alarm(out_dir):
     b = []
     x0, y0, w = 110, 400, 1380
-    b.append(txt(x0, y0 - 140, f"{FALSE_ALARM_PER_MIN}", 110, CRIT, weight="800",
+    b.append(txt(x0, y0 - 140, f"{FALSE_ALARM_PER_MIN}", 110, CRIT, weight="900",
                  font=FONT_TITLE))
     b.append(txt(x0 + 300, y0 - 152, "회 / 분", 44, CRIT, weight="bold"))
     b.append(txt(x0 + 300, y0 - 104, "정상 작업 중 오경보", 28, MUTED))
@@ -493,7 +493,7 @@ def chart_fps(out_dir):
         yy = 190 + i * 200
         b.append(txt(px, yy, lab, 27, color, weight="bold"))
         b.append(txt(px, yy + 60, f"{statistics.mean(series):.2f} fps", 52, color,
-                     weight="800", font=FONT_TITLE))
+                     weight="900", font=FONT_TITLE))
         under = 100 * sum(1 for v in series if v < 15) / len(series)
         b.append(txt(px, yy + 104, f"15fps 미만 {under:.0f}%", 25,
                      WARN if under > 50 else INK))
