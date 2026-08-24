@@ -80,9 +80,12 @@ def txt(x, y, s, size=20, fill=INK, anchor="start", weight="normal", font=FONT):
             f'{_esc(s)}</text>')
 
 
-def rect(x, y, w, h, fill, rx=0, opacity=1.0):
+def rect(x, y, w, h, fill, rx=0, opacity=1.0, stroke=None, sw=1.5):
+    """`stroke` 는 **텍스트 상자에만** 준다 — 그래프 막대엔 테두리를 두르지 않는다."""
+    edge = f' stroke="{stroke}" stroke-width="{sw}"' if stroke else ""
     return (f'<rect x="{x:.1f}" y="{y:.1f}" width="{max(w, 0):.1f}" '
-            f'height="{max(h, 0):.1f}" fill="{fill}" rx="{rx}" opacity="{opacity}"/>')
+            f'height="{max(h, 0):.1f}" fill="{fill}" rx="{rx}" '
+            f'opacity="{opacity}"{edge}/>')
 
 
 def line(x1, y1, x2, y2, stroke=GRID, width=1, dash=None):
@@ -173,7 +176,8 @@ def chart_score(out_dir):
             xx = cx + 110 + j * cell
             diag = (r == c)
             fill = PANEL if diag and n else (TINT3 if n else BG)
-            b.append(rect(xx, yy, cell - 4, cell - 4, fill, rx=4))
+            b.append(rect(xx, yy, cell - 4, cell - 4, fill, rx=4,
+                          stroke=INK if n else None))
             if n:
                 b.append(txt(xx + (cell - 4) / 2, yy + cell / 2 + 8, n, 23,
                              INK if diag else WARN, anchor="middle",
@@ -325,12 +329,12 @@ STICKER_AFTER = os.path.join(_RAW, "20260713_174153_esp32", "f00051.png")
 
 def chart_sticker(out_dir):
     b = []
-    iw, ih, iy = 560, 372, 192
+    iw, ih, iy = 496, 372, 192
     for i, (path, cap, sub, color) in enumerate((
             (STICKER_BEFORE, "BEFORE — 검정 B4", "07-10", WARN),
             (STICKER_AFTER, "AFTER — 🔵 파랑 스티커", "07-13 · 같은 콘솔", MAIN))):
-        x = 130 + i * (iw + 220)
-        b.append(rect(x - 6, iy - 6, iw + 12, ih + 12, color, rx=8))
+        x = 150 + i * (iw + 310)
+        b.append(rect(x - 3, iy - 3, iw + 6, ih + 6, color, rx=5))
         b.append(image(path, x, iy, iw, ih, fit="meet"))
         b.append(txt(x, iy - 26, cap, 30, color, weight="bold"))
         b.append(txt(x, iy + ih + 34, sub, 21, MUTED))
@@ -366,16 +370,16 @@ def chart_hoi(out_dir):
 
         for i, name in enumerate(("버튼 검출 모델", "손 검출 모델")):
             bx = x0 + 40 + i * 300
-            b.append(rect(bx, cy + 40, 260, 90, PANEL, rx=8))
+            b.append(rect(bx, cy + 40, 260, 90, PANEL, rx=8, stroke=INK))
             b.append(txt(bx + 130, cy + 94, name, 24, INK, anchor="middle"))
             if side == 0:
-                b.append(rect(bx, cy + 170, 260, 70, PANEL, rx=8))
+                b.append(rect(bx, cy + 170, 260, 70, PANEL, rx=8, stroke=INK))
                 b.append(rect(bx, cy + 170, 7, 70, WARN, rx=3))
                 b.append(txt(bx + 130, cy + 214, "자체 VDevice", 23, WARN,
                              anchor="middle"))
                 b.append(line(bx + 130, cy + 130, bx + 130, cy + 170, MUTED, 3))
         if side == 0:
-            b.append(rect(x0 + 40, cy + 290, 560, 70, PANEL, rx=8))
+            b.append(rect(x0 + 40, cy + 290, 560, 70, PANEL, rx=8, stroke=INK))
             b.append(rect(x0 + 40, cy + 290, 7, 70, WARN, rx=3))
             b.append(txt(x0 + 320, cy + 334, "NPU 를 다퉈 동시 실행 불가",
                          25, WARN, anchor="middle"))
@@ -383,11 +387,11 @@ def chart_hoi(out_dir):
             for i in range(2):
                 b.append(line(x0 + 170 + i * 300, cy + 130, x0 + 330, cy + 200,
                               MUTED, 3))
-            b.append(rect(x0 + 40, cy + 200, 560, 80, PANEL, rx=8))
+            b.append(rect(x0 + 40, cy + 200, 560, 80, PANEL, rx=8, stroke=INK))
             b.append(rect(x0 + 40, cy + 200, 7, 80, MAIN, rx=3))
             b.append(txt(x0 + 320, cy + 250, "공유 스케줄러 (ROUND_ROBIN)", 25, MAIN,
                          anchor="middle"))
-            b.append(rect(x0 + 40, cy + 310, 560, 70, PANEL, rx=8))
+            b.append(rect(x0 + 40, cy + 310, 560, 70, PANEL, rx=8, stroke=INK))
             b.append(rect(x0 + 40, cy + 310, 7, 70, MAIN, rx=3))
             b.append(txt(x0 + 320, cy + 354, "버튼 + 손 동시 추론", 25, MAIN,
                          anchor="middle"))
@@ -436,7 +440,7 @@ def chart_false_alarm(out_dir):
             ("층1 · 경고", "알리기만 한다 — 작업은 이어진다", MAIN),
             ("층2 · 물리 차단", "전기를 끊는다 — 오경보마다 라인이 멈춘다", WARN))):
         yy = y + i * 96
-        b.append(rect(x0, yy, 1380, 78, PANEL, rx=8))
+        b.append(rect(x0, yy, 1380, 78, PANEL, rx=8, stroke=INK))
         b.append(rect(x0, yy, 8, 78, color, rx=3))
         b.append(txt(x0 + 28, yy + 50, head, 28, color, weight="bold"))
         b.append(txt(x0 + 300, yy + 50, body_txt, 25, INK))
@@ -497,7 +501,7 @@ def chart_fps(out_dir):
 
     y = y0 + 90
     b.append(txt(x0, y, "바꾼 것은 펌웨어 3줄", 30, INK, weight="bold"))
-    b.append(rect(x0, y + 22, 900, 116, PANEL, rx=8))
+    b.append(rect(x0, y + 22, 900, 116, PANEL, rx=8, stroke=INK))
     for i, ln in enumerate(("config.fb_count = 2;",
                             "config.grab_mode = CAMERA_GRAB_LATEST;",
                             "WiFi.setSleep(false);")):
@@ -528,7 +532,7 @@ def chart_tool(out_dir):
         if not os.path.exists(path):
             continue
         x = 90 + i * (iw + 40)
-        b.append(rect(x - 5, iy - 5, iw + 10, ih + 10, MAIN, rx=8))
+        b.append(rect(x - 3, iy - 3, iw + 6, ih + 6, MAIN, rx=5))
         b.append(image(path, x, iy, iw, ih))
         b.append(txt(x, iy - 22, name, 28, INK, weight="bold"))
         conf = fn.split("-")[1].split("_")[0]
@@ -540,7 +544,7 @@ def chart_tool(out_dir):
             ("tool_v1 · ARCAD", "사용 불가", "렌치를 오분류", WARN),
             ("tool_v3 · 병합", "29,809장", "누출 0건", MAIN))):
         yy = y + 44 + i * 96
-        b.append(rect(90, yy, 1420, 78, PANEL, rx=8))
+        b.append(rect(90, yy, 1420, 78, PANEL, rx=8, stroke=INK))
         b.append(rect(90, yy, 8, 78, color, rx=3))
         b.append(txt(120, yy + 50, lab, 26, INK))
         b.append(txt(560, yy + 50, val, 30, color, weight="bold"))
