@@ -1,7 +1,7 @@
 {
   "process_name": "PECVD 정비(PM) 시퀀스",
   "description": "단일 PECVD 콘솔 정비(PM·웻클린 make-safe) 4단계 — 통합 설계문서 §6 정본. 정답 순서의 단일 출처. 서브 작업(sub)은 상위 specs/2026-08-03-uiux-글라스-design.md §5·§6.",
-  "dwell_threshold_sec": 1.0,
+  "dwell_threshold_sec": 0.3,
   "emo_button": "EMO",
   "steps": [
     {
