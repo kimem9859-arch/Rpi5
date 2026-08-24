@@ -55,14 +55,15 @@ FONT_TITLE = "Pretendard ExtraBold, Pretendard, sans-serif"
 
 INK = "#1A1A1A"       # 본문
 MUTED = "#6E5F55"     # 보조 설명 (배경 톤과 어울리는 웜 그레이)
-GRID = "#EFE0D4"      # 눈금선
+BG = "#FDF4ED"        # 페이지 배경 (크림)
+PANEL = "#FFFFFF"     # 텍스트 상자·패널
+GRID = "#E8D5C6"      # 눈금선 (크림 위라 조금 진하게)
 MAIN = "#E85D2F"      # 메인 강조 (오렌지)
 SOFT = "#F3A57E"      # 메인의 연한 톤 — 강조가 아닌 계열 막대
 WARN = "#C62828"      # 경고
 CRIT = "#C00000"      # 가장 강한 경고
-TINT1 = "#FDF4ED"     # 배경 톤 — 옅음
-TINT2 = "#FBE8D8"     # 배경 톤 — 중간
-TINT3 = "#FFD0B0"     # 배경 톤 — 진함
+TINT2 = "#FBE8D8"     # 강조 톤 — 중간
+TINT3 = "#FFD0B0"     # 강조 톤 — 진함 (흰 상자 위에서 튀는 용도)
 
 ACCENT = MAIN         # 옛 이름 유지 (호출부가 많다)
 OK = MAIN
@@ -106,7 +107,7 @@ def image(path, x, y, w, h, fit="slice"):
 def svg_page(title, subtitle, body):
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
             f'viewBox="0 0 {W} {H}">'
-            + rect(0, 0, W, H, "#ffffff")
+            + rect(0, 0, W, H, BG)
             + txt(70, 78, title, 40, INK, weight="800", font=FONT_TITLE)
             + txt(70, 118, subtitle, 22, MUTED)
             + body + "</svg>")
@@ -171,7 +172,7 @@ def chart_score(out_dir):
             n = conf.get(f"{r}->{c}", 0)
             xx = cx + 110 + j * cell
             diag = (r == c)
-            fill = TINT2 if diag and n else (TINT3 if n else "#FAFAFA")
+            fill = PANEL if diag and n else (TINT3 if n else BG)
             b.append(rect(xx, yy, cell - 4, cell - 4, fill, rx=4))
             if n:
                 b.append(txt(xx + (cell - 4) / 2, yy + cell / 2 + 8, n, 23,
@@ -280,7 +281,7 @@ def chart_button_y(out_dir):
     x0, y0, plotw, hmax = 130, 640, 1350, 400
     bw = plotw / len(stats)
     # 최적 띠 음영 (y 120~280 = 2·3번째 구간)
-    b.append(rect(x0 + bw, y0 - hmax - 30, bw * 2, hmax + 30, TINT2, rx=6))
+    b.append(rect(x0 + bw, y0 - hmax - 30, bw * 2, hmax + 30, PANEL, rx=6))
     b.append(txt(x0 + bw * 2, y0 - hmax - 46, "권장 운용 구간  y 120~280", 26, MAIN,
                  anchor="middle", weight="bold"))
     for i in range(5):
@@ -362,19 +363,19 @@ def chart_hoi(out_dir):
     for side, (title, color) in enumerate((("BEFORE", WARN), ("AFTER", MAIN))):
         x0 = 90 + side * 800
         b.append(txt(x0, cy - 38, title, 32, color, weight="bold"))
-        b.append(rect(x0, cy, 660, 380, TINT1, rx=10))
+
         for i, name in enumerate(("버튼 검출 모델", "손 검출 모델")):
             bx = x0 + 40 + i * 300
-            b.append(rect(bx, cy + 40, 260, 90, "#FFFFFF", rx=8))
+            b.append(rect(bx, cy + 40, 260, 90, PANEL, rx=8))
             b.append(txt(bx + 130, cy + 94, name, 24, INK, anchor="middle"))
             if side == 0:
-                b.append(rect(bx, cy + 170, 260, 70, TINT3, rx=8))
+                b.append(rect(bx, cy + 170, 260, 70, PANEL, rx=8))
                 b.append(rect(bx, cy + 170, 7, 70, WARN, rx=3))
                 b.append(txt(bx + 130, cy + 214, "자체 VDevice", 23, WARN,
                              anchor="middle"))
                 b.append(line(bx + 130, cy + 130, bx + 130, cy + 170, MUTED, 3))
         if side == 0:
-            b.append(rect(x0 + 40, cy + 290, 560, 70, TINT3, rx=8))
+            b.append(rect(x0 + 40, cy + 290, 560, 70, PANEL, rx=8))
             b.append(rect(x0 + 40, cy + 290, 7, 70, WARN, rx=3))
             b.append(txt(x0 + 320, cy + 334, "NPU 를 다퉈 동시 실행 불가",
                          25, WARN, anchor="middle"))
@@ -382,11 +383,11 @@ def chart_hoi(out_dir):
             for i in range(2):
                 b.append(line(x0 + 170 + i * 300, cy + 130, x0 + 330, cy + 200,
                               MUTED, 3))
-            b.append(rect(x0 + 40, cy + 200, 560, 80, TINT2, rx=8))
+            b.append(rect(x0 + 40, cy + 200, 560, 80, PANEL, rx=8))
             b.append(rect(x0 + 40, cy + 200, 7, 80, MAIN, rx=3))
             b.append(txt(x0 + 320, cy + 250, "공유 스케줄러 (ROUND_ROBIN)", 25, MAIN,
                          anchor="middle"))
-            b.append(rect(x0 + 40, cy + 310, 560, 70, TINT2, rx=8))
+            b.append(rect(x0 + 40, cy + 310, 560, 70, PANEL, rx=8))
             b.append(rect(x0 + 40, cy + 310, 7, 70, MAIN, rx=3))
             b.append(txt(x0 + 320, cy + 354, "버튼 + 손 동시 추론", 25, MAIN,
                          anchor="middle"))
@@ -435,7 +436,8 @@ def chart_false_alarm(out_dir):
             ("층1 · 경고", "알리기만 한다 — 작업은 이어진다", MAIN),
             ("층2 · 물리 차단", "전기를 끊는다 — 오경보마다 라인이 멈춘다", WARN))):
         yy = y + i * 96
-        b.append(rect(x0, yy, 1380, 78, TINT1 if color == MAIN else TINT3, rx=8))
+        b.append(rect(x0, yy, 1380, 78, PANEL, rx=8))
+        b.append(rect(x0, yy, 8, 78, color, rx=3))
         b.append(txt(x0 + 28, yy + 50, head, 28, color, weight="bold"))
         b.append(txt(x0 + 300, yy + 50, body_txt, 25, INK))
     b.append(txt(x0, y + 236, "🔴 층2는 현재 성립 불가 — 선행 조건은 오경보 저감",
@@ -476,7 +478,7 @@ def chart_fps(out_dir):
                        for i, v in enumerate(series))
         b.append(f'<polyline points="{pts}" fill="none" stroke="{color}" '
                  f'stroke-width="2.5" opacity="0.9"/>')
-    b.append(rect(x0 + 6, gy15 - 40, 206, 34, "#FFFFFF", rx=4, opacity=0.92))
+    b.append(rect(x0 + 6, gy15 - 40, 206, 34, PANEL, rx=4, opacity=0.92))
     b.append(txt(x0 + 14, gy15 - 15, "NFR-1  15 fps", 24, MUTED, weight="bold"))
     b.append(txt(x0, y0 + 38, "각 300프레임 · 같은 장면·같은 코드", 23, MUTED))
 
@@ -495,7 +497,7 @@ def chart_fps(out_dir):
 
     y = y0 + 90
     b.append(txt(x0, y, "바꾼 것은 펌웨어 3줄", 30, INK, weight="bold"))
-    b.append(rect(x0, y + 22, 900, 116, TINT1, rx=8))
+    b.append(rect(x0, y + 22, 900, 116, PANEL, rx=8))
     for i, ln in enumerate(("config.fb_count = 2;",
                             "config.grab_mode = CAMERA_GRAB_LATEST;",
                             "WiFi.setSleep(false);")):
@@ -538,7 +540,8 @@ def chart_tool(out_dir):
             ("tool_v1 · ARCAD", "사용 불가", "렌치를 오분류", WARN),
             ("tool_v3 · 병합", "29,809장", "누출 0건", MAIN))):
         yy = y + 44 + i * 96
-        b.append(rect(90, yy, 1420, 78, TINT3 if color == WARN else TINT1, rx=8))
+        b.append(rect(90, yy, 1420, 78, PANEL, rx=8))
+        b.append(rect(90, yy, 8, 78, color, rx=3))
         b.append(txt(120, yy + 50, lab, 26, INK))
         b.append(txt(560, yy + 50, val, 30, color, weight="bold"))
         b.append(txt(880, yy + 50, note, 24, MUTED))
