@@ -35,8 +35,10 @@ import base64
 import csv
 import glob
 import os
+import re
 import statistics
 import sys
+import unicodedata
 
 _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _TEST_DIR)
@@ -123,7 +125,7 @@ def chart_score(out_dir):
 
     b = []
     x0, y0, bw, gap, hmax = 120, 620, 130, 60, 380
-    b.append(txt(70, 178, "클래스별 AP50", 28, INK, weight="bold"))
+    b.append(txt(70, 168, "클래스별 AP50", 28, INK, weight="bold"))
     for i in range(6):
         gy = y0 - hmax * i / 5
         b.append(line(x0 - 20, gy, x0 + 5 * (bw + gap), gy))
@@ -145,7 +147,7 @@ def chart_score(out_dir):
     cx, cy, cell = 1010, 210, 74
     labels = ["B1", "B2", "B3", "B4", "EMO"]
     cols = labels + ["미검출"]
-    b.append(txt(cx, 178, "혼동행렬 (정답 → 예측)", 28, INK, weight="bold"))
+    b.append(txt(cx, 168, "혼동행렬 (정답 → 예측)", 28, INK, weight="bold"))
     for j, c in enumerate(cols):
         b.append(txt(cx + 110 + j * cell + cell / 2, cy - 12, c, 18, MUTED,
                      anchor="middle"))
@@ -309,7 +311,7 @@ STICKER_AFTER = os.path.join(_RAW, "20260713_174153_esp32", "f00051.png")
 
 def chart_sticker(out_dir):
     b = []
-    iw, ih, iy = 560, 420, 168
+    iw, ih, iy = 560, 372, 192
     for i, (path, cap, sub, color) in enumerate((
             (STICKER_BEFORE, "BEFORE — 검정 B4", "07-10", WARN),
             (STICKER_AFTER, "AFTER — 🔵 파랑 스티커", "07-13 · 같은 콘솔", OK))):
@@ -319,12 +321,12 @@ def chart_sticker(out_dir):
         b.append(txt(x, iy - 26, cap, 30, color, weight="bold"))
         b.append(txt(x, iy + ih + 34, sub, 21, MUTED))
 
-    y = iy + ih + 92
+    y = iy + ih + 84
     b.append(txt(130, y, "B4 버튼만 바뀌었다 — 모델도 카메라도 그대로", 30, INK,
                  weight="bold"))
 
     # 채도 대비 막대
-    by, bh, bx, bmax = y + 36, 36, 300, 860
+    by, bh, bx, bmax = y + 42, 36, 300, 860
     for i, (lab, v, color) in enumerate((("검정 B4", 9.1, WARN), ("파랑 B4", 98.0, OK))):
         yy = by + i * (bh + 22)
         b.append(txt(280, yy + bh - 10, lab, 24, INK, anchor="end"))
@@ -529,10 +531,64 @@ def chart_tool(out_dir):
         "".join(b)))
 
 
+# ─────────────────────────────────────────────────────── 겹침 검사 (--check)
+_TEXT_RE = re.compile(
+    r'<text x="([-\d.]+)" y="([-\d.]+)"[^>]*?font-size="([\d.]+)"[^>]*?'
+    r'text-anchor="(\w+)"[^>]*?>(.*?)</text>', re.S)
+
+
+def _text_box(x, y, size, anchor, s):
+    """글자 폭을 어림한다 — 한글 1.0em · 영숫자 0.56em · 그 외 0.38em."""
+    def w(ch):
+        if ch == " ":
+            return size * 0.30
+        if unicodedata.east_asian_width(ch) in ("W", "F"):
+            return size * 1.00
+        return size * (0.56 if ch.isalnum() else 0.38)
+    total = sum(w(c) for c in s)
+    if anchor == "middle":
+        x -= total / 2
+    elif anchor == "end":
+        x -= total
+    return x, y - size * 0.86, x + total, y + size * 0.26
+
+
+def check(out_dir):
+    """글자끼리 겹치거나 화면 밖으로 나간 것을 보고한다. 눈으로는 놓친다."""
+    bad = 0
+    for path in sorted(glob.glob(os.path.join(out_dir, "*.svg"))):
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
+        boxes = [(_text_box(float(a), float(b), float(c), d, e), e)
+                 for a, b, c, d, e in _TEXT_RE.findall(src)]
+        msgs = []
+        for (bx, t) in boxes:
+            if bx[0] < 8 or bx[2] > W - 8 or bx[1] < 4 or bx[3] > H - 6:
+                msgs.append(f"화면 밖: {t[:40]}")
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                a, b = boxes[i][0], boxes[j][0]
+                ix = min(a[2], b[2]) - max(a[0], b[0])
+                iy = min(a[3], b[3]) - max(a[1], b[1])
+                if ix > -2 and iy > -2:      # 2px 까지는 스침으로 본다
+                    msgs.append(f"겹침 {ix:.0f}x{iy:.0f}px: "
+                                f"{boxes[i][1][:28]} / {boxes[j][1][:28]}")
+        name = os.path.basename(path)
+        print(("🔴 " if msgs else "✅ ") + name)
+        for m in msgs:
+            print("    ", m)
+        bad += len(msgs)
+    print("총", bad, "건")
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(_TEST_DIR, "slides"))
+    ap.add_argument("--check", action="store_true", help="겹침·화면밖 검사만")
     args = ap.parse_args()
+    if args.check:
+        raise SystemExit(1 if check(args.out) else 0)
     os.makedirs(args.out, exist_ok=True)
     chart_sticker(args.out)
     chart_score(args.out)
