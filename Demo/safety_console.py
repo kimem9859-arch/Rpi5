@@ -382,7 +382,8 @@ class SafetyConsole(QMainWindow):
         self.btn_notify.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_notify.clicked.connect(lambda: self._toggle_notify())
 
-        # 작업 시작 / 다음 단계 진행 — 화면 정중앙(design §4.1·§4.3)
+        # 「작업 시작」 전용 — 화면 정중앙(design §4.1·§4.3).
+        # 「다음 단계 진행」은 2026-08-19 자동 진행으로 제거됐다(통합문서 §6.1.1).
         self.btn_cta = QPushButton("▶  작업 시작", central)
         self.btn_cta.setFont(config.font("cta", 800))
         self.btn_cta.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1090,7 +1091,8 @@ class SafetyConsole(QMainWindow):
         """물리 버튼 눌림(시연: 키보드 1~4·E). 실제로는 GPIO 입력.
 
         🔑 **정답 버튼이고 서브 작업이 있으면 FSM 에 바로 알리지 않는다.**
-           서브 작업을 시작하고, 「다음 단계 진행」에서 비로소 fsm.press_button() 을 부른다.
+           서브 작업을 시작하고, **진행 조건이 충족되는 순간** 비로소 fsm.press_button()
+           을 부른다(2026-08-19 자동 진행 — 종전의 「다음 단계 진행」 버튼은 제거됨).
            그 지연 덕분에 대기 중 다른 버튼을 누르면 기대단계가 아직 안 올라가 있어
            FSM 이 **자동으로 오답 판정**한다 — FSM 을 고칠 필요가 없다(design §5).
         """
@@ -1246,7 +1248,11 @@ class SafetyConsole(QMainWindow):
         self._sync_cta_visibility()
 
     def _finish_sub(self):
-        """「다음 단계 진행」 — 여기서 비로소 FSM 에 눌림을 전달한다."""
+        """서브 작업 완료 — 여기서 비로소 FSM 에 눌림을 전달한다.
+
+        진행 조건 충족 시 _update_sub_view() 가 스스로 부른다(2026-08-19 자동 진행).
+        종전에는 「다음 단계 진행」 버튼 클릭이 이 자리였다. 사양 = 통합문서 §6.1.1.
+        """
         button = self._sub_button
         self._sub_timer.stop()
         self._end_tool_scan()
