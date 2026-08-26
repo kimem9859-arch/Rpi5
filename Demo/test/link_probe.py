@@ -44,6 +44,7 @@ _DEMO = os.path.dirname(_HERE)
 sys.path.insert(0, _DEMO)
 
 import config  # noqa: E402
+from pi_load import PiLoad  # noqa: E402
 
 _STORE = os.path.join(_HERE, "link_probe.json")
 _PING_RE = re.compile(
@@ -131,8 +132,11 @@ def run_round(label, seconds):
     port = config.CAMERA_TCP_PORT
     print(f"[{label}] {host}:{port} — {seconds:.0f}초 측정…", flush=True)
 
+    pi = PiLoad()
     stream_ping = {}
     sizes, gaps, drops = recv_stream(host, port, seconds, stream_ping)
+    # 🔴 수신이 끝나자마자 읽는다 — 유휴 ping 구간의 부하가 섞이면 안 된다.
+    pi_snap = pi.read()
     if len(gaps) < 10:
         print("🔴 프레임을 거의 못 받았다 — 연결·전원을 확인하라.")
         return None
@@ -155,6 +159,11 @@ def run_round(label, seconds):
         "kbps": sum(sizes) / sum(gaps) / 1024,
         "stream_ping": stream_ping,
         "idle_ping": idle_ping,
+        "cpu_max": pi_snap.get("cpu_max"),
+        "cpu_avg": pi_snap.get("cpu_avg"),
+        "temp": pi_snap.get("temp"),
+        "dirty": PiLoad.dirty(pi_snap),
+        "top": pi_snap.get("top"),
     }
     print(f"  FPS {r['fps']:.2f} · 프레임 {r['size_med_kb']:.1f}KB · "
           f"처리량 {r['kbps']:.0f}KB/s · 멈춤(>0.5s) {r['stalls_500ms']}회 · "
@@ -164,6 +173,11 @@ def run_round(label, seconds):
     sp, ip_ = r["stream_ping"], r["idle_ping"]
     print(f"  ping 스트리밍중 손실{sp.get('loss')}% avg{sp.get('avg')} max{sp.get('max')} · "
           f"유휴 손실{ip_.get('loss')}% avg{ip_.get('avg')} max{ip_.get('max')}")
+    print("  " + PiLoad.fmt(pi_snap))
+    if r["dirty"]:
+        # 🔴 파이가 바빴으면 이 라운드의 「멈춤」은 ESP32 가 아니라 파이 탓일 수 있다.
+        print("  🔴 파이 부하로 오염 가능: %s — 이 값을 링크 판정에 쓰지 말 것"
+              % ", ".join(r["dirty"]))
     return r
 
 
@@ -188,8 +202,8 @@ def summary(rows):
         by.setdefault(r["label"], []).append(r)
 
     print("\n" + "=" * 74)
-    print("%-12s %-4s %-8s %-9s %-10s %-7s %-7s %-8s" %
-          ("조건", "n", "FPS", "프레임KB", "처리량KB/s", "멈춤", "끊김", "스트림ping"))
+    print("%-12s %-4s %-8s %-9s %-10s %-7s %-7s %-9s %-8s" %
+          ("조건", "n", "FPS", "프레임KB", "처리량KB/s", "멈춤", "끊김", "스트림ping", "CPU최대"))
     print("-" * 74)
     for label, rs in by.items():
         f = statistics.median([r["fps"] for r in rs])
@@ -199,8 +213,10 @@ def summary(rows):
         dr = sum(r.get("drops", 0) for r in rs)
         pl = [r["stream_ping"].get("avg") for r in rs if r["stream_ping"].get("avg")]
         p = statistics.median(pl) if pl else float("nan")
-        print("%-12s %-4d %-8.2f %-9.1f %-10.0f %-7d %-7d %-8.1f" %
-              (label, len(rs), f, k, b, st, dr, p))
+        cm = [r.get("cpu_max") for r in rs if r.get("cpu_max") is not None]
+        c = max(cm) if cm else float("nan")
+        print("%-12s %-4d %-8.2f %-9.1f %-10.0f %-7d %-7d %-9.1f %-8.0f" %
+              (label, len(rs), f, k, b, st, dr, p, c))
     print("=" * 74)
     if len(by) == 2:
         (la, ra), (lb, rb) = list(by.items())

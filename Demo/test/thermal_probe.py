@@ -43,6 +43,7 @@ _DEMO = os.path.dirname(_HERE)
 sys.path.insert(0, _DEMO)
 
 import config  # noqa: E402
+from pi_load import PiLoad  # noqa: E402
 
 _RTT_RE = re.compile(r"rtt min/avg/max/mdev = ([\d.]+)/([\d.]+)/([\d.]+)/")
 _LOSS_RE = re.compile(r"([\d.]+)% packet loss")
@@ -101,6 +102,7 @@ def main():
     print("⚠️ 측정 중 ESP32 를 쓰는 GUI 를 띄우지 말 것(소켓이 하나다).\n", flush=True)
 
     rows = []
+    pi = PiLoad()
     t_start = time.time()
     sizes, gaps, last, drops = [], [], None, 0
     b_start = t_start
@@ -142,6 +144,9 @@ def main():
                 sizes.append(ln)
 
                 if now - b_start >= bucket:
+                    # 🔴 ping 보다 **먼저** 읽는다 — ping 이 도는 동안의 부하가 아니라
+                    #    수신 구간의 부하를 알아야 한다.
+                    load = pi.read()
                     pa, pl = quick_ping(host)
                     span = sum(gaps) or 1e-9
                     row = {
@@ -153,14 +158,22 @@ def main():
                         "stalls": sum(1 for g in gaps if g > 0.5),
                         "drops": drops,
                         "ping_avg": pa, "ping_loss": pl,
+                        "cpu_max": load.get("cpu_max"),
+                        "cpu_avg": load.get("cpu_avg"),
+                        "temp": load.get("temp"),
+                        "dirty": PiLoad.dirty(load),
+                        "top": load.get("top"),
                     }
                     rows.append(row)
+                    mark = " 🔴오염(%s)" % ", ".join(row["dirty"]) if row["dirty"] else ""
                     print("  [%d~%d분] FPS %.2f · %.1fKB · %.0f KB/s · 멈춤 %d · 끊김 %d · ping %s"
                           % (row["from_min"], row["to_min"], row["fps"], row["size_kb"],
                              row["kbps"], row["stalls"], row["drops"],
                              "%.0fms" % pa if pa else "—"), flush=True)
+                    print("            %s%s" % (PiLoad.fmt(load), mark), flush=True)
                     sizes, gaps, drops = [], [], 0
                     last = None
+                    pi.reset()
                     b_start = time.time()
         except (OSError, socket.timeout, struct.error):
             pass
