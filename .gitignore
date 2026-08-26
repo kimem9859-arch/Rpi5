@@ -45,6 +45,7 @@ Demo/test/palm_cache/
 *.sqlite*
 Demo/test/bench_report.html
 Demo/test/link_probe.json
+Demo/test/thermal_probe.json
 
 # GStreamer 샤크 캡처
 Demo/gstshark_*/
