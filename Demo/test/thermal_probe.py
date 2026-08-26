@@ -185,7 +185,10 @@ def main():
             time.sleep(1.0)
 
     summarize(rows)
-    out = os.path.join(_HERE, "thermal_probe.json")
+    # 🔴 **덮어쓰지 않는다** — 파일명에 시각을 넣어 라운드마다 새로 남긴다.
+    #    2026-08-26 에 도구 시험이 실제 60분 측정의 원자료를 통째로 덮어썼다.
+    #    측정은 다시 하려면 60분이 드는데 파일은 1초면 사라진다.
+    out = os.path.join(_HERE, "thermal_probe_%s.json" % time.strftime("%Y%m%d_%H%M%S"))
     with open(out, "w", encoding="utf-8") as f:
         json.dump({"at": time.strftime("%Y-%m-%d %H:%M:%S"),
                    "minutes": args.minutes, "bucket": args.bucket,
