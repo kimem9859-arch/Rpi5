@@ -41,7 +41,7 @@ from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
                           NotifyButton, CheckPanel, RecordPanel)
 from overlay_result import ResultPanel
 import precheck
-from fps import fps_from_intervals
+from fps import fps_from_intervals, fps_stale
 
 
 # =============================================================================
@@ -606,10 +606,14 @@ class SafetyConsole(QMainWindow):
         - 카메라 영역 녹화면 여기서 바로 기록한다(창 캡처 없음)
         """
         now = time.time()
-        if self._last_frame_time:
+        if self._last_frame_time and not fps_stale(self._last_frame_time, now):
             self._fps_intervals.append(now - self._last_frame_time)
             if len(self._fps_intervals) > 60:        # 최근 60프레임만
                 self._fps_intervals.pop(0)
+        else:
+            # 최초 프레임이거나 **끊겼다 돌아온** 것 — 끊김 전 간격과 섞지 않는다.
+            # 섞으면 복구 직후 몇 초간 끊긴 시간만큼의 간격이 값을 오염시킨다.
+            self._fps_intervals.clear()
         self._last_frame_time = now
         self._last_frame_size = (qt_image.width(), qt_image.height())
         # ⚠️ numpy 변환은 **점검이 요청할 때만** 한다(_frame_for_check).
@@ -634,6 +638,7 @@ class SafetyConsole(QMainWindow):
         """
         self._active_camera = source
         self._last_yolo_classes = set()
+        self._fps_intervals.clear()     # 카메라가 다르면 FPS 도 다르다 — 섞지 않는다
         self.camera_thread.set_active(source == "esp32")
         self.usb_camera_thread.set_active(source == "usb")
         if source == "usb" and not self.usb_camera_thread.isRunning():
@@ -794,6 +799,10 @@ class SafetyConsole(QMainWindow):
 
         # 실측 FPS — 🔴 재는 것은 프레임 도착 간격이라 **카메라가 없으면 None** 이다.
         #    성능 판정은 카메라가 돌아오는 시나리오 테스트에서 한다(spec §4).
+        # 🔴 프레임이 끊기면 표본을 버린다 — 안 버리면 마지막 간격들이 남아
+        #    **화면은 멈췄는데 FPS 는 정상으로 보인다**(2026-08-26 발견).
+        if fps_stale(self._last_frame_time):
+            self._fps_intervals.clear()
         fps = fps_from_intervals(self._fps_intervals)
         if fps is not None and time.time() - self._fps_log_at >= 10:
             self._fps_log_at = time.time()

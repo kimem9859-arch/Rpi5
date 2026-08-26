@@ -242,6 +242,17 @@ def test_fps_from_intervals():
           "중앙값이라 멈춤 구간 하나에 흔들리지 않는다")
 
 
+def test_fps_stale():
+    """프레임이 끊겼는지 판정한다 — 🔴 중앙값이 끊김을 감추기 때문에 필요하다."""
+    print("\n[FPS 신선도]")
+    from fps import fps_stale
+    check(fps_stale(0.0, now=100.0), "프레임을 한 번도 못 받았다 → 끊김")
+    check(not fps_stale(99.5, now=100.0), "0.5초 전 프레임 → 정상")
+    check(not fps_stale(98.5, now=100.0), "1.5초 전 프레임 → 아직 정상(임계 2.0)")
+    check(fps_stale(97.0, now=100.0), "3초 전 프레임 → 끊김")
+    check(fps_stale(99.0, now=100.0, stale_after=0.5), "임계를 좁히면 끊김으로 본다")
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

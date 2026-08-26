@@ -9,6 +9,8 @@
    판정할 수 없다. 계산은 장치를 열지 않는 곳에 둔다.
 """
 
+import time
+
 
 def fps_from_intervals(intervals):
     """프레임 도착 간격(초) 목록 → 실측 FPS. 표본이 없으면 None.
@@ -22,3 +24,21 @@ def fps_from_intervals(intervals):
     mid = vals[len(vals) // 2] if len(vals) % 2 else \
         (vals[len(vals) // 2 - 1] + vals[len(vals) // 2]) / 2
     return 1.0 / mid if mid > 0 else None
+
+
+def fps_stale(last_frame_time, now=None, stale_after=2.0):
+    """마지막 프레임이 `stale_after` 초를 넘겼는가 — 프레임을 못 받았으면 True.
+
+    🔴 **왜 따로 필요한가** — `fps_from_intervals` 는 중앙값이라 프레임이 끊겨도
+       마지막 간격들이 그대로 남아 **같은 값을 영원히 낸다.** 화면은 멈췄는데
+       FPS 는 정상으로 보여 **끊김을 눈으로 알 수 없다**(2026-08-26 발견).
+       간격만으로는 알 수 없고 **마지막 도착 시각**을 봐야 한다.
+
+    ⚠️ 임계 2.0 초는 2차 점검 「영상 수신」(`precheck.run_stage2`)과 **같은 값**이다.
+       두 곳이 다른 숫자를 쓰면 표시와 점검이 서로 다른 말을 하게 된다.
+    """
+    now = time.time() if now is None else now
+    last = last_frame_time or 0.0
+    if not last:
+        return True
+    return (now - last) >= stale_after

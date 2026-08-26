@@ -803,6 +803,39 @@ def test_sim_tool_key_outside_tool_step_is_ignored():
     win.close()
 
 
+def test_fps_stops_when_camera_dies():
+    """🔴 카메라가 끊기면 FPS 표시가 멈추는가 (2026-08-26 발견한 결함).
+
+    끊긴 뒤에도 마지막 값이 계속 찍히면 **화면만 보고 끊김을 알 수 없다** —
+    화면은 마지막 프레임에서 멈춰 있는데 FPS 는 정상으로 보인다.
+    """
+    print("\n[FPS 끊김]")
+    win = make_console()
+    was = config.SHOW_FPS
+    config.SHOW_FPS = True
+    try:
+        win._fps_intervals = [0.05] * 10          # 20fps 로 돌던 상태
+        win._last_frame_time = time.time()
+        win._update_conn_bar()
+        check(win.fps_label.text().startswith("20"),
+              f"수신 중에는 값이 뜬다: '{win.fps_label.text()}'")
+
+        win._last_frame_time = time.time() - 5.0  # 5초째 프레임이 없다
+        win._update_conn_bar()
+        check(win.fps_label.text() == "",
+              f"끊기면 빈칸 — 마지막 값이 남지 않는다: '{win.fps_label.text()}'")
+        check(win._fps_intervals == [],
+              "표본도 버린다 — 카메라가 돌아오면 새로 쌓는다")
+
+        # 카메라를 바꾸면 이전 카메라의 간격을 물려받지 않는다
+        win._fps_intervals = [0.05] * 10
+        win._switch_camera("usb", quiet=True)
+        check(win._fps_intervals == [], "카메라 전환 시에도 표본을 버린다")
+    finally:
+        config.SHOW_FPS = was
+        win.close()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
