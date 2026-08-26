@@ -307,7 +307,9 @@ class SafetyConsole(QMainWindow):
         self.usb_camera_thread.hand_signal.connect(self._on_hand)
         # start() 는 _switch_camera 가 필요할 때만 부른다 — 아래 초기 전환에서 결정된다.
 
-        self._switch_camera("esp32", quiet=True)   # 기동 시 ESP32 만 — USB 는 CCTV 전환 때 연다
+        # 기동 시 한쪽만 연다 — 기본은 ESP32 이고, USB 는 CCTV 전환 때 열린다.
+        # config.CAMERA_SOURCE(환경변수 SOP_CAMERA)로 측정 때만 usb 로 띄운다.
+        self._switch_camera(config.CAMERA_SOURCE, quiet=True)
         self._append_log("[시스템] Vision AI 안전 콘솔 시작")
         if self._recipe:
             self._append_log(f"[레시피] '{self._recipe['process_name']}' 로드 — {self.fsm.step_count}단계")

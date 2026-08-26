@@ -31,7 +31,7 @@
 - 좌: 카메라 영상 / 우: 상태(`state_label`)+로그(`log_browser`). 상단 `초소형카메라`/`CCTV`/`캘리브레이션`.
 - `_switch_camera("esp32"|"usb")`. 시작 시 자동 녹화·종료 시 저장. 로그를 화면+`logs/` 동시 기록.
 - `CalibrationDialog`: 체스보드(7×5) 20샘플 → `cv2.calibrateCamera()` → `camera_calibration.npz`.
-- 🆕 **`anim.py`(2026-08-16)** — 오버레이 전환 애니메이션(설계 = 상위 `specs/2026-08-16-ui-애니메이션-design.md`). 🔴 **갱신 함수는 `_sub_timer`가 200ms 주기로 반복 호출한다** — 애니메이션은 반드시 「직전 상태와 달라졌을 때만」 건다(비교 없이 걸면 초당 5번 재시작). 🔴 **QGraphicsEffect 계열 금지**(`overlay.py:73` 페인터 충돌 사고). 끄기 = `SOP_UI_ANIM=0`. **성능(FPS)은 미판정** — 계측 코드(`fps_from_intervals`, 중앙값)만 있고 측정은 카메라 복귀 후 시나리오 테스트에서. FPS 화면 표시 = `SOP_SHOW_FPS=1`.
+- 🆕 **`anim.py`(2026-08-16)** — 오버레이 전환 애니메이션(설계 = 상위 `specs/2026-08-16-ui-애니메이션-design.md`). 🔴 **갱신 함수는 `_sub_timer`가 200ms 주기로 반복 호출한다** — 애니메이션은 반드시 「직전 상태와 달라졌을 때만」 건다(비교 없이 걸면 초당 5번 재시작). 🔴 **QGraphicsEffect 계열 금지**(`overlay.py:73` 페인터 충돌 사고). 끄기 = `SOP_UI_ANIM=0`. ✅ **성능 판정 완료(2026-08-26, G6)** — FPS 영향 **+0.8%**(문턱 10% 이내)라 기본 True 유지. 조건 = **USB 웹캠**·손 없는 정지 장면·ON/OFF 교차 6런(§10.48). 🔴 **제품 경로(ESP32)로는 판정 불가** — 공급 FPS 가 3~25 로 요동해 효과가 묻힌다. 재측정 도구 = `test/anim_fps_bench.py --camera usb`. FPS 화면 표시 = `SOP_SHOW_FPS=1`.
 
 ### `camera_thread.py` (카메라 + 추론)
 - `CameraThread`(QThread) — ESP32-S3 TCP 스트림: 4바이트 헤더+JPEG, 수신 전용 스레드+처리 루프 분리(최신 프레임만), 자동 재연결. 처리순서: 수직 플립 → undistort → detector(YOLO) → **손 검출(`hand_tracker`)** → `roi_at_point` → `roi_signal` → FSM.
