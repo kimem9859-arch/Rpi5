@@ -16,6 +16,11 @@
     esp32 → 수직(카메라 거꾸로 장착 보정, 추론에 필요)
     usb   → 없음(실런타임의 좌우 미러링은 표시용. 거울상은 학습 방향과 달라 검출률 왜곡)
 
+회전(옵션 없음 — config.CAMERA_ROTATE_CCW90 을 그대로 따른다):
+    esp32 → 반시계 90°(2026-08-26 장착 구도 변경 보정). 프레임이 480×640 세로가 된다.
+    usb   → 없음(그 구도와 무관한 카메라다)
+    🔴 실험 축이 아니라 런타임과 맞춰야 하는 값이라 CLI 로 열지 않았다.
+
 출력 (파일명 태그 = YYYYMMDD_HHMMSS_<src>[_<condition>][_<model>]):
     <src>       = esp32 | usb
     <condition> = --condition 지정 시에만. 예: fluorescent/lowlight/daylight/cleanroom
@@ -57,6 +62,7 @@ _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
 
 import config
+import frame_orient
 from detector import create_detector
 
 # =============================================================================
@@ -257,11 +263,17 @@ def run_bench(args):
     else:
         flip_mode = args.flip
 
+    # 회전 보정 — ESP32 장착 구도(2026-08-26 시계방향 90°)를 되돌린다. 플립과 달리
+    # 실험 축이 아니라 **런타임과 맞춰야 하는 값**이라 config 를 그대로 따른다.
+    # USB 웹캠은 그 구도와 무관하므로 돌리지 않는다.
+    rotate_on = (source == "esp32") and config.CAMERA_ROTATE_CCW90
+
     def _apply_flip(f):
-        if flip_mode == "v":  return cv2.flip(f, 0)
-        if flip_mode == "h":  return cv2.flip(f, 1)
-        if flip_mode == "vh": return cv2.flip(f, -1)
-        return f
+        if flip_mode == "v":  f = cv2.flip(f, 0)
+        elif flip_mode == "h":  f = cv2.flip(f, 1)
+        elif flip_mode == "vh": f = cv2.flip(f, -1)
+        # 🔴 반전 뒤에 돈다 — 런타임(`frame_orient`)과 같은 순서여야 한다.
+        return frame_orient.rotate(f) if source == "esp32" else f
 
     os.makedirs(_LOGS_DIR, exist_ok=True)
     os.makedirs(_VIDEOS_DIR, exist_ok=True)
@@ -513,7 +525,8 @@ def run_bench(args):
 
     _flip_desc = {"v": "수직", "h": "좌우", "vh": "수직+좌우", "none": "없음"}[flip_mode]
     _lock_desc = " 노출=고정" if (source == "usb" and args.lock_exposure) else ""
-    print(f"\n[벤치마크 시작] 소스={source}  플립={_flip_desc}  워밍업={warmup}{_lock_desc}  "
+    _rot_desc = "  회전=CCW90" if rotate_on else ""
+    print(f"\n[벤치마크 시작] 소스={source}  플립={_flip_desc}{_rot_desc}  워밍업={warmup}{_lock_desc}  "
           f"{max_frames}프레임 측정 — Ctrl+C로 중단\n")
 
     # manifest — 이 raw가 어떤 조건에서 찍혔는지. 없으면 나중에 PNG 더미의 의미를 잃는다.
@@ -529,6 +542,7 @@ def run_bench(args):
                 "esp32_host":     host if source == "esp32" else None,
                 "usb_index":      args.usb_index if source == "usb" else None,
                 "flip_mode":      flip_mode,
+                "rotate_ccw90":   rotate_on,
                 "warmup_frames":  warmup,
                 "lock_exposure":  bool(args.lock_exposure and source == "usb"),
                 "exposure":       args.exposure if (args.lock_exposure and source == "usb") else None,

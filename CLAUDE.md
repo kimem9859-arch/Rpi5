@@ -34,7 +34,10 @@
 - 🆕 **`anim.py`(2026-08-16)** — 오버레이 전환 애니메이션(설계 = 상위 `specs/2026-08-16-ui-애니메이션-design.md`). 🔴 **갱신 함수는 `_sub_timer`가 200ms 주기로 반복 호출한다** — 애니메이션은 반드시 「직전 상태와 달라졌을 때만」 건다(비교 없이 걸면 초당 5번 재시작). 🔴 **QGraphicsEffect 계열 금지**(`overlay.py:73` 페인터 충돌 사고). 끄기 = `SOP_UI_ANIM=0`. ✅ **성능 판정 완료(2026-08-26, G6)** — FPS 영향 **+0.8%**(문턱 10% 이내)라 기본 True 유지. 조건 = **USB 웹캠**·손 없는 정지 장면·ON/OFF 교차 6런(§10.48). 🔴 **제품 경로(ESP32)로는 판정 불가** — 공급 FPS 가 3~25 로 요동해 효과가 묻힌다. 재측정 도구 = `test/anim_fps_bench.py --camera usb`. FPS 화면 표시 = `SOP_SHOW_FPS=1`.
 
 ### `camera_thread.py` (카메라 + 추론)
-- `CameraThread`(QThread) — ESP32-S3 TCP 스트림: 4바이트 헤더+JPEG, 수신 전용 스레드+처리 루프 분리(최신 프레임만), 자동 재연결. 처리순서: 수직 플립 → undistort → detector(YOLO) → **손 검출(`hand_tracker`)** → `roi_at_point` → `roi_signal` → FSM.
+- `CameraThread`(QThread) — ESP32-S3 TCP 스트림: 4바이트 헤더+JPEG, 수신 전용 스레드+처리 루프 분리(최신 프레임만), 자동 재연결. 처리순서: **수직 플립 → undistort → 회전(CCW90)** → detector(YOLO) → **손 검출(`hand_tracker`)** → `roi_at_point` → `roi_signal` → FSM.
+  - 🆕 **`frame_orient.py`(2026-08-26)** — 방향 보정(반전·회전)의 **단일 출처**. ESP32 장착 구도가 시계방향 90° 로 바뀌어 반시계 90° 보정이 붙었고, 프레임이 **640×480 → 480×640 세로**가 된다. 런타임과 측정 도구(`test/tool_live`·`test/bench_detector`)가 같은 모듈을 쓴다 — `roi_zones` 와 같은 이유(도구가 Qt·Hailo 를 못 끌어온다).
+  - 🔴 **회전은 반드시 undistort 뒤다.** 앞에 두면 480×640 이 되어 `_init_calibration` 이 캘리브레이션 파일(640×480 전용)을 'mismatch' 로 판단해 **왜곡보정을 조용히 끈다**(로그 한 줄만 남고 화면은 멀쩡해 보인다).
+  - ⚠️ **검출 정확도 영향 미측정** — `detector.py` 는 프레임을 정사각 640×640 으로 **늘려서** 넣는다. 종전 4:3(세로 1.33배 늘림) → 회전 후 3:4(**가로** 1.33배 늘림)로 바뀌어 배포 모델이 보는 그림이 달라진다. 콘솔을 화면에 넣고 재측정할 것.
 - `UsbCameraThread` — USB 웹캠 동일 처리.
 - `_update_tracks()` — IoU 간이 트래킹, `YOLO_MAX_MISS` 초과 제거(**가림 대응**). YOLO `try/except` 선택 로드.
 - 🆕 **`hand_tracker.py`(2026-07-22)** — **MediaPipe 프레임워크는 안 쓴다**(Python 3.13/aarch64 휠 없음). 같은 **모델**(BlazePalm·BlazeHandLandmark)을 Hailo `.hef`로 돌린다. `detect(frame)` → 검지끝 좌표. 장치는 `hailo_device`의 **공유 VDevice**(여기서 VDevice를 만들면 버튼 모델과 충돌). ⚠️ 모델·소스가 없거나 `HAND_ENABLED=False`면 **조용히 비활성**되고 `detect()`가 None → 손 검출이 없던 종전과 동일 동작. 🔴 모델·blaze 소스가 **repo 밖**(`~/lab/hoi/`)이라 클론·sop-pi-2에선 자동 비활성(vendoring 미결).
@@ -43,13 +46,13 @@
 
 ### `config.py` (전역 설정)
 - 추론: `INFERENCE_BACKEND`, `PT_MODEL_PATH`(best.pt)/`HEF_MODEL_PATH`(console_v1.hef), `YOLO_CONF_HIGH(0.65)`/`YOLO_CONF_LOW(0.50)`, `YOLO_IOU_MATCH(0.3)`, `YOLO_MAX_MISS(5)`, `YOLO_INPUT_SIZE(640)`, `FSM_EMO_BUTTON`.
-- TCP: `CAMERA_TCP_HOST`(`.camera_ip`에서 읽음)·`PORT(8888)`. 화면 1280×720·`CAMERA_FLIP_VERTICAL`. 녹화 `RECORDING_*`.
+- TCP: `CAMERA_TCP_HOST`(`.camera_ip`에서 읽음)·`PORT(8888)`. 화면 1280×720·`CAMERA_FLIP_VERTICAL`·**`CAMERA_ROTATE_CCW90`**(장착 구도 보정 — 적용은 `frame_orient` 전담). 녹화 `RECORDING_*`.
 - ESP32 IP 변경: `Demo/.camera_ip` 텍스트 수정 후 재시작.
 
 ### 데이터 흐름
 ```
 ESP32-S3(OV3660) ─TCP:8888→ CameraThread
-   (_recv_worker → 수직플립 → undistort → detector → hand_tracker(손))
+   (_recv_worker → 수직플립 → undistort → **회전CCW90** → detector → hand_tracker(손))
       ├─ change_pixmap_signal → SafetyConsole (화면)
       └─ 검출 → zone_at_point(roi_zones: 링1/안쪽2) → SafetyFSM.update_vision(roi, now, level)
          → 체류(§9.4 dwell 0.3·갭메우기 0.3) → 상태전이·on_interlock·피드백

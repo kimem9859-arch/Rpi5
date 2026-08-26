@@ -13,7 +13,6 @@ from PyQt6.QtGui import QImage
 
 import config
 from config import (
-    CAMERA_FLIP_VERTICAL,
     CAMERA_TCP_HOST, CAMERA_TCP_PORT,
     TCP_RECV_TIMEOUT_SEC, TCP_RECONNECT_DELAY_SEC, TCP_MAX_FRAME_BYTES,
     CONNECT_MAX_TRIES,
@@ -26,6 +25,7 @@ from config import (
 # =============================================================================
 from hand_tracker import HandTracker
 import roi_zones
+import frame_orient
 
 # =============================================================================
 # [공구 검출] — 서브 작업(wait_tool) 동안만 도는 CPU 추론 (A-2)
@@ -465,18 +465,22 @@ class CameraThread(QThread):
     # [프레임 처리]
     # =========================================================================
     def _process_frame(self, frame):
-        if CAMERA_FLIP_VERTICAL:
-            frame = cv2.flip(frame, 0)
+        # 🔴 방향 보정은 **반전 → 왜곡보정 → 회전** 순서다(frame_orient 참조).
+        #    회전을 앞에 두면 480×640 이 되어 왜곡보정 맵(640×480 전용)이
+        #    'mismatch' 로 조용히 꺼진다.
+        frame = frame_orient.flip(frame)
 
         with self._lock:
             is_active = self._is_active
             draw = self._draw_boxes
 
         if not is_active:
-            return frame
+            # 🔴 비활성 미리보기도 같은 방향이어야 한다 — 여기서 회전을 빼면
+            #    검출을 끈 순간 화면만 옆으로 눕는다.
+            return frame_orient.rotate(frame)
 
         h, w, _ = frame.shape
-        frame = self._undistort(frame)
+        frame = frame_orient.rotate(self._undistort(frame))
 
         # 🔴 공구 추론에는 **오버레이가 없는 사본**을 보낸다 — 아래에서 버튼 박스와
         #    손 랜드마크가 frame 에 직접 그려지고, 그 선이 공구 위에 겹치면 검출이

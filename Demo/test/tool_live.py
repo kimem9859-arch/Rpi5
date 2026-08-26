@@ -47,6 +47,7 @@ import numpy as np
 _DEMO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO)
 import config
+import frame_orient
 
 MODELS = {
     ord('1'): ("tool_v1", os.path.join(_DEMO, "models", "tool_v1.pt")),
@@ -233,8 +234,9 @@ def main():
             frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
             if frame is None:
                 continue
-            if config.CAMERA_FLIP_VERTICAL:
-                frame = cv2.flip(frame, 0)
+            # 🔴 방향 보정은 런타임과 **같은 출처**를 쓴다(frame_orient) — 도구가
+            #    따로 flip 을 들고 있으면 config 가 바뀔 때 반드시 어긋난다.
+            frame = frame_orient.apply(frame)
 
             # ⚠️ draw() 가 프레임을 제자리에서 고치므로 **그리기 전에** 원본을 뜬다.
             #    이 사본이 다른 모델로 재추론할 때 쓰는 오염 없는 입력이다.

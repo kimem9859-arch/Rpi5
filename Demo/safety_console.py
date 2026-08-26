@@ -568,20 +568,35 @@ class SafetyConsole(QMainWindow):
         if self._active_camera != "esp32":
             return
         self._note_frame(qt_image)
-        scaled = qt_image.scaled(
-            self.camera_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-        )
-        self.camera_label.setPixmap(QPixmap.fromImage(scaled))
+        self.camera_label.setPixmap(QPixmap.fromImage(self._fit_to_label(qt_image)))
 
     @pyqtSlot(QImage)
     def _update_usb_frame(self, qt_image):
         if self._active_camera != "usb":
             return
         self._note_frame(qt_image)
-        scaled = qt_image.scaled(
-            self.camera_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-        )
-        self.camera_label.setPixmap(QPixmap.fromImage(scaled))
+        self.camera_label.setPixmap(QPixmap.fromImage(self._fit_to_label(qt_image)))
+
+    def _fit_to_label(self, qt_image):
+        """카메라 라벨 크기에 맞춘 이미지.
+
+        `CAMERA_DISPLAY_FILL` 이면 **채우고 넘치는 만큼 잘라낸다** — 회전 보정 뒤
+        프레임이 세로(480×640)라 가로 UI 에 그냥 넣으면 좌우에 검은 띠가 생긴다.
+
+        🔴 **표시 전용 크롭이다.** 검출·ROI 판정(`camera_thread`)과 녹화
+           (`_note_frame`)는 **잘리지 않은 전체 프레임**을 쓴다. 화면 가장자리에서
+           검출 박스가 잘려 보여도 시스템이 못 본 것이 아니다 — 시야를 버리지
+           않으려고 화면과 검출을 일부러 분리했다(2026-08-26).
+        """
+        size = self.camera_label.size()
+        if not config.CAMERA_DISPLAY_FILL or size.isEmpty():
+            return qt_image.scaled(size, Qt.AspectRatioMode.KeepAspectRatio,
+                                   Qt.TransformationMode.SmoothTransformation)
+        scaled = qt_image.scaled(size, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                 Qt.TransformationMode.SmoothTransformation)
+        return scaled.copy((scaled.width()  - size.width())  // 2,
+                           (scaled.height() - size.height()) // 2,
+                           size.width(), size.height())
 
     def _note_frame(self, qt_image):
         """프레임이 올 때마다 점검·녹화가 쓰는 정보를 갱신한다.
