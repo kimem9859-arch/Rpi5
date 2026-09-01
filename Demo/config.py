@@ -231,8 +231,46 @@ CONNECT_MAX_TRIES = 5
 # [인터락 설정] — 트랙 A 물리 차단 (FSM 콜백 → pyserial → Arduino 릴레이)
 # 결선도 정본: ../dev/interlock/결선도_초안.md §5 (RUN/WARN/BLOCK + ACK)
 # =============================================================================
-INTERLOCK_ENABLED = True
-INTERLOCK_PORT    = "/dev/ttyACM0"   # Arduino UNO R4 USB 시리얼
+# 🔴 포트 번호를 박지 않는다 — 꽂는 순서에 따라 ttyACM0/1 이 뒤바뀐다.
+#    2026-09-01 에 이 값이 "/dev/ttyACM0" 으로 박혀 있었고, 그 자리를 ESP32 가
+#    차지하고 있어 **인터록이 ESP32 에게 RUN 을 보내고 「연결됨」이라고 보고**했다.
+#    (실기동 로그: `[인터락] → RUN (ACK 없음: '[녹음] 신호음 3번 뒤 …')`)
+#
+# 🔴 못 찾으면 「아무 포트나」가 아니라 **연결하지 않는다.**
+#    모르는 장치에 안전 명령을 보내면 안전장치가 없는데 있다고 믿게 된다.
+#    그것이 연결 실패보다 훨씬 위험하다 — 연결 실패는 화면에 보이지만
+#    잘못된 연결은 정상으로 보인다.
+#
+# ⚠️ 인터록 Arduino 의 USB 신원(vid/pid)은 아직 확인하지 못했다(보드가 없어서).
+#    지금 규칙은 「ESP32 가 아닌 시리얼 장치가 정확히 하나면 그것」이다.
+#    보드를 꽂아 신원을 확인하면 그 vid/pid 로 좁힐 것.
+def _resolve_interlock_port():
+    """인터록 Arduino 의 경로. 확신할 수 없으면 None."""
+    forced = os.environ.get("SOP_INTERLOCK_PORT")
+    if forced:
+        print(f"[config] 인터록 포트 강제 지정: {forced}")
+        return forced
+    try:
+        from serial.tools import list_ports
+        from serial_ports import ESP32_S3          # 상수를 복제하지 않는다
+        cands = [p.device for p in list_ports.comports()
+                 if p.vid is not None and (p.vid, p.pid) != ESP32_S3]
+        if len(cands) == 1:
+            return cands[0]
+        if len(cands) > 1:
+            print(f"[config] ⚠️ 인터록 후보가 여럿이라 고를 수 없다: {cands}")
+        else:
+            print("[config] ⚠️ 인터록 장치를 못 찾았다 (ESP32 는 인터록이 아니다)")
+    except Exception as e:
+        print(f"[config] ⚠️ 포트 해석 실패: {e}")
+    print("[config] → 인터록을 비활성화한다. 강제하려면 SOP_INTERLOCK_PORT=/dev/ttyACMx")
+    return None
+
+_INTERLOCK_PORT_RESOLVED = _resolve_interlock_port()
+
+# 🔴 포트를 못 고르면 인터록 자체를 끈다 — 위 주석의 이유.
+INTERLOCK_ENABLED = _INTERLOCK_PORT_RESOLVED is not None
+INTERLOCK_PORT    = _INTERLOCK_PORT_RESOLVED or "/dev/ttyACM0"  # 표시용 기본값
 INTERLOCK_BAUD    = 115200
 INTERLOCK_TIMEOUT = 1.0              # 시리얼 read/write 타임아웃(초), ACK 대기 포함
 INTERLOCK_BLOCK_ACK_RETRIES = 2      # BLOCK 무ACK 시 재전송 횟수(초과 시 on_fault 알람)
