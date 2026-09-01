@@ -116,14 +116,19 @@ def write_wav(path, samples, rate):
         w.writeframes(struct.pack(f"<{len(samples)}h", *samples))
 
 
-def wait_for(link, marker, timeout=30):
-    """marker 로 시작하는 줄이 나올 때까지 로그를 흘려보며 기다린다."""
+def wait_for(link, marker, timeout=30, quiet=False):
+    """marker 로 시작하는 줄이 나올 때까지 로그를 흘려보며 기다린다.
+
+    quiet=True 면 화면에 찍지 않는다 — 조각마다 오는 「다음」이 수백 줄이라
+    그대로 찍으면 정작 봐야 할 줄이 묻힌다. 🔴 단 [FAIL] 은 quiet 여도 찍는다.
+    """
     t0 = time.time()
     while time.time() - t0 < timeout:
         line = link.readline()
         if not line:
             continue
-        print("  " + line)
+        if not quiet or line.startswith("[FAIL]"):
+            print("  " + line)
         if line.startswith(marker):
             return line
         if line.startswith("[FAIL]"):
@@ -136,8 +141,21 @@ def cmd_play(link, path):
     cs = checksum(samples)
     print(f"▶ 보냄: {os.path.basename(path)} — {len(samples)}샘플 · {rate}Hz "
           f"· {len(samples) / rate:.2f}초 · sum={cs}")
+    payload = struct.pack(f"<{len(samples)}h", *samples)
     link.write(f"W {len(samples)} {rate}\n".encode())
-    link.write(struct.pack(f"<{len(samples)}h", *samples))
+
+    # 🔴 조각내어 보내고 조각마다 「다음」을 기다린다 — 흐름 제어.
+    #    한 번에 밀어 넣으면 ESP32 의 USB CDC 수신 버퍼가 넘쳐 끊긴다
+    #    (2026-09-01 실측). 무선에서도 같으므로 프로토콜에서 푼다.
+    ready = wait_for(link, "[준비]", quiet=True)
+    chunk = int(ready.split("chunk=")[1].split()[0])
+    t0 = time.time()
+    for off in range(0, len(payload), chunk):
+        link.write(payload[off:off + chunk])
+        wait_for(link, "[다음]", timeout=20, quiet=True)
+    dt = time.time() - t0
+    print(f"  전송 {len(payload)}바이트 · {dt:.2f}초 · {len(payload)/dt/1024:.0f} KB/s")
+
     link.write(struct.pack("<I", cs))
     wait_for(link, "[적재]")
     link.write(b"P\n")

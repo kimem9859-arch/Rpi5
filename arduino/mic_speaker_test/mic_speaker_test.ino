@@ -105,6 +105,8 @@ static String readLine(uint32_t ms = 2000) {
 
 // 정확히 len 바이트를 채운다. 🔴 여기서 블로킹으로 읽기 때문에
 //    오디오 안에 'r'·'p' 바이트가 섞여도 명령으로 오해되지 않는다.
+//    실패하면 몇 바이트에서 멈췄는지 남긴다 — 원인 규명에 그 숫자가 필요하다.
+static size_t lastGot = 0;
 static bool readExact(uint8_t *dst, size_t len, uint32_t ms = 15000) {
   size_t got = 0;
   uint32_t t0 = millis();
@@ -112,6 +114,7 @@ static bool readExact(uint8_t *dst, size_t len, uint32_t ms = 15000) {
     int n = io->readBytes((char *)dst + got, len - got);
     if (n > 0) { got += n; t0 = millis(); }
   }
+  lastGot = got;
   return got == len;
 }
 
@@ -244,10 +247,27 @@ static void cmdWrite(const String &args) {
     Serial.printf("[FAIL] 레이트 %ld — 8000~%u 범위를 벗어났다.\n", r, (unsigned)MAX_RATE);
     return;
   }
-  if (!readExact((uint8_t *)rec, (size_t)n * sizeof(int16_t))) {
-    Serial.println("[FAIL] 페이로드가 도중에 끊겼다.");
-    hasRec = false;
-    return;
+  // 🔴 조각내어 받고 조각마다 「다음」을 보낸다 — 흐름 제어.
+  //    2026-09-01: 64KB 를 한 번에 밀어 넣었더니 USB CDC 수신 버퍼가 넘쳐
+  //    페이로드가 끊겼다. 파이가 빠르고 ESP32 가 느린 것이 정상 상황이므로
+  //    「받을 만큼만 보내라」를 프로토콜에 넣는다. 무선(TCP)에서도 같은 문제가
+  //    나므로 전송 계층이 아니라 여기서 푸는 것이 맞다(설계 §4.2).
+  const size_t CHUNK = 2048;
+  size_t total = (size_t)n * sizeof(int16_t);
+  size_t done = 0;
+  io->printf("[준비] chunk=%u total=%u\n", (unsigned)CHUNK, (unsigned)total);
+  while (done < total) {
+    size_t want = total - done;
+    if (want > CHUNK) want = CHUNK;
+    if (!readExact((uint8_t *)rec + done, want, 8000)) {
+      Serial.printf("[FAIL] 페이로드가 도중에 끊겼다 — %u/%u 바이트 (조각에서 %u/%u)\n",
+                    (unsigned)(done + lastGot), (unsigned)total,
+                    (unsigned)lastGot, (unsigned)want);
+      hasRec = false;
+      return;
+    }
+    done += want;
+    io->println("[다음]");
   }
   uint8_t cs[4];
   if (!readExact(cs, 4, 3000)) {
@@ -292,6 +312,8 @@ static void cmdDump() {
 }
 
 void setup() {
+  // 🔴 기본 수신 버퍼(256B)로는 오디오 페이로드가 넘친다. begin() 전에 키운다.
+  Serial.setRxBufferSize(8192);
   Serial.begin(115200);
   delay(1500);
   Serial.println();
