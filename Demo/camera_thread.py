@@ -214,6 +214,7 @@ class CameraThread(QThread):
         self._host               = CAMERA_TCP_HOST
         self._is_active          = True
         self._draw_boxes         = config.SHOW_DETECT_BOXES
+        self._frame_sink         = None      # 시연영상 촬영이 붙는 자리 (demo_recorder)
         self._tracks             = []
         self._undistort_map      = None
         self._lock               = threading.Lock()
@@ -279,6 +280,15 @@ class CameraThread(QThread):
     def draw_boxes(self):
         with self._lock:
             return self._draw_boxes
+
+    def set_frame_sink(self, fn):
+        """매 프레임 (오버레이 있는 것, 없는 것) 두 벌을 받을 함수. None 이면 끈다.
+
+        🔴 sink 가 붙으면 **화면 표시 설정과 무관하게 오버레이를 그린다.**
+           촬영은 오버레이 OFF 회차에서도 「오버레이 있는 1인칭 영상」을 남겨야 한다.
+        """
+        with self._lock:
+            self._frame_sink = fn
 
     def retry_connect(self):
         """수동 재연결 — 메뉴 → 점검(연결) 에서 부른다.
@@ -494,6 +504,7 @@ class CameraThread(QThread):
         with self._lock:
             is_active = self._is_active
             draw = self._draw_boxes
+            sink = self._frame_sink
 
         if not is_active:
             # 🔴 비활성 미리보기도 같은 방향이어야 한다 — 여기서 회전을 빼면
@@ -509,12 +520,19 @@ class CameraThread(QThread):
         tool_frame = (frame.copy()
                       if (self._tool_scan and self._tool_gate is not None) else None)
 
+        # 🔴 오버레이 없는 사본 — 촬영이 붙어 있을 때만. tool_frame 과 목적이 다르다
+        #    (저쪽은 공구 추론용, 이쪽은 1인칭 원본 영상용).
+        clean_frame = frame.copy() if sink is not None else None
+        # 🔴 촬영 중에는 화면 표시와 무관하게 그린다 — 오버레이 OFF 회차에서도
+        #    「오버레이 있는 1인칭 영상」이 나와야 한다.
+        draw_overlay = draw or sink is not None
+
         if DETECTOR_AVAILABLE:
             dets = _detector.detect(frame)
             with self._lock:
                 self._tracks = _update_tracks(self._tracks, dets)
                 tracks = self._tracks
-            if draw:
+            if draw_overlay:
                 frame = self._draw_yolo(frame, tracks)
             self.yolo_detections_signal.emit([
                 (_detector.class_name(t['cls']), t['score'], *t['box']) for t in tracks
@@ -522,7 +540,7 @@ class CameraThread(QThread):
 
         # 손 검출 → 검지 끝. 랜드마크 표시는 hand_tracker 가 frame 에 직접 그린다.
         # 🔴 draw_on=None 이어도 검출은 그대로 한다 — 반환값(손끝)은 ROI 판정에 쓴다.
-        fingertip = self._hand.detect(frame, draw_on=frame if draw else None)
+        fingertip = self._hand.detect(frame, draw_on=frame if draw_overlay else None)
 
         # 🔴 집계 전용이다 — 판정에 쓰지 않는다. roi_signal 은 ROI 라벨만 주므로
         #    「ROI 밖의 손」과 「손 없음」이 구별되지 않는다(설계 §3.6).
@@ -542,13 +560,17 @@ class CameraThread(QThread):
                 self._tool_dets = got[0]
                 self._tool_dets_at = now
                 self.tool_signal.emit(got[0], got[1])
-            if draw:
+            if draw_overlay:
                 frame = self._draw_tools(frame)
 
         # HOI → FSM: 손끝이 든 버튼 ROI 라벨을 통지 (없으면 "")
         roi, level = zone_at_point(*fingertip, self._tracks) if fingertip else (None, None)
         self.roi_signal.emit(roi or "", level or 0)
 
+        if sink is not None:
+            sink(frame, clean_frame)
+            # 화면에는 회차 설정대로 보여준다 — 촬영 때문에 화면이 바뀌면 안 된다.
+            return frame if draw else clean_frame
         return frame
 
     # =========================================================================
