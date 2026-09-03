@@ -34,20 +34,34 @@ read -rp "  > " s
 case "$s" in 2) SCEN="오답" ;; *) SCEN="정상" ;; esac
 
 echo
-echo "  검출 오버레이(박스·손)를 GUI 화면에 표시할까요?"
-echo "    1) 켬"
-echo "    2) 끔"
-read -rp "  > " o
-case "$o" in 2) OVL="끔" ;; *) OVL="켬" ;; esac
+echo "  GUI 배경을 고르세요"
+echo "    1) 실시간 1인칭 영상을 보여준다"
+echo "    2) 검정 배경 + UI 만  (🔴 이 회차는 따로 찍어야 한다 — 이 UI 는 모든 UI 가"
+echo "                          영상 위에 떠 있어 나중에 덧칠하면 UI 까지 지워진다)"
+read -rp "  > " b
+if [ "$b" = "2" ]; then HIDE=1; else HIDE=0; fi
 
-echo
-echo "  ▶ [$SCEN / 오버레이 $OVL] GUI 를 띄웁니다."
+if [ "$HIDE" = "1" ]; then
+    # 배경이 검정이면 박스·랜드마크는 어차피 안 보인다(영상 위에 그리므로).
+    OVL="켬"
+    echo
+    echo "  ▶ [$SCEN / UI만(검정 배경)] GUI 를 띄웁니다."
+else
+    echo
+    echo "  검출 오버레이(박스·손)를 GUI 화면에 표시할까요?"
+    echo "    1) 켬"
+    echo "    2) 끔"
+    read -rp "  > " o
+    case "$o" in 2) OVL="끔" ;; *) OVL="켬" ;; esac
+    echo
+    echo "  ▶ [$SCEN / 오버레이 $OVL] GUI 를 띄웁니다."
+fi
 echo "    화면이 뜨고 카메라 영상이 들어오면 5개 녹화가 동시에 시작됩니다."
 echo "    끝나면 GUI 창을 닫으세요."
 echo
 
 SOP_DEMO_CAPTURE=1 SOP_DEMO_SCENARIO="$SCEN" SOP_DEMO_OVERLAY="$OVL" \
-SOP_USB_CAMERA=0 python3 main.py
+SOP_DEMO_HIDE_VIDEO="$HIDE" SOP_USB_CAMERA=0 python3 main.py
 status=$?
 
 SET_DIR="$(ls -dt recordings/시연영상/촬영본/*/ 2>/dev/null | head -1)"
@@ -55,6 +69,11 @@ if [ -z "$SET_DIR" ]; then
     echo "❌ 촬영본이 없습니다 (GUI exit code: $status)"
     read -rp "Enter 키를 누르면 닫힙니다..."; exit 1
 fi
+
+echo
+echo "  ▪ 촬영 마무리 중 (GUI화면만 만들기 · 1인칭 규격 맞추기)..."
+echo "    🔴 촬영 중에는 CPU 를 아끼려고 원본만 담는다 — 규격 맞추기는 여기서 한다."
+python3 demo_postprocess.py "$SET_DIR"
 
 echo
 echo "  ▪ 촬영본 — $SET_DIR"

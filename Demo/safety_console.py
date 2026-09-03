@@ -43,7 +43,6 @@ from overlay_result import ResultPanel
 import precheck
 from fps import fps_from_intervals, fps_stale
 from demo_recorder import DemoRecorder
-from demo_ffmpeg import FfmpegPair
 
 
 # =============================================================================
@@ -341,22 +340,23 @@ class SafetyConsole(QMainWindow):
 
         # --- 시연영상 촬영 (SOP_DEMO_CAPTURE=1 일 때만) ----------------------
         self._demo = None
-        self._demo_ff = None
         self._demo_dir = ""
         self._demo_on = False
+        self._demo_done = False
         if config.DEMO_CAPTURE:
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            folder = f"{stamp}_{config.DEMO_SCENARIO}_오버레이{config.DEMO_OVERLAY}"
+            _mode = ("UI만" if config.DEMO_HIDE_VIDEO
+                     else f"오버레이{config.DEMO_OVERLAY}")
+            folder = f"{stamp}_{config.DEMO_SCENARIO}_{_mode}"
             self._demo_dir = os.path.join(config.DEMO_CAPTURE_DIR, '촬영본', folder)
             self._demo = DemoRecorder(self._demo_dir, stamp,
-                                      config.DEMO_SCENARIO, config.DEMO_OVERLAY, self)
-            self._demo_ff = FfmpegPair()
+                                      config.DEMO_SCENARIO, config.DEMO_OVERLAY)
             self.camera_thread.set_draw_boxes(config.DEMO_OVERLAY == "켬")
             # 🔴 첫 프레임에 시작하는 것이 기본이고(_note_frame), 이것은 ESP32 가
             #    안 붙었을 때 영영 시작 못 하는 것을 막는 폴백이다.
             QTimer.singleShot(int(config.DEMO_CAPTURE_START_TIMEOUT * 1000),
                               self._start_demo_capture)
-            self._append_log(f"[시연촬영] 대기 — {config.DEMO_SCENARIO} / 오버레이 {config.DEMO_OVERLAY}")
+            self._append_log(f"[시연촬영] 대기 — {config.DEMO_SCENARIO} / {_mode}")
 
     # =========================================================================
     # [UI 초기화]
@@ -589,6 +589,11 @@ class SafetyConsole(QMainWindow):
         if self._active_camera != "esp32":
             return
         self._note_frame(qt_image)
+        if config.DEMO_HIDE_VIDEO:
+            # 🔴 표시만 검정이다 — _note_frame 은 위에서 이미 돌았고, 검출·판정·
+            #    1인칭 녹화는 그대로다. 「UI만」 회차용.
+            self.camera_label.clear()
+            return
         self.camera_label.setPixmap(QPixmap.fromImage(self._fit_to_label(qt_image)))
 
     @pyqtSlot(QImage)
@@ -1596,22 +1601,23 @@ class SafetyConsole(QMainWindow):
         🔴 **첫 카메라 프레임이 온 뒤**여야 1인칭 영상이 검은 화면으로 시작하지 않는다.
            두 번 불려도(첫 프레임 / 10초 폴백) 한 번만 시작한다.
         """
-        if self._demo is None or self._demo_on:
+        # 🔴 _demo_done 이 없으면 종료 중에 들어온 프레임이 촬영을 다시 켠다
+        #    (2026-09-03 실측에서 실제로 재시작됐다).
+        if self._demo is None or self._demo_on or self._demo_done:
             return
         self._demo_on = True
         # 🔴 잘라낼 사각형 안에 다른 창이 겹치면 그대로 찍힌다 — 런처 터미널을 덮는다.
         self.raise_()
         self.activateWindow()
         QApplication.processEvents()
-        os.makedirs(self._demo_dir, exist_ok=True)
         g = self.geometry()
         tl = self.mapToGlobal(QPoint(0, 0))
-        problems = self._demo_ff.start(
-            (tl.x(), tl.y(), g.width(), g.height()),
-            self._demo.path_for('GUI전체', config.DEMO_OVERLAY),
-            self._demo.path_for('3인칭웹캠'))
-        self._demo.start(lambda: self.grab().toImage(), self.camera_label.geometry())
+        r = self.camera_label.geometry()
+        # 🔴 sink 를 먼저 붙인다 — start() 가 첫 프레임 크기를 보고 ffmpeg 입력 규격을 정한다.
         self.camera_thread.set_frame_sink(self._demo.submit_camera)
+        problems = self._demo.start(
+            (tl.x(), tl.y(), g.width(), g.height()),
+            (r.x(), r.y(), r.width(), r.height()))
         for p in problems:
             self._append_log(f"[시연촬영] ⚠️ {p}")
         self._append_log(f"[시연촬영] 시작 — {self._demo_dir}")
@@ -1620,19 +1626,12 @@ class SafetyConsole(QMainWindow):
         if self._demo is None or not self._demo_on:
             return
         self._demo_on = False
+        self._demo_done = True
         self.camera_thread.set_frame_sink(None)
         info = self._demo.stop()
-        self._demo_ff.stop()
-        lines = [f"시나리오: {config.DEMO_SCENARIO}",
-                 f"오버레이: {config.DEMO_OVERLAY}",
-                 f"길이: {info['seconds']:.1f}초", ""]
-        for name in sorted(os.listdir(self._demo_dir)):
-            path = os.path.join(self._demo_dir, name)
-            if name.endswith('.mp4') and os.path.isfile(path):
-                lines.append(f"{name}  {os.path.getsize(path) / 1024 / 1024:.1f} MB")
-        with open(os.path.join(self._demo_dir, '촬영정보.txt'), 'w') as fp:
-            fp.write("\n".join(lines) + "\n")
-        self._append_log(f"[시연촬영] 종료 — {info['seconds']:.1f}초")
+        self._demo.write_info()
+        self._append_log(f"[시연촬영] 종료 — {info['seconds']:.1f}초 "
+                         f"(1인칭 {info['pushed']}/{info['expected']}장)")
 
     # =========================================================================
     # [녹화]

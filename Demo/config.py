@@ -208,11 +208,28 @@ RECORDING_EXT      = "mp4"
 #    설계 = 상위 specs/2026-09-03-시연영상-촬영-design.md
 DEMO_CAPTURE      = os.environ.get("SOP_DEMO_CAPTURE", "0") == "1"
 DEMO_CAPTURE_DIR  = os.path.join(RECORDING_SAVE_DIR, '시연영상')
-DEMO_CAPTURE_SIZE = (1920, 1080)      # 5개 영상 공통 규격(16:9)
+# 5개 영상 공통 규격(16:9). 🔴 **부하와 맞바꾸는 값이다** — 2026-09-03 실측:
+#   1920x1080 → 촬영 중 GUI 15.6fps → **5.9fps** (CPU 여유 2%)
+#   1280x720  → 촬영 중 GUI 15.6fps → **9.7fps** (CPU 여유 18%)
+#   화면 캡처 x264 인코딩이 단독으로 CPU 136~172% 를 먹는다(4코어). Pi 5 에는
+#   하드웨어 인코더가 없어 전부 소프트웨어다.
+# 1280x720 은 GUI 설계 크기(WINDOW_WIDTH/HEIGHT)와 같아 배치가 가장 자연스럽다.
+# 화질을 우선하려면 SOP_DEMO_SIZE=1920x1080 으로 올린다(촬영 중 화면이 더 끊긴다).
+DEMO_CAPTURE_SIZE = tuple(
+    int(v) for v in os.environ.get("SOP_DEMO_SIZE", "1280x720").split("x"))
 DEMO_CAPTURE_FPS  = 15.0
+# 1인칭 원본 프레임 크기 — ESP32 640x480 이 회전(CCW90) 뒤 480x640 세로가 된다.
+# 🔴 첫 프레임이 있으면 그 크기를 쓰고, 이것은 10초 폴백 경로의 기본값이다.
+DEMO_FPV_SIZE     = (480, 640)
 # 첫 카메라 프레임을 이만큼 기다렸다 없으면 그냥 시작한다.
 # ESP32 가 안 붙었을 때 영영 시작 못 하는 것을 막는다.
 DEMO_CAPTURE_START_TIMEOUT = 10.0
+# 🔴 카메라 영상 자리를 검정으로 그린다(「UI만」 회차).
+#    ①에서 파생할 수 없어 회차를 나눈다 — 이 UI 는 **모든 UI 가 영상 위에 떠 있는**
+#    글라스 구조라, 녹화본에서 영상 영역을 덧칠하면 UI 까지 함께 지워진다
+#    (2026-09-03 실측: 거의 새까만 영상이 나왔다).
+#    🔴 표시만 바뀐다 — 검출·판정·1인칭 녹화는 그대로 돈다.
+DEMO_HIDE_VIDEO = os.environ.get("SOP_DEMO_HIDE_VIDEO", "0") == "1"
 DEMO_SCENARIO = os.environ.get("SOP_DEMO_SCENARIO", "정상")   # 정상 | 오답
 DEMO_OVERLAY  = os.environ.get("SOP_DEMO_OVERLAY", "켬")      # 켬 | 끔
 
