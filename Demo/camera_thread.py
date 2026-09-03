@@ -103,7 +103,28 @@ def _update_tracks(tracks, detections):
                 'score': d[1], 'miss': 0, 'confirmed': True,
             })
     tracks[:] = [t for t in tracks if t['miss'] <= YOLO_MAX_MISS and t['confirmed']]
+    tracks[:] = _one_per_class(tracks)
     return tracks
+
+
+def _one_per_class(tracks):
+    """클래스당 트랙 1개만 남긴다 — 실물 콘솔에 B1~B4·EMO 는 각각 하나뿐이다.
+
+    🔴 없으면 **같은 버튼 박스가 한 프레임에 둘 그려진다.** 박스가 크게 튀면
+       ①옛 트랙이 IoU 매칭에 실패해 `miss` 를 올리며 최대 YOLO_MAX_MISS 프레임
+       더 살아남고 ②같은 검출이 짝을 못 찾아 **새 트랙으로 추가**되기 때문이다.
+       (검출기가 한 프레임에 같은 클래스를 둘 뱉는 경우도 여기서 함께 걸린다.)
+
+    남길 하나는 **이번 프레임에 실제로 검출된 것(miss == 0)** 을 먼저 고르고,
+    같은 조건이면 점수가 높은 쪽을 고른다. 점수만 보면 갱신이 멈춘 옛 트랙이
+    이길 수 있어 박스가 뒤처진다.
+    """
+    best = {}
+    for t in tracks:
+        prev = best.get(t['cls'])
+        if prev is None or (t['miss'], -t['score']) < (prev['miss'], -prev['score']):
+            best[t['cls']] = t
+    return [t for t in tracks if best[t['cls']] is t]
 
 
 # =============================================================================
