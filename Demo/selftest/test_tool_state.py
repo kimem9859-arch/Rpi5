@@ -162,6 +162,63 @@ def test_요구공구가_드라이버일때():
     check(st.phase == "grasped", "쥠 확정")
 
 
+# ------------------------------------------------------- ⑤ 쥔 공구 클래스 (2026-09-03)
+# 설계 = ../docs/superpowers/specs/2026-09-03-공구-쥔상태-검출-design.md §2
+# 경위 = 통합문서 §10.54 — 쥐면 공구가 손에 가려 검출이 무너져 게이트가 안 열렸다.
+# `tool_v4` 는 「쥔 공구」를 별도 클래스(`{공구}-in-hand`)로 배운다.
+IN_HAND_W = ("wrench-in-hand", 0.80, 100, 100, 200, 200)   # 쥔 렌치
+IN_HAND_D = ("driver-in-hand", 0.90, 300, 100, 400, 200)   # 쥔 드라이버(오답)
+
+
+def test_쥔공구_클래스로_완료():
+    """🔑 메인 조건 — 손끝 좌표를 보지 않는다. 모델이 「쥠」을 판정한 것이다."""
+    print("[11] 쥔 공구 클래스가 잡히고 손이 보이면 완료")
+    st = ToolState("wrench")
+    check(st.update([IN_HAND_W], OUT) == "wrench", "손끝이 박스 밖이어도 완료")
+    check(st.phase == "grasped", "phase=grasped")
+
+
+def test_쥔공구_클래스도_손이_증인():
+    """🔴 손 검출이 안전장치다 — 손 없는 화면의 배경 오검출을 거른다(§10.54-(5))."""
+    print("[12] 🔴 손이 안 보이면 쥔 공구 클래스만으로는 완료되지 않는다")
+    st = ToolState("wrench")
+    check(st.update([IN_HAND_W], None) is None, "손이 없으면 판정 보류")
+    check(st.phase == "search", "search 유지")
+
+
+def test_보조조건_종전규칙_유지():
+    """보조 조건 = 검지 끝이 박스 안. tool_v3 시절 규칙 그대로."""
+    print("[13] 보조 조건(검지끝 ∩ 박스)은 종전대로 동작한다")
+    st = ToolState("wrench")
+    check(st.update([BOX_W], IN_W) == "wrench", "평이름 박스 + 손끝 안 = 완료")
+
+
+def test_오답을_쥐면_접미어를_벗겨_경고():
+    print("[14] 오답 공구를 쥐면 그 키로 경고(접미어 제거)")
+    st = ToolState("wrench")
+    check(st.update([IN_HAND_D], OUT) == "driver", "driver-in-hand → 'driver'")
+    check(st.phase == "search", "오답은 쥠이 아니다")
+
+
+def test_요구공구가_이긴다():
+    """🔑 쥐지 않은 공구가 함께 보이는 것은 정상이다 — 요구 공구 근거가 이긴다."""
+    print("[15] 둘 다 보이면 요구 공구가 이긴다")
+    st = ToolState("wrench")
+    check(st.update([IN_HAND_D, IN_HAND_W], OUT) == "wrench", "요구 공구 우선")
+    check(st.phase == "grasped", "완료")
+
+
+def test_쥔공구_클래스는_부재를_근거로_쓰지_않는다():
+    """🔴 §10.44 회귀의 v4 판 — in-hand 클래스가 없다고 완료가 나면 안 된다."""
+    print("[16] 🔴 쥔 공구 클래스가 안 보이는 것으로는 아무 판정도 하지 않는다")
+    st = ToolState("wrench")
+    out = "sentinel"
+    for _ in range(10):
+        out = st.update([IN_HAND_D], IN_D)   # 오답만 계속 쥔 상태
+    check(out == "driver", "계속 오답 경고")
+    check(st.phase == "search", "완료로 넘어가지 않는다")
+
+
 if __name__ == "__main__":
     t0 = time.time()
     test_안쥐면_완료_안됨()
@@ -174,6 +231,12 @@ if __name__ == "__main__":
     test_3종이_다_보이는것은_정상()
     test_겹친박스는_작은쪽()
     test_요구공구가_드라이버일때()
+    test_쥔공구_클래스로_완료()
+    test_쥔공구_클래스도_손이_증인()
+    test_보조조건_종전규칙_유지()
+    test_오답을_쥐면_접미어를_벗겨_경고()
+    test_요구공구가_이긴다()
+    test_쥔공구_클래스는_부재를_근거로_쓰지_않는다()
 
     elapsed = time.time() - t0
     print()

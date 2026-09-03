@@ -36,6 +36,18 @@
 """
 
 
+# 「쥔 공구」 클래스 접미어. `tool_v4` 부터 모델이 `wrench-in-hand` 처럼 낸다.
+# 🔑 우리 키(recipe.json 의 tool)는 접미어가 없다 — 대조 전에 벗긴다.
+IN_HAND_SUFFIX = "-in-hand"
+
+
+def _base(name):
+    """모델 클래스명 → 우리 공구 키. `wrench-in-hand` → `wrench`."""
+    if name.endswith(IN_HAND_SUFFIX):
+        return name[:-len(IN_HAND_SUFFIX)]
+    return name
+
+
 class ToolState:
     """한 서브 작업의 공구 판정 상태.
 
@@ -74,15 +86,40 @@ class ToolState:
         if fingertip is None:
             return None                          # 🔑 손이 안 보이면 판정하지 않는다
 
-        held = self._held_tool(dets, fingertip)
-        if held is None:
-            return None
-        if held == self._want:
+        # ── 메인 조건 (2026-09-03) — 모델이 판정한 「쥠」
+        #    🔑 손끝 좌표를 보지 않는다. 손이 화면에 있다는 것만 안전장치로 쓴다
+        #       (배경 오검출은 손 없는 화면에서 난다 — §10.54-(5)).
+        in_hand = self._in_hand_tool(dets)
+        if in_hand == self._want:
             self._phase = "grasped"
             return self._want
-        return held                              # 오답 → 경고
+
+        # ── 보조 조건 — 검지 끝이 요구 공구 박스 안 (tool_v3 시절 규칙 그대로)
+        held = self._held_tool(dets, fingertip)
+        if held is not None and _base(held) == self._want:
+            self._phase = "grasped"
+            return self._want
+
+        # 🔑 요구 공구 근거가 없을 때만 오답을 말한다 — 쥐지 않은 공구가 함께
+        #    보이는 것은 정상이므로, 요구 공구 쪽이 언제나 이긴다.
+        if in_hand is not None:
+            return in_hand
+        return None if held is None else _base(held)
 
     # ------------------------------------------------------------------ 보조
+    def _in_hand_tool(self, dets):
+        """검출된 「쥔 공구」 클래스의 키. 없으면 None.
+
+        요구 공구가 그중에 있으면 **그것을 고른다** — 점수 최고를 고르면 함께
+        보이는 다른 공구가 요구 공구를 밀어낸다(3종이 동시에 보이는 것은 정상).
+        """
+        keys = [_base(d[0]) for d in dets if d[0].endswith(IN_HAND_SUFFIX)]
+        if not keys:
+            return None
+        if self._want in keys:
+            return self._want
+        return keys[0]
+
     @staticmethod
     def _held_tool(dets, fingertip):
         """손끝이 들어 있는 박스의 클래스명. 없으면 None.
