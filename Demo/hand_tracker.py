@@ -111,6 +111,10 @@ class HandTracker:
         self._det = self._lm = None
         self.available = False
         self.reason = ""
+        # 마지막 프레임의 손 랜드마크 21점(numpy Nx3). 손이 없으면 None.
+        # 🔑 반환값은 종전대로 검지 끝 하나다 — 이건 판정 좌표를 바꿔볼 때
+        #    쓰는 **읽기 전용 부산물**이다(점검 도구용, 런타임은 안 쓴다).
+        self.last_landmarks = None
 
         if not getattr(config, "HAND_ENABLED", False):
             self.reason = "config.HAND_ENABLED=False"
@@ -152,6 +156,7 @@ class HandTracker:
             return None
         import cv2
         import numpy as np
+        self.last_landmarks = None
         try:
             with self._lock:                       # NPU 접근 직렬화
                 rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
@@ -170,6 +175,7 @@ class HandTracker:
             if float(np.max(flags)) < config.HAND_MIN_SCORE:
                 return None
             hand = lms[0]
+            self.last_landmarks = hand
             tip = (int(hand[TIP][0]), int(hand[TIP][1]))
             if draw_on is not None and getattr(config, "HAND_DRAW", True):
                 for x, y, _z in hand:
