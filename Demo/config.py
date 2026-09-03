@@ -202,6 +202,20 @@ RECORDING_FPS      = 15.0
 RECORDING_CODEC    = "avc1"
 RECORDING_EXT      = "mp4"
 
+# --- 시연영상 촬영 모드 -------------------------------------------------------
+# 🔴 평소 실행과 완전히 분리된 경로다. SOP_DEMO_CAPTURE=1 일 때만 켜진다.
+#    한 번 실행에 5개 영상을 동시에 남긴다(GUI전체·UI만·1인칭 오버레이 유/무·3인칭).
+#    설계 = 상위 specs/2026-09-03-시연영상-촬영-design.md
+DEMO_CAPTURE      = os.environ.get("SOP_DEMO_CAPTURE", "0") == "1"
+DEMO_CAPTURE_DIR  = os.path.join(RECORDING_SAVE_DIR, '시연영상')
+DEMO_CAPTURE_SIZE = (1920, 1080)      # 5개 영상 공통 규격(16:9)
+DEMO_CAPTURE_FPS  = 15.0
+# 첫 카메라 프레임을 이만큼 기다렸다 없으면 그냥 시작한다.
+# ESP32 가 안 붙었을 때 영영 시작 못 하는 것을 막는다.
+DEMO_CAPTURE_START_TIMEOUT = 10.0
+DEMO_SCENARIO = os.environ.get("SOP_DEMO_SCENARIO", "정상")   # 정상 | 오답
+DEMO_OVERLAY  = os.environ.get("SOP_DEMO_OVERLAY", "켬")      # 켬 | 끔
+
 # =============================================================================
 # [로그 설정]
 # =============================================================================

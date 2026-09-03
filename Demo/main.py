@@ -2,6 +2,7 @@ import os
 import sys
 
 from PyQt6.QtWidgets import QApplication
+import config
 from safety_console import SafetyConsole
 from config import BG_PRIMARY, BG_PANEL, TEXT_PRIMARY, BORDER_COLOR, ACCENT, UI_FONT_FAMILY
 
@@ -22,7 +23,14 @@ def main():
     # SOP_FULLSCREEN=1 이면 모니터를 꽉 채운다(시나리오 촬영용, run_scenario.sh 가 설정).
     # showMaximized 를 쓴다 — 진짜 전체화면(showFullScreen)은 제목표시줄이 사라져
     # 창을 닫을 수 없고, 녹화 종료가 GUI 종료에 묶여 있어 위험하다.
-    if os.environ.get("SOP_FULLSCREEN", "0") == "1":
+    # 촬영 모드는 창을 16:9 로 고정한다 — 잘라낼 좌표가 딱 떨어지고 편집 규격 그대로다.
+    # 🔴 최대화·전체화면을 쓰지 않는다. 최대화는 비율이 어중간하고, 전체화면은
+    #    제목표시줄이 없어져 창을 닫을 수 없다(녹화 종료가 GUI 종료에 묶여 있다).
+    if config.DEMO_CAPTURE:
+        window.resize(*config.DEMO_CAPTURE_SIZE)
+        window.move(0, 40)
+        window.show()
+    elif os.environ.get("SOP_FULLSCREEN", "0") == "1":
         window.showMaximized()
     else:
         window.show()
