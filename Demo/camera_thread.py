@@ -172,7 +172,8 @@ def _load_undistort_map(path, w, h):
             return None, 'mismatch'
     cam_mat = data['camera_matrix']
     dist    = data['dist_coeffs']
-    new_mat, _ = cv2.getOptimalNewCameraMatrix(cam_mat, dist, (w, h), 1, (w, h))
+    new_mat, _ = cv2.getOptimalNewCameraMatrix(cam_mat, dist, (w, h),
+                                               config.CALIB_ALPHA, (w, h))
     map1, map2 = cv2.initUndistortRectifyMap(cam_mat, dist, None, new_mat, (w, h), cv2.CV_16SC2)
     return (map1, map2), 'ok'
 

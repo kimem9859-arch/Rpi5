@@ -173,7 +173,8 @@ def _undistort_map(w, h):
         if (iw, ih) != (w, h):
             return None
     cam_mat, dist = data["camera_matrix"], data["dist_coeffs"]
-    new_mat, _ = cv2.getOptimalNewCameraMatrix(cam_mat, dist, (w, h), 1, (w, h))
+    new_mat, _ = cv2.getOptimalNewCameraMatrix(cam_mat, dist, (w, h),
+                                               config.CALIB_ALPHA, (w, h))
     return cv2.initUndistortRectifyMap(cam_mat, dist, None, new_mat, (w, h), cv2.CV_16SC2)
 
 
