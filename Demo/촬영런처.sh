@@ -7,7 +7,7 @@
 # 🔴 웹캠은 ffmpeg 가 직접 연다 — GUI 의 UsbCameraThread 가 /dev/video0 을
 #    점유하면 3인칭 녹화가 장치를 못 연다. 그래서 SOP_USB_CAMERA=0 을 강제한다.
 #
-# 종료: GUI 창을 닫으면 5개 녹화가 함께 정리되고, 여기서 채택/NG 를 묻는다.
+# 종료: GUI 창을 닫으면 그 회차의 녹화가 함께 정리되고, 여기서 채택/NG 를 묻는다.
 
 cd "$(dirname "$(readlink -f "$0")")" || exit 1
 
@@ -56,7 +56,7 @@ else
     echo
     echo "  ▶ [$SCEN / 오버레이 $OVL] GUI 를 띄웁니다."
 fi
-echo "    화면이 뜨고 카메라 영상이 들어오면 5개 녹화가 동시에 시작됩니다."
+echo "    화면이 뜨고 카메라 영상이 들어오면 이 회차의 녹화 4개가 동시에 시작됩니다."
 echo "    끝나면 GUI 창을 닫으세요."
 echo
 

@@ -12,6 +12,7 @@
 """
 import json
 import os
+import subprocess
 import threading
 import time
 
@@ -19,6 +20,22 @@ import cv2
 
 import config
 from demo_ffmpeg import FfmpegSet
+
+
+def keep_screen_awake():
+    """촬영 중 화면이 꺼지지 않게 `xscreensaver` 의 활동 타이머를 되돌린다.
+
+    🔴 **설정을 바꾸지 않는다.** `~/.xscreensaver` 는 timeout 5분·lock True 인데,
+       이것을 고쳐 놓으면 촬영이 비정상 종료됐을 때 **잠금이 풀린 채 남는다.**
+       타이머만 되돌리면 촬영이 끝나는 순간 저절로 원래대로 돌아간다.
+    ⚠️ 2026-09-04 에 실제로 물렸다 — 5분 잠금이 걸려 화면 캡처가 **통째로 검정**으로
+       찍혔다. 1인칭·3인칭은 멀쩡해서 촬영 기능 결함으로 오인하기 쉽다.
+    """
+    try:
+        subprocess.run(["xscreensaver-command", "-deactivate"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+    except Exception:
+        pass          # xscreensaver 가 없는 환경이면 아무것도 안 한다
 
 
 class DemoRecorder:
@@ -35,6 +52,7 @@ class DemoRecorder:
         self._running = False
         self._started = 0.0
         self._pushed = 0
+        self._awake_at = 0.0
 
     # -- 파일 -----------------------------------------------------------------
     def path_for(self, kind, overlay=None):
@@ -88,6 +106,10 @@ class DemoRecorder:
         next_t = time.time()
         while self._running:
             next_t += interval
+            # 🔴 화면이 잠기면 GUI 화면 녹화가 검정으로 찍힌다(2026-09-04 실측).
+            if time.time() - self._awake_at >= 60:
+                self._awake_at = time.time()
+                keep_screen_awake()
             with self._lock:
                 latest = self._latest
             if latest is not None and len(pipes) == 2:
