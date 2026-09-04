@@ -89,11 +89,16 @@ class FfmpegSet:
             "-video_size", f"{w}x{h}", "-i", f"{display}+{x},{y}"] + _X264 + [paths['gui_full']]))
 
         # B. USB 웹캠 — 검출 없는 순수 촬영본
+        # 🔴 카메라는 1920x1080 MJPG 로 열고 **인코딩만 규격(기본 720p)으로 줄인다.**
+        #    v4l2 입력 해상도를 낮추면 시야각이 잘리는 웹캠이 있어 원본은 그대로 받는다.
+        #    1080p 로 담으면 분당 230MB — 6회차 촬영이면 4GB 를 넘는다(2026-09-04 실측).
         if os.path.exists("/dev/video0"):
             self._procs.append(self._spawn([
                 "-f", "v4l2", "-input_format", "mjpeg",
                 "-video_size", "1920x1080", "-framerate", str(fps),
-                "-i", "/dev/video0"] + _X264 + [paths['webcam']]))
+                "-i", "/dev/video0",
+                "-vf", f"scale={config.DEMO_WEBCAM_SIZE[0]}:{config.DEMO_WEBCAM_SIZE[1]}",
+                ] + _X264 + [paths['webcam']]))
         else:
             problems.append("USB 웹캠(/dev/video0)이 없어 3인칭 녹화를 건너뜁니다")
 
