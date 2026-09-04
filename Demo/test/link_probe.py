@@ -25,6 +25,22 @@
     python3 test/link_probe.py --summary          # 지금까지 라운드 집계
     python3 test/link_probe.py --reset            # 기록 비우기
 
+    # 🔑 송신 윈도 판별 실험 (아래 참조)
+    python3 test/link_probe.py "윈도64K" 60 --rcvbuf 65536
+    python3 test/link_probe.py "윈도4K"  60 --rcvbuf 4096
+
+🔑 **`--rcvbuf` 는 왜 있나 — 「대역폭이냐 왕복지연이냐」를 가르는 실험이다.**
+    2026-09-05 에 이 파일에 쌓인 18라운드를 회귀했더니 처리량이 전 구간에서
+    `5744바이트 ÷ RTT` 선을 따라갔다(실측/상한 59~153%, 중앙 91%). 5744 는 맞춘 수가
+    아니라 ESP32 툴체인의 `CONFIG_LWIP_TCP_SND_BUF_DEFAULT` 값이다. 사실이라면
+    **FPS 는 대역폭이 아니라 왕복 지연에 매여 있다.**
+
+    그런데 「무선 여유가 없어 처리량과 지연이 함께 나빠졌을 뿐」이라는 설명도 같은
+    모양을 만든다. 둘을 가르는 방법 = **파이 쪽 수신 윈도를 좁혀 본다.**
+      · 64KB → 8KB 로 줄여도 처리량이 그대로면 → 이미 **보내는 쪽이 상한**(윈도 가설 ✅)
+      · 줄이는 대로 처리량이 같이 줄면 → 수신 윈도가 상한이었다(가설 기각·조건 재설정)
+    🔴 실험 뒤에는 `--rcvbuf` 없이 다시 재서 평소 값으로 돌아오는지 확인하라.
+
 결과는 `test/link_probe.json` 에 누적된다(gitignore 대상인 test/ 산출물).
 """
 
@@ -44,9 +60,17 @@ _DEMO = os.path.dirname(_HERE)
 sys.path.insert(0, _DEMO)
 
 import config  # noqa: E402
+import link_ctx  # noqa: E402
 from pi_load import PiLoad  # noqa: E402
 
 _STORE = os.path.join(_HERE, "link_probe.json")
+
+# ESP32(lwIP)의 TCP 송신 버퍼 — `CONFIG_LWIP_TCP_SND_BUF_DEFAULT`(= 4 × MSS 1436).
+# 🔴 실행 중 못 바꾼다: 이 툴체인은 `CONFIG_LWIP_SO_SNDBUF` 가 꺼져 있어 펌웨어의
+#    `setsockopt(SO_SNDBUF, 32768)` 이 무시된다(esp32s3-libs 3.3.10 sdkconfig 확인).
+#    → 보내는 쪽이 한 왕복에 내보낼 수 있는 양의 상한이 이 값이다.
+# ⚠️ 툴체인을 올리거나 커스텀 빌드로 바꾸면 이 상수도 같이 고칠 것.
+ESP32_SND_WND = 5744
 _PING_RE = re.compile(
     r"(\d+) packets transmitted, (\d+) received.*?([\d.]+)% packet loss", re.S)
 _RTT_RE = re.compile(r"rtt min/avg/max/mdev = ([\d.]+)/([\d.]+)/([\d.]+)/([\d.]+)")
@@ -67,7 +91,7 @@ def ping(host, count, interval=0.5):
     return out
 
 
-def recv_stream(host, port, seconds, ping_result):
+def recv_stream(host, port, seconds, ping_result, rcvbuf=None):
     """순수 수신 — 4바이트 길이 헤더 + JPEG (camera_thread._recv_latest_frame 과 같은 규약).
 
     🔴 끊기면 죽지 않고 **재연결한다** — 런타임(`camera_thread`)도 그렇게 돌고,
@@ -84,6 +108,11 @@ def recv_stream(host, port, seconds, ping_result):
         try:
             s = socket.socket()
             s.settimeout(10)
+            if rcvbuf:
+                # 🔴 반드시 connect() **전에** 걸어야 한다 — 3-way handshake 에서
+                #    광고할 윈도가 이때 정해진다. 커널이 값을 2배로 부풀려 잡으므로
+                #    실제 광고 윈도는 여기 넣은 값과 정확히 같지 않다(경향만 본다).
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, int(rcvbuf))
             s.connect((host, port))
 
             def rx(n):
@@ -127,16 +156,20 @@ def pct(vals, p):
     return sorted(vals)[min(len(vals) - 1, int(len(vals) * p))]
 
 
-def run_round(label, seconds):
+def run_round(label, seconds, rcvbuf=None):
     host = config.CAMERA_TCP_HOST
     port = config.CAMERA_TCP_PORT
     print(f"[{label}] {host}:{port} — {seconds:.0f}초 측정…", flush=True)
+    if rcvbuf:
+        print(f"  🔬 수신 윈도 실험: SO_RCVBUF={rcvbuf}B", flush=True)
 
     pi = PiLoad()
+    ctx = link_ctx.Sampler(host, port).start()
     stream_ping = {}
-    sizes, gaps, drops = recv_stream(host, port, seconds, stream_ping)
+    sizes, gaps, drops = recv_stream(host, port, seconds, stream_ping, rcvbuf)
     # 🔴 수신이 끝나자마자 읽는다 — 유휴 ping 구간의 부하가 섞이면 안 된다.
     pi_snap = pi.read()
+    ctx_snap = ctx.stop()
     if len(gaps) < 10:
         print("🔴 프레임을 거의 못 받았다 — 연결·전원을 확인하라.")
         return None
@@ -148,6 +181,11 @@ def run_round(label, seconds):
     r = {
         "label": label,
         "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        # 🔴 대상 IP 를 반드시 남긴다 — 2026-09-04 에 라운드 도중 병행 세션이
+        #    `.camera_ip` 를 바꿔, 어느 라운드가 어느 보드였는지 못 가렸다.
+        "host": host,
+        "rcvbuf": rcvbuf,
+        "ctx": ctx_snap,
         "frames": len(sizes),
         "fps": len(gaps) / sum(gaps),
         "gap_med_ms": statistics.median(gaps) * 1000,
@@ -174,6 +212,21 @@ def run_round(label, seconds):
     print(f"  ping 스트리밍중 손실{sp.get('loss')}% avg{sp.get('avg')} max{sp.get('max')} · "
           f"유휴 손실{ip_.get('loss')}% avg{ip_.get('avg')} max{ip_.get('max')}")
     print("  " + PiLoad.fmt(pi_snap))
+    print("  " + link_ctx.fmt(ctx_snap))
+    # 🔑 「대역폭이냐 왕복지연이냐」를 그 자리에서 보여준다 — 이 상한을 넘지 못하면
+    #    조명·구도·모델과 무관하게 그 지연에서는 더 나올 수가 없다는 뜻이다.
+    rtt = (r["stream_ping"] or {}).get("avg")
+    if rtt:
+        cap = ESP32_SND_WND / (rtt / 1000.0) / 1024        # KB/s
+        ratio = 100 * r["kbps"] / cap
+        pct_s = f"{ratio:.0f}%" if ratio >= 10 else f"{ratio:.1f}%"
+        print(f"  윈도상한 {cap:.0f}KB/s (= {ESP32_SND_WND}B ÷ RTT {rtt:.2f}ms) · "
+              f"실측 {r['kbps']:.0f}KB/s = 상한의 {pct_s}")
+        # 🔑 읽는 법 — 상한에 붙어 있으면(대략 60% 이상) 그 지연에서는 **더 나올 수가
+        #    없다**는 뜻이라 조명·구도·모델을 손봐야 소용없다. 한참 아래면 병목이
+        #    다른 데 있다(파이 부하·카메라·프레임 크기).
+        if ratio < 40:
+            print("  ⚠️ 상한에서 멀다 — 이 라운드의 병목은 무선 왕복지연이 아닐 수 있다")
     if r["dirty"]:
         # 🔴 파이가 바빴으면 이 라운드의 「멈춤」은 ESP32 가 아니라 파이 탓일 수 있다.
         print("  🔴 파이 부하로 오염 가능: %s — 이 값을 링크 판정에 쓰지 말 것"
@@ -217,6 +270,25 @@ def summary(rows):
         c = max(cm) if cm else float("nan")
         print("%-12s %-4d %-8.2f %-9.1f %-10.0f %-7d %-7d %-9.1f %-8.0f" %
               (label, len(rs), f, k, b, st, dr, p, c))
+        # 🔴 조건이 섞였으면 위 중앙값을 조건 효과로 읽지 말 것 —
+        #    2026-09-04 에 라운드 도중 대상 보드가 바뀐 채로 하나의 추세로 읽었다.
+        hosts = {r.get("host") for r in rs if r.get("host")}
+        chans = {(r.get("ctx") or {}).get("channel") for r in rs
+                 if (r.get("ctx") or {}).get("channel")}
+        note = []
+        if len(hosts) > 1:
+            note.append("🔴 대상 보드가 섞였다: " + ", ".join(sorted(hosts)))
+        elif hosts:
+            note.append("대상 " + next(iter(hosts)))
+        if len(chans) > 1:
+            note.append("🔴 채널이 섞였다: " + ", ".join(str(c) for c in sorted(chans)))
+        elif chans:
+            note.append("ch%s" % next(iter(chans)))
+        rb = {r.get("rcvbuf") for r in rs}
+        if rb - {None}:
+            note.append("rcvbuf " + ", ".join(str(x) for x in sorted(rb - {None})))
+        if note:
+            print("             └ " + " · ".join(note))
     print("=" * 74)
     if len(by) == 2:
         (la, ra), (lb, rb) = list(by.items())
@@ -245,9 +317,19 @@ def main():
         summary(load())
         return 0
 
+    rcvbuf = None
+    if "--rcvbuf" in args:
+        i = args.index("--rcvbuf")
+        try:
+            rcvbuf = int(args[i + 1])
+        except (IndexError, ValueError):
+            print("--rcvbuf 뒤에 바이트 수를 적어라. 예: --rcvbuf 8192")
+            return 1
+        args = args[:i] + args[i + 2:]
+
     label = args[0]
     seconds = float(args[1]) if len(args) > 1 else 60.0
-    r = run_round(label, seconds)
+    r = run_round(label, seconds, rcvbuf)
     if r is None:
         return 1
     rows = load()

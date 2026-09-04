@@ -38,6 +38,29 @@ int client_sock = -1;
 
 Preferences prefs;
 
+// =============================================================================
+// [링크 계측] — 진단 전용. 전송 경로를 바꾸지 않는다.
+// =============================================================================
+// 🔴 왜 넣나: 2026-08-13(§10.42-(7))부터 「무선이 요동친다」를 여섯 세션 쫓았는데
+//    **전부 파이 쪽에서만 쟀다.** ESP32 쪽 신호 세기·채널·붙어 있는 AP 를 한 번도
+//    못 봤다. 그래서 가설 5개가 전부 기각되고도 남는 것이 없었다.
+//
+// 🔑 `send()` 가 붙잡힌 시간을 함께 재는 이유:
+//    FPS 가 **대역폭이 아니라 왕복 지연(RTT)에 매여 있는지** 가리기 위해서다.
+//    lwIP 송신 윈도는 컴파일 시점에 5744B(=4×MSS 1436)로 고정돼 있고
+//    (`CONFIG_LWIP_TCP_SND_BUF_DEFAULT`, 실행 중 변경 불가), 프레임은 약 11KB다.
+//    한 장에 최소 2왕복이 필요하다는 뜻이라, 링크가 나빠지면 그 배수만큼 벌어진다.
+//    → send 평균이 RTT 의 2~3배로 따라 움직이면 이 구조가 병목이다.
+//
+// ⚠️ 카운터는 태스크 간 공유지만 락을 걸지 않는다 — 진단 통계라 한두 건 어긋나도
+//    무방하고, 전송 경로에 락을 넣는 쪽이 더 나쁘다.
+static volatile uint32_t statCap = 0;        // 캡처 성공
+static volatile uint32_t statDrop = 0;       // 큐가 차서 버린 프레임
+static volatile uint32_t statSent = 0;       // 전송 완료
+static volatile uint32_t statBytes = 0;      // 전송 바이트 합
+static volatile uint32_t statSendMsSum = 0;  // send() 소요 합
+static volatile uint32_t statSendMsMax = 0;  // send() 소요 최대
+
 bool loadCredentials(String &ssid, String &pass) {
   prefs.begin("wifi", true);
   ssid = prefs.getString("ssid", "");
@@ -70,7 +93,9 @@ void captureTask(void *param) {
       vTaskDelay(pdMS_TO_TICKS(10));
       continue;
     }
+    statCap++;
     if (xQueueSend(frameQueue, &fb, 0) != pdTRUE) {
+      statDrop++;
       esp_camera_fb_return(fb);
     }
   }
@@ -87,6 +112,7 @@ void sendTask(void *param) {
       continue;
     }
     uint32_t len = fb->len;
+    uint32_t t0 = millis();          // ← 계측: send() 가 붙잡히는 시간
     int sent = send(client_sock, (uint8_t *)&len, 4, 0);
     if (sent != 4) {
       close(client_sock);
@@ -98,6 +124,12 @@ void sendTask(void *param) {
     if (sent != (int)fb->len) {
       close(client_sock);
       client_sock = -1;
+    } else {
+      uint32_t dt = millis() - t0;
+      statSent++;
+      statBytes += fb->len;
+      statSendMsSum += dt;
+      if (dt > statSendMsMax) statSendMsMax = dt;
     }
     esp_camera_fb_return(fb);
   }
@@ -126,6 +158,16 @@ void acceptTask(void *param) {
     }
     int flag = 1;
     setsockopt(new_sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(int));
+    // 🔴 이 줄은 **아무 일도 하지 않는다** (2026-09-05 확인, 남겨 둔 이유는 아래).
+    //    이 툴체인은 `CONFIG_LWIP_SO_SNDBUF` 가 꺼져 있어(esp32s3-libs 3.3.10
+    //    sdkconfig) lwIP 가 SO_SNDBUF 설정을 받지 않는다. 송신 버퍼는 컴파일 시점
+    //    값 `CONFIG_LWIP_TCP_SND_BUF_DEFAULT = 5744`(=4×MSS 1436)로 고정이며
+    //    실행 중에는 못 바꾼다.
+    //    ⚠️ §10.34-(4) 의 *"프레임 10.1KB 에 버퍼 32KB 로 이미 3배 여유"* 는 이
+    //    줄이 먹힌다는 전제에서 나온 서술이라 **사실과 다르다.** 실제 여유는
+    //    3배가 아니라 0.5배(11KB 프레임 vs 5.7KB 윈도)다.
+    //    지우지 않는 이유 = 실패해도 무해하고, 툴체인이 바뀌어 켜지면 그때는
+    //    실제로 효과가 있다. 대신 아래 계측(send 소요)이 진짜 상태를 보여준다.
     int sndbuf = 32768;
     setsockopt(new_sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
     Serial.printf("Client connected: %s\n", inet_ntoa(client_addr.sin_addr));
@@ -303,4 +345,26 @@ void loop() {
     WiFi.status() == WL_CONNECTED ? "OK" : "NG",
     WiFi.localIP().toString().c_str(),
     client_sock >= 0 ? "connected" : "waiting");
+
+  // ── 링크 계측 (진단 전용) ──────────────────────────────────────────
+  // 🔑 BSSID·채널을 함께 찍는 이유: 폰 핫스팟은 채널을 자동으로 옮긴다
+  //    (2026-09-04 파이 로그에 ch6 → ch11 이동이 1분 만에 잡혔다). ESP32 는
+  //    부팅 때 한 번 붙고 재스캔하지 않으므로, 여기 값이 파이 쪽 `iw dev wlan0
+  //    link` 와 어긋나면 그것만으로 원인이 하나 확정된다.
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("  Link: RSSI=%ddBm ch=%d BSSID=%s\n",
+      WiFi.RSSI(), WiFi.channel(), WiFi.BSSIDstr().c_str());
+  }
+
+  // 카운터를 읽고 즉시 0 으로 되돌린다 — 이 5초 구간의 값이라는 뜻이다.
+  uint32_t cap = statCap,  drop = statDrop, sent = statSent;
+  uint32_t bytes = statBytes, msSum = statSendMsSum, msMax = statSendMsMax;
+  statCap = statDrop = statSent = statBytes = statSendMsSum = statSendMsMax = 0;
+  if (sent > 0) {
+    Serial.printf("  Frame: cap=%lu sent=%lu drop=%lu · %.1fKB/장 · "
+                  "send avg=%lums max=%lums\n",
+      (unsigned long)cap, (unsigned long)sent, (unsigned long)drop,
+      bytes / 1024.0f / sent,
+      (unsigned long)(msSum / sent), (unsigned long)msMax);
+  }
 }
