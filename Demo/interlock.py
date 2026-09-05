@@ -136,8 +136,7 @@ class InterlockController:
         """
         max_tries = getattr(config, "CONNECT_MAX_TRIES", 5)
         while not self._closing:
-            connected = self._ser is not None and getattr(self._ser, "is_open", False)
-            if connected:
+            if self.connected:
                 self._fail_count = 0
                 self._give_up = False
             elif self._give_up:
@@ -168,6 +167,19 @@ class InterlockController:
     @property
     def gave_up(self):
         return self._give_up
+
+    @property
+    def connected(self):
+        """시리얼이 실제로 열려 있는가.
+
+        🔴 **상태바 색이 이 값으로 칠해진다** — `precheck.run_stage1` 이
+           `getattr(itl, "connected", False)` 로 읽으므로, 속성이 없으면 기본값
+           False 가 되어 **연결돼 있어도 언제나 빨강**이다.
+        ⚠️ 2026-09-05 에 실제로 물렸다 — 인터락이 붙어 ACK 까지 오는데
+           오른쪽 아래 「인터락 연결」만 빨갛게 떠 있었다. 시연 영상에 그대로
+           찍힐 뻔했다.
+        """
+        return self._ser is not None and getattr(self._ser, "is_open", False)
 
     # -------------------------------------------------------------- 전송 코어
     def _write(self, cmd, force=False):
