@@ -239,6 +239,24 @@ DEMO_FPV_SIZE     = (480, 640)
 # 🔴 1080p 는 분당 약 230MB 다(2026-09-04 실측) — 회차를 여러 번 가면 디스크가 찬다.
 #    편집에서 3인칭은 대개 작게 쓰여 720p 로 충분하다는 사용자 판단(2026-09-04).
 DEMO_WEBCAM_SIZE  = (1280, 720)
+
+# 이번 회차에 무엇을 찍는가 — 유선/무선으로 촬영을 쪼개면서 신설(2026-09-05).
+#   "all"     기존 방식 — 한 번에 4개
+#   "fpv+gui" 1인칭 2벌 + GUI — ESP32 를 USB 로 물린 유선 회차
+#   "webcam"  3인칭 웹캠 하나 — ESP32 없이 연기하는 무선 회차
+# 🔴 "webcam" 회차는 카메라 프레임을 기다리지 않고 **즉시** 시작한다
+#    (ESP32 가 없으므로 기다려봐야 10초 폴백만 낭비한다).
+DEMO_TARGETS = os.environ.get("SOP_DEMO_TARGETS", "all")
+
+
+def demo_wants(what):
+    """이번 회차가 `what`('fpv'|'gui'|'webcam')을 찍는가."""
+    t = DEMO_TARGETS
+    if t == "all":
+        return True
+    if t == "fpv+gui":
+        return what in ("fpv", "gui")
+    return what == t
 # 첫 카메라 프레임을 이만큼 기다렸다 없으면 그냥 시작한다.
 # ESP32 가 안 붙었을 때 영영 시작 못 하는 것을 막는다.
 DEMO_CAPTURE_START_TIMEOUT = 10.0

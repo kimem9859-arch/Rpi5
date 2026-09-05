@@ -95,8 +95,10 @@ class DemoRecorder:
                        'target': list(config.DEMO_CAPTURE_SIZE)}, fp, ensure_ascii=False)
         self._started = time.time()
         self._running = True
-        self._feeder = threading.Thread(target=self._feed, daemon=True, name="demo-feeder")
-        self._feeder.start()
+        # 🔴 1인칭을 안 찍는 회차(3인칭만)는 밀어넣을 파이프가 없다 — 스레드도 안 돈다.
+        if config.demo_wants("fpv"):
+            self._feeder = threading.Thread(target=self._feed, daemon=True, name="demo-feeder")
+            self._feeder.start()
         return problems
 
     def _feed(self):
@@ -142,6 +144,7 @@ class DemoRecorder:
         """촬영정보.txt — 회차 설정·길이·파일 크기."""
         info = {'seconds': time.time() - self._started if self._started else 0.0}
         lines = [f"시나리오: {self._base.split('_')[-1]}",
+                 f"촬영 대상: {config.DEMO_TARGETS}",
                  f"오버레이: {self._overlay}",
                  f"길이: {info['seconds']:.1f}초",
                  f"1인칭 프레임 밀어넣기: {self._pushed}장 "

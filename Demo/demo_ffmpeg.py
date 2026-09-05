@@ -84,15 +84,19 @@ class FfmpegSet:
             h -= h % 2
 
         # A. GUI 전체 — 화면 전체가 아니라 창 영역만 잘라 작업표시줄·제목표시줄을 뺀다
-        self._procs.append(self._spawn([
-            "-f", "x11grab", "-framerate", str(fps),
-            "-video_size", f"{w}x{h}", "-i", f"{display}+{x},{y}"] + _X264 + [paths['gui_full']]))
+        if config.demo_wants("gui"):
+            self._procs.append(self._spawn([
+                "-f", "x11grab", "-framerate", str(fps),
+                "-video_size", f"{w}x{h}",
+                "-i", f"{display}+{x},{y}"] + _X264 + [paths['gui_full']]))
 
         # B. USB 웹캠 — 검출 없는 순수 촬영본
         # 🔴 카메라는 1920x1080 MJPG 로 열고 **인코딩만 규격(기본 720p)으로 줄인다.**
         #    v4l2 입력 해상도를 낮추면 시야각이 잘리는 웹캠이 있어 원본은 그대로 받는다.
         #    1080p 로 담으면 분당 230MB — 6회차 촬영이면 4GB 를 넘는다(2026-09-04 실측).
-        if os.path.exists("/dev/video0"):
+        if not config.demo_wants("webcam"):
+            pass                                  # 이 회차는 3인칭을 안 찍는다
+        elif os.path.exists("/dev/video0"):
             self._procs.append(self._spawn([
                 "-f", "v4l2", "-input_format", "mjpeg",
                 "-video_size", "1920x1080", "-framerate", str(fps),
@@ -104,7 +108,7 @@ class FfmpegSet:
 
         # C·D. 1인칭 두 벌 — 원본 크기 그대로. 확대는 촬영이 끝난 뒤에 한다.
         fw, fh = fpv_size
-        for key in ('fpv_on', 'fpv_off'):
+        for key in (('fpv_on', 'fpv_off') if config.demo_wants("fpv") else ()):
             p = self._spawn([
                 "-f", "rawvideo", "-pixel_format", "bgr24",
                 "-video_size", f"{fw}x{fh}", "-framerate", str(fps),

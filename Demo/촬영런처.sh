@@ -27,11 +27,37 @@ if [ ! -e /dev/video0 ]; then
 fi
 
 echo
+echo "  무엇을 찍으시겠습니까?"
+echo "    1) 1인칭 + GUI   — ESP32 를 USB 로 연결한 유선 회차"
+echo "    2) 3인칭 웹캠만  — ESP32 없이 연기하는 무선 회차"
+echo "    3) 전부          — 기존 방식(한 번에 4개)"
+read -rp "  > " tsel
+case "$tsel" in
+    2) TARGETS="webcam" ;;
+    3) TARGETS="all" ;;
+    *) TARGETS="fpv+gui" ;;
+esac
+
+echo
 echo "  시나리오를 고르세요"
 echo "    1) 정상"
 echo "    2) 오답(순서 위반)"
 read -rp "  > " s
 case "$s" in 2) SCEN="오답" ;; *) SCEN="정상" ;; esac
+
+if [ "$TARGETS" = "webcam" ]; then
+    # 🔴 GUI 는 띄우되 녹화하지 않는다 — 배경·오버레이는 이 회차 산출물에 안 나온다.
+    HIDE=0; OVL="켬"
+    echo
+    echo "  ▶ [$SCEN / 3인칭 웹캠만] GUI 를 띄웁니다 (버튼·타워램프는 그대로 반응)."
+    echo "    ESP32 없이 연기하시면 됩니다. 녹화는 웹캠 하나만 남습니다."
+    echo "    끝나면 GUI 창을 닫으세요."
+    echo
+    SOP_DEMO_CAPTURE=1 SOP_DEMO_SCENARIO="$SCEN" SOP_DEMO_OVERLAY="$OVL" \
+    SOP_DEMO_HIDE_VIDEO="$HIDE" SOP_DEMO_TARGETS="$TARGETS" \
+    SOP_USB_CAMERA=0 python3 main.py
+    status=$?
+else
 
 echo
 echo "  GUI 배경을 고르세요"
@@ -61,8 +87,10 @@ echo "    끝나면 GUI 창을 닫으세요."
 echo
 
 SOP_DEMO_CAPTURE=1 SOP_DEMO_SCENARIO="$SCEN" SOP_DEMO_OVERLAY="$OVL" \
-SOP_DEMO_HIDE_VIDEO="$HIDE" SOP_USB_CAMERA=0 python3 main.py
+SOP_DEMO_HIDE_VIDEO="$HIDE" SOP_DEMO_TARGETS="$TARGETS" \
+SOP_USB_CAMERA=0 python3 main.py
 status=$?
+fi
 
 SET_DIR="$(ls -dt recordings/시연영상/촬영본/*/ 2>/dev/null | head -1)"
 if [ -z "$SET_DIR" ]; then

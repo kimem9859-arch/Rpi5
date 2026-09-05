@@ -345,17 +345,22 @@ class SafetyConsole(QMainWindow):
         self._demo_done = False
         if config.DEMO_CAPTURE:
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            _mode = ("UI만" if config.DEMO_HIDE_VIDEO
-                     else f"오버레이{config.DEMO_OVERLAY}")
+            if config.DEMO_TARGETS == "webcam":
+                _mode = "3인칭"          # ESP32 없이 연기하는 무선 회차
+            elif config.DEMO_HIDE_VIDEO:
+                _mode = "UI만"
+            else:
+                _mode = f"오버레이{config.DEMO_OVERLAY}"
             folder = f"{stamp}_{config.DEMO_SCENARIO}_{_mode}"
             self._demo_dir = os.path.join(config.DEMO_CAPTURE_DIR, '촬영본', folder)
             self._demo = DemoRecorder(self._demo_dir, stamp,
                                       config.DEMO_SCENARIO, config.DEMO_OVERLAY)
             self.camera_thread.set_draw_boxes(config.DEMO_OVERLAY == "켬")
-            # 🔴 첫 프레임에 시작하는 것이 기본이고(_note_frame), 이것은 ESP32 가
-            #    안 붙었을 때 영영 시작 못 하는 것을 막는 폴백이다.
-            QTimer.singleShot(int(config.DEMO_CAPTURE_START_TIMEOUT * 1000),
-                              self._start_demo_capture)
+            # 🔴 3인칭만 찍는 회차는 ESP32 가 아예 없다 — 첫 프레임을 기다리면
+            #    10초를 그냥 버린다. 창이 뜨는 대로 시작한다.
+            _delay = 500 if not config.demo_wants("fpv") else int(
+                config.DEMO_CAPTURE_START_TIMEOUT * 1000)
+            QTimer.singleShot(_delay, self._start_demo_capture)
             self._append_log(f"[시연촬영] 대기 — {config.DEMO_SCENARIO} / {_mode}")
 
     # =========================================================================
