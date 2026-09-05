@@ -47,16 +47,25 @@ else
   echo "   (변경 없음)"
 fi
 
-# 파이와 같은 서브넷인지 확인 — 다르면 TCP 직결이 불가능하다.
-PI_IP=$(ip -4 -o addr show wlan0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
-if [ -n "$PI_IP" ]; then
-  if [ "${PI_IP%.*}" = "${IP%.*}" ]; then
-    echo "✅ 파이($PI_IP)와 같은 네트워크입니다."
-  else
-    echo
-    echo "⚠️  파이($PI_IP)와 ESP32($IP)가 다른 네트워크입니다!"
-    echo "    이대로는 카메라 연결이 안 됩니다."
-    echo "    파이의 WiFi를 ESP32와 같은 것으로 바꾸세요:"
-    echo "      nmcli connection up Jason"
-  fi
+# ESP32 로 실제로 나가는 경로가 있는지 커널에 묻는다 — 인터페이스를 고정하지 않는다.
+# 🔴 2026-09-06 이전에는 **wlan0 과 대역을 비교**했는데, ESP32 가 공유기(eth0 대역)로
+#    옮겨간 뒤로는 **정상인데도 「다른 네트워크」라고 오경고**하고 엉뚱한 조치
+#    (`nmcli connection up Jason`)를 안내했다. 파이는 무선·유선 두 길을 동시에
+#    쓰므로 «어느 인터페이스냐»가 아니라 «경로가 있느냐»를 물어야 한다.
+# 🔴 「경로가 있느냐」로는 못 가른다 — 기본 게이트웨이가 있으면 커널은 **어떤 IP에도**
+#    경로를 내준다(2026-09-06 검증에서 실제로 물렸다: 203.0.113.99 에도 경로 있음).
+#    갈라 주는 것은 **`via` 의 유무**다.
+#      같은 망      → "192.168.1.19 dev eth0 src ..."            (via 없음 = 직결)
+#      밖으로 나감  → "203.0.113.99 via 192.168.45.1 dev wlan0 ..." (via 있음)
+ROUTE=$(ip -4 -o route get "$IP" 2>/dev/null)
+PI_IP=$(echo "$ROUTE" | grep -oE 'src [0-9.]+' | awk '{print $2}')
+IFACE=$(echo "$ROUTE" | grep -oE 'dev [^ ]+'   | awk '{print $2}')
+if [ -n "$PI_IP" ] && ! echo "$ROUTE" | grep -q ' via '; then
+  echo "✅ 파이($PI_IP, $IFACE)와 ESP32($IP)가 같은 네트워크입니다."
+else
+  echo
+  echo "⚠️  파이와 ESP32($IP)가 같은 네트워크가 아닙니다!"
+  echo "    이대로는 카메라 연결이 안 됩니다(게이트웨이 밖으로 나가려 합니다)."
+  echo "    ESP32가 붙은 망에 파이도 연결되어 있는지 확인하세요"
+  echo "    — 공유기 경유라면 랜선, 핫스팟 경유라면 같은 SSID."
 fi
