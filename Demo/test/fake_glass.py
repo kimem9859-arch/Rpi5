@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """모의 ESP32 — HW 없이 음성비서 전 구간을 돌려 보기 위한 대역품.
 
-실행: ~/env/tts/.venv/bin/python Demo/test/fake_glass.py <wav...>
+실행: ~/env/tts/.venv/bin/python Demo/test/fake_glass.py [--burst 초] <wav...>
 
 무엇을 흉내 내나:
     8889  마이크 업링크 — 준 wav 를 16kHz int16LE 로, **PDM DC 오프셋 1400 을 얹어**
@@ -53,8 +53,14 @@ def load_16k(path):
     return a
 
 
-def mic_server(clips, gap_sec=1.2):
-    """접속하면 무음 → 클립 → 무음 … 순으로 실시간 속도로 흘린다."""
+def mic_server(clips, gap_sec=1.2, burst_sec=0.0):
+    """접속하면 무음 → 클립 → 무음 … 순으로 실시간 속도로 흘린다.
+
+    🔑 `burst_sec > 0` 이면 **링크가 막혔다가 한꺼번에 터지는 상황**을 흉내 낸다 —
+       그 시간만큼 아무것도 안 보내다가, 밀린 분량을 **실시간보다 빠르게** 쏟는다.
+       TCP 재전송으로 오디오가 뒤로 밀리는 실제 상황이 이 모양이고, 데몬의
+       「최신 우선」 분기는 그때만 밟힌다(2026-09-06 시점 실행 횟수 0).
+    """
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", 8889))
@@ -72,6 +78,20 @@ def mic_server(clips, gap_sec=1.2):
 
     try:
         push(array.array("h", [0] * int(RATE * gap_sec)))
+        if burst_sec > 0:
+            log(f"⏸ {burst_sec:.0f}초간 막혔다가 한꺼번에 터뜨린다(최신 우선 유발)")
+            time.sleep(burst_sec)
+            # 밀린 분량을 잠도 안 자고 쏟는다 = 데몬 버퍼가 순식간에 불어난다
+            # 🔴 밀린 것이 **말소리**여야 한다 — 무음이면 데몬의 「무음 정리」가
+            #    먼저 걸려 버퍼가 8초까지 안 자라고, 최신 우선 분기를 못 밟는다
+            #    (2026-09-06 에 무음으로 시도했다가 확인).
+            src = load_16k(clips[0])
+            need = int(RATE * burst_sec)
+            backlog = array.array("h", (src * (need // len(src) + 1))[:need])
+            for i in range(0, len(backlog), chunk):
+                part = backlog[i:i + chunk]
+                c.sendall(array.array("h", [max(-32768, min(32767, v + DC))
+                                            for v in part]).tobytes())
         for path in clips:
             a = load_16k(path)
             log(f"흘림 → {os.path.basename(path)} ({len(a)/RATE:.1f}초)")
@@ -148,11 +168,17 @@ def cmd_server():
 
 
 def main():
-    clips = sys.argv[1:]
+    args = sys.argv[1:]
+    burst = 0.0
+    if "--burst" in args:
+        i = args.index("--burst")
+        burst = float(args[i + 1])
+        del args[i:i + 2]
+    clips = args
     if not clips:
         raise SystemExit(__doc__)
     t1 = threading.Thread(target=cmd_server, daemon=True)
-    t2 = threading.Thread(target=mic_server, args=(clips,), daemon=True)
+    t2 = threading.Thread(target=mic_server, args=(clips, 1.2, burst), daemon=True)
     t1.start()
     t2.start()
     t2.join()
