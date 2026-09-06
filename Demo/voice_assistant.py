@@ -29,7 +29,10 @@ sys.path.insert(0, _DEMO_DIR)
 from voice_lib import (answer_key, find_utterance, is_tool_question, is_wake,
                        read_tool_dets)
 
-IP_FILE  = os.path.join(_DEMO_DIR, ".camera_ip")
+# 🔑 보드가 둘이다(2026-09-06 결정) — 메인=카메라(.camera_ip) / 서브=오디오(.audio_ip).
+#    .audio_ip 가 없으면 한 보드 구성으로 보고 .camera_ip 를 쓴다.
+AUDIO_IP_FILE = os.path.join(_DEMO_DIR, ".audio_ip")
+IP_FILE       = os.path.join(_DEMO_DIR, ".camera_ip")
 WAV_DIR  = os.path.join(_DEMO_DIR, "voice", "wav")
 MIC_PORT = 8889
 CMD_PORT = 8890
@@ -50,7 +53,19 @@ def log(msg):
 
 
 def esp_ip():
-    return open(IP_FILE, encoding="utf-8").read().strip()
+    """오디오 보드 주소. `.audio_ip` 가 있으면 그것, 없으면 `.camera_ip`.
+
+    🔴 mDNS 를 쓰지 않으므로(통신경로 설계 §6-②) 주소는 파일이 정본이고,
+       매번 다시 읽어 통신경로 폴백(iptime→폰→파이AP)을 따라간다.
+    """
+    for path in (AUDIO_IP_FILE, IP_FILE):
+        try:
+            ip = open(path, encoding="utf-8").read().strip()
+            if ip:
+                return ip
+        except OSError:
+            continue
+    raise SystemExit(f"🔴 오디오 보드 주소를 못 찾았다 — {AUDIO_IP_FILE} 를 만들어라")
 
 
 def build_stt():
