@@ -92,6 +92,29 @@ def wav_payload(path):
             + struct.pack("<I", chk) + b"P\n"), len(a) / rate
 
 
+def connect_mic(ip_getter, retry_sec=3.0):
+    """마이크 업링크에 붙는다 — 될 때까지 다시 시도한다.
+
+    🔴 예전에는 `socket.create_connection` 이 try 밖에 있어, 끊긴 뒤 ESP32 가
+       아직 안 살아났으면 `ConnectionRefusedError` 로 **프로세스가 통째로 죽었다**
+       (2026-09-06 교차 리허설, 세션 73cfe23a 가 발견). 촬영 중이면 재시작해야
+       하는 자리라 반드시 살아남아야 한다.
+
+    🔑 주소를 함수로 받는 이유 — 재시도마다 `.camera_ip` 를 다시 읽어야
+       통신경로 폴백(iptime→폰→파이AP)을 따라갈 수 있다.
+    """
+    while True:
+        ip = ip_getter()
+        try:
+            s = socket.create_connection((ip, MIC_PORT), 10)
+            s.settimeout(5)
+            log(f"마이크 업링크 연결됨 ({ip}:{MIC_PORT})")
+            return s
+        except OSError as e:
+            log(f"🔴 업링크 연결 실패 ({ip}:{MIC_PORT}) {e} — {retry_sec:.0f}초 뒤 재시도")
+            time.sleep(retry_sec)
+
+
 class Speaker:
     """명령 채널(8890) — 한 번 붙여 두고 계속 쓴다.
 
@@ -125,6 +148,15 @@ class Speaker:
                 self.s = None
         return False
 
+    def reset(self):
+        """링크가 끊겼을 때 명령 채널도 버린다 — 다음 send 에서 다시 붙는다."""
+        if self.s is not None:
+            try:
+                self.s.close()
+            except OSError:
+                pass
+            self.s = None
+
     def chime(self):
         return self.send(b"B\n")
 
@@ -142,9 +174,9 @@ def run(ip, once=False, a_ip=None):
     log("STT 준비됨")
 
     spk = Speaker(ip)
-    mic = socket.create_connection((ip, MIC_PORT), 10)
-    mic.settimeout(5)
-    log(f"마이크 업링크 연결됨 ({MIC_PORT})")
+    # 🔑 데몬을 ESP32 보다 먼저 켜도 된다 — 붙을 때까지 기다린다.
+    get_ip = (lambda: a_ip) if a_ip else esp_ip
+    mic = connect_mic(get_ip)
 
     buf = array.array("h")
     awake_until = 0.0
@@ -154,17 +186,23 @@ def run(ip, once=False, a_ip=None):
             chunk = mic.recv(16384)
         except socket.timeout:
             continue
+        except OSError as e:
+            # 🔴 끊김은 빈 청크로만 오지 않는다 — reset by peer 도 여기로 온다.
+            log(f"🔴 업링크 오류: {e}")
+            chunk = b""
         if not chunk:
             if once:
                 log("업링크 종료 — 리허설 끝")
                 return
-            log("🔴 업링크 끊김 — 3초 뒤 재연결")
-            mic.close()
+            log("🔴 업링크 끊김 — 다시 붙는다")
+            try:
+                mic.close()
+            except OSError:
+                pass
             time.sleep(3)
-            ip = a_ip or esp_ip()   # 🔴 --ip 로 준 주소를 잃지 않는다
-            mic = socket.create_connection((ip, MIC_PORT), 10)
-            mic.settimeout(5)
+            mic = connect_mic(get_ip)
             buf = array.array("h")
+            spk.reset()          # 명령 채널도 다시 잡게 한다
             continue
 
         a = array.array("h")
