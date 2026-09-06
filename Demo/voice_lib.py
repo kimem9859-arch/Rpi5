@@ -78,29 +78,56 @@ def _frame_rms(samples, fr):
     return [rms(samples[i:i + fr]) for i in range(0, n, fr)]
 
 
-def find_utterance(samples, rate, start_th=600, end_th=300,
-                   min_ms=300, tail_ms=700, pre_ms=250):
+def noise_floor(samples, rate, pct=0.2):
+    """주변 소음 크기(노이즈 플로어) — 조용한 프레임들의 평균 RMS.
+
+    🔑 왜 필요한가 — 고정 임계는 장소가 바뀌면 무너진다. 2026-09-01 녹음(조용한
+       실내)의 무음 구간은 RMS **147~184** 인데, 소음이 그 2배만 돼도 종료 임계
+       300 을 넘어 **발화가 영영 안 끝난다**(비서가 아무 반응도 못 한다).
+       그래서 임계를 **그때그때 바닥에서 재서** 정한다.
+    """
+    fr = max(1, int(rate * 0.02))
+    vals = sorted(_frame_rms(samples, fr))
+    if not vals:
+        return 0.0
+    k = max(1, int(len(vals) * pct))
+    return sum(vals[:k]) / k
+
+
+def find_utterance(samples, rate, start_th=None, end_th=None,
+                   min_ms=300, tail_ms=700, pre_ms=250, max_ms=6000):
     """말이 시작된 지점과 끝난 지점 `(start, end)`. 없으면 None.
 
-    20ms 프레임의 RMS 를 보고 `start_th` 를 넘으면 시작, `end_th` 아래가
-    `tail_ms` 만큼 이어지면 끝으로 본다.
+    `start_th`/`end_th` 가 None 이면 **노이즈 플로어에서 자동으로** 잡는다 —
+    시작 = 바닥의 3.5배, 끝 = 2배. 조용한 방(바닥 170)이면 대략 600/340 이 되어
+    종전 고정값과 비슷하고, 시끄러운 방이면 함께 올라간다.
 
-    🔑 `pre_ms` — 시작을 그만큼 **앞당겨** 잡는다. 임계를 넘는 순간은 이미
-       첫 음절의 한복판이라, 그대로 자르면 STT 가 앞을 잃는다. 실제로
-       「가디언」이 「바디원」으로 들렸다(2026-09-06 리허설).
+    🔑 `pre_ms` — 시작을 그만큼 **앞당겨** 잡는다. 임계를 넘는 순간은 이미 첫
+       음절의 한복판이라, 그대로 자르면 STT 가 앞을 잃는다. 실제로 「가디언」이
+       「바디원」으로 들렸다(2026-09-06 리허설).
 
-    🔴 **길이 미달 구간에서 멈추지 않는다.** 짧은 잡음이 먼저 잡히면 그것만
-       보고 None 을 돌려주던 버그가 있었다 — 뒤에 있는 진짜 발화를 통째로
-       놓쳤다(2026-09-06 리허설에서 RMS 11166 인 구간을 못 봤다).
+    🔴 **길이 미달 구간에서 멈추지 않는다.** 짧은 잡음이 먼저 잡히면 그것만 보고
+       None 을 돌려주던 버그가 있었다 — 뒤의 진짜 발화를 통째로 놓쳤다.
 
-    ⚠️ `tail_ms` 기본값이 700ms 인 이유 — 500ms 면 **문장 중간 쉼에서 잘린다.**
+    🔴 `max_ms` — **이보다 길어지면 강제로 끊는다.** 소음이 종료 임계를 계속
+       넘으면 발화가 영영 안 끝나고, 그러면 STT 가 한 번도 안 돌아 비서가
+       먹통이 된다. 적응형 임계가 실패했을 때의 마지막 안전판이다.
+
+    ⚠️ `tail_ms` 가 700ms 인 이유 — 500ms 면 **문장 중간 쉼에서 잘린다.**
        "가디언, 지금 다음 순서 뭐야?" 가 2.43초에서 끊겼다(원본 4.5초).
     """
     fr = max(1, int(rate * 0.02))
     vals = _frame_rms(samples, fr)
+    if start_th is None or end_th is None:
+        floor = noise_floor(samples, rate)
+        if start_th is None:
+            start_th = max(400.0, floor * 3.5)
+        if end_th is None:
+            end_th = max(200.0, floor * 2.0)
     tail_frames = max(1, int(tail_ms / 20))
     pre = int(rate * pre_ms / 1000)
     min_len = rate * min_ms / 1000
+    max_len = rate * max_ms / 1000
     start = None
     quiet = 0
     for k, v in enumerate(vals):
@@ -109,12 +136,14 @@ def find_utterance(samples, rate, start_th=600, end_th=300,
             if v >= start_th:
                 start, quiet = max(0, i - pre), 0
         else:
+            if i - start >= max_len:           # 🔴 너무 길다 — 여기서 끊는다
+                return start, i
             quiet = quiet + 1 if v < end_th else 0
             if quiet >= tail_frames:
                 end = i - quiet * fr
                 if end - start >= min_len:
                     return start, end
-                start, quiet = None, 0      # 🔴 너무 짧다 — 버리고 계속 찾는다
+                start, quiet = None, 0      # 너무 짧다 — 버리고 계속 찾는다
     if start is not None and len(samples) - start >= min_len:
         return start, len(samples)
     return None

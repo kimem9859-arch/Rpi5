@@ -62,6 +62,39 @@ if seg2:
 seg3 = find_utterance(sil + loud + sil, rate, pre_ms=250)
 check(seg3 is not None and seg3[0] < rate, "pre-roll 로 시작이 임계 지점보다 앞이다")
 
+print("[적응형 임계] 🔴 고정 임계는 시끄러운 방에서 무너진다")
+import random
+from voice_lib import noise_floor
+
+# 🔑 실측에 맞춘 신호 — 2026-09-01 폰 녹음 8개에서 말소리 RMS 5,068~6,465,
+#    조용한 실내 무음 147~184 였다(§10.59). 진폭 8000 사인 = RMS 약 5,657.
+speech = [int(8000 * math.sin(i / 5)) for i in range(rate * 4)]
+room = [0] * rate + speech + [0] * (rate * 3)      # 8초 — max_ms(6초) 를 넘길 수 있게
+random.seed(1)
+check(noise_floor(room, rate) < 200, "조용한 방의 노이즈 플로어는 낮다")
+
+for lvl, label in ((350, "약한 소음"), (700, "보통 소음")):
+    noisy = [v + int(random.gauss(0, lvl)) for v in room]
+    fl = noise_floor(noisy, rate)
+    fixed = find_utterance(noisy, rate, start_th=600, end_th=300)   # 종전 고정 임계
+    adapt = find_utterance(noisy, rate)                              # 적응형
+    check(fl > lvl * 0.7, f"{label}: 바닥을 {fl:.0f} 로 잡는다")
+    check(adapt is not None, f"{label}: 적응형은 발화를 찾는다")
+    if lvl >= 700:
+        # 소음이 종료 임계(300)를 계속 넘어 발화가 안 끝난다 → max_ms 로 잘린다
+        check(fixed is not None and (fixed[1] - fixed[0]) >= rate * 5.9,
+              f"{label}: 🔴 고정 임계는 발화가 안 끝나 max_ms 로 잘린다")
+        check(adapt is not None and (adapt[1] - adapt[0]) < rate * 5.9,
+              f"{label}: 적응형은 제때 끝난다")
+
+print("[max_ms] 소음이 종료 임계를 계속 넘어도 STT 는 돌아야 한다")
+cont = [int(3500 * math.sin(i / 7.0)) for i in range(rate * 20)]
+seg_c = find_utterance(cont, rate, start_th=600, end_th=300)
+check(seg_c is not None and abs((seg_c[1] - seg_c[0]) - rate * 6) < rate * 0.2,
+      "🔴 끊김 없는 20초도 max_ms 6초에서 강제로 끊긴다")
+check(find_utterance(cont, rate) is None,
+      "🔑 적응형에서는 균일한 연속음을 「말이 아니다」로 무시한다")
+
 print("[답변 선택]")
 check(answer_key([], False) == "notstep", "스캔이 낡았으면 notstep")
 check(answer_key([], True) == "none", "스캔은 신선한데 검출 0개면 none")
