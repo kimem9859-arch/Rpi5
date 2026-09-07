@@ -54,6 +54,11 @@ def main():
         with open(path, "w", encoding="utf-8") as f:
             json.dump(ghost, f, ensure_ascii=False)
         check(read_state(path) is None, "🔑 죽은 pid 의 유령 상태는 None")
+        init = dict(LIVE, pid=1)          # 🔑 pid 1 = 살아 있지만 신호 권한이 없다
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(init, f, ensure_ascii=False)
+        check(read_state(path) is not None,
+              "🔴 PermissionError 는 유령이 아니다 — 프로세스가 있다는 뜻이다")
 
         print("── build_card · 정상")
         card = build_card(LIVE, [("wrench", 0.44, 0, 0, 9, 9)], True)

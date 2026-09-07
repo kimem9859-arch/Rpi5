@@ -52,8 +52,10 @@ def read_state(path=None):
     if isinstance(pid, int):
         try:
             os.kill(pid, 0)
-        except (OSError, ProcessLookupError):
-            return None
+        except PermissionError:
+            pass          # 🔑 신호를 못 보낼 뿐 **살아 있다** — 유령이 아니다
+        except OSError:
+            return None   # ProcessLookupError 포함 — 그 pid 는 없다
     return d
 
 
