@@ -10,6 +10,11 @@
  *
  * 포트: 8888 카메라(기존) · 8889 마이크 업링크 · 8890 명령/스피커
  *
+ * 🔴 **응답은 반드시 `io->` 로 낸다**(2026-09-07 에 물렸다) — 흐름 제어만 io-> 이고
+ *    나머지가 Serial. 이면 **USB 에서는 멀쩡하고 무선에서만 터진다**(io==Serial 이라
+ *    안 드러난다). 파이 도구가 기다리는 「[적재] … ok」 가 TCP 로 안 와서 타임아웃 났다.
+ *    부팅 로그·상태 출력은 Serial 로 남겨 둔다 — USB 로 봐야 하는 것들이다.
+ *
  * 🔑 Serial(USB CDC)과 WiFiClient 는 둘 다 Stream 을 상속한다 — 프로토콜 코드는
  *    유선인지 무선인지 모른 채 동작한다. 설계가 그렇게 추상화해 둔 자리다(§10.51-(1)).
  *
@@ -181,7 +186,7 @@ void record(uint32_t sec) {
   // 🔴 앞서 22050Hz 를 재생했다면 신호음이 엉뚱한 음높이로 난다 — 되돌린다.
   if (!setSpkRate(RATE)) return;
 
-  Serial.printf("[녹음] 신호음 3번 뒤 %lu초간 녹음합니다.\n", (unsigned long)sec);
+  io->printf("[녹음] 신호음 3번 뒤 %lu초간 녹음합니다.\n", (unsigned long)sec);
   // 카운트다운 — 낮은 톤 3번, 그다음 높은 톤이 「지금 말하세요」
   for (int i = 0; i < 3; i++) { beep(660, 120); delay(380); }
   beep(1320, 200);
@@ -195,7 +200,7 @@ void record(uint32_t sec) {
     got += n / sizeof(int16_t);
   }
   if (got < want_n / 2) {
-    Serial.printf("[FAIL] 샘플이 부족하다(%u) — 마이크를 못 읽었다.\n", (unsigned)got);
+    io->printf("[FAIL] 샘플이 부족하다(%u) — 마이크를 못 읽었다.\n", (unsigned)got);
     hasRec = false;
     return;
   }
@@ -221,22 +226,22 @@ void record(uint32_t sec) {
   recRate = RATE;     // 마이크는 항상 16kHz
 
   beep(880, 90); delay(60); beep(880, 90);     // 끝났음을 알린다
-  Serial.printf("[녹음 완료] %u샘플 · DC %d · RMS %d · peak %d (%.1f dBFS)\n",
+  io->printf("[녹음 완료] %u샘플 · DC %d · RMS %d · peak %d (%.1f dBFS)\n",
                 (unsigned)got, lastDC, lastRms, lastPeak,
                 peak > 0 ? 20.0 * log10((double)peak / 32768.0) : -99.0);
-  if (peak < 300) Serial.println("  ⚠️ 신호가 매우 작다 — 마이크에 더 가까이 말해 보라.");
+  if (peak < 300) io->println("  ⚠️ 신호가 매우 작다 — 마이크에 더 가까이 말해 보라.");
 }
 
 void play() {
   if (!hasRec) {
-    Serial.println("[재생] 담긴 것이 없다. 먼저 r 또는 W 를 쓰라.");
+    io->println("[재생] 담긴 것이 없다. 먼저 r 또는 W 를 쓰라.");
     return;
   }
   if (!setSpkRate(recRate)) return;
 
   // ② 정규화 — 녹음 크기가 들쭉날쭉해도 일정한 음량으로 들려준다.
   float gain = (lastPeak > 0) ? (float)TARGET[volIdx] / lastPeak : 1.0f;
-  Serial.printf("[재생] %u샘플 · %luHz · 목표 진폭 %d · 배율 %.1f배\n",
+  io->printf("[재생] %u샘플 · %luHz · 목표 진폭 %d · 배율 %.1f배\n",
                 (unsigned)nRec, (unsigned long)recRate, TARGET[volIdx], gain);
 
   static int16_t frame[256 * 2];
@@ -253,22 +258,22 @@ void play() {
     }
     spk.write((uint8_t *)frame, n * 2 * sizeof(int16_t));
   }
-  Serial.println("[재생 완료]");
+  io->println("[재생 완료]");
 }
 
 // "W <샘플수> <레이트>" + int16LE 페이로드 + uint32LE 체크섬
 static void cmdWrite(const String &args) {
   long n = 0, r = 0;
   if (sscanf(args.c_str(), "%ld %ld", &n, &r) != 2) {
-    Serial.println("[FAIL] W 인자를 못 읽었다. 형식: W <샘플수> <레이트>");
+    io->println("[FAIL] W 인자를 못 읽었다. 형식: W <샘플수> <레이트>");
     return;
   }
   if (n <= 0 || (size_t)n > MAX_SAMPLE) {
-    Serial.printf("[FAIL] 샘플수 %ld — 1~%u 범위를 벗어났다.\n", n, (unsigned)MAX_SAMPLE);
+    io->printf("[FAIL] 샘플수 %ld — 1~%u 범위를 벗어났다.\n", n, (unsigned)MAX_SAMPLE);
     return;
   }
   if (r < 8000 || r > (long)MAX_RATE) {
-    Serial.printf("[FAIL] 레이트 %ld — 8000~%u 범위를 벗어났다.\n", r, (unsigned)MAX_RATE);
+    io->printf("[FAIL] 레이트 %ld — 8000~%u 범위를 벗어났다.\n", r, (unsigned)MAX_RATE);
     return;
   }
   // 🔴 조각내어 받고 조각마다 「다음」을 보낸다 — 흐름 제어.
@@ -284,7 +289,7 @@ static void cmdWrite(const String &args) {
     size_t want = total - done;
     if (want > CHUNK) want = CHUNK;
     if (!readExact((uint8_t *)rec + done, want, 8000)) {
-      Serial.printf("[FAIL] 페이로드가 도중에 끊겼다 — %u/%u 바이트 (조각에서 %u/%u)\n",
+      io->printf("[FAIL] 페이로드가 도중에 끊겼다 — %u/%u 바이트 (조각에서 %u/%u)\n",
                     (unsigned)(done + lastGot), (unsigned)total,
                     (unsigned)lastGot, (unsigned)want);
       hasRec = false;
@@ -295,7 +300,7 @@ static void cmdWrite(const String &args) {
   }
   uint8_t cs[4];
   if (!readExact(cs, 4, 3000)) {
-    Serial.println("[FAIL] 체크섬 4바이트가 안 왔다.");
+    io->println("[FAIL] 체크섬 4바이트가 안 왔다.");
     hasRec = false;
     return;
   }
@@ -305,7 +310,7 @@ static void cmdWrite(const String &args) {
   if (want != got) {
     // 🔴 여기서 멈추는 이유: 잘린 전송도 그럴듯한 소리를 낸다.
     //    그 소리로 판정하면 "STT 가 나쁘다"로 오진한다(설계 §4.2).
-    Serial.printf("[FAIL] 체크섬 불일치 — 보낸 값 %lu · 받은 값 %lu\n",
+    io->printf("[FAIL] 체크섬 불일치 — 보낸 값 %lu · 받은 값 %lu\n",
                   (unsigned long)want, (unsigned long)got);
     hasRec = false;
     return;
@@ -322,13 +327,13 @@ static void cmdWrite(const String &args) {
     sq += (double)rec[i] * rec[i];
   }
   lastRms = (int)sqrt(sq / nRec);
-  Serial.printf("[적재] n=%u rate=%lu sum=%lu ok\n",
+  io->printf("[적재] n=%u rate=%lu sum=%lu ok\n",
                 (unsigned)nRec, (unsigned long)recRate, (unsigned long)got);
 }
 
 // "D" → "D <샘플수> <레이트> <체크섬>" + int16LE 페이로드
 static void cmdDump() {
-  if (!hasRec) { Serial.println("[FAIL] 담긴 것이 없다."); return; }
+  if (!hasRec) { io->println("[FAIL] 담긴 것이 없다."); return; }
   uint32_t cs = checksum(rec, nRec);
   io->printf("D %u %lu %lu\n", (unsigned)nRec, (unsigned long)recRate, (unsigned long)cs);
   io->write((uint8_t *)rec, nRec * sizeof(int16_t));

@@ -46,6 +46,7 @@ WINDOW_SEC = 6.0      # 판정에 쓰는 최근 구간
 LISTEN_SEC = 8.0      # 🔑 호출 뒤 질문을 기다리는 시간 — 없으면 영원히 깨어 있다
 LAG_LIMIT  = 2.0      # 🔴 이보다 밀리면 오래된 오디오를 버린다(최신 우선)
 QUIET_TAIL = 0.4      # 발화가 끝났다고 보기까지 필요한 뒤쪽 무음
+VOLUME     = 5        # 🔑 펌웨어 음량 1~5. 기본 3 은 실청취에서 작았다(2026-09-07)
 
 
 def log(msg):
@@ -145,7 +146,13 @@ class Speaker:
         if self.s is None:
             self.s = socket.create_connection((self.ip, CMD_PORT), 10)
             self.s.settimeout(30)
-            log(f"명령 채널 연결됨 ({CMD_PORT})")
+            # 🔑 음량을 붙을 때마다 올린다 — 펌웨어 기본은 3단계(진폭 6000)인데
+            #    2026-09-07 실청취에서 **작아서 잘 안 들렸다.** 5단계(13000)로 올리니
+            #    "무슨 말인지 들릴 정도"가 됐다(⛔ §10.49 판정 통과).
+            #    ⚠️ 배터리 구동에서는 소비가 늘어 슬라이드 스위치 정격(0.3A)에 붙는다
+            #       (설계 §5.4) — 시연은 짧아 감수하지만, 상시 운용이면 낮춘다.
+            self.s.sendall(f"{VOLUME}\n".encode())
+            log(f"명령 채널 연결됨 ({CMD_PORT}) · 음량 {VOLUME}단계")
 
     def send(self, payload):
         for attempt in (1, 2):
