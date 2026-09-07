@@ -164,11 +164,13 @@ class Speaker:
     def __init__(self, ip):
         self.ip = ip
         self.s = None
+        self.f = None
 
     def _ensure(self):
         if self.s is None:
             self.s = socket.create_connection((self.ip, CMD_PORT), 10)
             self.s.settimeout(30)
+            self.f = self.s.makefile("rb")
             # 🔑 음량을 붙을 때마다 올린다 — 펌웨어 기본은 3단계(진폭 6000)인데
             #    2026-09-07 실청취에서 **작아서 잘 안 들렸다.** 5단계(13000)로 올리니
             #    "무슨 말인지 들릴 정도"가 됐다(⛔ §10.49 판정 통과).
@@ -177,11 +179,41 @@ class Speaker:
             self.s.sendall(f"{VOLUME}\n".encode())
             log(f"명령 채널 연결됨 ({CMD_PORT}) · 음량 {VOLUME}단계")
 
-    def send(self, payload):
+    def _drain(self, wait=15.0):
+        """펌웨어 응답을 읽어 돌려준다 — 🔑 **보냈다 ≠ 들렸다**.
+
+        🔴 2026-09-07 에 물렸다 — 데몬은 보내기만 하고 응답을 안 봐서, 로그에는
+           「재생 → wrench」가 찍혔는데 소리는 안 났다. 무엇이 어긋났는지 알 길이
+           없었다. 펌웨어는 「[적재] … ok」·「[재생 완료]」를 돌려주므로 그것을
+           확인해 기록한다.
+        ⚠️ 재생은 동기라 응답이 소리 길이만큼 늦게 온다 — 그동안 마이크 버퍼가
+           쌓이지만 「최신 우선」이 정리한다.
+        """
+        out = []
+        end = time.time() + wait
+        self.s.settimeout(1.0)
+        while time.time() < end:
+            try:
+                line = self.f.readline()
+            except (OSError, AttributeError):
+                break
+            if not line:
+                break
+            t = line.decode("utf-8", "replace").strip()
+            if t:
+                out.append(t)
+                if "재생 완료" in t or "FAIL" in t:
+                    break
+        self.s.settimeout(30)
+        return out
+
+    def send(self, payload, expect=False):
         for attempt in (1, 2):
             try:
                 self._ensure()
                 self.s.sendall(payload)
+                if expect:
+                    return self._drain()
                 return True
             except OSError as e:
                 log(f"🔴 명령 전송 실패({attempt}): {e}")
@@ -207,8 +239,12 @@ class Speaker:
 
     def play(self, key):
         body, sec = wav_payload(os.path.join(WAV_DIR, f"{key}.wav"))
-        ok = self.send(body)
-        log(f"재생 → {key} ({sec:.1f}초)" if ok else f"🔴 재생 실패 → {key}")
+        resp = self.send(body, expect=True)
+        ok = bool(resp) and any("재생 완료" in r for r in resp)
+        if ok:
+            log(f"재생 → {key} ({sec:.1f}초) · ESP32 확인됨")
+        else:
+            log(f"🔴 재생이 확인되지 않았다 → {key} · 응답={resp}")
         return ok
 
 

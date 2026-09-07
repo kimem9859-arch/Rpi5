@@ -27,7 +27,10 @@ echo "  🔑 마이크는 글라스(ESP32), 녹음은 웹캠 마이크입니다.
 echo "  🔴 공구는 한 번에 하나씩 보여주세요."
 echo
 
-python3 voice/record_voice_demo.py --sec "$SEC"
+# 🔴 시연 촬영 한정으로 공구 임계를 낮춘다(기본 0.65 → 0.30).
+#    공구가 카메라에서 멀면 0.65 를 못 넘는다(2026-09-07 실측: 최고 0.44).
+#    런타임 기본값은 안 바뀐다 — 요약.json 에 쓴 값이 함께 적힌다.
+python3 voice/record_voice_demo.py --sec "$SEC" --conf 0.30
 status=$?
 
 echo

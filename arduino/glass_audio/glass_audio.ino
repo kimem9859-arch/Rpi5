@@ -315,10 +315,37 @@ static void cmdDump() {
 
 /** 「띠링」 — 호출을 들었다는 표시. 명령 1바이트로 즉시 난다.
  *  🔑 wav 로 보내면 0.3초가 더 붙는데, 호출 응답은 즉각적이어야 한다.
+ *
+ *  🔴 **중간에 delay() 를 두지 않는다** — I2S 가 비어 도는 동안 DMA 가 직전
+ *     버퍼를 반복해 「지지직」 이 난다(2026-09-07 에 실제로 그렇게 들렸다).
+ *     앞뒤 여백까지 **끊김 없는 한 덩어리**로 써 넣는다.
  */
 static void chime() {
   setSpkRate(RATE);
-  beep(1175, 90); delay(40); beep(1568, 140);
+  const int AMP = TARGET[volIdx];
+  static int16_t buf[256 * 2];
+  // (주파수, ms) — 0Hz 는 무음. 앞 여백이 있어야 첫 음이 안 잘린다.
+  const struct { float hz; int ms; } SEQ[] = {
+    {0, 30}, {1175, 120}, {0, 40}, {1568, 180}, {0, 60}
+  };
+  float ph = 0.0f;
+  for (size_t k = 0; k < sizeof(SEQ) / sizeof(SEQ[0]); k++) {
+    const size_t frames = (size_t)((uint64_t)RATE * SEQ[k].ms / 1000);
+    for (size_t done = 0; done < frames; done += 256) {
+      const size_t n = (frames - done < 256) ? (frames - done) : 256;
+      for (size_t i = 0; i < 256; i++) {
+        int16_t v = 0;
+        if (i < n && SEQ[k].hz > 0) {
+          ph += 2.0f * (float)M_PI * SEQ[k].hz / (float)RATE;
+          if (ph > 2.0f * (float)M_PI) ph -= 2.0f * (float)M_PI;
+          v = (int16_t)(sinf(ph) * AMP);
+        }
+        buf[i * 2 + 0] = v;        // 🔴 SD=3V3 라 왼쪽 채널만 난다
+        buf[i * 2 + 1] = 0;
+      }
+      spk.write((uint8_t *)buf, sizeof(buf));
+    }
+  }
 }
 
 /** 한 글자 명령을 처리한다 — 유선/무선 공통. */
@@ -343,9 +370,14 @@ void audioCmdTask(void *param) {
   cmdServer.begin();
   cmdServer.setNoDelay(true);
   while (true) {
-    if (!cmdClient || !cmdClient.connected()) {
+    // 🔑 **새 손님이 오면 항상 그쪽으로 갈아탄다.** 종전에는 기존 연결이
+    //    「연결됨」으로 남아 있으면 새 연결을 안 받아, 파이가 보낸 명령이
+    //    커널 버퍼에만 쌓이고 펌웨어는 읽지 않는 일이 생길 수 있었다
+    //    (보냈는데 소리가 안 나는 증상, 2026-09-07).
+    {
       WiFiClient c = cmdServer.accept();
       if (c) {
+        if (cmdClient && cmdClient.connected()) cmdClient.stop();
         cmdClient = c;
         cmdClient.setNoDelay(true);
         io = &cmdClient;
