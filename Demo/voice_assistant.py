@@ -513,31 +513,19 @@ def run(ip, once=False, a_ip=None):
                     #    답이 끝나자마자 엉뚱한 답이 또 나간다. ← G11 의 실체
                     del buf[:]
 
-            # ── ③ 재생 직전 검산 ─────────────────────────────────────────
-            if said:
+            # ── ③ 합성 → 검산 → 전송 ────────────────────────────────────
+            #    🔴 **검산은 합성 뒤·전송 앞이다**(설계 §7). 재생에 가장 가까운
+            #       시점일수록 판단이 정확하다. 검산에 걸리면 이미 합성한
+            #       0.4~1.05초를 버리게 되지만, **어긋난 답을 내보내는 것보다 싸다.**
+            t_p = time.time()
+            got = tts.synth(said) if said else None
+            if got:
+                pcm, rate, sec = got
                 dets2, fresh2 = read_tool_dets()
                 now2 = voice_card.card_facts(voice_card.read_state(), dets2, fresh2)
                 ok_v, bad = voice_card.verify_answer(said, facts, now2)
                 m["검산"] = bad or "일치"
-                if not ok_v:
-                    log(f"⚠️ 검산 불일치 {bad} — 생성 문장을 버린다: {said}")
-                    said = None
-                    # 🔑 공구를 물었던 것이면 새 상태의 공구 답이 더 쓸모 있다.
-                    fallback = answer_key(dets2, fresh2) if bad == ["공구"] else "changed"
-                else:
-                    fallback = None
-            else:
-                # 🔴 LLM 을 안 쓰는 구성(SOP_LLM=0 · TTS 적재 실패)이면 A 갈래
-                #    그대로 답한다 — 「답변할 수 없습니다」는 기능이 아예 없다는
-                #    뜻이 되어 시연에서 더 나쁘다.
-                fallback = "unavailable" if llm_on else answer_key(dets, fresh)
-
-            # ── ④ 재생 ───────────────────────────────────────────────────
-            t_p = time.time()
-            if said:
-                got = tts.synth(said)
-                if got:
-                    pcm, rate, sec = got
+                if ok_v:
                     resp = spk.send(voice_tts.frame(pcm, rate), expect=True)
                     ok = bool(resp) and any("재생 완료" in r for r in resp)
                     alog.played_pcm("llm", pcm, rate, said)
@@ -545,12 +533,24 @@ def run(ip, once=False, a_ip=None):
                               "말하는초": round(sec, 2), "재생성공": ok})
                     log(f"LLM 답변({sec:.1f}초 말함) → {said}")
                 else:
-                    ok = spk.play("unavailable", alog)
-                    m.update({"답변출처": "고정-합성실패", "답변": "unavailable",
-                              "재생성공": ok})
+                    # 🔑 공구를 물었던 것이면 새 상태의 공구 답이 더 쓸모 있다.
+                    log(f"⚠️ 검산 불일치 {bad} — 합성한 소리를 버린다: {said}")
+                    key = answer_key(dets2, fresh2) if bad == ["공구"] else "changed"
+                    ok = spk.play(key, alog)
+                    m.update({"답변출처": "고정-검산불일치", "답변": key,
+                              "버린문장": said, "재생성공": ok})
             else:
-                ok = spk.play(fallback, alog)
-                m.update({"답변출처": "고정-폴백", "답변": fallback, "재생성공": ok})
+                if said:
+                    key, src = "unavailable", "고정-합성실패"
+                elif llm_on:
+                    key, src = "unavailable", "고정-폴백"
+                else:
+                    # 🔴 LLM 을 안 쓰는 구성(SOP_LLM=0 · TTS 적재 실패)이면 A 갈래
+                    #    그대로 답한다 — 「답변할 수 없습니다」는 기능이 아예 없다는
+                    #    뜻이 되어 시연에서 더 나쁘다.
+                    key, src = answer_key(dets, fresh), "고정-LLM미사용"
+                ok = spk.play(key, alog)
+                m.update({"답변출처": src, "답변": key, "재생성공": ok})
             m["재생_ms"] = round((time.time() - t_p) * 1000)
 
             awake_until = 0.0
