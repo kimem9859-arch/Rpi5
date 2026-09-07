@@ -29,8 +29,8 @@ import wave
 _DEMO_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _DEMO_DIR)
 
-from voice_lib import (answer_key, find_utterance, is_tool_question, is_wake,
-                       noise_floor, read_tool_dets)
+from voice_lib import (answer_key, find_utterance, is_question,
+                       is_tool_question, is_wake, noise_floor, read_tool_dets)
 from voice_lib import rms as vl_rms
 
 import config
@@ -462,7 +462,6 @@ def run(ip, once=False, a_ip=None):
         now = time.time()
         awake = now < awake_until
         m["호출어"] = is_wake(text)
-        m["공구질문"] = is_tool_question(text)
 
         if is_wake(text):
             t_c = time.time()
@@ -474,7 +473,12 @@ def run(ip, once=False, a_ip=None):
             # 🔑 한 문장에 질문까지 있으면 바로 답한다(상태기계 폴백).
             #    "가디언, 앞에 보이는 게 뭐야?" 를 한 번에 말해도 동작한다.
 
-        if awake and is_tool_question(text):
+        tool_q = is_tool_question(text)          # 🔑 폴백 선택에 쓴다(아래 ②③)
+        m["공구질문"] = tool_q
+        # 🔴 질문 판정은 **문맥**이다 — 목록(`is_tool_question`)으로 쫓으면 설계
+        #    §2 가 약속한 질문 5종 중 4종이 재생 없는 침묵으로 빠진다(2026-09-08
+        #    최종 리뷰). 깨어난 20초 창 안의 발화는 호출어 단독만 빼고 질문으로 본다.
+        if awake and is_question(text, awake):
             dets, fresh = read_tool_dets()
             state = voice_card.read_state()
             facts = voice_card.card_facts(state, dets, fresh)
@@ -535,7 +539,8 @@ def run(ip, once=False, a_ip=None):
                 else:
                     # 🔑 공구를 물었던 것이면 새 상태의 공구 답이 더 쓸모 있다.
                     log(f"⚠️ 검산 불일치 {bad} — 합성한 소리를 버린다: {said}")
-                    key = answer_key(dets2, fresh2) if bad == ["공구"] else "changed"
+                    key = (answer_key(dets2, fresh2)
+                           if (tool_q and bad == ["공구"]) else "changed")
                     ok = spk.play(key, alog)
                     m.update({"답변출처": "고정-검산불일치", "답변": key,
                               "버린문장": said, "재생성공": ok})
@@ -543,7 +548,11 @@ def run(ip, once=False, a_ip=None):
                 if said:
                     key, src = "unavailable", "고정-합성실패"
                 elif llm_on:
-                    key, src = "unavailable", "고정-폴백"
+                    # 🔴 공구를 물었으면 A 갈래 답이 있다 — 그것이 「최악의 경우가
+                    #    오늘 수준」(설계 §10)의 뜻이다. 「답변할 수 없습니다」로
+                    #    떨어뜨리면 오늘보다 못해진다.
+                    key = answer_key(dets, fresh) if tool_q else "unavailable"
+                    src = "고정-폴백"
                 else:
                     # 🔴 LLM 을 안 쓰는 구성(SOP_LLM=0 · TTS 적재 실패)이면 A 갈래
                     #    그대로 답한다 — 「답변할 수 없습니다」는 기능이 아예 없다는

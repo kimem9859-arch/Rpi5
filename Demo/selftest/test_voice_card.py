@@ -89,13 +89,18 @@ def main():
         print("── card_facts (검산이 쓸 재료)")
         f1 = card_facts(LIVE, [("wrench", 0.44, 0, 0, 9, 9)], True)
         check(f1 == {"공구": "wrench", "단계": 2, "버튼": "B2",
-                     "상태": "PROCESS RUN", "세션": True}, "정상 상태의 사실 묶음")
+                     "상태": "정상", "세션": True}, "정상 상태의 사실 묶음")
         f2 = card_facts(None, [], False)
         check(f2["세션"] is False and f2["공구"] is None, "상태가 없으면 전부 비어 있다")
+        check(card_facts(dict(LIVE, 상태="MONITOR"), [], False)["상태"] == "정상",
+              "🔴 MONITOR 는 카드와 같게 「정상」으로 접힌다 — 손이 ROI 에 들어간 것뿐이다")
+        check(card_facts(dict(LIVE, 상태="BLOCK"), [], False)["상태"] == "차단",
+              "BLOCK 은 「차단」")
 
         print("── verify_answer · 🔑 문장에 나온 사실만 본다")
+        # 🔑 `base`/`now` 는 card_facts 가 낸 모양이다 — 상태는 **버킷**(정상/경고/차단)
         base = {"공구": "wrench", "단계": 2, "버튼": "B2",
-                "상태": "PROCESS RUN", "세션": True}
+                "상태": "정상", "세션": True}
         ok, bad = verify_answer("2단계에 필요한 공구는 렌치입니다.", base, base)
         check(ok and bad == [], "안 바뀌었으면 통과")
 
@@ -112,11 +117,15 @@ def main():
         ok, bad = verify_answer("2단계 「펌프/퍼지」입니다.", base, stepped)
         check(not ok and "단계" in bad, "단계를 말했는데 단계가 바뀌면 불일치")
 
-        blocked = dict(base, 상태="BLOCK")
+        blocked = dict(base, 상태="차단")
         ok, bad = verify_answer("지금 차단된 상태입니다.", base, blocked)
         check(not ok and "상태" in bad, "차단을 말했는데 상태가 바뀌면 불일치")
         ok, bad = verify_answer("렌치가 보입니다.", base, blocked)
         check(ok, "차단을 말하지 않았으면 상태 변화만으로는 안 버린다")
+
+        moved_roi = dict(base, 상태="정상")     # PROCESS RUN → MONITOR 는 같은 버킷
+        ok, bad = verify_answer("정상이며 경고나 차단은 없습니다.", dict(base, 상태="정상"), moved_roi)
+        check(ok, "🔴 카드가 말하지 않은 상태 차이로는 답을 버리지 않는다")
 
         ended = dict(base, 세션=False)
         ok, bad = verify_answer("렌치가 보입니다.", base, ended)

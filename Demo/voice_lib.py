@@ -61,6 +61,31 @@ def is_tool_question(text):
     return any(h in n for h in _OBJ_HINTS) and any(h in n for h in _WHAT_HINTS)
 
 
+def is_question(text, awake):
+    """깨어난 창 안의 발화를 비서에게 한 말로 본다.
+
+    🔴 `is_tool_question()` 은 **A 갈래 판정**이다 — 공구 하나만 물을 수 있던
+       시절 「보이다」 계열만 보게 만들었다. B 갈래는 단계·버튼·서브작업·작업
+       결과까지 답하므로, 그 목록으로는 설계 §2 가 약속한 질문 5종 중 4종이
+       **재생 없는 침묵**으로 빠진다(2026-09-08 최종 리뷰).
+
+    🔑 **목록으로 쫓지 않는다.** 호출어에서 이미 겪은 길이다 — 목록에 변형을
+       추가할 때마다 다음 회차에 새것이 나왔다(§10.61). 대신 **문맥**으로 본다:
+       「가디언」을 부른 뒤 20초 안에 한 말은 비서에게 한 말이다. 실촬영에서
+       답변 14건이 **전부** 그 경로였다.
+
+    ⚠️ 호출어만 있는 발화는 뺀다 — 「가디언」은 띠링으로 답할 일이지 LLM 을
+       태울 일이 아니다. 뒤에 말이 더 붙어 있으면 그것은 질문이다.
+    """
+    if not awake:
+        return False
+    n = _norm(text)
+    if is_wake(text):
+        for w in WAKE_PREFIXES:
+            n = n.replace(w, "")
+    return len(n) >= 2
+
+
 def rms(samples):
     """DC 오프셋을 뺀 실효값.
 

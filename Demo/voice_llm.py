@@ -18,7 +18,6 @@ import json
 import os
 import sys
 import time
-import urllib.error
 import urllib.request
 
 _DEMO_DIR = os.path.dirname(os.path.abspath(__file__))

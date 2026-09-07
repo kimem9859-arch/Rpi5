@@ -53,11 +53,14 @@ class Fake(BaseHTTPRequestHandler):
                     "prompt_eval_duration": 2.5e8, "eval_duration": 3.8e9,
                     "load_duration": 1.13e9}
         raw = json.dumps(body).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(raw)))
-        self.end_headers()
-        self.wfile.write(raw)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError):
+            pass      # 🔑 느린 모드에서 클라이언트가 먼저 끊는다 — 정상이다
 
     def log_message(self, *a):
         pass

@@ -244,7 +244,9 @@ class SafetyConsole(QMainWindow):
 
         # 🔑 음성비서용 상태 공개 — 쓰기 전용이고 실패해도 GUI 는 그대로 돈다.
         #    설계 = ../docs/superpowers/specs/2026-09-07-음성비서-LLM-design.md §8
-        self._state_pub = StatePublisher(log=lambda m: self._append_log(m))
+        # 🔴 로그 콜백을 여기서 _append_log 로 주면 안 된다 — log_browser 는
+        #    _init_ui() 안에서야 생긴다. 생성 시점 오류는 stdout 으로 낸다.
+        self._state_pub = StatePublisher(log=print)
 
         # 판정부(FSM) — 통합문서 §9. 콜백으로 상태표시·인터록·피드백을 받는다.
         self.fsm = SafetyFSM(

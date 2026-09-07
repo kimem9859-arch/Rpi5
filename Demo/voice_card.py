@@ -48,6 +48,10 @@ def read_state(path=None):
             d = json.load(f)
     except (OSError, ValueError):
         return None
+    # 🔴 dict 가 아닌 JSON(리스트·문자열)이면 아래 .get 이 AttributeError 로
+    #    데몬을 죽인다 — 못 믿을 파일이므로 없는 것으로 친다.
+    if not isinstance(d, dict):
+        return None
     pid = d.get("pid")
     if isinstance(pid, int):
         try:
@@ -73,13 +77,27 @@ def _seen_tool(dets, fresh):
     return best
 
 
+def _state_bucket(st):
+    """FSM 상태를 카드가 말하는 3버킷으로 접는다.
+
+    🔴 **카드가 말하지 않은 차이로 답을 버리면 안 된다.** build_card 는 6상태를
+       차단/경고/정상 셋으로 접어 LLM 에게 주는데, 검산이 원시 문자열을 대조하면
+       손이 ROI 에 들어가기만 해도 나는 PROCESS RUN → MONITOR 전이가 불일치가 된다.
+    """
+    if st == "BLOCK":
+        return "차단"
+    if st == "WARNING":
+        return "경고"
+    return "정상"
+
+
 def card_facts(state, dets, fresh):
     """검산이 대조할 사실 묶음 — 카드 문장이 아니라 값이다."""
     return {
         "공구": _seen_tool(dets, fresh),
         "단계": (state or {}).get("현재단계"),
         "버튼": (state or {}).get("현재버튼"),
-        "상태": (state or {}).get("상태"),
+        "상태": _state_bucket((state or {}).get("상태")),
         "세션": bool(state and state.get("세션")),
     }
 
