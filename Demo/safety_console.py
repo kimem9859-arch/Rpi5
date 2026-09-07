@@ -43,6 +43,7 @@ from overlay_result import ResultPanel
 import precheck
 from fps import fps_from_intervals, fps_stale
 from demo_recorder import DemoRecorder
+from state_publisher import StatePublisher
 
 
 # =============================================================================
@@ -240,6 +241,10 @@ class SafetyConsole(QMainWindow):
         except RecipeError as e:
             self._recipe = None
             print(f"[레시피] 로드 실패 — 기본 시퀀스로 진행: {e}")
+
+        # 🔑 음성비서용 상태 공개 — 쓰기 전용이고 실패해도 GUI 는 그대로 돈다.
+        #    설계 = ../docs/superpowers/specs/2026-09-07-음성비서-LLM-design.md §8
+        self._state_pub = StatePublisher(log=lambda m: self._append_log(m))
 
         # 판정부(FSM) — 통합문서 §9. 콜백으로 상태표시·인터록·피드백을 받는다.
         self.fsm = SafetyFSM(
@@ -1142,6 +1147,7 @@ class SafetyConsole(QMainWindow):
                      f"{(self._recipe or {}).get('process_name', '기본 시퀀스')} "
                      f"{self.fsm.step_count}단계")
         self._stats.start((self._recipe or {}).get("process_name", "기본 시퀀스"), self.fsm.step_count)
+        self._publish_state()
 
     # =========================================================================
     # [서브 작업] design §5 — 메인 버튼과 다음 버튼 사이에 끼는 작업
@@ -1214,6 +1220,7 @@ class SafetyConsole(QMainWindow):
 
     def _show_result(self):
         data = self._stats.finish()
+        self._publish_state(result=data)
         self._close_sheets()
         self.result_panel.relayout(self._root.rect())
         self.result_panel.show_result(data)
@@ -1237,10 +1244,59 @@ class SafetyConsole(QMainWindow):
                 return spec
         return None
 
+    def _publish_state(self, result=None):
+        """음성비서가 읽을 상태 한 벌 — 🔴 GUI 흐름을 막지 않는다.
+
+        🔴 카드 라벨을 축약하지 않는 것과 같은 이유로 **키 이름을 풀어 쓴다**
+           (§10.62-(6)). 여기 키가 그대로 카드 문장이 되지는 않지만, 애매한
+           이름은 카드를 만드는 쪽에서 또 헷갈린다.
+        """
+        try:
+            # 🔴 「작업 시작 전」의 정본은 **FSM 이 IDLE 인가**다. `_stats.running` 을
+            #    쓰면 안 된다 — 「작업 초기화」는 `fsm.reset()` 만 부르고 `_stats` 는
+            #    그대로 두므로, 초기화 뒤에도 running 이 True 로 남아 세션이 살아 있는
+            #    것처럼 보인다. `fsm.reset()` 의 정의가 곧 「작업 시작 직전」이다.
+            if self.fsm.state == State.IDLE and result is None:
+                self._state_pub.clear()
+                return
+            cur = self.fsm.expected_step
+            steps = (self._recipe or {}).get("steps", [])
+            sub = None
+            for s in steps:
+                if s.get("order") == cur and s.get("sub"):
+                    spec = s["sub"]
+                    tool = spec.get("tool")
+                    sub = {"label": spec.get("label", ""), "sec": spec.get("sec"),
+                           "tool": tool,
+                           "tool_name": (spec.get("tool_names") or {}).get(tool, tool)}
+            nxt = cur + 1 if cur < self.fsm.step_count else None
+            self._state_pub.publish({
+                "세션": True,
+                "공정명": (self._recipe or {}).get("process_name", "기본 시퀀스"),
+                "전체단계": self.fsm.step_count,
+                "현재단계": cur,
+                "현재단계명": self.fsm.current_step_name,
+                "현재버튼": self.fsm.correct_roi,
+                "다음단계": nxt,
+                "다음단계명": self._step_name(nxt) if nxt else None,
+                "다음버튼": self._step_button(nxt) if nxt else None,
+                "상태": self.fsm.state.value,
+                "서브작업": sub,
+                "결과": result,
+            })
+        except Exception as e:                      # noqa: BLE001 — GUI 를 절대 안 죽인다
+            self._append_log(f"[상태] 공개 실패: {e}")
+
     def _step_name(self, order):
         for s in (self._recipe or {}).get("steps", []):
             if s.get("order") == order:
                 return s.get("name", "")
+        return ""
+
+    def _step_button(self, order):
+        for s in (self._recipe or {}).get("steps", []):
+            if s.get("order") == order:
+                return s.get("button", "")
         return ""
 
     def _begin_sub(self, button, spec):
@@ -1417,6 +1473,7 @@ class SafetyConsole(QMainWindow):
         self._sync_cta_visibility()
         self._notify("work", "작업 초기화", "「작업 시작」 전 상태로 되돌렸습니다")
         self._relayout()
+        self._publish_state()      # 🔴 IDLE 이 됐으므로 상태 파일이 지워진다
 
     def keyPressEvent(self, event):
         """시연용 버튼 입력: 1~4 = B1~B4 눌림, E = 비상정지(EMO),
@@ -1464,6 +1521,7 @@ class SafetyConsole(QMainWindow):
     def _on_fsm_state(self, old, new):
         self.status_panel.update_view(new.value, self.fsm.expected_step)
         self._append_log(f"[FSM] {old.value} → {new.value}")
+        self._publish_state()
 
         # 발광·배너는 상태에 따라 — 🔴 발광은 영상 영역에만(GlowFrame 이 담당)
         if new == State.BLOCK:
