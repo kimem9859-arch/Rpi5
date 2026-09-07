@@ -22,6 +22,7 @@ import socket
 import struct
 import shutil
 import sys
+import threading
 import time
 import wave
 
@@ -31,6 +32,11 @@ sys.path.insert(0, _DEMO_DIR)
 from voice_lib import (answer_key, find_utterance, is_tool_question, is_wake,
                        noise_floor, read_tool_dets)
 from voice_lib import rms as vl_rms
+
+import config
+import voice_card
+import voice_llm
+import voice_tts
 
 # 🔑 보드가 둘이다(2026-09-06 결정) — 메인=카메라(.camera_ip) / 서브=오디오(.audio_ip).
 #    .audio_ip 가 없으면 한 보드 구성으로 보고 .camera_ip 를 쓴다.
@@ -125,6 +131,28 @@ class AudioLog:
         try:
             shutil.copyfile(src, os.path.join(
                 self.dir, f"재생_{self.n_play:03d}_{key}.wav"))
+        except OSError:
+            pass
+
+    def played_pcm(self, key, pcm, rate, text=None):
+        """런타임 합성으로 내보낸 소리 — 원본 wav 파일이 없다.
+
+        🔑 문장도 함께 남긴다. 보고서에서 「무슨 말을 했나」가 소리보다 중요하고,
+           소리는 문장 + 모델로 언제든 다시 만들 수 있다.
+        """
+        if not self.dir:
+            return
+        self.n_play += 1
+        base = os.path.join(self.dir, f"재생_{self.n_play:03d}_{key}")
+        try:
+            with wave.open(base + ".wav", "w") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(rate)
+                w.writeframes(pcm)
+            if text:
+                with open(base + ".txt", "w", encoding="utf-8") as f:
+                    f.write(text + "\n")
         except OSError:
             pass
 
@@ -314,11 +342,37 @@ class Speaker:
         return ok
 
 
+def ask_async(card, question):
+    """LLM 을 배경에서 부른다 — 「확인 중」 재생과 겹치게 하려는 것이다.
+
+    🔴 순서대로 하면 재생 2초가 지연에 그대로 더해진다. 명령 채널이 하나뿐이라
+       (`Speaker`) 재생 완료를 기다리는 동안 메인 루프가 막히기 때문이다.
+       먼저 띄워 두면 그 2초가 LLM 시간에 흡수된다(설계 §7).
+    """
+    box = {}
+
+    def _work():
+        box["r"] = voice_llm.ask(card, question)
+
+    th = threading.Thread(target=_work, daemon=True)
+    th.start()
+    return th, box
+
+
 def run(ip, once=False, a_ip=None):
     log(f"ESP32 = {ip}")
     log("STT 적재 중...")
     rec = build_stt()
     log("STT 준비됨")
+
+    tts = None
+    if config.LLM_ENABLED:
+        try:
+            from voice_tts import Tts
+            tts = Tts()
+            log("런타임 TTS 준비됨")
+        except Exception as e:                 # noqa: BLE001
+            log(f"🔴 런타임 TTS 를 못 올렸다 — 고정 wav 로만 답한다: {e}")
 
     alog = AudioLog(AUDIO_DIR)
     if AUDIO_DIR:
@@ -422,13 +476,83 @@ def run(ip, once=False, a_ip=None):
 
         if awake and is_tool_question(text):
             dets, fresh = read_tool_dets()
-            key = answer_key(dets, fresh)
-            log(f"공구 {len(dets)}개 · 신선 {fresh} → {key}")
+            state = voice_card.read_state()
+            facts = voice_card.card_facts(state, dets, fresh)
+            m.update({"공구수": len(dets), "공구신선": fresh,
+                      "검출": [[str(d[0]), round(float(d[1]), 2)] for d in dets],
+                      "단계": facts["단계"], "세션": facts["세션"]})
+
+            # ── ① 작업 전이면 LLM 을 안 태운다 ────────────────────────────
+            #    카드가 비어 있어 LLM 이 할 말 자체가 없다. 5~7초를 기다릴
+            #    이유가 없고, 없는 상태를 지어낼 위험만 생긴다(유형 ⑤).
+            if not facts["세션"]:
+                t_p = time.time()
+                ok = spk.play("notready", alog)
+                m.update({"답변출처": "고정-작업전", "답변": "notready",
+                          "재생_ms": round((time.time() - t_p) * 1000), "재생성공": ok})
+                awake_until = 0.0
+                metric(m)
+                continue
+
+            # ── ② LLM 갈래 ────────────────────────────────────────────────
+            said = None
+            llm_on = config.LLM_ENABLED and tts is not None
+            m["LLM사용"] = llm_on
+            if llm_on:
+                card = voice_card.build_card(state, dets, fresh)
+                m["카드줄수"] = card.count("\n")
+                th, box = ask_async(card, text)
+                try:
+                    spk.play("checking", alog)     # 🔑 LLM 과 겹쳐 돈다
+                    th.join(timeout=config.LLM_TIMEOUT_SEC + 2.0)
+                    said, lm = box.get("r", (None, {"LLM오류": "스레드 미완"}))
+                    m.update(lm)
+                finally:
+                    # 🔴 기다리는 5~7초 동안 쌓인 소리를 버린다(최신 우선).
+                    #    안 버리면 밀린 소리가 곧바로 다음 발화로 잡혀,
+                    #    답이 끝나자마자 엉뚱한 답이 또 나간다. ← G11 의 실체
+                    del buf[:]
+
+            # ── ③ 재생 직전 검산 ─────────────────────────────────────────
+            if said:
+                dets2, fresh2 = read_tool_dets()
+                now2 = voice_card.card_facts(voice_card.read_state(), dets2, fresh2)
+                ok_v, bad = voice_card.verify_answer(said, facts, now2)
+                m["검산"] = bad or "일치"
+                if not ok_v:
+                    log(f"⚠️ 검산 불일치 {bad} — 생성 문장을 버린다: {said}")
+                    said = None
+                    # 🔑 공구를 물었던 것이면 새 상태의 공구 답이 더 쓸모 있다.
+                    fallback = answer_key(dets2, fresh2) if bad == ["공구"] else "changed"
+                else:
+                    fallback = None
+            else:
+                # 🔴 LLM 을 안 쓰는 구성(SOP_LLM=0 · TTS 적재 실패)이면 A 갈래
+                #    그대로 답한다 — 「답변할 수 없습니다」는 기능이 아예 없다는
+                #    뜻이 되어 시연에서 더 나쁘다.
+                fallback = "unavailable" if llm_on else answer_key(dets, fresh)
+
+            # ── ④ 재생 ───────────────────────────────────────────────────
             t_p = time.time()
-            ok = spk.play(key, alog)
-            m.update({"공구수": len(dets), "공구신선": fresh, "답변": key,
-                      "재생_ms": round((time.time() - t_p) * 1000), "재생성공": ok,
-                      "검출": [[str(d[0]), round(float(d[1]), 2)] for d in dets]})
+            if said:
+                got = tts.synth(said)
+                if got:
+                    pcm, rate, sec = got
+                    resp = spk.send(voice_tts.frame(pcm, rate), expect=True)
+                    ok = bool(resp) and any("재생 완료" in r for r in resp)
+                    alog.played_pcm("llm", pcm, rate, said)
+                    m.update({"답변출처": "LLM", "답변문장": said,
+                              "말하는초": round(sec, 2), "재생성공": ok})
+                    log(f"LLM 답변({sec:.1f}초 말함) → {said}")
+                else:
+                    ok = spk.play("unavailable", alog)
+                    m.update({"답변출처": "고정-합성실패", "답변": "unavailable",
+                              "재생성공": ok})
+            else:
+                ok = spk.play(fallback, alog)
+                m.update({"답변출처": "고정-폴백", "답변": fallback, "재생성공": ok})
+            m["재생_ms"] = round((time.time() - t_p) * 1000)
+
             awake_until = 0.0
             metric(m)
             if once:
