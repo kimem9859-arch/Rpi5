@@ -30,7 +30,8 @@ echo
 # 🔴 시연 촬영 한정으로 공구 임계를 낮춘다(기본 0.65 → 0.30).
 #    공구가 카메라에서 멀면 0.65 를 못 넘는다(2026-09-07 실측: 최고 0.44).
 #    런타임 기본값은 안 바뀐다 — 요약.json 에 쓴 값이 함께 적힌다.
-python3 voice/record_voice_demo.py --sec "$SEC" --conf 0.30
+# 🔑 촬영 전에 3인칭 구도를 10초 보여준다(촬영 중에는 ffmpeg 이 장치를 독점한다).
+python3 voice/record_voice_demo.py --sec "$SEC" --conf 0.30 --check-webcam 10 --preview
 status=$?
 
 echo

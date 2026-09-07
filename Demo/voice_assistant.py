@@ -20,6 +20,7 @@ import json
 import os
 import socket
 import struct
+import shutil
 import sys
 import time
 import wave
@@ -56,6 +57,13 @@ VOLUME     = 5        # 🔑 펌웨어 음량 1~5. 기본 3 은 실청취에서 
 #    환경변수 SOP_VOICE_METRICS 로 경로를 준다(없으면 안 남긴다).
 METRICS_PATH = os.environ.get("SOP_VOICE_METRICS")
 
+# 🔑 보고서용 오디오 기록 — 환경변수 SOP_VOICE_AUDIO 로 폴더를 준다(없으면 안 남긴다).
+#    귀에 들린 것과 기계가 받은 것을 나중에 대조할 수 있어야 한다.
+#      마이크_전체.wav      ESP32 가 보낸 업링크 전부(16kHz)
+#      발화_NNN.wav / .txt  잘라낸 발화 구간과 그 STT 결과
+#      재생_NNN_<키>.wav    스피커로 내보낸 것(사전 합성된 TTS 원본)
+AUDIO_DIR = os.environ.get("SOP_VOICE_AUDIO")
+
 
 def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -74,6 +82,56 @@ def metric(rec):
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except OSError:
         pass
+
+
+class AudioLog:
+    """오디오와 변환 결과를 파일로 남긴다 — 없으면 아무것도 안 한다."""
+
+    def __init__(self, path):
+        self.dir = path
+        self.full = None
+        self.n_utt = 0
+        self.n_play = 0
+        if not path:
+            return
+        os.makedirs(path, exist_ok=True)
+        self.full = wave.open(os.path.join(path, "마이크_전체.wav"), "w")
+        self.full.setnchannels(1)
+        self.full.setsampwidth(2)
+        self.full.setframerate(RATE)
+
+    def mic(self, samples):
+        if self.full:
+            self.full.writeframes(array.array("h", samples).tobytes())
+
+    def utterance(self, samples, text):
+        """잘라낸 발화 + STT 결과. 🔑 둘을 짝지어 둬야 나중에 대조가 된다."""
+        if not self.dir:
+            return
+        self.n_utt += 1
+        base = os.path.join(self.dir, f"발화_{self.n_utt:03d}")
+        with wave.open(base + ".wav", "w") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(RATE)
+            w.writeframes(array.array("h", samples).tobytes())
+        with open(base + ".txt", "w", encoding="utf-8") as f:
+            f.write(text + "\n")
+
+    def played(self, key, src):
+        if not self.dir:
+            return
+        self.n_play += 1
+        try:
+            shutil.copyfile(src, os.path.join(
+                self.dir, f"재생_{self.n_play:03d}_{key}.wav"))
+        except OSError:
+            pass
+
+    def close(self):
+        if self.full:
+            self.full.close()
+            self.full = None
 
 
 def esp_ip():
@@ -242,8 +300,11 @@ class Speaker:
     def chime(self):
         return self.send(b"B\n")
 
-    def play(self, key):
-        body, sec = wav_payload(os.path.join(WAV_DIR, f"{key}.wav"))
+    def play(self, key, alog=None):
+        path = os.path.join(WAV_DIR, f"{key}.wav")
+        if alog:
+            alog.played(key, path)
+        body, sec = wav_payload(path)
         resp = self.send(body, expect=True)
         ok = bool(resp) and any("재생 완료" in r for r in resp)
         if ok:
@@ -259,6 +320,9 @@ def run(ip, once=False, a_ip=None):
     rec = build_stt()
     log("STT 준비됨")
 
+    alog = AudioLog(AUDIO_DIR)
+    if AUDIO_DIR:
+        log(f"오디오 기록 → {AUDIO_DIR}")
     spk = Speaker(ip)
     # 🔑 명령 채널을 미리 붙여 둔다 — 첫 「띠링」이 연결 설정과 겹쳐 안 들렸다
     #    (2026-09-07 실측: 로그에는 나갔는데 귀로는 안 들렸다).
@@ -297,6 +361,7 @@ def run(ip, once=False, a_ip=None):
         a = array.array("h")
         a.frombytes(chunk[:len(chunk) // 2 * 2])
         buf.extend(a)
+        alog.mic(a)
 
         # 🔴 최신 우선 — TCP 재전송으로 밀리면 오래된 것을 버린다.
         #    카메라가 CAMERA_GRAB_LATEST 로 같은 문제를 푸는 것과 같은 처방.
@@ -333,6 +398,7 @@ def run(ip, once=False, a_ip=None):
             "STT_ms": round(stt_ms),
         }
         del buf[:e]
+        alog.utterance(seg_samples, text)
         if not text.strip():
             m["판정"] = "빈 결과"
             metric(m)
@@ -359,7 +425,7 @@ def run(ip, once=False, a_ip=None):
             key = answer_key(dets, fresh)
             log(f"공구 {len(dets)}개 · 신선 {fresh} → {key}")
             t_p = time.time()
-            ok = spk.play(key)
+            ok = spk.play(key, alog)
             m.update({"공구수": len(dets), "공구신선": fresh, "답변": key,
                       "재생_ms": round((time.time() - t_p) * 1000), "재생성공": ok,
                       "검출": [[str(d[0]), round(float(d[1]), 2)] for d in dets]})

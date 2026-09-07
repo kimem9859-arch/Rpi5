@@ -8,6 +8,8 @@
 무엇을 찍나 (2026-09-07 사용자 결정 — 콘솔·버튼·경고 시나리오는 안 쓴다):
   ① 1인칭 오버레이  ESP32 카메라 영상 + **공구 검출 박스**를 그려 넣은 것
   ② 3인칭          USB 웹캠 (ABKO APC900) 영상
+                   🔑 `--preview` 면 **같은 ffmpeg 에서 미리보기 출력을 하나 더** 뽑아
+                      창으로 띄운다 — v4l2 는 두 프로세스가 동시에 못 연다.
   ③ 소리           웹캠 마이크 — 3인칭 영상에 입히고, 끝난 뒤 **wav 로도 뽑아 둔다**
                    (🔴 ALSA 는 배타적이라 ffmpeg 둘이 동시에 마이크를 못 연다)
 
@@ -21,6 +23,8 @@
    🔴 **낮춘 값은 `요약.json` 에 함께 적힌다** — 조건 없이 인용하지 않기 위해서다.
 
 🔑 **보고서 시각자료용 계측을 함께 남긴다**(2026-09-07 사용자 요청):
+     오디오/       🔑 마이크_전체.wav · 발화_NNN.wav+.txt(STT 결과) ·
+                   재생_NNN_<키>.wav(스피커로 낸 TTS 원본)
      계측.jsonl   발화마다 한 줄 — 발화 길이·RMS·노이즈 바닥·STT 텍스트·
                   STT 소요·호출어/의도 판정·검출 공구·재생 소요
      요약.json    촬영 전체 — 프레임 수·FPS·공구별 검출 횟수·응답 지연 통계
@@ -41,6 +45,7 @@ import socket
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 import cv2
@@ -63,6 +68,8 @@ TOOL_KO = {"driver": "드라이버", "wrench": "렌치", "pliers": "플라이어
 
 # 🔴 창 제목은 ASCII — 한글은 ?? 로 깨진다(2026-09-07 확인).
 PREVIEW_WIN = "FPV overlay - tool check (press q to stop)"
+WEBCAM_WIN  = "3rd person (webcam) - framing check"
+WEB_PREV    = (480, 270)      # 미리보기 크기 — 작게 뽑아 CPU 를 아낀다
 
 # 🔴 cv2.putText 는 한글을 못 그린다(전부 ? 로 나온다, 2026-09-07 확인).
 #    Hershey 폰트에 한글 글리프가 없기 때문이다. Pillow + 나눔 폰트로 그린다.
@@ -185,12 +192,23 @@ def main():
                     help="1인칭 오버레이를 화면에 띄운다 (공구가 잡히는지 눈으로 본다)")
     ap.add_argument("--no-record", action="store_true",
                     help="영상·소리를 저장하지 않는다 (확인 전용)")
+    ap.add_argument("--check-webcam", type=int, default=0, metavar="초",
+                    help="촬영 시작 전 3인칭 웹캠 구도를 그 초만큼 화면에 띄운다")
     ap.add_argument("--conf", type=float, default=config.TOOL_CONF,
                     help=f"공구 검출 임계 (기본 = config.TOOL_CONF = {config.TOOL_CONF})")
     a = ap.parse_args()
 
     if shutil.which("ffmpeg") is None:
         sys.exit("🔴 ffmpeg 가 없다")
+    if a.check_webcam:
+        # 🔑 촬영 **전에** 본다 — 촬영 중에는 ffmpeg 이 장치를 독점한다.
+        log(f"3인칭 웹캠 구도 확인 {a.check_webcam}초 …")
+        subprocess.run(["ffplay", "-hide_banner", "-loglevel", "error",
+                        "-autoexit", "-t", str(a.check_webcam),
+                        "-f", "v4l2", "-input_format", "mjpeg",
+                        "-video_size", "1920x1080", "-framerate", "15",
+                        "-i", WEBCAM, "-vf", "scale=960:540",
+                        "-window_title", "3rd person framing check"], check=False)
     stamp = time.strftime("%Y%m%d_%H%M%S")
     out = os.path.join(OUT_DIR, stamp)
     os.makedirs(out, exist_ok=True)
@@ -283,14 +301,19 @@ def main():
          "-f", "rawvideo", "-pixel_format", "bgr24",
          "-video_size", f"{fw}x{fh}", "-framerate", str(FPS), "-i", "-"]
         + X264 + [os.path.join(out, "1인칭_오버레이.mp4")], stdin=subprocess.PIPE)
-        p_cam = subprocess.Popen(
+        # 🔴 여기에 미리보기용 출력을 하나 더 붙이지 말 것 — 파이프가 막히면
+        #   ffmpeg 이 mp4 를 마무리하지 못해 **영상이 통째로 깨진다**
+        #   (2026-09-07: moov atom not found, 28.8MB 를 버렸다).
+        #   3인칭 구도는 촬영 **전에** --check-webcam 으로 본다.
+        cam_args = (
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
              "-f", "v4l2", "-input_format", "mjpeg",
              "-video_size", "1920x1080", "-framerate", str(FPS), "-i", WEBCAM,
              "-f", "alsa", "-ac", "1", "-ar", "48000", "-i", MIC,
-             "-vf", "scale=1280:720"] + X264
+             "-map", "0:v", "-map", "1:a", "-vf", "scale=1280:720"] + X264
             + ["-c:a", "aac", "-b:a", "128k",
                os.path.join(out, "3인칭_소리포함.mp4")])
+        p_cam = subprocess.Popen(cam_args)
     # 🔴 마이크는 ffmpeg 하나만 열 수 있다(ALSA 는 배타적) — 둘이 물면
     #    「Input/output error」로 3인칭이 통째로 죽는다(2026-09-07 에 물렸다).
     #    그래서 소리는 3인칭에만 물리고, **끝난 뒤 그 mp4 에서 wav 를 뽑는다.**
@@ -304,14 +327,41 @@ def main():
     if not a.no_voice:
         # 🔴 음성비서는 반드시 ~/env/tts/.venv 로 — sherpa-onnx 가 거기에만 있다.
         voice_py = os.path.expanduser("~/env/tts/.venv/bin/python")
-        env = dict(os.environ, SOP_VOICE_METRICS=os.path.join(out, "계측.jsonl"))
+        env = dict(os.environ,
+                   SOP_VOICE_METRICS=os.path.join(out, "계측.jsonl"),
+                   SOP_VOICE_AUDIO=os.path.join(out, "오디오"))
         voice = subprocess.Popen(
             [voice_py, os.path.join(_DEMO_DIR, "voice_assistant.py")],
             stdout=open(os.path.join(out, "음성비서.log"), "w"),
             stderr=subprocess.STDOUT, env=env)
         log("음성비서 데몬 시작 (로그 = 음성비서.log)")
 
+    web = {"frame": None, "run": True}
+
+    def web_reader_direct():
+        """확인 모드(--no-record)에서만 웹캠을 직접 연다 — 그때는 ffmpeg 이 없다."""
+        cap = cv2.VideoCapture(0)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, WEB_PREV[0])
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, WEB_PREV[1])
+        while web["run"]:
+            ok, f = cap.read()
+            if ok:
+                web["frame"] = f
+            else:
+                time.sleep(0.1)
+        cap.release()
+
     if a.preview:
+        if a.no_record:            # 기록 중에는 ffmpeg 이 장치를 쥐고 있다
+            threading.Thread(target=web_reader_direct, daemon=True).start()
+        cv2.namedWindow(WEBCAM_WIN, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(WEBCAM_WIN, 640, 360)
+        cv2.moveWindow(WEBCAM_WIN, 1040, 40)
+        try:
+            cv2.setWindowProperty(WEBCAM_WIN, cv2.WND_PROP_TOPMOST, 1)
+        except Exception:
+            pass
+
         # 🔴 창을 **항상 위**로 띄운다 — 2026-09-07 에 NoMachine 창 뒤에 가려
         #    「화면이 안 나온다」고 오인했다. 제목은 ASCII 로 둔다(한글이 ?? 로 깨진다).
         cv2.namedWindow(PREVIEW_WIN, cv2.WINDOW_NORMAL)
@@ -353,6 +403,8 @@ def main():
             latest = draw(f, dets)
             if a.preview:
                 cv2.imshow(PREVIEW_WIN, latest)
+                if web["frame"] is not None:
+                    cv2.imshow(WEBCAM_WIN, web["frame"])
                 if (cv2.waitKey(1) & 0xFF) == ord("q"):
                     break
             now = time.time()
@@ -364,6 +416,7 @@ def main():
     finally:
         el = time.time() - t0
         log(f"촬영 종료 — {n} 프레임 / {el:.0f}초 = {n/max(el,1):.1f} fps")
+        web["run"] = False
         if a.preview:
             cv2.destroyAllWindows()
         if p_fpv:
@@ -416,6 +469,14 @@ def main():
                 "STT_ms_평균": round(sum(r["STT_ms"] for r in rows) / len(rows)) if rows else None,
                 "재생_ms_평균": round(sum(r["재생_ms"] for r in answered) / len(answered))
                                 if answered else None,
+            }
+        adir = os.path.join(out, "오디오")
+        if os.path.isdir(adir):
+            names = os.listdir(adir)
+            summary["오디오파일"] = {
+                "발화wav": sum(1 for x in names if x.startswith("발화_") and x.endswith(".wav")),
+                "재생wav": sum(1 for x in names if x.startswith("재생_")),
+                "마이크_전체": "마이크_전체.wav" in names,
             }
         with open(os.path.join(out, "요약.json"), "w", encoding="utf-8") as f:
             json.dump(summary, f, ensure_ascii=False, indent=2)
