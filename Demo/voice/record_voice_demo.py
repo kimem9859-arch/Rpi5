@@ -15,6 +15,12 @@
   · 공구 검출 워커(tool_worker) — GUI 없이 직접 띄운다
   · 음성비서 데몬(voice_assistant) — 「가디언」 → 띠링 → 공구 안내
 
+🔑 **보고서 시각자료용 계측을 함께 남긴다**(2026-09-07 사용자 요청):
+     계측.jsonl   발화마다 한 줄 — 발화 길이·RMS·노이즈 바닥·STT 텍스트·
+                  STT 소요·호출어/의도 판정·검출 공구·재생 소요
+     요약.json    촬영 전체 — 프레임 수·FPS·공구별 검출 횟수·응답 지연 통계
+   🔴 판단이 아니라 **관측**만 적는다. 해석(인식률·지연 분포)은 나중에 이 파일에서 뽑는다.
+
 🔑 GUI(safety_console)를 안 쓴다. 이 촬영에는 FSM·인터록·버튼이 필요 없고,
    GUI 를 띄우면 콘솔이 없어 경고가 먼저 뜬다(2026-09-07 타워램프 사례).
 
@@ -210,10 +216,11 @@ def main():
     if not a.no_voice:
         # 🔴 음성비서는 반드시 ~/env/tts/.venv 로 — sherpa-onnx 가 거기에만 있다.
         voice_py = os.path.expanduser("~/env/tts/.venv/bin/python")
+        env = dict(os.environ, SOP_VOICE_METRICS=os.path.join(out, "계측.jsonl"))
         voice = subprocess.Popen(
             [voice_py, os.path.join(_DEMO_DIR, "voice_assistant.py")],
             stdout=open(os.path.join(out, "음성비서.log"), "w"),
-            stderr=subprocess.STDOUT)
+            stderr=subprocess.STDOUT, env=env)
         log("음성비서 데몬 시작 (로그 = 음성비서.log)")
 
     log(f"🎬 촬영 시작 — {a.sec}초.  Ctrl-C 로 조기 종료")
@@ -227,6 +234,7 @@ def main():
     #    한 번 더 쓴다.
     t0 = time.time()
     n = 0
+    tool_hits = {}          # 공구별 검출 프레임 수 — 보고서 그림의 원자료
     period = 1.0 / FPS
     deadline = t0 + period
     latest = draw(first, [])
@@ -237,7 +245,11 @@ def main():
                 log("🔴 ESP32 스트림 끊김")
                 break
             tw.maybe_request(f)
-            latest = draw(f, tw.poll())
+            dets = tw.poll()
+            for d in dets:
+                k = str(d[0]).split("-in-hand")[0]
+                tool_hits[k] = tool_hits.get(k, 0) + 1
+            latest = draw(f, dets)
             now = time.time()
             while deadline <= now:                 # 늦었으면 그만큼 채운다
                 p_fpv.stdin.write(latest.tobytes())
@@ -266,6 +278,34 @@ def main():
             subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                             "-i", mp4, "-vn", "-acodec", "pcm_s16le",
                             os.path.join(out, "소리만.wav")], check=False)
+        # ── 보고서용 요약 ──
+        summary = {
+            "촬영시각": stamp,
+            "길이초": round(el, 1),
+            "1인칭": {"해상도": f"{fw}x{fh}", "프레임": n, "fps": round(n / max(el, 1), 1)},
+            "3인칭": {"해상도": "1280x720", "장치": WEBCAM, "마이크": MIC},
+            "공구검출_프레임수": tool_hits,
+            "조건": {"ESP32": ip, "모델": os.path.basename(config.TOOL_MODEL_PATH),
+                     "conf": config.TOOL_CONF,
+                     "스캔주기초": config.TOOL_SCAN_INTERVAL_SEC},
+        }
+        mpath = os.path.join(out, "계측.jsonl")
+        if os.path.exists(mpath):
+            rows = [json.loads(x) for x in open(mpath, encoding="utf-8") if x.strip()]
+            answered = [r for r in rows if r.get("답변")]
+            summary["음성"] = {
+                "발화수": len(rows),
+                "호출어인식": sum(1 for r in rows if r.get("호출어")),
+                "공구질문인식": sum(1 for r in rows if r.get("공구질문")),
+                "답변수": len(answered),
+                "답변분포": {k: sum(1 for r in answered if r["답변"] == k)
+                            for k in {r["답변"] for r in answered}},
+                "STT_ms_평균": round(sum(r["STT_ms"] for r in rows) / len(rows)) if rows else None,
+                "재생_ms_평균": round(sum(r["재생_ms"] for r in answered) / len(answered))
+                                if answered else None,
+            }
+        with open(os.path.join(out, "요약.json"), "w", encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
         log("=== 산출물 ===")
         for f in sorted(os.listdir(out)):
             sz = os.path.getsize(os.path.join(out, f)) / 1024 / 1024

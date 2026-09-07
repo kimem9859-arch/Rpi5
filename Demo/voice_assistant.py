@@ -16,6 +16,7 @@
 """
 import argparse
 import array
+import json
 import os
 import socket
 import struct
@@ -27,7 +28,8 @@ _DEMO_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _DEMO_DIR)
 
 from voice_lib import (answer_key, find_utterance, is_tool_question, is_wake,
-                       read_tool_dets)
+                       noise_floor, read_tool_dets)
+from voice_lib import rms as vl_rms
 
 # 🔑 보드가 둘이다(2026-09-06 결정) — 메인=카메라(.camera_ip) / 서브=오디오(.audio_ip).
 #    .audio_ip 가 없으면 한 보드 구성으로 보고 .camera_ip 를 쓴다.
@@ -50,9 +52,28 @@ LAG_LIMIT  = 2.0      # 🔴 이보다 밀리면 오래된 오디오를 버린�
 QUIET_TAIL = 0.4      # 발화가 끝났다고 보기까지 필요한 뒤쪽 무음
 VOLUME     = 5        # 🔑 펌웨어 음량 1~5. 기본 3 은 실청취에서 작았다(2026-09-07)
 
+# 🔑 보고서 시각자료용 계측 — 발화마다 한 줄씩 JSONL 로 남긴다.
+#    환경변수 SOP_VOICE_METRICS 로 경로를 준다(없으면 안 남긴다).
+METRICS_PATH = os.environ.get("SOP_VOICE_METRICS")
+
 
 def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+def metric(rec):
+    """계측 한 줄 — 보고서 그림의 원자료가 된다.
+
+    🔴 판단이 아니라 **관측**만 적는다. 무엇을 들었고 얼마나 걸렸는지.
+       해석(인식률·지연 분포)은 나중에 이 파일에서 뽑는다.
+    """
+    if not METRICS_PATH:
+        return
+    try:
+        with open(METRICS_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
 
 
 def esp_ip():
@@ -258,17 +279,34 @@ def run(ip, once=False, a_ip=None):
         if len(buf) - e < int(RATE * QUIET_TAIL):
             continue
 
-        text = transcribe(rec, buf[s:e].tolist())
+        seg_samples = buf[s:e].tolist()
+        t_stt = time.time()
+        text = transcribe(rec, seg_samples)
+        stt_ms = (time.time() - t_stt) * 1000
+        m = {
+            "t": time.strftime("%H:%M:%S"),
+            "발화초": round((e - s) / RATE, 2),
+            "발화RMS": round(vl_rms(seg_samples)),
+            "노이즈바닥": round(noise_floor(seg_samples, RATE)),
+            "STT텍스트": text,
+            "STT_ms": round(stt_ms),
+        }
         del buf[:e]
         if not text.strip():
+            m["판정"] = "빈 결과"
+            metric(m)
             continue
         log(f"들림: {text}")
 
         now = time.time()
         awake = now < awake_until
+        m["호출어"] = is_wake(text)
+        m["공구질문"] = is_tool_question(text)
 
         if is_wake(text):
+            t_c = time.time()
             spk.chime()
+            m["띠링_ms"] = round((time.time() - t_c) * 1000)
             awake_until = now + LISTEN_SEC
             awake = True
             log("호출어 인식 → 띠링")
@@ -279,11 +317,18 @@ def run(ip, once=False, a_ip=None):
             dets, fresh = read_tool_dets()
             key = answer_key(dets, fresh)
             log(f"공구 {len(dets)}개 · 신선 {fresh} → {key}")
-            spk.play(key)
+            t_p = time.time()
+            ok = spk.play(key)
+            m.update({"공구수": len(dets), "공구신선": fresh, "답변": key,
+                      "재생_ms": round((time.time() - t_p) * 1000), "재생성공": ok,
+                      "검출": [[str(d[0]), round(float(d[1]), 2)] for d in dets]})
             awake_until = 0.0
+            metric(m)
             if once:
                 log("리허설 목표 달성")
                 return
+            continue
+        metric(m)
 
 
 def main():
