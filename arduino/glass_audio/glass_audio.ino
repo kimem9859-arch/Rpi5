@@ -530,14 +530,47 @@ void setup() {
   Serial.begin(115200);
   delay(3000);
   setCpuFrequencyMhz(240);
-  Serial.println("=== TCP Streaming Start ===");
+  Serial.println("=== 서브 글라스 — 오디오 전용 (마이크 + 스피커) ===");
   Serial.printf("CPU: %dMHz\n", getCpuFrequencyMhz());
+
+  // ── 오디오: PSRAM 버퍼 + 마이크(I2S0/PDM) + 스피커(I2S1/STD) ──
+  // 🔴 초기화에 실패해도 멈추지 않는다 — 어느 하나만 죽었을 때 그 사실을 봐야
+  //    원인이 갈린다(마이크만 죽었나, 스피커만 죽었나).
+  rec = (int16_t *)ps_malloc(MAX_SAMPLE * sizeof(int16_t));
+  if (rec == nullptr) {
+    Serial.println("[FAIL] PSRAM 할당 실패 — PSRAM=opi 로 굽지 않았다.");
+  } else {
+    Serial.printf("[OK] PSRAM 버퍼 %u샘플 (%uKB · 최대 %u초)\n",
+                  (unsigned)MAX_SAMPLE, (unsigned)(MAX_SAMPLE * 2 / 1024),
+                  (unsigned)MAX_SEC);
+  }
+
+  if (!mic.setPort(I2S_NUM_0)) {
+    Serial.println("[FAIL] 마이크 포트 설정 실패");
+  } else {
+    mic.setPinsPdmRx(MIC_CLK, MIC_DATA);
+    if (!mic.begin(I2S_MODE_PDM_RX, RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO))
+      Serial.println("[FAIL] 마이크 초기화 실패 — 확장보드 결합을 확인하라.");
+    else
+      Serial.println("[OK] 마이크(I2S0/PDM) GPIO42=CLK GPIO41=DATA");
+  }
+
+  if (!spk.setPort(I2S_NUM_1)) {
+    Serial.println("[FAIL] 스피커 포트 설정 실패");
+  } else {
+    spk.setPins(SPK_BCLK, SPK_LRC, SPK_DIN);
+    if (!spk.begin(I2S_MODE_STD, RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO)) {
+      Serial.println("[FAIL] 스피커 초기화 실패 — 핀·결선을 확인하라.");
+    } else {
+      spkRate = RATE;
+      Serial.println("[OK] 스피커(I2S1/STD) BCLK=D0 LRC=D1 DIN=D2");
+      chime();                                  // 부팅 신호 = 「띠링」
+    }
+  }
 
   connectWiFiByPriority();
 
-  // ── 오디오 추가분 ──
-  // 🔴 업링크를 코어 1 에 붙인다 — 카메라 캡처가 코어 0 우선순위 5 에 있어서
-  //    같은 코어에 두면 프레임을 민다.
+  // ── 서버 태스크 ──
   xTaskCreatePinnedToCore(audioCmdTask,  "audiocmd", 8192, NULL, 2, NULL, 0);
   xTaskCreatePinnedToCore(micUplinkTask, "micup",    8192, NULL, 2, NULL, 1);
   Serial.println("[audio] 서버 준비 — 8889 마이크 업링크 · 8890 명령/스피커");
