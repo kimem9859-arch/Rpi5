@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -37,6 +38,8 @@ class Fake(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0))
         _seen["body"] = json.loads(self.rfile.read(n))
+        if Fake.MODE == "slow":
+            time.sleep(0.5)          # 🔴 타임아웃을 결정론적으로 만든다
         if Fake.MODE == "500":
             self.send_response(500)
             self.end_headers()
@@ -90,8 +93,11 @@ def main():
         Fake.MODE = "ok"
         text, m = voice_llm.ask(card, "뭐야", url="http://127.0.0.1:1/api/generate")
         check(text is None and "LLM오류" in m, "못 붙으면 None")
-        text, m = voice_llm.ask(card, "뭐야", url=url, timeout=0.001)
-        check(text is None, "타임아웃이면 None")
+        Fake.MODE = "slow"
+        text, m = voice_llm.ask(card, "뭐야", url=url, timeout=0.05)
+        check(text is None and "LLM오류" in m,
+              "🔴 타임아웃이면 None — 서버가 0.5초 자게 해 하드웨어 속도에 안 매이게 잰다")
+        Fake.MODE = "ok"
     finally:
         srv.shutdown()
 
