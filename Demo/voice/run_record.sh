@@ -23,15 +23,16 @@ echo "  ② \"가디언\" → 띠링 → \"앞에 보이는 게 뭐야?\""
 echo "  ③ 드라이버로 교체                → 시안 박스"
 echo "  ④ ② 반복"
 echo
-echo "  🔑 마이크는 글라스(ESP32), 녹음은 웹캠 마이크입니다."
+echo "  🔑 마이크는 글라스(ESP32), 녹음(영상 소리)은 웹캠 마이크입니다."
+echo "  📼 저장 = 1인칭풀_오버레이켬.mp4 (1280x720 레터박스) + 소리만.wav"
 echo "  🔴 공구는 한 번에 하나씩 보여주세요."
 echo
 
 # 🔴 시연 촬영 한정으로 공구 임계를 낮춘다(기본 0.65 → 0.30).
 #    공구가 카메라에서 멀면 0.65 를 못 넘는다(2026-09-07 실측: 최고 0.44).
 #    런타임 기본값은 안 바뀐다 — 요약.json 에 쓴 값이 함께 적힌다.
-# 🔑 촬영 전에 3인칭 구도를 10초 보여준다(촬영 중에는 ffmpeg 이 장치를 독점한다).
-python3 voice/record_voice_demo.py --sec "$SEC" --conf 0.30 --check-webcam 10 --preview
+# 🔴 3인칭 영상은 안 찍는다(2026-09-07 결정) — 소리는 웹캠 마이크로 계속 담는다.
+python3 voice/record_voice_demo.py --sec "$SEC" --conf 0.30 --preview --no-webcam
 status=$?
 
 echo

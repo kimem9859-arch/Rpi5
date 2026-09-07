@@ -7,6 +7,9 @@
 
 무엇을 찍나 (2026-09-07 사용자 결정 — 콘솔·버튼·경고 시나리오는 안 쓴다):
   ① 1인칭 오버레이  ESP32 카메라 영상 + **공구 검출 박스**를 그려 넣은 것
+                   🔑 저장 규격 = **1280x720 레터박스 · CRF23** — 2026-09-05 채택
+                      시연영상(`recordings/시연영상/채택/…1인칭풀…`)과 같은 규격이라
+                      편집에서 섞어 쓸 수 있다.
   ② 3인칭          USB 웹캠 (ABKO APC900) 영상
                    🔑 `--preview` 면 **같은 ffmpeg 에서 미리보기 출력을 하나 더** 뽑아
                       창으로 띄운다 — v4l2 는 두 프로세스가 동시에 못 연다.
@@ -188,6 +191,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sec", type=int, default=90, help="촬영 길이(초)")
     ap.add_argument("--no-voice", action="store_true", help="음성비서 데몬을 안 띄운다")
+    ap.add_argument("--no-webcam", action="store_true",
+                    help="3인칭 웹캠을 찍지 않는다 (1인칭만)")
     ap.add_argument("--preview", action="store_true",
                     help="1인칭 오버레이를 화면에 띄운다 (공구가 잡히는지 눈으로 본다)")
     ap.add_argument("--no-record", action="store_true",
@@ -291,7 +296,14 @@ def main():
     log("공구 워커 준비됨")
 
     # ── ffmpeg 3벌: 1인칭(파이프) · 3인칭+소리 · 소리만 ──
-    X264 = ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"]
+    # 🔑 규격을 **기존 시연영상과 똑같이** 맞춘다(2026-09-05 채택본 = 1280x720·
+    #    15fps·x264 CRF23). demo_postprocess.py 가 쓰는 값과 같아야 편집에서 섞인다.
+    #    1인칭 원본은 480x640(세로)이라 **레터박스**로 얹는다 — 잘라내지 않는다.
+    X264 = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-pix_fmt", "yuv420p"]
+    TW, TH = 1280, 720
+    LETTERBOX = (f"scale={TW}:{TH}:force_original_aspect_ratio=decrease,"
+                 f"pad={TW}:{TH}:(ow-iw)/2:(oh-ih)/2:black")
     p_fpv = p_cam = None
     if a.no_record:
         log("🔎 확인 모드 — 저장하지 않는다")
@@ -299,8 +311,9 @@ def main():
         p_fpv = subprocess.Popen(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
          "-f", "rawvideo", "-pixel_format", "bgr24",
-         "-video_size", f"{fw}x{fh}", "-framerate", str(FPS), "-i", "-"]
-        + X264 + [os.path.join(out, "1인칭_오버레이.mp4")], stdin=subprocess.PIPE)
+         "-video_size", f"{fw}x{fh}", "-framerate", str(FPS), "-i", "-",
+         "-vf", LETTERBOX] + X264
+        + [os.path.join(out, "1인칭풀_오버레이켬.mp4")], stdin=subprocess.PIPE)
         # 🔴 여기에 미리보기용 출력을 하나 더 붙이지 말 것 — 파이프가 막히면
         #   ffmpeg 이 mp4 를 마무리하지 못해 **영상이 통째로 깨진다**
         #   (2026-09-07: moov atom not found, 28.8MB 를 버렸다).
@@ -313,13 +326,22 @@ def main():
              "-map", "0:v", "-map", "1:a", "-vf", "scale=1280:720"] + X264
             + ["-c:a", "aac", "-b:a", "128k",
                os.path.join(out, "3인칭_소리포함.mp4")])
-        p_cam = subprocess.Popen(cam_args)
+        if a.no_webcam:
+            # 🔴 3인칭 영상은 빼되 **소리는 계속 담는다** — 시연 영상의 소리가
+            #    웹캠 내장 마이크에서 나오기 때문이다. 영상만 빼고 오디오만 받는다.
+            log("3인칭 영상은 안 찍는다 — 소리는 계속 담는다 (--no-webcam)")
+            p_cam = subprocess.Popen(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                 "-f", "alsa", "-ac", "1", "-ar", "48000", "-i", MIC,
+                 os.path.join(out, "소리만.wav")])
+        else:
+            p_cam = subprocess.Popen(cam_args)
     # 🔴 마이크는 ffmpeg 하나만 열 수 있다(ALSA 는 배타적) — 둘이 물면
     #    「Input/output error」로 3인칭이 통째로 죽는다(2026-09-07 에 물렸다).
     #    그래서 소리는 3인칭에만 물리고, **끝난 뒤 그 mp4 에서 wav 를 뽑는다.**
         time.sleep(1.5)
         for name, p in (("1인칭", p_fpv), ("3인칭", p_cam)):
-            if p.poll() is not None:
+            if p is not None and p.poll() is not None:
                 log(f"🔴 {name} ffmpeg 이 즉시 죽었다 (코드 {p.returncode})")
 
     # ── 음성비서 데몬 ──
@@ -439,7 +461,7 @@ def main():
         cam.close()
         # 소리만 따로 — 3인칭 mp4 에서 뽑는다(무손실 추출이라 다시 인코딩 안 한다)
         mp4 = os.path.join(out, "3인칭_소리포함.mp4")
-        if os.path.exists(mp4) and os.path.getsize(mp4) > 0:
+        if not a.no_webcam and os.path.exists(mp4) and os.path.getsize(mp4) > 0:
             subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                             "-i", mp4, "-vn", "-acodec", "pcm_s16le",
                             os.path.join(out, "소리만.wav")], check=False)
@@ -447,8 +469,10 @@ def main():
         summary = {
             "촬영시각": stamp,
             "길이초": round(el, 1),
-            "1인칭": {"해상도": f"{fw}x{fh}", "프레임": n, "fps": round(n / max(el, 1), 1)},
-            "3인칭": {"해상도": "1280x720", "장치": WEBCAM, "마이크": MIC},
+            "1인칭": {"원본": f"{fw}x{fh}", "저장규격": f"{TW}x{TH} 레터박스",
+                      "프레임": n, "fps": round(n / max(el, 1), 1)},
+            "3인칭": ({"해상도": "1280x720", "장치": WEBCAM, "마이크": MIC}
+                     if not a.no_webcam else "안 찍음"),
             "공구검출_프레임수": tool_hits,
             "조건": {"ESP32": ip, "모델": os.path.basename(config.TOOL_MODEL_PATH),
                      "conf": a.conf,
