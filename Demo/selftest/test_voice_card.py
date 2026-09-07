@@ -1,0 +1,103 @@
+"""사실 카드 검증 — 🔴 「부재를 명시하는가」가 핵심이다.
+
+실행: python3 Demo/selftest/test_voice_card.py
+
+정본: ../docs/superpowers/specs/2026-09-07-음성비서-LLM-design.md §5
+
+🔑 비면 LLM 이 지어낸다(§10.53-(4) 유형 ①②⑤ = 「모른다」고 말하지 못하는 문제).
+   그래서 없는 것은 빼지 않고 **없다고 적는지**를 본다.
+"""
+import json
+import os
+import shutil
+import sys
+import tempfile
+import time
+
+_DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _DEMO_DIR)
+
+from voice_card import build_card, card_facts, read_state
+
+_fails = []
+
+
+def check(cond, msg):
+    print(("  ✅ " if cond else "  ❌ ") + msg)
+    if not cond:
+        _fails.append(msg)
+
+
+LIVE = {
+    "세션": True, "공정명": "PECVD 정비(PM) 시퀀스", "전체단계": 4,
+    "현재단계": 2, "현재단계명": "펌프/퍼지", "현재버튼": "B2",
+    "다음단계": 3, "다음단계명": "전극 냉각", "다음버튼": "B3",
+    "상태": "PROCESS RUN",
+    "서브작업": {"label": "N2 퍼지", "sec": 10, "tool": "wrench", "tool_name": "렌치"},
+    "결과": None, "pid": os.getpid(), "쓴시각": time.time(),
+}
+
+
+def main():
+    tmp = tempfile.mkdtemp(prefix="sop_card_test_")
+    path = os.path.join(tmp, "state.json")
+    try:
+        print("── read_state")
+        check(read_state(path) is None, "파일이 없으면 None")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(LIVE, f, ensure_ascii=False)
+        check(read_state(path)["현재단계"] == 2, "정상 파일을 읽는다")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("{망가진")
+        check(read_state(path) is None, "깨진 json 이면 None")
+        ghost = dict(LIVE, pid=999999)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(ghost, f, ensure_ascii=False)
+        check(read_state(path) is None, "🔑 죽은 pid 의 유령 상태는 None")
+
+        print("── build_card · 정상")
+        card = build_card(LIVE, [("wrench", 0.44, 0, 0, 9, 9)], True)
+        check("현재 진행 중인 단계: 2단계" in card, "🔴 라벨을 축약하지 않는다(현재 진행 중인 단계)")
+        check("그 다음에 올 단계: 3단계" in card, "🔴 다음 라벨도 풀어 쓴다")
+        check("2단계에 필요한 공구 = 렌치" in card, "필요 공구(정적)가 단계 번호와 함께 나온다")
+        check("카메라에 지금 보이는 공구: 렌치" in card, "보이는 공구(실시간)가 따로 나온다")
+        check(card.count("렌치") >= 2, "🔑 필요 공구와 보이는 공구는 다른 줄이다")
+
+        print("── build_card · 🔴 부재 표기")
+        c2 = build_card(LIVE, [], False)
+        check("확인 중이 아님" in c2, "공구가 낡았으면 「확인 중이 아님」이라고 적는다")
+        c3 = build_card(None, [], False)
+        check("시작되지 않음" in c3, "상태가 없으면 「시작되지 않음」이라고 적는다")
+        check("확인 중이 아님" in c3, "그 경우에도 공구 줄이 사라지지 않는다")
+        nosub = dict(LIVE, 서브작업=None)
+        c4 = build_card(nosub, [], False)
+        check("서브작업: 없음" in c4, "서브작업 없는 단계도 「없음」이라고 적는다")
+
+        print("── build_card · 완주 결과")
+        done = dict(LIVE, 결과={"total_sec": 92.4, "ok": True,
+                                "steps": [1, 2, 3, 4], "violations": [], "interlocks": []})
+        c5 = build_card(done, [], False)
+        check("작업 결과" in c5 and "위반 0회" in c5, "완주하면 결과가 카드에 실린다")
+        check("이미 완료됨" in c5 and "진행 중" not in c5,
+              "🔴 완주 뒤에는 「진행 중」이라고 쓰지 않는다 — 결과와 모순된다")
+
+        print("── card_facts (검산이 쓸 재료)")
+        f1 = card_facts(LIVE, [("wrench", 0.44, 0, 0, 9, 9)], True)
+        check(f1 == {"공구": "wrench", "단계": 2, "버튼": "B2",
+                     "상태": "PROCESS RUN", "세션": True}, "정상 상태의 사실 묶음")
+        f2 = card_facts(None, [], False)
+        check(f2["세션"] is False and f2["공구"] is None, "상태가 없으면 전부 비어 있다")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print()
+    if _fails:
+        print(f"❌ 실패 {len(_fails)}건")
+        for m in _fails:
+            print("   -", m)
+        sys.exit(1)
+    print("✅ 전부 통과")
+
+
+if __name__ == "__main__":
+    main()
