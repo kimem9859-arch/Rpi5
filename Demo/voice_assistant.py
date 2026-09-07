@@ -43,7 +43,9 @@ HOTWORDS  = os.path.expanduser("~/lab/tts/hotwords_ko.txt")
 BPE_VOCAB = os.path.expanduser("~/lab/tts/bpe.vocab")
 
 WINDOW_SEC = 6.0      # 판정에 쓰는 최근 구간
-LISTEN_SEC = 8.0      # 🔑 호출 뒤 질문을 기다리는 시간 — 없으면 영원히 깨어 있다
+LISTEN_SEC = 20.0     # 🔑 호출 뒤 질문을 기다리는 시간.
+                      #    🔴 8초는 짧았다 — 2026-09-07 실측에서 사용자가 다시
+                      #    말하기까지 12초가 걸려 깨어남이 이미 풀려 있었다.
 LAG_LIMIT  = 2.0      # 🔴 이보다 밀리면 오래된 오디오를 버린다(최신 우선)
 QUIET_TAIL = 0.4      # 발화가 끝났다고 보기까지 필요한 뒤쪽 무음
 VOLUME     = 5        # 🔑 펌웨어 음량 1~5. 기본 3 은 실청취에서 작았다(2026-09-07)
@@ -196,6 +198,9 @@ def run(ip, once=False, a_ip=None):
     log("STT 준비됨")
 
     spk = Speaker(ip)
+    # 🔑 명령 채널을 미리 붙여 둔다 — 첫 「띠링」이 연결 설정과 겹쳐 안 들렸다
+    #    (2026-09-07 실측: 로그에는 나갔는데 귀로는 안 들렸다).
+    spk.send(b"")
     # 🔑 데몬을 ESP32 보다 먼저 켜도 된다 — 붙을 때까지 기다린다.
     get_ip = (lambda: a_ip) if a_ip else esp_ip
     mic = connect_mic(get_ip)
