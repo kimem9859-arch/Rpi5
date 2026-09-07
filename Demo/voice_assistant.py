@@ -195,6 +195,11 @@ class Speaker:
         while time.time() < end:
             try:
                 line = self.f.readline()
+            except socket.timeout:
+                # 🔴 재생 중에는 펌웨어가 몇 초간 아무것도 안 보낸다 — 여기서
+                #    포기하면 「확인되지 않았다」로 잘못 판정한다(2026-09-07 에
+                #    실제로 그랬다. 소리는 났는데 로그만 실패로 남았다).
+                continue
             except (OSError, AttributeError):
                 break
             if not line:
