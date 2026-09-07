@@ -15,6 +15,7 @@
 """
 import json
 import os
+import re
 import sys
 
 _DEMO_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -139,3 +140,33 @@ def build_card(state, dets, fresh):
                  f"순서 위반 {len(res.get('violations') or [])}회 · "
                  f"차단 {len(res.get('interlocks') or [])}회")
     return "\n".join(L) + "\n"
+
+
+_STATE_WORDS = ("차단", "경고", "중지", "멈춰", "멈추")
+
+
+def verify_answer(text, then, now):
+    """생성 문장이 아직 사실인가 — `(통과, 어긋난 항목들)`.
+
+    🔑 **문장에 실제로 나온 사실만 대조한다.** 전부 대조하면 질문과 무관한
+       변화로도 폴백이 걸린다 — 「다음에 뭐 눌러야 돼?」라고 물었는데 그 사이
+       공구가 바뀌었다고 답을 버리는 것은 과잉이다.
+
+    🔴 **세션만은 문장 언급과 무관하게 본다.** 작업이 끝났거나 초기화됐으면
+       그 작업에 대한 어떤 답도 이미 틀린 말이 된다.
+
+    `then`/`now` = `card_facts()` 가 돌려주는 모양.
+    """
+    t = text or ""
+    bad = []
+    if any(ko in t for ko in TOOL_KO.values()) and then.get("공구") != now.get("공구"):
+        bad.append("공구")
+    if re.search(r"\d+\s*단계", t) and then.get("단계") != now.get("단계"):
+        bad.append("단계")
+    if re.search(r"B\s*[1-9]", t) and then.get("버튼") != now.get("버튼"):
+        bad.append("버튼")
+    if any(w in t for w in _STATE_WORDS) and then.get("상태") != now.get("상태"):
+        bad.append("상태")
+    if then.get("세션") != now.get("세션"):
+        bad.append("세션")
+    return (not bad), bad

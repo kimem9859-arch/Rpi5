@@ -17,7 +17,7 @@ import time
 _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
 
-from voice_card import build_card, card_facts, read_state
+from voice_card import build_card, card_facts, read_state, verify_answer
 
 _fails = []
 
@@ -87,6 +87,36 @@ def main():
                      "상태": "PROCESS RUN", "세션": True}, "정상 상태의 사실 묶음")
         f2 = card_facts(None, [], False)
         check(f2["세션"] is False and f2["공구"] is None, "상태가 없으면 전부 비어 있다")
+
+        print("── verify_answer · 🔑 문장에 나온 사실만 본다")
+        base = {"공구": "wrench", "단계": 2, "버튼": "B2",
+                "상태": "PROCESS RUN", "세션": True}
+        ok, bad = verify_answer("2단계에 필요한 공구는 렌치입니다.", base, base)
+        check(ok and bad == [], "안 바뀌었으면 통과")
+
+        moved = dict(base, 공구="driver")
+        ok, bad = verify_answer("현재 보이는 공구는 렌치입니다.", base, moved)
+        check(not ok and bad == ["공구"], "🔴 공구를 말했는데 공구가 바뀌면 불일치")
+
+        ok, bad = verify_answer("버튼 B2를 누르시면 됩니다.", base, moved)
+        check(ok, "🔑 공구를 말하지 않았으면 공구가 바뀌어도 통과 — 과잉 폴백을 막는다")
+
+        stepped = dict(base, 단계=3, 버튼="B3")
+        ok, bad = verify_answer("버튼 B2를 누르시면 됩니다.", base, stepped)
+        check(not ok and "버튼" in bad, "버튼을 말했는데 버튼이 바뀌면 불일치")
+        ok, bad = verify_answer("2단계 「펌프/퍼지」입니다.", base, stepped)
+        check(not ok and "단계" in bad, "단계를 말했는데 단계가 바뀌면 불일치")
+
+        blocked = dict(base, 상태="BLOCK")
+        ok, bad = verify_answer("지금 차단된 상태입니다.", base, blocked)
+        check(not ok and "상태" in bad, "차단을 말했는데 상태가 바뀌면 불일치")
+        ok, bad = verify_answer("렌치가 보입니다.", base, blocked)
+        check(ok, "차단을 말하지 않았으면 상태 변화만으로는 안 버린다")
+
+        ended = dict(base, 세션=False)
+        ok, bad = verify_answer("렌치가 보입니다.", base, ended)
+        check(not ok and "세션" in bad,
+              "🔴 세션은 문장 언급과 무관하게 본다 — 작업이 끝났으면 무슨 답이든 어긋난다")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
