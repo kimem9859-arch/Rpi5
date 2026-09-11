@@ -50,6 +50,18 @@
 - TCP: `CAMERA_TCP_HOST`(`.camera_ip`에서 읽음)·`PORT(8888)`. 화면 1280×720·`CAMERA_FLIP_VERTICAL`·**`CAMERA_ROTATE_CCW90`**(장착 구도 보정 — 적용은 `frame_orient` 전담). 녹화 `RECORDING_*`.
 - ESP32 IP 변경: `Demo/.camera_ip` 텍스트 수정 후 재시작.
 
+#### 🔴 ESP32 실HW 함정 (2026-09-07 신설 — 둘 다 실제로 물릴 뻔했다)
+- 🔴 **개체는 «시리얼번호»로 식별한다. `ttyACM` 번호를 믿지 말 것** — 꽂는 순서로 뒤바뀐다.
+  **더 위험한 것은 sn 자체가 서로 닮았다는 점이다:**
+  `3C:0F:02:DD:5E:`**`58`** = 메인(안경·카메라) / `3C:0F:02:DD:5E:`**`40`** = 서브(마이크) — **마지막 바이트만 다르다.**
+  (`44:1B:F6:80:3A:DC` = 예비. BAT+ 패드 손상으로 배터리 불가.)
+  굽기 전 `python3 -c "from serial.tools import list_ports; [print(p.device, p.serial_number) for p in list_ports.comports() if p.vid]"` 로 확인한다.
+  **잘못 구우면 다른 작업 세션의 펌웨어가 통째로 날아간다.** 남의 보드를 빌려 쓸 때는 **8MB 전체 백업 + `verify-flash`** 부터(`~/lab/esp32-link/RESTORE.md`).
+- 🔴 **촬영 직전 `arduino/read_esp32_ip.sh` 를 한 번 돌린다(10초).**
+  `192.168.1.x` = 공유기(정상) / `10.47.16.x` = **폰 핫스팟으로 샜다** → ESP32만 전원 재투입.
+  이유 = 우선순위 스캔은 **부팅 시 연결에 성공하면 끝나고 다시 돌지 않는다.** 공유기(무선 30~60초)보다 ESP32(약 2초)가 먼저 뜨면 폰에 붙어 **그날 내내 고착**된다.
+  🔴 **이 고장은 조용하다** — 영상도 GUI도 정상으로 보이고 FPS만 떨어진다. 경위·처방 = 통합문서 §10.60-(4).
+
 ### 데이터 흐름
 ```
 ESP32-S3(OV3660) ─TCP:8888→ CameraThread
