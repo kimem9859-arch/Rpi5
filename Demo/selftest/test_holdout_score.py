@@ -13,7 +13,7 @@ import sys
 _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_DEMO_DIR, "test"))
 
-from holdout_score import base_name, condition_of, iou, match
+from holdout_score import base_name, condition_of, iou, match, normalize
 
 _fails = []
 
@@ -34,6 +34,19 @@ def test_접미어_제거():
     check(base_name("wrench-in-hand") == "wrench", "wrench-in-hand → wrench")
     check(base_name("wrench") == "wrench", "평이름은 그대로")
     check(base_name("driver-in-hand") == "driver", "driver-in-hand → driver")
+
+
+def test_표기_흔들림_정규화():
+    """🔴 2026-09-04 실제 발생 — 라벨이 `-in hand`(공백)로 만들어졌다.
+    그대로 두면 「쥔 상태」가 「놓인 상태」로 집계돼 관문 수치가 조용히 뒤집힌다."""
+    print("[1-b] 🔴 클래스명 표기 흔들림을 통일한다")
+    check(normalize("wrench-in hand") == "wrench-in-hand", "공백형 → 하이픈형")
+    check(normalize("pliers_in_hand") == "pliers-in-hand", "밑줄형 → 하이픈형")
+    check(normalize("wrench-in-hand") == "wrench-in-hand", "정상형은 그대로")
+    check(base_name("wrench-in hand") == "wrench", "공백형도 접미어가 벗겨진다")
+    gt = [("wrench-in hand", BOX)]
+    hit, fp = match(gt, [("wrench-in-hand", SHIFT)])
+    check(hit == {0} and fp == 0, "공백형 정답 ↔ 정상형 검출이 매칭된다")
 
 
 def test_조건_파싱():
@@ -94,6 +107,7 @@ def test_정답이_없으면_전부_오검출():
 
 if __name__ == "__main__":
     test_접미어_제거()
+    test_표기_흔들림_정규화()
     test_조건_파싱()
     test_iou()
     test_v3_호환_규칙()

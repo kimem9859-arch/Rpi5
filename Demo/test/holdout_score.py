@@ -40,8 +40,20 @@ IN_HAND_SUFFIX = "-in-hand"
 CONDITIONS = ("place", "grip")
 
 
+def normalize(cls):
+    """라벨 이름의 표기 흔들림을 통일한다 — `wrench-in hand` → `wrench-in-hand`.
+
+    🔴 왜 필요한가 (2026-09-04 실제 발생): 라벨링 중 클래스가 `-in hand`(하이픈 대신
+       공백)로 만들어졌다. 그대로 채점하면 **「쥔 상태」가 통째로 「놓인 상태」로 집계**된다 —
+       관문 3의 표적이 바로 그 클래스라 결과가 조용히 뒤집힌다. 사람 눈으로 잡기 어려운
+       종류라 **읽는 쪽에서 막는다**(원본 라벨은 건드리지 않는다).
+    """
+    return cls.replace("-in hand", IN_HAND_SUFFIX).replace("_in_hand", IN_HAND_SUFFIX)
+
+
 def base_name(cls):
     """`wrench-in-hand` → `wrench`. 판정 로직(`tool_state._base`)과 같은 규칙."""
+    cls = normalize(cls)
     return cls[:-len(IN_HAND_SUFFIX)] if cls.endswith(IN_HAND_SUFFIX) else cls
 
 
@@ -102,7 +114,7 @@ def load_labels(lbl_path, names, w, h):
             continue
         ci = int(p[0])
         cx, cy, bw, bh = (float(v) for v in p[1:5])
-        out.append((names[ci] if 0 <= ci < len(names) else f"?{ci}",
+        out.append((normalize(names[ci]) if 0 <= ci < len(names) else f"?{ci}",
                     ((cx - bw / 2) * w, (cy - bh / 2) * h,
                      (cx + bw / 2) * w, (cy + bh / 2) * h)))
     return out
@@ -147,7 +159,7 @@ def score(model_path, holdout_dir, conf=None, iou_thr=0.5):
         res = model.predict(ip, conf=conf, verbose=False)[0]
         h, w = res.orig_shape
         gt = load_labels(lp, names, w, h)
-        dets = [(res.names[int(b.cls[0])],
+        dets = [(normalize(res.names[int(b.cls[0])]),
                  tuple(float(v) for v in b.xyxy[0])) for b in res.boxes]
         hit, fp = match(gt, dets, iou_thr)
         cond = condition_of(ip)
@@ -171,14 +183,29 @@ def main():
     tally, fps, n_img, conf = score(args.model, os.path.expanduser(args.holdout),
                                     args.conf, args.iou)
     print(f"모델 {os.path.basename(args.model)} · 이미지 {n_img} · conf {conf} · IoU {args.iou}")
-    print(f"\n{'조건':<8}{'클래스':<20}{'정답':>6}{'적중':>6}{'재현율':>9}")
+
+    # 🔑 **클래스 기준이 정본이다.** `-in-hand` 접미어가 「쥠/놓임」을 이미 담고 있고,
+    #    세트(파일명) 단위 조건은 그렇지 않다 — `driver_grip` 세트 안의 렌치·플라이어는
+    #    실제로는 **놓인 상태**다. 세트로 뭉뚱그리면 그것들이 「쥠」으로 잘못 집계된다.
+    by_cls = defaultdict(lambda: {"gt": 0, "hit": 0})
+    for (_cond, cls), v in tally.items():
+        by_cls[cls]["gt"] += v["gt"]
+        by_cls[cls]["hit"] += v["hit"]
+
+    print(f"\n■ 클래스별 (판정 근거)")
+    print(f"{'클래스':<22}{'정답':>6}{'적중':>6}{'재현율':>9}")
+    for cls in sorted(by_cls, key=lambda c: (c.endswith(IN_HAND_SUFFIX), c)):
+        g, h = by_cls[cls]["gt"], by_cls[cls]["hit"]
+        mark = "  ← 쥔 상태" if cls.endswith(IN_HAND_SUFFIX) else ""
+        print(f"{cls:<22}{g:>6}{h:>6}{h / g * 100 if g else 0:>8.0f}%{mark}")
+    print(f"{'오검출(전체)':<22}{sum(fps.values()):>6}")
+
+    print(f"\n■ 촬영 세트별 (참고 — 세트 안에도 놓인 공구가 섞여 있다)")
+    print(f"{'세트조건':<10}{'클래스':<22}{'정답':>6}{'적중':>6}")
     for cond in list(CONDITIONS) + ["unknown"]:
-        rows = sorted(k for k in tally if k[0] == cond)
-        for key in rows:
-            g, h = tally[key]["gt"], tally[key]["hit"]
-            print(f"{cond:<8}{key[1]:<20}{g:>6}{h:>6}{h / g * 100 if g else 0:>8.0f}%")
-        if rows:
-            print(f"{cond:<8}{'└ 오검출':<20}{fps.get(cond, 0):>6}")
+        for key in sorted(k for k in tally if k[0] == cond):
+            v = tally[key]
+            print(f"{cond:<10}{key[1]:<22}{v['gt']:>6}{v['hit']:>6}")
     print("\n🔴 인용 시 조건을 함께 옮긴다 — 카메라·임계·구도·세션 수.")
 
 
