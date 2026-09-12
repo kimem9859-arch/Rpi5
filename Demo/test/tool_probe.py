@@ -27,7 +27,7 @@
 쓰는 법:
     python3 Demo/test/tool_probe.py --sec 60 --label B쥠
     python3 Demo/test/tool_probe.py --sec 60 --label wrench_grip \\
-            --save-clean ~/holdout/wrench_grip        # 홀드아웃 촬영
+            --save-clean ~/data/holdout/wrench_grip        # 홀드아웃 촬영
 """
 
 import argparse

@@ -14,10 +14,10 @@
 
 사용법:
     # 세트 하나
-    python3 test/holdout_frames.py ~/holdout/wrench_grip --out ~/holdout/pick
+    python3 test/holdout_frames.py ~/data/holdout/wrench_grip --out ~/data/holdout/pick
 
     # 촬영 폴더 전체(하위 디렉터리 = 세트)
-    python3 test/holdout_frames.py ~/holdout --all --out ~/holdout/pick
+    python3 test/holdout_frames.py ~/data/holdout --all --out ~/data/holdout/pick
 """
 
 import argparse
