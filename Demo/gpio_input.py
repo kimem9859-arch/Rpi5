@@ -131,3 +131,6 @@ class GpioInputController:
             except Exception:
                 pass
         self._devices = []
+        self._emo_device = None
+        self._available = False
+        self._reason = "해제됨(close)"

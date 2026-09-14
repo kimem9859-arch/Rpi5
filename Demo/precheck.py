@@ -75,7 +75,7 @@ def run_stage1(ctx):
     out.append(CheckResult("gpio", "GPIO 입력", gpio_ok,
                            "준비됨" if gpio_ok
                            else f"미연결 — 키보드로 대체 ({getattr(gpio, 'reason', '') or '사유 없음'})",
-                           retryable=True))
+                           retryable=False))   # 재연결 경로가 없다(_on_retry 에 gpio 분기 없음) — 손 검출과 같다
     return out
 
 
