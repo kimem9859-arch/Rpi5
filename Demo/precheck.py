@@ -70,9 +70,12 @@ def run_stage1(ctx):
                            "연결됨" if itl_ok else "미연결(fallback)", retryable=True))
 
     gpio = g("gpio_input")
-    gpio_ok = bool(gpio and getattr(gpio, "available", True))
+    # 🔴 기본값은 False — True 였던 동안 GPIO 가 꺼져도 「준비됨」이었다(2026-09-11, 손 검출과 같은 규칙).
+    gpio_ok = bool(gpio and getattr(gpio, "available", False))
     out.append(CheckResult("gpio", "GPIO 입력", gpio_ok,
-                           "준비됨" if gpio_ok else "미연결 — 키보드로 대체", retryable=True))
+                           "준비됨" if gpio_ok
+                           else f"미연결 — 키보드로 대체 ({getattr(gpio, 'reason', '') or '사유 없음'})",
+                           retryable=True))
     return out
 
 

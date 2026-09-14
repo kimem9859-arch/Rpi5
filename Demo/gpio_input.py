@@ -40,11 +40,16 @@ class GpioInputController:
         self._enabled = config.GPIO_INPUT_ENABLED if enabled is None else enabled
         self._devices = []
         self._emo_device = None
+        self._available = False
+        self._reason = ""
+        failures = []
 
         if not self._enabled:
+            self._reason = "GPIO_INPUT_ENABLED=False"
             self._log("[입력] GPIO 입력 비활성(GPIO_INPUT_ENABLED=False) — 키보드 시뮬만")
             return
         if Button is None:
+            self._reason = "gpiozero 미설치"
             self._log("[입력] gpiozero 미설치 — fallback(키보드 시뮬만), GUI 정상")
             return
 
@@ -57,6 +62,7 @@ class GpioInputController:
                 btn.when_pressed = (lambda b=bid: self._fire(b))   # b 캡처(루프 클로저)
                 self._devices.append(btn)
             except Exception as e:
+                failures.append(f"{bid}(GPIO{pin}) 초기화 실패")
                 self._log(f"[입력] {bid}(GPIO{pin}) 초기화 실패: {e} — fallback")
 
         # EMO: NC + INPUT_PULLUP. 비상=HIGH=gpiozero 'released'. (정상 닫힘=LOW=pressed)
@@ -73,10 +79,29 @@ class GpioInputController:
                 self._log(f"[입력] 🚨 EMO(GPIO{emo_pin}) 시작 시 HIGH(비상/단선/미배선) — 즉시 BLOCK")
                 self._fire("EMO")
         except Exception as e:
+            failures.append("EMO 초기화 실패")
             self._log(f"[입력] EMO 초기화 실패: {e} — fallback")
 
+        self._available = not failures and self._emo_device is not None
+        self._reason = " · ".join(failures)
         if self._devices:
             self._log(f"[입력] GPIO 입력 활성 — 버튼 {list(config.GPIO_BUTTON_PINS)} + EMO(GPIO{config.GPIO_EMO_PIN})")
+
+    @property
+    def available(self):
+        """버튼 B1~B4 와 EMO 가 **전부** 초기화됐는가.
+
+        🔴 **콘솔 점검의 「GPIO 입력」이 이 값으로 칠해진다** — `precheck.run_stage1` 이
+           읽는다. 속성이 없던 동안 기본값 True 가 쓰여 GPIO 가 꺼져 있거나 핀 초기화가
+           실패해도 언제나 「준비됨」이었다(2026-09-11 확인 · 짝 결함 interlock.connected).
+        ⚠️ 하나라도 실패하면 False — 특히 EMO 가 빠진 채 「준비됨」이 뜨면 안 된다.
+        """
+        return self._available
+
+    @property
+    def reason(self):
+        """준비되지 않은 이유(준비됐으면 빈 문자열). 점검 문구에 그대로 쓴다."""
+        return self._reason
 
     def emo_active(self):
         """EMO가 현재 비상 레벨(HIGH = 눌림/단선)인지. GPIO 미사용 환경은 False.
