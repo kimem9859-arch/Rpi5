@@ -83,11 +83,11 @@ try:
     check(ok.available is False and "close" in ok.reason, "close() 뒤에는 준비됨이 아니다 — %r %r" % (ok.available, ok.reason))
     check(gpio_row(make(None)).retryable is False, "GPIO 행에 동작하지 않는 「재연결」 버튼을 붙이지 않는다")
     check(not gpio_row(None).ok, "gpio_input 이 없으면(None) 준비됨이 아니다")
-    check(config.GPIO_BOUNCE_SEC == 0.2, "디바운스 0.2(2026-09-11 임시 확정) — 지금 %r" % config.GPIO_BOUNCE_SEC)
+    check(config.GPIO_BOUNCE_SEC == 0.05, "디바운스는 결선 날 판정 전까지 0.05 유지(2026-09-15 — lgpio 는 유지 시간 방식) — 지금 %r" % config.GPIO_BOUNCE_SEC)
 finally:
     gpio_input.Button = orig
 
 if fails:
     print("❌ 실패 %d건\n   - " % len(fails) + "\n   - ".join(fails))
     sys.exit(1)
-print("✅ 통과 — GPIO 준비 판정 5경우 + None + 디바운스 0.2")
+print("✅ 통과 — GPIO 준비 판정 5경우 + EMO 경계 · close · 재연결 표시 + None + 디바운스 0.05 유지")
