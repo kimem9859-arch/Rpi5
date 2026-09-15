@@ -1,6 +1,7 @@
 # 라벨링 규칙 — 버튼·공구
 
 > 2026-09-15 · Roboflow **사각형 박스만** 사용 · 배포용 = 같은 내용의 PDF · 이전 판은 git 이력
+> **사진 보는 법** — 초록 테두리 = 정답 · 빨간 테두리 + X = 틀림 · 주황 테두리 = 그리지 않는 게 정답
 
 ## 그릴 것 — 8종류
 
@@ -12,8 +13,9 @@
 | **B4** | 검정 + 파란 동그라미 스티커 | 오른쪽 아래 | | | |
 | **EMO** | 빨간 비상정지, **흰 테두리 무늬** | 맨 아래 가운데 | | | |
 
-![버튼](labeling_guide_img/01_buttons_classes.jpg)
-![공구](labeling_guide_img/05_tools_classes.jpg)
+<img src="labeling_guide_img/01_buttons.jpg" width="45%">
+
+<img src="labeling_guide_img/05_driver.jpg" width="32%"> <img src="labeling_guide_img/05_wrench.jpg" width="32%"> <img src="labeling_guide_img/05_pliers.jpg" width="32%">
 
 이 8가지 말고는 그리지 않는다(다른 공구·손·장갑 포함).
 
@@ -22,16 +24,20 @@
 **① 반듯한 사각형으로, 물체에 딱 맞게. 물체 하나에 박스 하나.**
 
 **② 버튼이 손가락에 조금 가려져도 → 버튼 동그라미 전체를 그린다.**
-![손가락 가림](labeling_guide_img/02_button_occluded.jpg)
+
+<img src="labeling_guide_img/02_ok.jpg" width="48%"> <img src="labeling_guide_img/02_ng.jpg" width="48%">
 
 **③ 거의 안 보이거나(⅓ 이하) 무엇인지 확신이 없으면 → 그리지 않는다.** 추측해서 그리지 않는다.
-![거의 가림](labeling_guide_img/03_button_hidden_skip.jpg)
+
+<img src="labeling_guide_img/03_ok.jpg" width="48%"> <img src="labeling_guide_img/03_ng.jpg" width="48%">
 
 **④ 공구를 쥐어 두 조각으로 보여도 → 박스 하나로 두 조각을 모두 감싼다.** 가려진 끝은 늘려 그리지 않는다.
-![갈라진 렌치](labeling_guide_img/04_tool_split.jpg)
+
+<img src="labeling_guide_img/04_ok.jpg" width="48%"> <img src="labeling_guide_img/04_ng.jpg" width="48%">
 
 **⑤ 손·장갑 자체에는 박스를 치지 않는다.** 손에 가려진 버튼·공구는 ②~④대로 그린다.
-![장갑](labeling_guide_img/06_glove.jpg)
+
+<img src="labeling_guide_img/06_glove.jpg" width="48%">
 
 ## 헷갈리는 것 두 가지
 
