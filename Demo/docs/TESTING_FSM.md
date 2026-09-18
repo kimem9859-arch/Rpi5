@@ -5,11 +5,11 @@
 
 ## 0. 이 브랜치가 뭔가
 - `feature/RPi5` 기반 + **작업 순서 위반 감지 FSM(판정부)** 와 그 배선을 추가한 브랜치.
-- 목표: 통합 설계문서 **§9 FSM(6상태) + §8 인식→판정→제어**를 코드로 구현한 PoC.
+- 목표: 통합 설계문서 **§7 FSM(6상태) + §7.0 인식→판정→제어**를 코드로 구현한 PoC.
 - 핵심 시나리오: 단일 PECVD 콘솔에서 정해진 순서(B1→B2→B3→B4)를 어기면 감지·경고·차단.
 
 ## 1. FSM의 두 입력 — ⚠️ 키보드의 정체 (먼저 읽을 것)
-FSM은 **서로 다른 두 사건**을 입력으로 받는다. 이 분리가 프로젝트의 핵심이다(§8·§9.3).
+FSM은 **서로 다른 두 사건**을 입력으로 받는다. 이 분리가 프로젝트의 핵심이다(§7.0·§7.3).
 
 | 입력 | 무엇 | 실제 출처 | FSM 호출 |
 |---|---|---|---|
@@ -26,7 +26,7 @@ FSM은 **서로 다른 두 사건**을 입력으로 받는다. 이 분리가 프
 | 파일 | 역할 | 상태 |
 |---|---|---|
 | `fsm.py` | 순수 상태머신 (6상태·기대단계·체류타이머·해제2종·EMO) | 신규 |
-| `recipe.json` | **정답 순서 단일 출처** (§6 4단계) | 신규 |
+| `recipe.json` | **정답 순서 단일 출처** (§5 4단계) | 신규 |
 | `recipe.py` | 레시피 로더 + 검증 | 신규 |
 | `check_model.py` | 모델 계약 검증 (클래스 B1~B4·detection) | 신규 |
 | `selftest/` (`test_fsm`·`test_hoi_sim`·`test_recipe`·`test_imports`) | 자체점검 — HW 없이 도는 테스트 | 신규 |
@@ -68,7 +68,7 @@ pip install PyQt6 opencv-python numpy mediapipe ultralytics
   `PyQt6`·`opencv`·`numpy`는 필수(없으면 `main.py` import 실패).
 
 ## 5. 모델 (중요) — 2026-07-18 현행화
-- ✅ 버튼 검출 모델 배선 완료 — 기본 = **`models/console_v2.hef`**(Hailo, `config.HEF_MODEL_PATH`, 2026-07-16 전환. B4 판정은 통합문서 §10.16). `models/best.pt` = **console_v1 5클래스**(PyTorch 백엔드 폴백, `config.INFERENCE_BACKEND`로 전환).
+- ✅ 버튼 검출 모델 배선 완료 — 기본 = **`models/console_v2.hef`**(Hailo, `config.HEF_MODEL_PATH`, 2026-07-16 전환. B4 판정은 통합문서 §12.16). `models/best.pt` = **console_v1 5클래스**(PyTorch 백엔드 폴백, `config.INFERENCE_BACKEND`로 전환).
 - 계약: **YOLOv8 detection, 5클래스 `B1 B2 B3 B4 EMO`**(※구판의 "B1~B4 4클래스"는 오기), uint8 640, HailoRT NMS.
 - 모델이 없어도 **키보드(②대역)만으로 FSM 흐름 전체를 시연**할 수 있다.
 - ※구판 서술("best.pt = person 1클래스 → ROI 안 잡힘")은 2026-06-11 console_v1 통합 전 기록.
@@ -106,7 +106,7 @@ python main.py
 - `[FSM] ... → ...`, `[인터록] 전기 신호 차단/복구`
 
 ## 8. Claude Code CLI 참고
-- **정본 설계 문서**(이 저장소 밖, 사용자 보유): 통합 설계문서 §6(시퀀스)·§8(연결)·§9(FSM 6상태·임계값). 이 브랜치 코드는 그 §9의 구현체.
+- **정본 설계 문서**(이 저장소 밖, 사용자 보유): 통합 설계문서 §5(시퀀스)·§7.0(연결)·§7(FSM 6상태·임계값). 이 브랜치 코드는 그 §7의 구현체.
 - FSM 로직 수정 시 §9.3 전이 시나리오와 `test_fsm.py`를 기준으로 검증.
 - 정답 순서·단계 이름을 바꾸려면 **`recipe.json`만** 수정(코드 X).
 - 다음 큰 작업: **PRO-20 Arduino Serial 리더**(키보드 대역 → 실제 버튼) + **`_on_interlock`을 실제 릴레이 차단**으로 연결.

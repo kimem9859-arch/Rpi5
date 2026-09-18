@@ -6,12 +6,12 @@
 > (엄브렐러 클론 시 `../docs/…`). 사양은 거기서 읽고, 여기는 런타임 코드 맥락만 둔다.
 > ⚠️ 코드 수정 → **이 repo(Rpi5)** push / 통합문서 수정 → **상위 sop-project** push.
 
-## 시스템 흐름 (정본 §7~§9)
-비전(버튼 검출 + 손) → 손-버튼 ROI 접촉 → §8 → **FSM 순서판정** → 물리 인터락(트랙 A)·안돈 피드백.
+## 시스템 흐름 (정본 §6~§8)
+비전(버튼 검출 + 손) → 손-버튼 ROI 접촉 → §7.0 → **FSM 순서판정** → 물리 인터락(트랙 A)·안돈 피드백.
 
 ## 핵심 — FSM & 레시피 (fsm-interlock 작업으로 추가)
 - **`fsm.py` `SafetyFSM`** — 6상태 `State`(IDLE/READY/PROCESS_RUN/MONITOR/WARNING/BLOCK). 콜백 `on_state_change`·**`on_interlock(bool)`**(→트랙 A 차단)·`on_feedback`. 주요 메서드: `load_recipe()`·`update_vision(roi, now)`·`press_button()`·EMO 처리·`release_warning()`/`release_block()`. 오답 ROI→타이머→WARNING/BLOCK, **EMO→즉시 BLOCK**(해제 시 기대단계=1 리셋, 위반 BLOCK 해제는 기대 유지). 단위테스트 `Demo/selftest/test_fsm.py`.
-- **`recipe.py`/`recipe.json`** — 정답 순서 단일 출처. **PM 정비 4단계**: B1 클린·가스차단 → B2 펌프/퍼지 → B3 전극 냉각 → B4 챔버 벤트 (+EMO). `current_step_name`이 여기서 옴. (정본 §6.1과 동기화됨)
+- **`recipe.py`/`recipe.json`** — 정답 순서 단일 출처. **PM 정비 4단계**: B1 클린·가스차단 → B2 펌프/퍼지 → B3 전극 냉각 → B4 챔버 벤트 (+EMO). `current_step_name`이 여기서 옴. (정본 §5.1과 동기화됨)
 - 테스트 절차 전체: **`Demo/docs/TESTING_FSM.md`**. 실HW 테스트는 **라즈베리파이에서** 수행.
 
 ## 추론 백엔드 — `detector.py` (★ console_v1.hef 통합 지점)
@@ -21,9 +21,9 @@
   - 입력 **uint8 640×640 RGB**(float 정규화 ❌, stretch 리사이즈), 출력 **HailoRT NMS 결과** 파싱(raw 텐서 ❌), **HailoRT 4.x**.
   - `class_name`/`_names` = **5클래스(0=B1·1=B2·2=B3·3=B4·4=EMO)** 매핑 완료(`detector.py:112`).
   - .hef(빌드 환경 `D:\Hailo_DFC\console_v1.hef`) → 파이 `Demo/models/console_v1.hef`(`config.HEF_MODEL_PATH`).
-- 🆕 **`console_v2.hef` 배포됨(2026-07-16)** — `Demo/models/console_v2.hef`(4.4MB, 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652. 수치 = 상위 통합문서 **§10.14·§10.15**). 규격은 v1과 동일(uint8 640·NMS on-chip·5클래스·HailoRT 4.x)이라 **코드 수정 불필요**.
+- 🆕 **`console_v2.hef` 배포됨(2026-07-16)** — `Demo/models/console_v2.hef`(4.4MB, 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652. 수치 = 상위 통합문서 **§12.14·§12.15**). 규격은 v1과 동일(uint8 640·NMS on-chip·5클래스·HailoRT 4.x)이라 **코드 수정 불필요**.
   - ✅ **`config.HEF_MODEL_PATH` = `console_v2.hef`로 전환됨(2026-07-16, 사용자 요청)** — `bench_detector.py`·`run_demo.sh` 등 **config를 읽는 모든 경로가 v2로 동작**한다(이 둘엔 `--hef` 옵션이 없어 config가 유일한 선택 수단).
-  - 🔴 **전환 = 검증이 아니다.** **B4 해결 여부는 여전히 미판정**(§10.16). 기본값이 v2라고 해서 "v2가 검증됐다"고 읽지 말 것.
+  - 🔴 **전환 = 검증이 아니다.** **B4 해결 여부는 여전히 미판정**(§12.16). 기본값이 v2라고 해서 "v2가 검증됐다"고 읽지 말 것.
   - **v1과 대조하려면**: `replay_raw.py`는 `--hef models/console_v1.hef`로 런타임 지정(권장) / `bench_detector.py`·데모는 **config를 `console_v1.hef`로 되돌려야** 한다(`--hef` 미지원).
 
 ## GUI·카메라·설정 (기존 모듈 — 현행 유효)
@@ -31,7 +31,7 @@
 - 좌: 카메라 영상 / 우: 상태(`state_label`)+로그(`log_browser`). 상단 `초소형카메라`/`CCTV`/`캘리브레이션`.
 - `_switch_camera("esp32"|"usb")`. 시작 시 자동 녹화·종료 시 저장. 로그를 화면+`logs/` 동시 기록.
 - `CalibrationDialog`: 체스보드(7×5) 20샘플 → `cv2.calibrateCamera()` → `camera_calibration.npz`.
-- 🆕 **`anim.py`(2026-08-16)** — 오버레이 전환 애니메이션(설계 = 상위 `specs/2026-08-16-ui-애니메이션-design.md`). 🔴 **갱신 함수는 `_sub_timer`가 200ms 주기로 반복 호출한다** — 애니메이션은 반드시 「직전 상태와 달라졌을 때만」 건다(비교 없이 걸면 초당 5번 재시작). 🔴 **QGraphicsEffect 계열 금지**(`overlay.py:73` 페인터 충돌 사고). 끄기 = `SOP_UI_ANIM=0`. ✅ **성능 판정 완료(2026-08-26, G6)** — FPS 영향 **+0.8%**(문턱 10% 이내)라 기본 True 유지. 조건 = **USB 웹캠**·손 없는 정지 장면·ON/OFF 교차 6런(§10.48). 🔴 **제품 경로(ESP32)로는 판정 불가** — 공급 FPS 가 3~25 로 요동해 효과가 묻힌다. 재측정 도구 = `test/anim_fps_bench.py --camera usb`. FPS 화면 표시 = `SOP_SHOW_FPS=1`.
+- 🆕 **`anim.py`(2026-08-16)** — 오버레이 전환 애니메이션(설계 = 상위 `specs/2026-08-16-ui-애니메이션-design.md`). 🔴 **갱신 함수는 `_sub_timer`가 200ms 주기로 반복 호출한다** — 애니메이션은 반드시 「직전 상태와 달라졌을 때만」 건다(비교 없이 걸면 초당 5번 재시작). 🔴 **QGraphicsEffect 계열 금지**(`overlay.py:73` 페인터 충돌 사고). 끄기 = `SOP_UI_ANIM=0`. ✅ **성능 판정 완료(2026-08-26, G6)** — FPS 영향 **+0.8%**(문턱 10% 이내)라 기본 True 유지. 조건 = **USB 웹캠**·손 없는 정지 장면·ON/OFF 교차 6런(§12.48). 🔴 **제품 경로(ESP32)로는 판정 불가** — 공급 FPS 가 3~25 로 요동해 효과가 묻힌다. 재측정 도구 = `test/anim_fps_bench.py --camera usb`. FPS 화면 표시 = `SOP_SHOW_FPS=1`.
 - 🆕 **`fps.py` 의 `fps_stale()`(2026-08-27)** — 🔴 **프레임이 끊겨도 FPS 가 마지막 값으로 계속 찍히던 결함**을 막는다(`fps_from_intervals` 가 중앙값이라 남은 간격이 같은 값을 영원히 낸다 → **화면은 멈췄는데 FPS 는 정상으로 보인다**). 표본을 버리는 자리는 **세 곳**이다 — `_update_conn_bar`(끊긴 채 유지) · `_note_frame`(끊겼다 복구) · `_switch_camera`(카메라가 바뀌면 값이 다르다). ⚠️ **끊김 임계 2.0 초는 2차 점검 「영상 수신」(`precheck`)과 같은 값을 쓴다** — 두 곳이 다른 숫자를 쓰면 표시와 점검이 서로 다른 말을 한다.
 
 ### `camera_thread.py` (카메라 + 추론)
@@ -60,7 +60,7 @@
 - 🔴 **촬영 직전 `arduino/read_esp32_ip.sh` 를 한 번 돌린다(10초).**
   `192.168.1.x` = 공유기(정상) / `10.47.16.x` = **폰 핫스팟으로 샜다** → ESP32만 전원 재투입.
   이유 = 우선순위 스캔은 **부팅 시 연결에 성공하면 끝나고 다시 돌지 않는다.** 공유기(무선 30~60초)보다 ESP32(약 2초)가 먼저 뜨면 폰에 붙어 **그날 내내 고착**된다.
-  🔴 **이 고장은 조용하다** — 영상도 GUI도 정상으로 보이고 FPS만 떨어진다. 경위·처방 = 통합문서 §10.60-(4).
+  🔴 **이 고장은 조용하다** — 영상도 GUI도 정상으로 보이고 FPS만 떨어진다. 경위·처방 = 통합문서 §12.60-(4).
 
 ### 데이터 흐름
 ```
@@ -68,7 +68,7 @@ ESP32-S3(OV3660) ─TCP:8888→ CameraThread
    (_recv_worker → 수직플립 → undistort → **회전CCW90** → detector → hand_tracker(손))
       ├─ change_pixmap_signal → SafetyConsole (화면)
       └─ 검출 → zone_at_point(roi_zones: 링1/안쪽2) → SafetyFSM.update_vision(roi, now, level)
-         → 체류(§9.4 dwell 0.3·갭메우기 0.3) → 상태전이·on_interlock·피드백
+         → 체류(§7.4 dwell 0.3·갭메우기 0.3) → 상태전이·on_interlock·피드백
 USB 웹캠 ─ UsbCameraThread (동일 구조)
 ```
 
@@ -90,30 +90,30 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
   - 🔴 **Roboflow 함정 2개**(둘 다 물렸음): ①`annotation_labelmap` 없으면 클래스가 **숫자("0","1")로** 올라감 ②`annotation_overwrite=True` 없으면 이미지 해시 캐시 때문에 `already annotated`로 **스킵되고 옛 라벨이 남음**. 전량 업로드 전 **3장으로 검증** 필수.
   - ⚠️ **분할은 업로드 시점에 명시**(Roboflow 자동 랜덤분할 금지 — 프레임 섞으면 누출 → mAP 거짓 상승). 세션 단위 분할이 기본이나, **세션마다 촬영 변화 축이 다르면 세션마다 나눠 할당**한다(통째로 떼면 그 축이 학습에서 빠짐 — `dataset_pipeline.md` §8).
   - **프리라벨 소스 = 로그를 만든 모델**(`export_labels.py`는 모델을 가리지 않음). ~~B4는 v1이 못 잡아 전량 수동~~ → **v2 소스에서는 B4 포함 달성률 92%**(2026-07-20 클린룸). 검수 우선순위 = ①빠진 박스(가림은 제외) ②클래스 오류 ③박스 타이트함.
-  - 🔴 **평가용 test 셋엔 프리라벨 금지** — 평가 대상 모델로 정답을 만들면 순환논리다(§10.19).
+  - 🔴 **평가용 test 셋엔 프리라벨 금지** — 평가 대상 모델로 정답을 만들면 순환논리다(§12.19).
   - ❌ 색 기반 자동라벨러(`test/autolabel.py`)는 **채택 안 함** — 달성률 79%로 오르나 **EMO↔B3 오분류 122건**(Hue 인접). 틀린 라벨은 없는 라벨보다 해롭다. 참고용 보존.
 - **벤치·B4 대조 실험** = `Demo/test/bench_detector.py`. `--source {esp32,usb}`로 **카메라만 변수**로 두고 대조 측정. `_rawdet_log.csv`(트래킹 이전 raw 검출 ≥`YOLO_CONF_LOW`)가 **B4 저신뢰 구간**을 드러냄 — `_detection_log.csv`(confirmed 트랙 ≥`YOLO_CONF_HIGH`)만 보면 놓친다. 종료 시 **B4 집중 분석**(score 분포·B4↔EMO 오인) 출력. 산출물은 소스 태그 파일명(`{ts}_{src}_*.csv`), `logs/`·`videos/`는 gitignore → `test-artifacts` 브랜치로 보관.
-- **벤치 로그 DB** = `Demo/test/db_import.py` — `test/logs/` CSV 전량 + `replay_raw.py` 검출 CSV(`logs/replay/`, 기본 켬·`--no-csv`로 끔)를 `test/bench.db`(SQLite, gitignore)로 재구축. 세션 간 비교·집계는 SQL로(요약 수치 정본은 여전히 통합문서 §10). 시각화 = `db_report.py` → `bench_report.html`(자립형·미추적, 조건별 검출률·v1↔v2·B4 confidence·FPS).
+- **벤치 로그 DB** = `Demo/test/db_import.py` — `test/logs/` CSV 전량 + `replay_raw.py` 검출 CSV(`logs/replay/`, 기본 켬·`--no-csv`로 끔)를 `test/bench.db`(SQLite, gitignore)로 재구축. 세션 간 비교·집계는 SQL로(요약 수치 정본은 여전히 통합문서 §12). 시각화 = `db_report.py` → `bench_report.html`(자립형·미추적, 조건별 검출률·v1↔v2·B4 confidence·FPS).
 - 🆕 **HOI 분석 DB(2026-07-26)** = `test/hoi.db` — **버튼 DB와 별개 파일**(분석 단위가 프레임 vs **눌림 이벤트**로 다르고, `db_import.py`의 INSERT가 컬럼 수에 고정돼 있어 손대면 그쪽이 깨진다). **서로를 참조하지 않는다.** 설계 = 상위 `docs/superpowers/specs/2026-07-26-HOI-DB-design.md`.
   - **2단계로 나뉜다** — ① `hoi_probe_batch.py --thresh 0.5`(팜 추론 캐시, 22세션 **약 40분**·중단·재개 가능·`--force`로 재생성) → ② `hoi_import.py`(DB 재구축, 수 초). **팜 추론은 raw가 정본이라 안 바뀌고, DB는 규칙이 바뀌면 다시 만든다** — 묶으면 아무도 재구축하지 않는다.
-  - 테이블 4개: `sessions`(자세·근접도·구도) · **`presses`(눌림 1회 = 1행, `gap_frames`·`button_y` = §10.26·§10.29의 지배 변수)** · `palm_frames`(**팜 임계·링 폭이 행 안에** — 0.5/0.2 공존) · `button_boxes`(눌림 ±15프레임).
+  - 테이블 4개: `sessions`(자세·근접도·구도) · **`presses`(눌림 1회 = 1행, `gap_frames`·`button_y` = §12.26·§12.29의 지배 변수)** · `palm_frames`(**팜 임계·링 폭이 행 안에** — 0.5/0.2 공존) · `button_boxes`(눌림 ±15프레임).
   - 🔴 **ROI 구역 판정은 적재 시에 `roi_zones.zone_at_point()`로 계산**해 `zone_label`·`zone_level`에 넣는다. **SQL에 링 규칙을 다시 쓰지 말 것** — `roi_zones.py`가 단일 출처다.
   - **지표(사전 감지율 등)는 저장하지 않는다** — 질의로 계산(판정 생산이 바뀌면 stale). 예시 질의 4개 = `hoi_import.py` docstring.
   - ⚠️ **`sqlite3` CLI가 이 파이에 없다** — 질의는 `python3 -c "import sqlite3 ..."`로.
   - ⚠️ **수동 매핑 표 2개**(`_POSTURE`·`_VIOLATION_RULE`)가 코드에 있다. 세션이 늘면 갱신할 것 — 미등록 세션은 NULL이 되고 임포터가 그 목록을 **보고**한다.
-  - ✅ **검증 = 코드가 아니라 결과로** — §10.28·§10.29 값과 대조해 4건 전부 통과(눌림 503건 일치 · `far-high-r1` 85.7% · `far-low` B4 20.5→77.3% · 속도 계단 58/92/94/96%).
+  - ✅ **검증 = 코드가 아니라 결과로** — §12.28·§12.29 값과 대조해 4건 전부 통과(눌림 503건 일치 · `far-high-r1` 85.7% · `far-low` B4 20.5→77.3% · 속도 계단 58/92/94/96%).
 - 🆕 **사전 감지율·FSM 시뮬레이터(2026-07-27)** = `test/hoi_metrics.py` + `test/fsm_sim.py`. `hoi.db`(눌림 단위 DB)를 실제 FSM에 먹여 「창 기반 체류 누적」 실험을 위해 신설. 설계 = `docs/superpowers/specs/2026-07-27-창판정-design.md`.
   - **`hoi_metrics.py`** = 사전 감지율 판정 규칙의 **단일 출처**. `dwell_probe`·구 SQL 예시·즉석 질의 세 군데서 각각 다르게 계산되던 것을 여기 하나로 모았다. 「능력 상한」(창 안에 그 버튼 구역 프레임이 하나라도 있으면 성공)만 담당 — 실제 FSM 판정은 `fsm_sim.py`가 한다.
   - **`fsm_sim.py`** = FSM 오프라인 시뮬레이터. `palm_frames`·`presses`를 시간순으로 재생해 「런타임 거울」 사전 감지율·위반 사전 차단율·E2E 오경보(정상 세션 WARNING 발생률)를 낸다.
-  - 🔴 **함정 ① — 재구현하지 않는다.** `fsm_sim.py`는 **실제 `SafetyFSM`을 import**해서 프레임을 먹이는 얇은 껍데기다. 체류·갭메우기·발화 규칙을 여기 다시 쓰면 정본이 둘이 되고 측정이 런타임을 대표하지 못한다 — `dwell_probe`가 config를 안 따라 네 번 물렸던 전례(§10.23)의 근본 해결.
-  - 🔴 **함정 ② — `--gate`가 검증 관문이다.** `python3 test/fsm_sim.py --gate`가 실패하면 **그 상태로는 어떤 수치도 쓰지 않는다**(§10.23 재현 실패 → 재정의 경위 = §10.31). 관문은 두 독립 경로(런타임 거울 vs dwell_probe 사전 감지율)의 항등식 대조다.
+  - 🔴 **함정 ① — 재구현하지 않는다.** `fsm_sim.py`는 **실제 `SafetyFSM`을 import**해서 프레임을 먹이는 얇은 껍데기다. 체류·갭메우기·발화 규칙을 여기 다시 쓰면 정본이 둘이 되고 측정이 런타임을 대표하지 못한다 — `dwell_probe`가 config를 안 따라 네 번 물렸던 전례(§12.23)의 근본 해결.
+  - 🔴 **함정 ② — `--gate`가 검증 관문이다.** `python3 test/fsm_sim.py --gate`가 실패하면 **그 상태로는 어떤 수치도 쓰지 않는다**(§12.23 재현 실패 → 재정의 경위 = §12.31). 관문은 두 독립 경로(런타임 거울 vs dwell_probe 사전 감지율)의 항등식 대조다.
   - ⚠️ 시뮬레이터의 시뮬레이션 정책(BLOCK·WARNING 즉시 자동 해제, 기대단계 사전 주입, IDLE 시 자동 다음 주기)은 **실제 GUI 운용과 다르다** — 산출 수치는 그 병기 없이 인용 금지.
-  - 🔴 **결과 = 「창 기반 체류 누적」 폐기**(§5.7 중단 규칙 발동, `HAND_WINDOW_N=0`) + **E2E 오경보 15.46회/분 첫 측정**. 상세 = 통합문서 §10.31.
+  - 🔴 **결과 = 「창 기반 체류 누적」 폐기**(§5.7 중단 규칙 발동, `HAND_WINDOW_N=0`) + **E2E 오경보 15.46회/분 첫 측정**. 상세 = 통합문서 §12.31.
 
 ## 다음
-1. ✅ console_v1.hef 통합·실추론 완료 — B1~B3·EMO 검출, B4 미탐지 → console_v2 재학습 확정. ※ **B4 미탐지 원인 정정(2026-07-03)**: 양자화 반증(에뮬서 int8 .hef가 B4 검출·USB 웹캠선도 검출) → **카메라 입력 품질(OV3660) 주가설·미확정**(sop-project 통합문서 §10.7).
-2. ✅ **트랙 A 인터락 코드 완료(2026-06-13)** — 출력부 `interlock.py`(pyserial→Arduino UNO R4 **Minima** 릴레이, RUN/WARN/BLOCK+ACK, 실연결·ACK 검증) + 입력부 `gpio_input.py`(버튼 B1~B4·EMO→FSM, gpiozero Mock 검증) + GUI `⏻ 시스템 종료`(안전종료). 결선도·전원부 = 상위 `../dev/interlock/`(`결선도_초안.md` §3·§5·§8). ✅ **실물 결선 + E2E 검증 완료(2026-07-15, 상세 = 상위 통합문서 §12)** — 전 구간(버튼 GPIO·릴레이·12V 타워램프) + 폴트 3종 통과. 조치: 펌웨어 재업로드, **EMO 비상 중 BLOCK 해제 거부 추가**(`gpio_input.emo_active()` 레벨 체크 + `safety_console._release_block()`).
-3. ✅ **console_v2 학습·`.hef` 변환 완료(2026-07-16, 데스크톱)** — 파랑 스티커 B4 데이터셋 652장 재학습(§10.14) → DFC level 1·캘리브 652로 변환(§10.15) → `Demo/models/console_v2.hef` 배포 완료. HAR 검증(uint8·NMS·5클래스) 통과.
+1. ✅ console_v1.hef 통합·실추론 완료 — B1~B3·EMO 검출, B4 미탐지 → console_v2 재학습 확정. ※ **B4 미탐지 원인 정정(2026-07-03)**: 양자화 반증(에뮬서 int8 .hef가 B4 검출·USB 웹캠선도 검출) → **카메라 입력 품질(OV3660) 주가설·미확정**(sop-project 통합문서 §12.7).
+2. ✅ **트랙 A 인터락 코드 완료(2026-06-13)** — 출력부 `interlock.py`(pyserial→Arduino UNO R4 **Minima** 릴레이, RUN/WARN/BLOCK+ACK, 실연결·ACK 검증) + 입력부 `gpio_input.py`(버튼 B1~B4·EMO→FSM, gpiozero Mock 검증) + GUI `⏻ 시스템 종료`(안전종료). 결선도·전원부 = 상위 `../dev/interlock/`(`결선도_초안.md` §3·§5·§8). ✅ **실물 결선 + E2E 검증 완료(2026-07-15, 상세 = 상위 통합문서 §15)** — 전 구간(버튼 GPIO·릴레이·12V 타워램프) + 폴트 3종 통과. 조치: 펌웨어 재업로드, **EMO 비상 중 BLOCK 해제 거부 추가**(`gpio_input.emo_active()` 레벨 체크 + `safety_console._release_block()`).
+3. ✅ **console_v2 학습·`.hef` 변환 완료(2026-07-16, 데스크톱)** — 파랑 스티커 B4 데이터셋 652장 재학습(§12.14) → DFC level 1·캘리브 652로 변환(§12.15) → `Demo/models/console_v2.hef` 배포 완료. HAR 검증(uint8·NMS·5클래스) 통과.
 4. **▶ 최우선 = ⑤ replay 평가 (파이에서 수행)** — ⚠️ **"싸게 파국을 거르는 안전핀"이지 성능 측정이 아니다.** 몇 분이면 끝나고, **실패 시에만 강한 정보**를 준다(아래 비대칭성). **최종 판정은 여기서 안 난다 — test 세션에서만 난다.**
 
    #### 실행 (cwd 중요)
@@ -130,21 +130,21 @@ USB 웹캠 ─ UsbCameraThread (동일 구조)
    > `--hef`가 런타임에 `config.HEF_MODEL_PATH`를 덮어쓰므로 **config 수정 불필요**(`replay_raw.py:143`). 세 번째(174153)를 꼭 같이 돌려야 **세션 간 비교**가 된다.
    > ※ **HailoRT는 4.x여야 한다**(DFC 3.33.1로 만든 `.hef` 호환 / 5.x 금지). 이 파이는 v1을 4.x로 돌리고 있으므로 **손대지 않았다면 그대로**다. 버전을 올린 적 있다면 먼저 확인할 것.
 
-   #### 🔴 판정 기준 정본 = 통합문서 **§10.16**. "v1 대비 검출률 상승"을 쓰지 말 것 (2026-07-16 정정)
-   `test/raw/<세션>`이 곧 **652장 학습 데이터의 출처**라(`Demo/docs/dataset_pipeline.md`) **학습에 쓴 장면으로 시험 보는 구조**다. 게다가 v1은 **파랑 스티커를 학습한 적이 없어**(§10.12 "v1으론 여전히 0% — 학습 분포 밖, **당연**") 0%가 예정돼 있고, v2는 이 프레임으로 학습했다. → **"v1 0회 → v2 N회"는 자동으로 나오고 아무것도 증명하지 않는다.**
-   ⚠️ **두 개의 "B4 0%"를 혼동 금지**: ①§10.6의 0회(6월·**검정** B4·원인=카메라 입력 품질) ②파랑 프레임에서 v1의 0%(단순 분포 밖). **다른 현상이다.**
+   #### 🔴 판정 기준 정본 = 통합문서 **§12.16**. "v1 대비 검출률 상승"을 쓰지 말 것 (2026-07-16 정정)
+   `test/raw/<세션>`이 곧 **652장 학습 데이터의 출처**라(`Demo/docs/dataset_pipeline.md`) **학습에 쓴 장면으로 시험 보는 구조**다. 게다가 v1은 **파랑 스티커를 학습한 적이 없어**(§12.12 "v1으론 여전히 0% — 학습 분포 밖, **당연**") 0%가 예정돼 있고, v2는 이 프레임으로 학습했다. → **"v1 0회 → v2 N회"는 자동으로 나오고 아무것도 증명하지 않는다.**
+   ⚠️ **두 개의 "B4 0%"를 혼동 금지**: ①§12.6의 0회(6월·**검정** B4·원인=카메라 입력 품질) ②파랑 프레임에서 v1의 0%(단순 분포 밖). **다른 현상이다.**
 
    #### ✅ 이것만 본다 (셋 다 파이에서 가능)
    1. **하한선** — v2가 **자기 학습 데이터에서조차** B4를 못 잡으면 → **즉시 중단·원인 재분석**. **실패=강한 증거 / 통과=약한 증거인 비대칭 테스트.**
-   2. **⭐ 세션 간 비교 (핵심)** — 누출이 4세션에 **균등**해 상쇄된다. **저조도(`180016`)만 다른 세션(`174153` 기준선) 대비 무너지면 = 조명 탓**(진짜 신호). §10.13 **"저조도 파랑 B4 생존 미측정"**에 답하는 **유일한 경로**.
+   2. **⭐ 세션 간 비교 (핵심)** — 누출이 4세션에 **균등**해 상쇄된다. **저조도(`180016`)만 다른 세션(`174153` 기준선) 대비 무너지면 = 조명 탓**(진짜 신호). §12.13 **"저조도 파랑 B4 생존 미측정"**에 답하는 **유일한 경로**.
    3. **rawdet를 볼 것** — B4는 **트래킹 이전 raw 검출**에서만 저신뢰 구간이 드러난다. confirmed 트랙만 보면 놓친다(위 벤치 항목 참조).
 
    #### ❌ ⑤로 답할 수 없는 것
    - **`replay_raw.py`엔 정답(ground truth)이 없다** — 출력은 검출 수·프레임율·median/max confidence뿐(precision/recall/mAP 없음). **"B4 검출"이 올바른 위치·클래스인지 알 수 없다.**
    - 실전 성능·일반화 — 같은 날·조명·모조 콘솔, 실시간 AE·움직임 없음, `--raw-every 5`라 트래킹 연속성도 없다.
-   - ※ **`.hef` vs `.pt` 양자화 손실 대조는 파이에서 불가**(`replay_raw`는 `--hef`만 받고 `create_detector()`가 `config.INFERENCE_BACKEND`를 읽는다. 파이엔 `console_v2.pt`도 없다). 필요하면 **데스크톱에서 DFC 에뮬레이션**으로 — §10.7이 그 방식으로 v1 양자화를 반증했다.
+   - ※ **`.hef` vs `.pt` 양자화 손실 대조는 파이에서 불가**(`replay_raw`는 `--hef`만 받고 `create_detector()`가 `config.INFERENCE_BACKEND`를 읽는다. 파이엔 `console_v2.pt`도 없다). 필요하면 **데스크톱에서 DFC 에뮬레이션**으로 — §12.7이 그 방식으로 v1 양자화를 반증했다.
 
    #### 결과 처리
-   - 🔴 **`.pt` mAP(§10.14)·`.hef` HAR 검증·⑤ 통과 그 무엇으로도 "B4 해결"을 선언하지 말 것** — v1도 앞 두 관문은 전부 통과했고 에뮬레이션서 B4를 고신뢰로 검출했으나 파이 실추론에선 0회였다(수치 §10.5~§10.7). **최종 판정의 유일한 근거 = 미촬영 `test` 세션**(다른 날·조명·실콘솔, 🔴**파랑 스티커 동일 사양 필수**).
+   - 🔴 **`.pt` mAP(§12.14)·`.hef` HAR 검증·⑤ 통과 그 무엇으로도 "B4 해결"을 선언하지 말 것** — v1도 앞 두 관문은 전부 통과했고 에뮬레이션서 B4를 고신뢰로 검출했으나 파이 실추론에선 0회였다(수치 §12.5~§12.7). **최종 판정의 유일한 근거 = 미촬영 `test` 세션**(다른 날·조명·실콘솔, 🔴**파랑 스티커 동일 사양 필수**).
    - ※ `config.HEF_MODEL_PATH`는 **이미 v2로 전환됨**(2026-07-16) — ⑤ 결과와 무관하게 바꾼 것이니 **전환을 검증으로 오해하지 말 것**. ⑤가 하한선에서 실패하면 **config를 v1로 되돌리고** 원인 재분석.
-   - 통과 시 → 결과를 통합문서 §10에 기록(수치 정본). **그 다음 할 일은 "완료 선언"이 아니라 test 세션 촬영이다.**
+   - 통과 시 → 결과를 통합문서 §12에 기록(수치 정본). **그 다음 할 일은 "완료 선언"이 아니라 test 세션 촬영이다.**
