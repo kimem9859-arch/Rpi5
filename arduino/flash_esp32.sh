@@ -3,7 +3,7 @@
 #
 #   포트 자동 탐지 → 컴파일 → 업로드 → 부팅 로그에서 IP를 읽어 .camera_ip 자동 기록
 #
-# 펌웨어는 WiFi를 스캔해 wifi_credentials.h의 배열 순서(Eung Min → Jason)대로 연결한다.
+# 펌웨어는 WiFi를 스캔해 wifi_credentials.h의 배열 순서(폰 핫스팟 → 데스크톱 핫스팟)대로 연결한다.
 # 따라서 장소가 바뀌어도 다시 구울 필요가 없다. IP만 바뀌면 update_ip.sh를 쓴다.
 
 set -uo pipefail
@@ -54,7 +54,7 @@ echo "✅ 업로드 완료"
 # ── 5. 부팅 로그에서 IP 회수 ──────────────────────
 echo
 echo "📡 WiFi 연결 대기 중... (최대 40초)"
-echo "   펌웨어가 Jason → Eung Min 순서로 잡습니다."
+echo "   펌웨어가 데스크톱 핫스팟 → 폰 핫스팟 순서로 잡습니다."
 echo
 "$(dirname "${BASH_SOURCE[0]}")/read_esp32_ip.sh" "$PORT" "$CAMERA_IP_FILE" 40
 
