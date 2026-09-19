@@ -56,8 +56,9 @@ build/
 *.o
 *.elf
 *.hex
-arduino/wifi_credentials.h
-arduino/camera_stream_tcp/wifi_credentials.h
+# 🔴 경로를 나열하지 않는다 — 새 스케치 폴더가 생기면 그 파일이 안 막힌다
+#    (2026-09-19: glass_voice·glass_audio·cam_audio_batt_test 3개가 이 구멍으로 커밋됐다)
+**/wifi_credentials.h
 Demo/dataset/
 .rfvenv/
 !.env.example

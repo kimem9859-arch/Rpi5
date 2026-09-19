@@ -20,9 +20,9 @@
 #define HREF_GPIO_NUM     47
 #define PCLK_GPIO_NUM     13
 
-// 모바일 핫스팟 연결
-const char* ssid = "Eung Min";
-const char* password = "kem98591";
+// WiFi 자격증명 (SSID·비번). gitignore 처리됨 — 저장소에 비번이 올라가지 않는다.
+// 배열 순서 = 연결 우선순위. 템플릿 = arduino/wifi_credentials.h.example
+#include "wifi_credentials.h"
 
 httpd_handle_t stream_httpd = NULL;
 
@@ -112,14 +112,18 @@ void setup() {
     Serial.println("카메라 OK");
   }
 
-  // STA 모드: 공유기 연결
-  WiFi.begin(ssid, password);
-  Serial.print("WiFi 연결 중");
-  int retry = 0;
-  while (WiFi.status() != WL_CONNECTED && retry < 30) {
-    delay(1000);
-    Serial.print(".");
-    retry++;
+  // STA 모드: WIFI_CREDS 배열 순서(=우선순위)대로 시도
+  for (int i = 0; i < WIFI_CRED_COUNT; i++) {
+    Serial.printf("WiFi 연결 중 [%d] %s", i + 1, WIFI_CREDS[i].ssid);
+    WiFi.begin(WIFI_CREDS[i].ssid, WIFI_CREDS[i].pass);
+    int retry = 0;
+    while (WiFi.status() != WL_CONNECTED && retry < 30) {
+      delay(1000);
+      Serial.print(".");
+      retry++;
+    }
+    Serial.println();
+    if (WiFi.status() == WL_CONNECTED) break;
   }
 
   if (WiFi.status() != WL_CONNECTED) {
