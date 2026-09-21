@@ -201,7 +201,9 @@ def run(args) -> int:
         if k == ord(" "):
             if sess is None:
                 sess = Session(root, PLACES[place_i], SCENES[scene_i], args.every,
-                               {"host": host, "frame_size": "VGA", "jpeg_quality": 15,
+                               {"host": host,
+                                "frame_size": f"{frame.shape[1]}x{frame.shape[0]}",
+                                "jpeg_quality": args.jpeg_quality,
                                 "undistort": umap is not None})
                 last_save = 0.0
                 print(f"[녹화 시작] {sess.dir}")
@@ -228,6 +230,7 @@ def run_bench(args) -> int:
     host = args.host or config.CAMERA_TCP_HOST
     sock = _connect(host)
     umap, umap_ready = None, False      # 첫 프레임 크기로 만든다(run 과 같은 이유)
+    frame_size = "미확인"
     esp, stop = [], threading.Event()
     if args.esp_port:
         threading.Thread(target=_esp_stats, args=(args.esp_port, stop, esp),
@@ -255,6 +258,7 @@ def run_bench(args) -> int:
         n["decode"] += 1
         if not umap_ready:
             h0, w0 = frame.shape[:2]
+            frame_size = f"{w0}x{h0}"
             umap, umap_ready = frame_orient.undistort_map(w0, h0), True
             if umap is None:
                 print(f"🔴 [왜곡보정] {w0}×{h0} 용 맵 없음 — 보정 없이 잰다(조건에 기록된다)")
@@ -283,7 +287,10 @@ def run_bench(args) -> int:
         "ms_avg": {k: round(avg(v), 2) for k, v in ms.items()},
         "kbps": round(bytes_total / 1024 / dur, 1),
         "esp32": esp,
-        "frame_size": "VGA", "jpeg_quality": 15, "undistort": umap is not None,
+        # 🔴 조건은 **실측으로** 남긴다 — 2026-09-22 에 "VGA·q15" 가 하드코딩돼 있어
+        #    SVGA·q10 회차가 VGA·q15 로 기록됐다. 조건이 거짓이면 수치도 못 쓴다.
+        "frame_size": frame_size, "jpeg_quality": args.jpeg_quality,
+        "undistort": bool(umap is not None),
     }
     (out / "bench.json").write_text(json.dumps(res, ensure_ascii=False, indent=1),
                                     encoding="utf-8")
@@ -328,6 +335,9 @@ def main() -> int:
                     help="--bench 에서 PNG 저장을 뺀다 — 저장 비용을 분리해 보려고")
     ap.add_argument("--esp-port", default=None, metavar="/dev/ttyACMx",
                     help="ESP32 시리얼 포트. 주면 송신 통계(cap/sent/drop)를 함께 모은다")
+    ap.add_argument("--jpeg-quality", type=int, default=None, metavar="N",
+                    help="그때 펌웨어의 jpeg_quality. 기록용이며 도구가 바꾸지 않는다 "
+                         "(0~63, 낮을수록 고화질). 안 주면 조건에 null 로 남는다")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest:

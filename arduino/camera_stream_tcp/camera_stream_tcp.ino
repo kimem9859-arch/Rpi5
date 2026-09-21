@@ -313,6 +313,12 @@ void setup() {
     ESP.restart();
   }
   Serial.println("Camera OK");
+  // 🔑 센서 모델을 부팅 로그에 남긴다 — 문서에 OV3660/OV5640 이 섞여 있어 실물로 확정해야 한다.
+  {
+    sensor_t *ss = esp_camera_sensor_get();
+    if (ss) Serial.printf("Sensor: PID=0x%04x VER=0x%02x MIDH=0x%02x MIDL=0x%02x\n",
+                          ss->id.PID, ss->id.VER, ss->id.MIDH, ss->id.MIDL);
+  }
 
   connectWiFiByPriority();
 
