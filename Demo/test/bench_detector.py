@@ -268,11 +268,23 @@ def run_bench(args):
     # USB 웹캠은 그 구도와 무관하므로 돌리지 않는다.
     rotate_on = (source == "esp32") and config.CAMERA_ROTATE_CCW90
 
+    # 🔑 왜곡보정 맵은 **첫 프레임의 실제 크기**로 만든다 — config 에 해상도 상수가 없고,
+    #    센서 설정이 바뀌어도 따라가야 한다. None=아직 시도 안 함 / False=없음 / 맵.
+    umap_box = [None]
+
     def _apply_flip(f):
         if flip_mode == "v":  f = cv2.flip(f, 0)
         elif flip_mode == "h":  f = cv2.flip(f, 1)
         elif flip_mode == "vh": f = cv2.flip(f, -1)
-        # 🔴 반전 뒤에 돈다 — 런타임(`frame_orient`)과 같은 순서여야 한다.
+        # 🔴 반전 → (왜곡보정) → 회전 — 런타임(`frame_orient.apply_full`)과 같은 순서여야 한다.
+        if args.undistort and source == "esp32":
+            if umap_box[0] is None:
+                h0, w0 = f.shape[:2]
+                umap_box[0] = frame_orient.undistort_map(w0, h0) or False
+                if umap_box[0] is False:
+                    print(f"🔴 [왜곡보정] {w0}×{h0} 용 캘리브레이션 맵 없음 — 보정 없이 진행한다")
+            if umap_box[0] is not False:
+                f = frame_orient.undistort(f, umap_box[0])
         return frame_orient.rotate(f) if source == "esp32" else f
 
     os.makedirs(_LOGS_DIR, exist_ok=True)
@@ -472,7 +484,10 @@ def run_bench(args):
                     raw_event.set()
                     break
                 with raw_lock:
+                    if latest_raw[0] is not None:
+                        stale_skipped[0] += 1      # 아직 안 쓴 것을 덮는다 = 버림
                     latest_raw[0] = data
+                recv_count[0] += 1
                 raw_event.set()
 
         recv_thread = threading.Thread(target=recv_worker, daemon=True)
@@ -487,6 +502,12 @@ def run_bench(args):
     frame_no    = 0
     fps         = 0.0
     prev_time   = None
+
+    # 🔑 프레임은 두 곳에서 버려진다 — 수신 함수가 「최신만」 남기고 버리고, latest_raw 를
+    #    덮어쓰며 또 버린다. 버린 장수를 세지 않으면 이 도구의 FPS 가 «처리 속도»인지
+    #    «수신 속도»인지 구분할 수 없다(2026-09-21 검토).
+    recv_count    = [0]     # 소켓에서 실제로 꺼낸 장수
+    stale_skipped = [0]     # 처리 전에 새 프레임으로 덮여 버려진 장수
 
     # 요약용 누적
     fps_list    = []
@@ -570,6 +591,7 @@ def run_bench(args):
 
                 with raw_lock:
                     data = latest_raw[0]
+                    latest_raw[0] = None       # 꺼냈으면 비운다 — 같은 프레임 중복 처리 방지
                 if data is None:
                     continue
 
@@ -667,7 +689,10 @@ def run_bench(args):
             prev_boxes = cur_boxes
 
             # CSV 기록
-            perf_w.writerow([frame_no, now_str, f"{fps:.2f}", f"{infer_ms:.2f}", len(tracks)])
+            # 🔑 첫 프레임은 직전 시각이 없어 FPS 를 못 낸다. 0.00 을 적으면 그 CSV 를
+            #    평균 내는 새 분석이 값을 낮게 본다(지금 소비자 2곳은 각자 거르고 있다).
+            if frame_no > 1:
+                perf_w.writerow([frame_no, now_str, f"{fps:.2f}", f"{infer_ms:.2f}", len(tracks)])
             for t in tracks:
                 name = CLASS_NAMES[t["cls"]] if t["cls"] < len(CLASS_NAMES) else str(t["cls"])
                 x1, y1, x2, y2 = t["box"]
@@ -676,22 +701,28 @@ def run_bench(args):
                 cls_conf.setdefault(name, []).append(t["score"])
 
             # 영상 + 실시간 미리보기
-            frame_draw = _draw_detections(frame.copy(), tracks, fps, frame_no)
-            if fingertip is not None:                 # 검지 끝 — 촬영 중 눈으로 확인하는 용도
-                cv2.circle(frame_draw, fingertip, 10, (255, 0, 255), -1)
-                cv2.circle(frame_draw, fingertip, 12, (255, 255, 255), 2)
-            if not args.no_video and video_queue is not None:
-                try:
-                    video_queue.put_nowait((frame_draw.copy(), video_path))
-                except Exception:
-                    pass  # 큐 가득 찬 경우 드롭
+            # 🔑 headless 면 오버레이도 그리지 않는다 — frame.copy() 와 그리기 자체가 비용이고,
+            #    waitKey(1) 은 매 프레임 최소 1ms 를 잡아먹는다. 다른 도구와 FPS 를 비교하려면
+            #    양쪽 다 화면을 꺼야 한다(2026-09-21 검토).
+            if args.headless:
+                pass
+            else:
+                frame_draw = _draw_detections(frame.copy(), tracks, fps, frame_no)
+                if fingertip is not None:             # 검지 끝 — 촬영 중 눈으로 확인하는 용도
+                    cv2.circle(frame_draw, fingertip, 10, (255, 0, 255), -1)
+                    cv2.circle(frame_draw, fingertip, 12, (255, 255, 255), 2)
+                if not args.no_video and video_queue is not None:
+                    try:
+                        video_queue.put_nowait((frame_draw.copy(), video_path))
+                    except Exception:
+                        pass  # 큐 가득 찬 경우 드롭
 
-            # 2프레임마다 imshow (렌더링 오버헤드 절감)
-            if frame_no % 2 == 0:
-                cv2.imshow("bench_detector", frame_draw)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                print("\n[q] 사용자 중단.")
-                break
+                # 2프레임마다 imshow (렌더링 오버헤드 절감)
+                if frame_no % 2 == 0:
+                    cv2.imshow("bench_detector", frame_draw)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    print("\n[q] 사용자 중단.")
+                    break
 
             # 30프레임마다 터미널 출력
             if frame_no % 30 == 0:
@@ -750,6 +781,10 @@ def run_bench(args):
         print(f"평균 FPS   : {sum(valid_fps)/len(valid_fps):.1f}")
         print(f"최저 FPS   : {min(valid_fps):.1f}")
         print(f"최고 FPS   : {max(valid_fps):.1f}")
+    if source == "esp32":
+        print(f"수신 프레임 : {recv_count[0]}")
+        print(f"처리 프레임 : {frame_no}")
+        print(f"버린 프레임 : {stale_skipped[0]}  ← 처리보다 수신이 빨라 덮인 장수")
     print(f"\n[소스: {source}]  클래스별 누적 탐지 (confirmed 트랙 ≥{config.YOLO_CONF_HIGH}):")
     for name in CLASS_NAMES:
         count = cls_counts.get(name, 0)
@@ -849,9 +884,19 @@ if __name__ == "__main__":
                              "§4 NFR-1이 요구하는 값이 이것이다. 켜고/끄고 두 번 재면 "
                              "손 검출이 실제로 먹는 비용이 나온다. "
                              "모델·소스가 없으면 경고만 내고 버튼 검출로 계속한다")
+    parser.add_argument("--headless", action="store_true",
+                        help="화면 표시·오버레이 그리기를 끈다. 🔑 FPS 를 다른 도구와 비교할 때 "
+                             "반드시 켠다 — 끄지 않으면 imshow·waitKey(1) 비용이 FPS 에 섞인다. "
+                             "--no-video 를 함축한다(그리지 않은 화면은 저장할 수 없다)")
+    parser.add_argument("--undistort", action="store_true",
+                        help="런타임과 같은 왜곡보정을 넣는다(기본 꺼짐). "
+                             "🔴 켜면 옛 측정값과 직접 비교할 수 없다 — 입력 그림이 달라진다")
     parser.add_argument("--condition", type=str, default=None, metavar="SLUG",
                         help="촬영 조건 슬러그(fluorescent/lowlight/daylight/cleanroom 등). "
                              "산출물 파일명·manifest에 기록되어 db_import가 조건을 자동 분류한다. "
                              "미지정 시 기존 파일명 형식 유지(db_import의 하드코딩 매핑에 의존)")
     args = parser.parse_args()
+    if args.headless:
+        args.no_video = True       # 그리지 않은 화면은 저장할 수 없다
+
     run_bench(args)
