@@ -20,32 +20,32 @@
   - 입력 **uint8 640×640 RGB**(float 정규화 ❌, stretch 리사이즈), 출력 **HailoRT NMS 결과** 파싱(raw 텐서 ❌), **HailoRT 4.x**.
   - `class_name`/`_names` = **5클래스(0=B1·1=B2·2=B3·3=B4·4=EMO)** 매핑 완료(`detector.py:112`).
   - .hef(빌드 환경 `D:\Hailo_DFC\console_v1.hef`) → 파이 `Demo/models/console_v1.hef`(`config.HEF_MODEL_PATH`).
-- 🆕 **`console_v2.hef` 배포됨(2026-07-16)** — `Demo/models/console_v2.hef`(4.4MB, 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652. 수치 = 상위 통합문서 **§12.14·§12.15**). 규격은 v1과 동일(uint8 640·NMS on-chip·5클래스·HailoRT 4.x)이라 **코드 수정 불필요**.
-  - ✅ **`config.HEF_MODEL_PATH` = `console_v2.hef`로 전환됨(2026-07-16, 사용자 요청)** — `bench_detector.py`·`run_demo.sh` 등 **config를 읽는 모든 경로가 v2로 동작**한다(이 둘엔 `--hef` 옵션이 없어 config가 유일한 선택 수단).
+- **`console_v2.hef`** — `Demo/models/console_v2.hef`(4.4MB, 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652. 수치 = 상위 통합문서 **§12.14·§12.15**). 규격은 v1과 동일(uint8 640·NMS on-chip·5클래스·HailoRT 4.x)이라 **코드 수정 불필요**.
+  - ✅ **`config.HEF_MODEL_PATH` 의 현재 값은 `console_v2.hef`** — `bench_detector.py`·`run_demo.sh` 등 **config를 읽는 모든 경로가 v2로 동작**한다(이 둘엔 `--hef` 옵션이 없어 config가 유일한 선택 수단).
   - 🔴 **전환 = 검증이 아니다.** **B4 해결 여부는 여전히 미판정**(§12.16). 기본값이 v2라고 해서 "v2가 검증됐다"고 읽지 말 것.
   - **v1과 대조하려면**: `replay_raw.py`는 `--hef models/console_v1.hef`로 런타임 지정(권장) / `bench_detector.py`·데모는 **config를 `console_v1.hef`로 되돌려야** 한다(`--hef` 미지원).
 
 ## GUI·카메라·설정 (기존 모듈 — 현행 유효)
 ### `safety_console.py` (메인 GUI, QMainWindow)
 - `CalibrationDialog`: 체스보드(7×5) 20샘플 → `cv2.calibrateCamera()` → `camera_calibration.npz`.
-- 🆕 **`anim.py`(2026-08-16)** — 오버레이 전환 애니메이션(설계 = 상위 `specs/2026-08-16-ui-애니메이션-design.md`). 🔴 **갱신 함수는 `_sub_timer`가 200ms 주기로 반복 호출한다** — 애니메이션은 반드시 「직전 상태와 달라졌을 때만」 건다(비교 없이 걸면 초당 5번 재시작). 🔴 **QGraphicsEffect 계열 금지**(`overlay.py:73` 페인터 충돌 사고). 끄기 = `SOP_UI_ANIM=0`. ✅ **성능 판정 완료(2026-08-26, G6)** — FPS 영향 **+0.8%**(문턱 10% 이내)라 기본 True 유지. 조건 = **USB 웹캠**·손 없는 정지 장면·ON/OFF 교차 6런(§12.48). 🔴 **제품 경로(ESP32)로는 판정 불가** — 공급 FPS 가 3~25 로 요동해 효과가 묻힌다. 재측정 도구 = `test/anim_fps_bench.py --camera usb`. FPS 화면 표시 = `SOP_SHOW_FPS=1`.
-- 🆕 **`fps.py` 의 `fps_stale()`(2026-08-27)** — 🔴 **프레임이 끊겨도 FPS 가 마지막 값으로 계속 찍히던 결함**을 막는다(`fps_from_intervals` 가 중앙값이라 남은 간격이 같은 값을 영원히 낸다 → **화면은 멈췄는데 FPS 는 정상으로 보인다**). 표본을 버리는 자리는 **세 곳**이다 — `_update_conn_bar`(끊긴 채 유지) · `_note_frame`(끊겼다 복구) · `_switch_camera`(카메라가 바뀌면 값이 다르다). ⚠️ **끊김 임계 2.0 초는 2차 점검 「영상 수신」(`precheck`)과 같은 값을 쓴다** — 두 곳이 다른 숫자를 쓰면 표시와 점검이 서로 다른 말을 한다.
+- **`anim.py`** — 오버레이 전환 애니메이션(설계 = 상위 `specs/2026-08-16-ui-애니메이션-design.md`). 🔴 **갱신 함수는 `_sub_timer`가 200ms 주기로 반복 호출한다** — 애니메이션은 반드시 「직전 상태와 달라졌을 때만」 건다(비교 없이 걸면 초당 5번 재시작). 🔴 **QGraphicsEffect 계열 금지**(`overlay.py:73` 페인터 충돌 사고). 끄기 = `SOP_UI_ANIM=0`. ✅ **성능 판정 완료(2026-08-26, G6)** — FPS 영향 **+0.8%**(문턱 10% 이내)라 기본 True 유지. 조건 = **USB 웹캠**·손 없는 정지 장면·ON/OFF 교차 6런(§12.48). 🔴 **제품 경로(ESP32)로는 판정 불가** — 공급 FPS 가 3~25 로 요동해 효과가 묻힌다. 재측정 도구 = `test/anim_fps_bench.py --camera usb`. FPS 화면 표시 = `SOP_SHOW_FPS=1`.
+- **`fps.py` 의 `fps_stale()`** — 🔴 **프레임이 끊겨도 FPS 가 마지막 값으로 계속 찍히던 결함**을 막는다(`fps_from_intervals` 가 중앙값이라 남은 간격이 같은 값을 영원히 낸다 → **화면은 멈췄는데 FPS 는 정상으로 보인다**). 표본을 버리는 자리는 **세 곳**이다 — `_update_conn_bar`(끊긴 채 유지) · `_note_frame`(끊겼다 복구) · `_switch_camera`(카메라가 바뀌면 값이 다르다). ⚠️ **끊김 임계 2.0 초는 2차 점검 「영상 수신」(`precheck`)과 같은 값을 쓴다** — 두 곳이 다른 숫자를 쓰면 표시와 점검이 서로 다른 말을 한다.
 
 ### `camera_thread.py` (카메라 + 추론)
 - `CameraThread`(QThread) — ESP32-S3 TCP 스트림: 4바이트 헤더+JPEG, 수신 전용 스레드+처리 루프 분리(최신 프레임만), 자동 재연결. 처리순서: **수직 플립 → undistort → 회전(CCW90)** → detector(YOLO) → **손 검출(`hand_tracker`)** → `roi_at_point` → `roi_signal` → FSM.
-  - 🆕 **`frame_orient.py`(2026-08-26)** — 방향 보정(반전·회전)의 **단일 출처**. ESP32 장착 구도가 시계방향 90° 로 바뀌어 반시계 90° 보정이 붙었고, 프레임이 **640×480 → 480×640 세로**가 된다. 런타임과 측정 도구(`test/tool_live`·`test/bench_detector`)가 같은 모듈을 쓴다 — `roi_zones` 와 같은 이유(도구가 Qt·Hailo 를 못 끌어온다).
+  - **`frame_orient.py`** — 방향 보정(반전·회전)의 **단일 출처**. ESP32 장착 구도가 시계방향 90° 로 바뀌어 반시계 90° 보정이 붙었고, 프레임이 **640×480 → 480×640 세로**가 된다. 런타임과 측정 도구(`test/tool_live`·`test/bench_detector`)가 같은 모듈을 쓴다 — `roi_zones` 와 같은 이유(도구가 Qt·Hailo 를 못 끌어온다).
   - 🔴 **회전은 반드시 undistort 뒤다.** 앞에 두면 480×640 이 되어 `_init_calibration` 이 캘리브레이션 파일(640×480 전용)을 'mismatch' 로 판단해 **왜곡보정을 조용히 끈다**(로그 한 줄만 남고 화면은 멀쩡해 보인다).
   - ⚠️ **검출 정확도 영향 미측정** — `detector.py` 는 프레임을 정사각 640×640 으로 **늘려서** 넣는다. 종전 4:3(세로 1.33배 늘림) → 회전 후 3:4(**가로** 1.33배 늘림)로 바뀌어 배포 모델이 보는 그림이 달라진다. 콘솔을 화면에 넣고 재측정할 것.
 - `UsbCameraThread` — USB 웹캠 동일 처리.
 - `_update_tracks()` — IoU 간이 트래킹, `YOLO_MAX_MISS` 초과 제거(**가림 대응**). YOLO `try/except` 선택 로드.
-- 🆕 **`hand_tracker.py`(2026-07-22)** — **MediaPipe 프레임워크는 안 쓴다**(Python 3.13/aarch64 휠 없음). 같은 **모델**(BlazePalm·BlazeHandLandmark)을 Hailo `.hef`로 돌린다. `detect(frame)` → 검지끝 좌표. 장치는 `hailo_device`의 **공유 VDevice**(여기서 VDevice를 만들면 버튼 모델과 충돌). ⚠️ 모델·소스가 없거나 `HAND_ENABLED=False`면 **조용히 비활성**되고 `detect()`가 None → 손 검출이 없던 종전과 동일 동작. 🔴 모델·blaze 소스가 **repo 밖**(`~/lab/hoi/`)이라 클론·sop-pi-2에선 자동 비활성(vendoring 미결).
+- **`hand_tracker.py`** — **MediaPipe 프레임워크는 안 쓴다**(Python 3.13/aarch64 휠 없음). 같은 **모델**(BlazePalm·BlazeHandLandmark)을 Hailo `.hef`로 돌린다. `detect(frame)` → 검지끝 좌표. 장치는 `hailo_device`의 **공유 VDevice**(여기서 VDevice를 만들면 버튼 모델과 충돌). ⚠️ 모델·소스가 없거나 `HAND_ENABLED=False`면 **조용히 비활성**되고 `detect()`가 None → 손 검출이 없던 종전과 동일 동작. 🔴 모델·blaze 소스가 **repo 밖**(`~/lab/hoi/`)이라 클론·sop-pi-2에선 자동 비활성(vendoring 미결).
 - 🔴 **`safety_console`이 `camera_thread`에서 import하는 이름이 사라지면 GUI가 통째로 죽는다** — 실제로 발생(2026-07-22, `MEDIAPIPE_AVAILABLE`). 방어 = **`Demo/selftest/test_imports.py`**(GUI 진입점 import + AST로 import 이름 실재 대조). `camera_thread`의 최상위 이름을 바꾸면 **이 테스트를 반드시 돌릴 것**.
 
 ### `config.py` (전역 설정)
 - 추론·TCP·화면·녹화 설정은 **`config.py` 를 직접 본다** — 값을 여기 복제하지 않는다(설계값 정본 = 통합문서 §7.4).
 - ESP32 IP 변경: `Demo/.camera_ip` 텍스트 수정 후 재시작.
 
-#### 🔴 ESP32 실HW 함정 (2026-09-07 신설 — 둘 다 실제로 물릴 뻔했다)
+#### 🔴 ESP32 실HW 함정 (둘 다 실제로 물릴 뻔했다)
 - 🔴 **개체는 «시리얼번호»로 식별한다. `ttyACM` 번호를 믿지 말 것** — 꽂는 순서로 뒤바뀐다.
   **더 위험한 것은 sn 자체가 서로 닮았다는 점이다:**
   `3C:0F:02:DD:5E:`**`58`** = 메인(안경·카메라) / `3C:0F:02:DD:5E:`**`40`** = 서브(마이크) — **마지막 바이트만 다르다.**
