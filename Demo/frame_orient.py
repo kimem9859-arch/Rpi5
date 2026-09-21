@@ -20,7 +20,10 @@
     왜곡보정을 끼우고, 왜곡보정이 없는 도구는 `apply()` 하나로 끝낸다.
 """
 
+import os
+
 import cv2
+import numpy as np
 
 import config
 
@@ -42,3 +45,49 @@ def rotate(frame):
 def apply(frame):
     """반전 + 회전. **왜곡보정을 쓰지 않는 곳**(측정 도구)이 쓴다."""
     return rotate(flip(frame))
+
+
+def undistort_map(w, h):
+    """렌즈 왜곡 보정 맵. 캘리브레이션 파일이 없거나 해상도가 다르면 None.
+
+    🔴 None 을 받으면 **보정 없이 조용히 진행하지 말고 경고를 띄운다** — 조용히
+       꺼지는 것이 이 함정의 본질이다(로그 한 줄만 남고 화면은 멀쩡해 보인다).
+    """
+    path = config.YOLO_CALIBRATION_PATH
+    if not os.path.exists(path):
+        return None
+    data = np.load(path)
+    if "image_size" in data:
+        iw, ih = int(data["image_size"][0]), int(data["image_size"][1])
+        if (iw, ih) != (w, h):
+            return None
+    cam_mat, dist = data["camera_matrix"], data["dist_coeffs"]
+    new_mat, _ = cv2.getOptimalNewCameraMatrix(cam_mat, dist, (w, h),
+                                               config.CALIB_ALPHA, (w, h))
+    return cv2.initUndistortRectifyMap(cam_mat, dist, None, new_mat, (w, h), cv2.CV_16SC2)
+
+
+def undistort(frame, maps):
+    """맵이 None 이면 원본을 그대로 돌려준다(호출부가 경고를 책임진다)."""
+    if maps is None:
+        return frame
+    return cv2.remap(frame, maps[0], maps[1], cv2.INTER_LINEAR)
+
+
+def apply_full(frame, maps):
+    """런타임과 같은 전체 순서 — 반전 → 왜곡보정 → 회전."""
+    return rotate(undistort(flip(frame), maps))
+
+
+def _selftest() -> int:
+    """보정 순서와 맵 해상도 판정이 규약대로인지 확인한다."""
+    f = np.zeros((480, 640, 3), np.uint8)
+    f[0:10, :] = 255                       # 위쪽 흰 띠 — 반전 여부를 보는 눈금
+    maps = undistort_map(640, 480)
+    assert maps is not None, "640×480 캘리브레이션 맵을 만들지 못했다"
+    assert undistort_map(800, 600) is None, "해상도가 다르면 None 이어야 한다"
+    out = apply_full(f, maps)
+    exp = (480, 640) if config.CAMERA_ROTATE_CCW90 else (640, 480)
+    assert (out.shape[1], out.shape[0]) == exp, out.shape
+    print("selftest OK")
+    return 0

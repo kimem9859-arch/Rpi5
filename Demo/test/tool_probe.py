@@ -162,22 +162,6 @@ class Esp32Stream:
             pass
 
 
-def _undistort_map(w, h):
-    """camera_thread._load_undistort_map 과 같은 계산(런타임과 동일 보정)."""
-    path = config.YOLO_CALIBRATION_PATH
-    if not os.path.exists(path):
-        return None
-    data = np.load(path)
-    if "image_size" in data:
-        iw, ih = int(data["image_size"][0]), int(data["image_size"][1])
-        if (iw, ih) != (w, h):
-            return None
-    cam_mat, dist = data["camera_matrix"], data["dist_coeffs"]
-    new_mat, _ = cv2.getOptimalNewCameraMatrix(cam_mat, dist, (w, h),
-                                               config.CALIB_ALPHA, (w, h))
-    return cv2.initUndistortRectifyMap(cam_mat, dist, None, new_mat, (w, h), cv2.CV_16SC2)
-
-
 # ────────────────────────────────────────────────────────────── 본체
 def main():
     ap = argparse.ArgumentParser()
@@ -269,7 +253,7 @@ def main():
             frame = frame_orient.flip(frame)
             h0, w0 = frame.shape[:2]
             if umap is None:
-                umap = _undistort_map(w0, h0) or False
+                umap = frame_orient.undistort_map(w0, h0) or False
                 print(f"[보정] 왜곡보정 {'적용' if umap else '없음(맵 불일치·미존재)'}")
             if umap:
                 frame = cv2.remap(frame, umap[0], umap[1], cv2.INTER_LINEAR)
