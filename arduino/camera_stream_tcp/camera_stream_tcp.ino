@@ -61,6 +61,73 @@ static volatile uint32_t statBytes = 0;      // 전송 바이트 합
 static volatile uint32_t statSendMsSum = 0;  // send() 소요 합
 static volatile uint32_t statSendMsMax = 0;  // send() 소요 최대
 
+// =============================================================================
+// [노출 상한] 자동 노출은 살리고 «최대치»만 제한한다 — 모션 블러 대책
+// =============================================================================
+// 🔑 왜 — 2026-09-22 데이터셋 원본 38장 측정: **74% 가 흐렸고**(선명도 중앙 59)
+//    선명도와 노이즈의 상관이 **+0.87** 이었다. 노이즈가 많은(=게인이 높은
+//    =노출이 짧았던) 장만 선명했다 — 우연히 짧아진 순간에만 선명했다는 뜻이다.
+//    초점 가설은 기각됐다(칸별 선명도 편차가 흐린 장·선명한 장 모두 같았다).
+//
+// 🔑 왜 «수동 고정» 이 아니라 «상한» 인가 — 수동 고정은 조명이 바뀌면 사진이
+//    타거나 깜깜해진다. 상한만 낮추면 자동 노출이 계속 밝기를 맞추되
+//    **번질 만큼 길게 잡지 못한다.**
+//
+// 📚 1차 근거 — OV3660_CSP3_DS_1.3
+//  · §3.4.5 *"From a noise point of view, it is always preferable to extend the
+//    exposure time rather than increasing gain."* → 이 센서의 자동 노출은
+//    **노이즈를 우선**해 노출을 최대로 늘린다. 그 대가인 모션 블러는 이 문서의
+//    주제가 아니다(정지 피사체 전제).
+//  · `AEC MAX EXPO` = 0x3A02/0x3A03(60Hz) · 0x3A14/0x3A15(50Hz)
+//    공장 기본값 0x30C0 = 12480, **단위는 1/16 row**
+//
+// 🔑 그 기본값이 곧 «프레임 전체» 다 (계산으로 확인했다):
+//      row 시간 = HTS / SCLK = 2300 / 50MHz = 46.0us
+//      12480/16 = 780 row · 780 x 46.0us = **35.9ms** ≈ 프레임 주기 36ms
+//    → 지금 카메라는 노출을 한 프레임이 꽉 차도록 쓰고 있다.
+//
+// ⚠️ **굽자마자 달라지는 것은 없다** — 기본은 공장값 유지(대조군)다.
+//    바꾸려면 시리얼 `EXP:<rows>`, 되돌리려면 `EXP:0`.
+//    전원을 껐다 켜도 공장값으로 돌아간다(플래시에 남지 않는다).
+
+// row 한 줄을 읽는 시간(us). HTS 2300 / SCLK 50MHz — 둘 다 드라이버가 정한 값이라
+// 펌웨어에서 바꾸지 않는 한 고정이다(근거 = 상위 §12.65-(1)).
+static const float ROW_TIME_US = 2300.0f / 50.0f;   // = 46.0us
+static const uint16_t AEC_MAX_DEFAULT = 0x30C0;     // 공장 기본값(1/16 row 단위)
+
+// 현재 노출·게인·상한을 사람이 읽을 수 있는 단위로 찍는다.
+// 🔴 이것이 있어야 「노출이 원인이었나」를 추론이 아니라 «측정» 으로 확정한다.
+void printExposure(const char *tag) {
+  sensor_t *sp = esp_camera_sensor_get();
+  if (!sp || !sp->get_reg) { Serial.println("EXP: sensor has no get_reg"); return; }
+  // 🔑 마스크가 0xFF 를 넘으면 드라이버가 여러 바이트를 한 번에 읽는다
+  //    (`ov3660.c get_reg`: >0xFF → 2바이트 · >0xFFFF → 3바이트).
+  //    낱개로 7번 부르지 않고 3번으로 끝낸다 — I2C 는 촬영 중에도 도는 버스다.
+  int exp  = sp->get_reg(sp, 0x3500, 0x0FFFFF);  // 노출 20비트 · 하위 4비트가 1/16 row
+  int gn   = sp->get_reg(sp, 0x350A, 0x03FF);    // 게인 10비트 · 1/16 배
+  int mx   = sp->get_reg(sp, 0x3A02, 0xFFFF);    // 최대 노출 상한(60Hz)
+  if (exp < 0 || gn < 0 || mx < 0) { Serial.println("EXP: read failed"); return; }
+
+  float    rows = exp / 16.0f;
+  float    ms   = rows * ROW_TIME_US / 1000.0f;
+  float    gain = gn / 16.0f;
+  uint16_t maxr = (uint16_t)mx;
+  Serial.printf("EXP[%s]: %.1f row = %.2f ms · gain x%.2f · max %.1f row (%.2f ms)\n",
+                tag, rows, ms, gain, maxr / 16.0f, (maxr / 16.0f) * ROW_TIME_US / 1000.0f);
+}
+
+// 최대 노출 상한을 rows(정수 row) 로 건다. rows=0 이면 공장 기본값으로 되돌린다.
+// 50Hz·60Hz 양쪽에 같은 값을 쓴다 — 조명 주파수 판정이 어느 쪽으로 가든 상한이 걸리게.
+bool setExposureLimitRows(uint16_t rows) {
+  sensor_t *sp = esp_camera_sensor_get();
+  if (!sp || !sp->set_reg) return false;
+  uint16_t v = rows ? (uint16_t)(rows * 16) : AEC_MAX_DEFAULT;
+  // 16비트 마스크 = 2바이트를 한 번에 쓴다(0x3A02+0x3A03 · 0x3A14+0x3A15).
+  int a = sp->set_reg(sp, 0x3A02, 0xFFFF, v);   // 60Hz 상한
+  int b = sp->set_reg(sp, 0x3A14, 0xFFFF, v);   // 50Hz 상한
+  return a >= 0 && b >= 0;
+}
+
 bool loadCredentials(String &ssid, String &pass) {
   prefs.begin("wifi", true);
   ssid = prefs.getString("ssid", "");
@@ -319,6 +386,7 @@ void setup() {
     if (ss) Serial.printf("Sensor: PID=0x%04x VER=0x%02x MIDH=0x%02x MIDL=0x%02x\n",
                           ss->id.PID, ss->id.VER, ss->id.MIDH, ss->id.MIDL);
   }
+  printExposure("boot");
 
   connectWiFiByPriority();
 
@@ -344,6 +412,56 @@ void loop() {
       Serial.println("Clearing WiFi credentials...");
       clearCredentials();
       ESP.restart();
+    } else if (cmd.startsWith("R:") || cmd.startsWith("W:")) {
+      // ── 범용 레지스터 읽기·쓰기 (진단 전용) ─────────────────────────────
+      //   R:3A00       → 그 레지스터를 읽어 출력
+      //   W:3A00:00    → 그 레지스터에 값을 쓴다
+      //   R:3500:FFFFF → 마스크를 주면 여러 바이트를 한 번에 (ov3660.c get_reg)
+      //
+      // 🔴 **왜 범용으로 두나** — 레지스터 하나를 확인할 때마다 다시 구우면
+      //    실HW 조작 횟수가 늘고, 그것이 사고가 된다(2026-09-22 보드 오인).
+      //    굽기는 한 번, 확인은 시리얼로.
+      // ⚠️ 잘못 쓰면 화면이 깨지거나 센서가 멎는다. **전원을 껐다 켜면 전부
+      //    공장값으로 돌아간다** — 플래시에 남지 않는다.
+      sensor_t *sp = esp_camera_sensor_get();
+      if (!sp || !sp->get_reg || !sp->set_reg) { Serial.println("REG: no sensor"); }
+      else if (cmd.startsWith("R:")) {
+        String rest = cmd.substring(2);
+        int c = rest.indexOf(':');
+        long reg  = strtol((c < 0 ? rest : rest.substring(0, c)).c_str(), NULL, 16);
+        long mask = (c < 0) ? 0xFF : strtol(rest.substring(c + 1).c_str(), NULL, 16);
+        int v = sp->get_reg(sp, (int)reg, (int)mask);
+        if (v < 0) Serial.printf("R 0x%04lX: read failed\n", reg);
+        else       Serial.printf("R 0x%04lX (mask 0x%lX) = 0x%X (%d)\n", reg, mask, v, v);
+      } else {
+        String rest = cmd.substring(2);
+        int c = rest.indexOf(':');
+        if (c < 0) { Serial.println("W: use W:<hex reg>:<hex val>"); }
+        else {
+          long reg = strtol(rest.substring(0, c).c_str(), NULL, 16);
+          long val = strtol(rest.substring(c + 1).c_str(), NULL, 16);
+          long mask = (val > 0xFF) ? 0xFFFF : 0xFF;
+          int r = sp->set_reg(sp, (int)reg, (int)mask, (int)val);
+          Serial.printf("W 0x%04lX = 0x%lX -> %s\n", reg, val, r >= 0 ? "OK" : "FAIL");
+          delay(300);
+          printExposure("after-W");
+        }
+      }
+    } else if (cmd.startsWith("EXP:")) {
+      // `EXP:217` = 최대 노출을 217 row(약 10ms)로 제한 · `EXP:0` = 공장값 복귀
+      // 🔑 다시 굽지 않고 여러 단계를 시험하려고 둔 입구다. 굽기는 실HW 조작이라
+      //    한 번이라도 줄이는 편이 안전하다(§12.65-(7) 보드 오인 사고).
+      long rows = cmd.substring(4).toInt();
+      if (rows < 0 || rows > 4095) {
+        Serial.println("EXP: out of range (0~4095 rows, 0=default)");
+      } else if (setExposureLimitRows((uint16_t)rows)) {
+        Serial.printf("EXP: limit set to %ld row (%.2f ms)%s\n",
+                      rows, rows * ROW_TIME_US / 1000.0f, rows ? "" : " [factory default]");
+        delay(400);            // 자동 노출이 새 상한에 수렴할 시간
+        printExposure("after");
+      } else {
+        Serial.println("EXP: set failed");
+      }
     }
   }
   delay(5000);
@@ -361,6 +479,10 @@ void loop() {
     Serial.printf("  Link: RSSI=%ddBm ch=%d BSSID=%s\n",
       WiFi.RSSI(), WiFi.channel(), WiFi.BSSIDstr().c_str());
   }
+
+  // 🔑 노출·게인을 상시로 남긴다 — 촬영 회차마다 «그때 실제 노출» 을 알아야
+  //    선명도와 대조할 수 있다. 값이 없으면 또 추론으로 돌아간다.
+  printExposure("run");
 
   // 카운터를 읽고 즉시 0 으로 되돌린다 — 이 5초 구간의 값이라는 뜻이다.
   uint32_t cap = statCap,  drop = statDrop, sent = statSent;
