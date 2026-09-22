@@ -59,6 +59,14 @@ def key(win, text):
 
 
 def make_console():
+    # 🔴 GPIO 입력을 끈 채로 만든다 — 이 파일은 **콘솔 UI·FSM 흐름**을 재고, GPIO
+    #    자체는 `test/test_gpio_available.py` 가 따로 본다. 끄지 않으면 EMO 가
+    #    NC(정상 닫힘) fail-safe 라서 **배선이 없을 때 핀이 HIGH = 비상/단선**으로
+    #    읽혀 기동 즉시 BLOCK 이 되고, 흐름 검사가 전부 무너진다(2026-09-22 실측:
+    #    EMO GPIO26 HIGH → 14건 실패). 배선 상태에 따라 결과가 달라지는 시험은
+    #    시험이 아니다.
+    import config
+    config.GPIO_INPUT_ENABLED = False
     from safety_console import SafetyConsole
     win = SafetyConsole()
     win.resize(1920, 1080)
