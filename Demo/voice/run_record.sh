@@ -3,7 +3,7 @@
 #
 # 🔴 시스템 python3 로 돈다 — cv2 가 거기 있다. 음성비서만 ~/env/tts/.venv 로
 #    따로 뜬다(sherpa-onnx 가 그쪽에만 있다).
-# 산출물 = Demo/voice/촬영본/<시각>/ (영상 3벌 + 계측.jsonl + 요약.json)
+# 산출물 = Demo/voice/촬영본/<시각>/ (1인칭 영상 + 오디오/ + 계측.jsonl + 요약.json)
 set -uo pipefail
 cd "$(dirname "$(readlink -f "$0")")/.." || exit 1     # → Demo
 
@@ -23,16 +23,16 @@ echo "  ② \"가디언\" → 띠링 → \"앞에 보이는 게 뭐야?\""
 echo "  ③ 드라이버로 교체                → 시안 박스"
 echo "  ④ ② 반복"
 echo
-echo "  🔑 마이크는 글라스(ESP32), 녹음(영상 소리)은 웹캠 마이크입니다."
-echo "  📼 저장 = 1인칭풀_오버레이켬.mp4 (1280x720 레터박스) + 소리만.wav"
+echo "  🔑 마이크는 글라스(ESP32)입니다 — 영상에 입힐 소리는 녹음하지 않습니다(웹캠 제거)."
+echo "  📼 저장 = 1인칭풀_오버레이켬.mp4 (1280x720 레터박스) + 오디오/마이크_전체.wav"
 echo "  🔴 공구는 한 번에 하나씩 보여주세요."
 echo
 
 # 🔴 시연 촬영 한정으로 공구 임계를 낮춘다(기본 0.65 → 0.30).
 #    공구가 카메라에서 멀면 0.65 를 못 넘는다(2026-09-07 실측: 최고 0.44).
 #    런타임 기본값은 안 바뀐다 — 요약.json 에 쓴 값이 함께 적힌다.
-# 🔴 3인칭 영상은 안 찍는다(2026-09-07 결정) — 소리는 웹캠 마이크로 계속 담는다.
-python3 voice/record_voice_demo.py --sec "$SEC" --conf 0.30 --preview --no-webcam
+# 🔴 3인칭 웹캠·웹캠 마이크는 2026-09-23 제거 — 영상 소리를 담으려면 다른 마이크가 필요하다.
+python3 voice/record_voice_demo.py --sec "$SEC" --conf 0.30 --preview
 status=$?
 
 echo

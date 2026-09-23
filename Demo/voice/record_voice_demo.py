@@ -2,6 +2,9 @@
 """음성비서 시연 촬영 — 콘솔 없이 카메라·공구·음성만으로 찍는다.
 
 실행: python3 Demo/voice/record_voice_demo.py [--sec 90]
+      🔴 2026-09-23 USB 웹캠 제거 — 3인칭 영상과 **영상에 입힐 소리(웹캠 마이크)의 녹음 수단이
+         없다.** 다시 찍으면 다른 마이크가 필요하다. 글라스 마이크 업링크
+         (오디오/마이크_전체.wav, 16kHz)는 음성비서가 그대로 남긴다.
       🔴 시스템 python3 로 돈다(cv2 가 여기 있다). 음성비서만 ~/env/tts/.venv 로
          따로 띄운다 — sherpa-onnx 는 그쪽에만 있다.
 
@@ -10,11 +13,8 @@
                    🔑 저장 규격 = **1280x720 레터박스 · CRF23** — 2026-09-05 채택
                       시연영상(`recordings/시연영상/채택/…1인칭풀…`)과 같은 규격이라
                       편집에서 섞어 쓸 수 있다.
-  ② 3인칭          USB 웹캠 (ABKO APC900) 영상
-                   🔑 `--preview` 면 **같은 ffmpeg 에서 미리보기 출력을 하나 더** 뽑아
-                      창으로 띄운다 — v4l2 는 두 프로세스가 동시에 못 연다.
-  ③ 소리           웹캠 마이크 — 3인칭 영상에 입히고, 끝난 뒤 **wav 로도 뽑아 둔다**
-                   (🔴 ALSA 는 배타적이라 ffmpeg 둘이 동시에 마이크를 못 연다)
+  (② 3인칭 웹캠 · ③ 웹캠 마이크 소리 — 2026-09-23 제거, 백업 태그
+   backup/webcam-before-removal-20260923)
 
 동시에 도는 것:
   · 공구 검출 워커(tool_worker) — GUI 없이 직접 띄운다
@@ -48,7 +48,6 @@ import socket
 import struct
 import subprocess
 import sys
-import threading
 import time
 
 import cv2
@@ -62,8 +61,6 @@ import frame_orient  # noqa: E402
 
 OUT_DIR   = os.path.join(_DEMO_DIR, "voice", "촬영본")
 SHM_DIR   = config.TOOL_SHM_DIR
-WEBCAM    = "/dev/video0"
-MIC       = "plughw:2,0"          # ABKO APC900 웹캠 내장 마이크(카드 2)
 FPS       = 15
 
 # 색·이름 — GUI 와 같은 표를 쓴다(색표 정본 = config.TOOL_BOX_COLORS)
@@ -71,8 +68,6 @@ TOOL_KO = {"driver": "드라이버", "wrench": "렌치", "pliers": "플라이어
 
 # 🔴 창 제목은 ASCII — 한글은 ?? 로 깨진다(2026-09-07 확인).
 PREVIEW_WIN = "FPV overlay - tool check (press q to stop)"
-WEBCAM_WIN  = "3rd person (webcam) - framing check"
-WEB_PREV    = (480, 270)      # 미리보기 크기 — 작게 뽑아 CPU 를 아낀다
 
 # 🔴 cv2.putText 는 한글을 못 그린다(전부 ? 로 나온다, 2026-09-07 확인).
 #    Hershey 폰트에 한글 글리프가 없기 때문이다. Pillow + 나눔 폰트로 그린다.
@@ -191,29 +186,16 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sec", type=int, default=90, help="촬영 길이(초)")
     ap.add_argument("--no-voice", action="store_true", help="음성비서 데몬을 안 띄운다")
-    ap.add_argument("--no-webcam", action="store_true",
-                    help="3인칭 웹캠을 찍지 않는다 (1인칭만)")
     ap.add_argument("--preview", action="store_true",
                     help="1인칭 오버레이를 화면에 띄운다 (공구가 잡히는지 눈으로 본다)")
     ap.add_argument("--no-record", action="store_true",
                     help="영상·소리를 저장하지 않는다 (확인 전용)")
-    ap.add_argument("--check-webcam", type=int, default=0, metavar="초",
-                    help="촬영 시작 전 3인칭 웹캠 구도를 그 초만큼 화면에 띄운다")
     ap.add_argument("--conf", type=float, default=config.TOOL_CONF,
                     help=f"공구 검출 임계 (기본 = config.TOOL_CONF = {config.TOOL_CONF})")
     a = ap.parse_args()
 
     if shutil.which("ffmpeg") is None:
         sys.exit("🔴 ffmpeg 가 없다")
-    if a.check_webcam:
-        # 🔑 촬영 **전에** 본다 — 촬영 중에는 ffmpeg 이 장치를 독점한다.
-        log(f"3인칭 웹캠 구도 확인 {a.check_webcam}초 …")
-        subprocess.run(["ffplay", "-hide_banner", "-loglevel", "error",
-                        "-autoexit", "-t", str(a.check_webcam),
-                        "-f", "v4l2", "-input_format", "mjpeg",
-                        "-video_size", "1920x1080", "-framerate", "15",
-                        "-i", WEBCAM, "-vf", "scale=960:540",
-                        "-window_title", "3rd person framing check"], check=False)
     stamp = time.strftime("%Y%m%d_%H%M%S")
     out = os.path.join(OUT_DIR, stamp)
     os.makedirs(out, exist_ok=True)
@@ -295,7 +277,7 @@ def main():
         sys.exit("🔴 공구 워커가 안 떴다")
     log("공구 워커 준비됨")
 
-    # ── ffmpeg 3벌: 1인칭(파이프) · 3인칭+소리 · 소리만 ──
+    # ── ffmpeg: 1인칭(파이프) ──
     # 🔑 규격을 **기존 시연영상과 똑같이** 맞춘다(2026-09-05 채택본 = 1280x720·
     #    15fps·x264 CRF23). demo_postprocess.py 가 쓰는 값과 같아야 편집에서 섞인다.
     #    1인칭 원본은 480x640(세로)이라 **레터박스**로 얹는다 — 잘라내지 않는다.
@@ -304,7 +286,7 @@ def main():
     TW, TH = 1280, 720
     LETTERBOX = (f"scale={TW}:{TH}:force_original_aspect_ratio=decrease,"
                  f"pad={TW}:{TH}:(ow-iw)/2:(oh-ih)/2:black")
-    p_fpv = p_cam = None
+    p_fpv = None
     if a.no_record:
         log("🔎 확인 모드 — 저장하지 않는다")
     else:
@@ -317,32 +299,9 @@ def main():
         # 🔴 여기에 미리보기용 출력을 하나 더 붙이지 말 것 — 파이프가 막히면
         #   ffmpeg 이 mp4 를 마무리하지 못해 **영상이 통째로 깨진다**
         #   (2026-09-07: moov atom not found, 28.8MB 를 버렸다).
-        #   3인칭 구도는 촬영 **전에** --check-webcam 으로 본다.
-        cam_args = (
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-             "-f", "v4l2", "-input_format", "mjpeg",
-             "-video_size", "1920x1080", "-framerate", str(FPS), "-i", WEBCAM,
-             "-f", "alsa", "-ac", "1", "-ar", "48000", "-i", MIC,
-             "-map", "0:v", "-map", "1:a", "-vf", "scale=1280:720"] + X264
-            + ["-c:a", "aac", "-b:a", "128k",
-               os.path.join(out, "3인칭_소리포함.mp4")])
-        if a.no_webcam:
-            # 🔴 3인칭 영상은 빼되 **소리는 계속 담는다** — 시연 영상의 소리가
-            #    웹캠 내장 마이크에서 나오기 때문이다. 영상만 빼고 오디오만 받는다.
-            log("3인칭 영상은 안 찍는다 — 소리는 계속 담는다 (--no-webcam)")
-            p_cam = subprocess.Popen(
-                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                 "-f", "alsa", "-ac", "1", "-ar", "48000", "-i", MIC,
-                 os.path.join(out, "소리만.wav")])
-        else:
-            p_cam = subprocess.Popen(cam_args)
-    # 🔴 마이크는 ffmpeg 하나만 열 수 있다(ALSA 는 배타적) — 둘이 물면
-    #    「Input/output error」로 3인칭이 통째로 죽는다(2026-09-07 에 물렸다).
-    #    그래서 소리는 3인칭에만 물리고, **끝난 뒤 그 mp4 에서 wav 를 뽑는다.**
         time.sleep(1.5)
-        for name, p in (("1인칭", p_fpv), ("3인칭", p_cam)):
-            if p is not None and p.poll() is not None:
-                log(f"🔴 {name} ffmpeg 이 즉시 죽었다 (코드 {p.returncode})")
+        if p_fpv.poll() is not None:
+            log(f"🔴 1인칭 ffmpeg 이 즉시 죽었다 (코드 {p_fpv.returncode})")
 
     # ── 음성비서 데몬 ──
     voice = None
@@ -358,32 +317,7 @@ def main():
             stderr=subprocess.STDOUT, env=env)
         log("음성비서 데몬 시작 (로그 = 음성비서.log)")
 
-    web = {"frame": None, "run": True}
-
-    def web_reader_direct():
-        """확인 모드(--no-record)에서만 웹캠을 직접 연다 — 그때는 ffmpeg 이 없다."""
-        cap = cv2.VideoCapture(0)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, WEB_PREV[0])
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, WEB_PREV[1])
-        while web["run"]:
-            ok, f = cap.read()
-            if ok:
-                web["frame"] = f
-            else:
-                time.sleep(0.1)
-        cap.release()
-
     if a.preview:
-        if a.no_record:            # 기록 중에는 ffmpeg 이 장치를 쥐고 있다
-            threading.Thread(target=web_reader_direct, daemon=True).start()
-        cv2.namedWindow(WEBCAM_WIN, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(WEBCAM_WIN, 640, 360)
-        cv2.moveWindow(WEBCAM_WIN, 1040, 40)
-        try:
-            cv2.setWindowProperty(WEBCAM_WIN, cv2.WND_PROP_TOPMOST, 1)
-        except Exception:
-            pass
-
         # 🔴 창을 **항상 위**로 띄운다 — 2026-09-07 에 NoMachine 창 뒤에 가려
         #    「화면이 안 나온다」고 오인했다. 제목은 ASCII 로 둔다(한글이 ?? 로 깨진다).
         cv2.namedWindow(PREVIEW_WIN, cv2.WINDOW_NORMAL)
@@ -425,8 +359,6 @@ def main():
             latest = draw(f, dets)
             if a.preview:
                 cv2.imshow(PREVIEW_WIN, latest)
-                if web["frame"] is not None:
-                    cv2.imshow(WEBCAM_WIN, web["frame"])
                 if (cv2.waitKey(1) & 0xFF) == ord("q"):
                     break
             now = time.time()
@@ -438,7 +370,6 @@ def main():
     finally:
         el = time.time() - t0
         log(f"촬영 종료 — {n} 프레임 / {el:.0f}초 = {n/max(el,1):.1f} fps")
-        web["run"] = False
         if a.preview:
             cv2.destroyAllWindows()
         if p_fpv:
@@ -446,33 +377,21 @@ def main():
                 p_fpv.stdin.close()
             except OSError:
                 pass
-        if p_cam:
-            p_cam.send_signal(signal.SIGINT)
-        for p in (p_fpv, p_cam):
-            if p is None:
-                continue
+        if p_fpv:
             try:
-                p.wait(10)
+                p_fpv.wait(10)
             except subprocess.TimeoutExpired:
-                p.kill()
+                p_fpv.kill()
         if voice:
             voice.terminate()
         tw.stop()
         cam.close()
-        # 소리만 따로 — 3인칭 mp4 에서 뽑는다(무손실 추출이라 다시 인코딩 안 한다)
-        mp4 = os.path.join(out, "3인칭_소리포함.mp4")
-        if not a.no_webcam and os.path.exists(mp4) and os.path.getsize(mp4) > 0:
-            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                            "-i", mp4, "-vn", "-acodec", "pcm_s16le",
-                            os.path.join(out, "소리만.wav")], check=False)
         # ── 보고서용 요약 ──
         summary = {
             "촬영시각": stamp,
             "길이초": round(el, 1),
             "1인칭": {"원본": f"{fw}x{fh}", "저장규격": f"{TW}x{TH} 레터박스",
                       "프레임": n, "fps": round(n / max(el, 1), 1)},
-            "3인칭": ({"해상도": "1280x720", "장치": WEBCAM, "마이크": MIC}
-                     if not a.no_webcam else "안 찍음"),
             "공구검출_프레임수": tool_hits,
             "조건": {"ESP32": ip, "모델": os.path.basename(config.TOOL_MODEL_PATH),
                      "conf": a.conf,
