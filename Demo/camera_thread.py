@@ -292,7 +292,7 @@ class CameraThread(QThread):
         """첫 프레임 크기로 보정 파일과 픽셀 배율을 정한다 (spec 2026-09-23 §2.2·§2.4)."""
         maps, status, path = frame_orient.load_undistort(w, h)
         self._undistort_map = maps
-        self._ring_px = int(round(config.HAND_ROI_RING_PX_VGA * frame_orient.px_scale(w, h)))
+        self._ring_px = frame_orient.ring_px(w, h)
         if maps is None:
             self.log_signal.emit(f"[캘리브레이션] {w}×{h} 보정 파일 없음({status}) — "
                                  f"test/calib_capture.py 로 만들 것. 보정 없이 진행")

@@ -47,6 +47,7 @@ sys.path.insert(0, _TEST_DIR)
 
 import config
 import roi_zones
+import frame_orient
 import hoi_metrics                    # 사전 감지율 판정 규칙 단일 출처 (2026-07-27)
 
 TIP = 8          # MediaPipe 손 랜드마크 인덱스 8 = 검지 끝 (접촉 기준점, §7.2)
@@ -191,7 +192,8 @@ def main():
     ap.add_argument("--gap-fill", type=float, default=None,
                     help="갭메우기(초). 기본 = config.FSM_GAP_FILL_SEC. 0 이면 끔")
     ap.add_argument("--ring", type=int, default=None,
-                    help="ROI 링(1단계) 폭 px. 기본 = config.HAND_ROI_RING_PX(런타임과 동일). "
+                    help="ROI 링(1단계) 폭 px. 기본 = VGA 25px × 사진 크기 배율(런타임과 동일 — "
+                         "frame_orient.ring_px). "
                          "0 이면 링을 끄고 박스 안만 본다")
     ap.add_argument("--conf", type=float, default=None,
                     help="손 랜드마크 최소 score. 기본 = config.HAND_MIN_SCORE(런타임과 동일)")
@@ -199,7 +201,6 @@ def main():
                     help="GPIO 눌림 로그(기본: 세션명으로 자동 탐색). 있으면 선행시간·"
                          "사전 감지율·오경보 후보를 함께 산출한다")
     args = ap.parse_args()
-    ring = args.ring if args.ring is not None else config.HAND_ROI_RING_PX
     conf = args.conf if args.conf is not None else config.HAND_MIN_SCORE
     if args.dwell is None:
         args.dwell = config.FSM_DWELL_THRESHOLD_SEC
@@ -220,6 +221,10 @@ def main():
     det, lm = load_hand_models(infer)
 
     pngs = sorted(f for f in os.listdir(args.raw_dir) if f.endswith(".png"))
+    ring = args.ring
+    if ring is None and pngs:
+        h0, w0 = cv2.imread(os.path.join(args.raw_dir, pngs[0])).shape[:2]
+        ring = frame_orient.ring_px(w0, h0)      # 🔴 XGA 사진에 VGA 25px 를 쓰지 않는다
     frames, series, times = [], [], []
     hand_hit = 0
     for f in pngs:

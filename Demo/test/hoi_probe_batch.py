@@ -43,6 +43,7 @@ sys.path.insert(0, _TEST_DIR)
 
 import config                                        # noqa: E402
 import roi_zones                                     # noqa: E402  판정 규칙 단일 출처
+import frame_orient                                  # noqa: E402  링 환산 단일 출처
 
 TIP = 8          # 검지 끝 랜드마크 인덱스 (blaze 규약)
 COLUMNS = ["frame", "n_palm", "flag", "tip_x", "tip_y",
@@ -125,13 +126,21 @@ def main():
     ap.add_argument("--thresh", type=float, required=True,
                     help="팜 검출 임계(blazepalm min_score_thresh). 필수 — config에 없는 값이다")
     ap.add_argument("--ring", type=int, default=None,
-                    help="ROI 링 폭 px. 기본 = config.HAND_ROI_RING_PX(런타임과 동일)")
+                    help="ROI 링 폭 px. 기본 = VGA 25px × 세션 사진 크기 배율(런타임과 동일 — "
+                         "frame_orient.ring_px)")
     ap.add_argument("--only", type=str, default=None,
                     help="세션 이름에 이 문자열이 든 것만 처리(부분일치)")
     ap.add_argument("--force", action="store_true", help="이미 있는 캐시도 다시 만든다")
     args = ap.parse_args()
 
-    ring = args.ring if args.ring is not None else config.HAND_ROI_RING_PX
+    def ring_for(session):
+        """🔴 세션마다 사진 크기로 환산한다 — XGA 세션에 VGA 25px 를 쓰지 않는다."""
+        if args.ring is not None:
+            return args.ring
+        d = os.path.join(RAW_DIR, session)
+        first = min(f for f in os.listdir(d) if f.endswith(".png"))
+        h0, w0 = cv2.imread(os.path.join(d, first)).shape[:2]
+        return frame_orient.ring_px(w0, h0)
 
     # 대상 = raw 폴더가 있고 GPIO 눌림 로그도 있는 세션 (HOI 분석 대상의 정의)
     sessions = []
@@ -148,9 +157,10 @@ def main():
         print("❌ 대상 세션이 없습니다 (raw + gpio 로그 둘 다 있어야 합니다)")
         return 2
 
+    rings = {s: ring_for(s) for s in sessions}
     todo = [s for s in sessions
-            if args.force or not os.path.exists(cache_path(s, args.thresh, ring))]
-    print(f"팜 임계 {args.thresh} · 링 {ring}px")
+            if args.force or not os.path.exists(cache_path(s, args.thresh, rings[s]))]
+    print(f"팜 임계 {args.thresh} · 링 {sorted(set(rings.values()))}px")
     print(f"대상 {len(sessions)}세션 · 처리 {len(todo)} · 스킵 {len(sessions) - len(todo)}\n")
     if not todo:
         print("✅ 모두 캐시되어 있습니다 (--force 로 재생성)")
@@ -163,9 +173,9 @@ def main():
     print(f"모델 로드 완료 (적용 임계 {det.min_score_thresh})\n")
 
     for i, session in enumerate(todo, 1):
-        out = cache_path(session, args.thresh, ring)
+        out = cache_path(session, args.thresh, rings[session])
         rows = probe_session(os.path.join(RAW_DIR, session), session, det, lm,
-                             args.thresh, ring)
+                             args.thresh, rings[session])
         write_cache(out, rows)
         hit = sum(1 for r in rows if r[1])
         print(f"[{i}/{len(todo)}] {session}  {len(rows)}프레임 · 팜검출 {hit} "

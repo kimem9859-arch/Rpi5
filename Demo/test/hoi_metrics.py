@@ -29,7 +29,8 @@ import sqlite3
 
 WINDOW_N = 5          # 눌림 직전 몇 프레임까지 되돌아보는가 (총 N+1 프레임)
 PALM_THRESH = 0.5     # 팜 임계 고정 — 변수를 섞지 않는다 (§10.27·§10.28)
-CLIFF_Y = 337         # 절벽 경계. 이보다 아래 버튼은 창으로 못 고친다 (§10.27)
+CLIFF_Y_VGA = 337     # 절벽 경계(VGA 480×640 회전 후 좌표). 이보다 아래 버튼은 창으로 못 고친다 (§10.27)
+CLIFF_Y = CLIFF_Y_VGA # hoi.db 는 전부 VGA 세션이다 — XGA 세션이 들어오면 × frame_orient.px_scale 로 환산할 것
 
 _DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hoi.db")
 

@@ -93,6 +93,11 @@ def px_scale(w, h):
     return max(w, h) / 640.0
 
 
+def ring_px(w, h):
+    """ROI 링(1단계) 폭 px — config.HAND_ROI_RING_PX_VGA × px_scale. 런타임·도구 공통(XGA → 40)."""
+    return int(round(config.HAND_ROI_RING_PX_VGA * px_scale(w, h)))
+
+
 def undistort(frame, maps):
     """맵이 None 이면 원본을 그대로 돌려준다(호출부가 경고를 책임진다)."""
     if maps is None:

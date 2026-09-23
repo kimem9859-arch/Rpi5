@@ -49,6 +49,12 @@ def test_px_scale():
     assert fo.px_scale(1024, 768) == 1.6
     assert fo.px_scale(768, 1024) == 1.6
 
+def test_ring_px():
+    """링 = VGA 기준 25px × px_scale — 런타임·도구가 같은 식을 쓴다(단일 출처)."""
+    import config
+    assert fo.ring_px(640, 480) == config.HAND_ROI_RING_PX_VGA
+    assert fo.ring_px(768, 1024) == round(config.HAND_ROI_RING_PX_VGA * 1.6)
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

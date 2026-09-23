@@ -225,8 +225,13 @@ def run_bench(args):
     # 🔑 왜곡보정 맵은 **첫 프레임의 실제 크기**로 만든다 — config 에 해상도 상수가 없고,
     #    센서 설정이 바뀌어도 따라가야 한다. None=아직 시도 안 함 / False=없음 / 맵.
     umap_box = [None]
+    # manifest 에 남길 센서 원본 크기·보정 결과 — 첫 프레임에 정해진다(spec 2026-09-23 §2.5).
+    calib_info = {"frame_size": None, "undistort": False, "calibration_file": None}
 
     def _apply_flip(f):
+        if calib_info["frame_size"] is None:
+            h0, w0 = f.shape[:2]
+            calib_info["frame_size"] = f"{w0}x{h0}"
         if flip_mode == "v":  f = cv2.flip(f, 0)
         elif flip_mode == "h":  f = cv2.flip(f, 1)
         elif flip_mode == "vh": f = cv2.flip(f, -1)
@@ -234,9 +239,14 @@ def run_bench(args):
         if args.undistort:
             if umap_box[0] is None:
                 h0, w0 = f.shape[:2]
-                umap_box[0] = frame_orient.undistort_map(w0, h0) or False
+                maps, status, path = frame_orient.load_undistort(w0, h0)
+                umap_box[0] = maps if maps is not None else False
+                calib_info["undistort"] = maps is not None
+                calib_info["calibration_file"] = os.path.basename(path) if path else None
                 if umap_box[0] is False:
-                    print(f"🔴 [왜곡보정] {w0}×{h0} 용 캘리브레이션 맵 없음 — 보정 없이 진행한다")
+                    print(f"🔴 [왜곡보정] {w0}×{h0} 용 캘리브레이션 맵 없음({status}) — 보정 없이 진행한다")
+                else:
+                    print(f"[왜곡보정] {os.path.basename(path)} ({w0}×{h0})")
             if umap_box[0] is not False:
                 f = frame_orient.undistort(f, umap_box[0])
         return frame_orient.rotate(f)
@@ -484,7 +494,10 @@ def run_bench(args):
           f"{max_frames}프레임 측정 — Ctrl+C로 중단\n")
 
     # manifest — 이 raw가 어떤 조건에서 찍혔는지. 없으면 나중에 PNG 더미의 의미를 잃는다.
-    if raw_dir:
+    # 🔴 첫 프레임 전에 한 번, 첫 프레임 뒤(해상도·보정 결과가 정해진 뒤) 한 번 더 쓴다.
+    def _write_manifest():
+        if not raw_dir:
+            return
         with open(os.path.join(raw_dir, "manifest.json"), "w") as mf:
             json.dump({
                 "timestamp":      ts,
@@ -504,8 +517,11 @@ def run_bench(args):
                 "yolo_conf_low":  config.YOLO_CONF_LOW,
                 "yolo_input_size": config.YOLO_INPUT_SIZE,
                 "class_names":    CLASS_NAMES,
+                **calib_info,
                 "note": "PNG = detector.detect()에 건네진 배열(플립 후). 무손실.",
             }, mf, ensure_ascii=False, indent=2)
+
+    _write_manifest()
 
     try:
         while frame_no < max_frames:
@@ -529,6 +545,8 @@ def run_bench(args):
             frame = _apply_flip(frame)
 
             frame_no += 1
+            if frame_no == 1:
+                _write_manifest()
             frame_holder[0] = frame_no       # GPIO 콜백 스레드가 눌림에 프레임을 붙일 수 있게
             now_str  = datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
