@@ -49,6 +49,23 @@ def find_corners(bgr):
     return cv2.cornerSubPix(gray, corners, *SUBPIX)
 
 
+def norm_out(path):
+    """np.savez 는 확장자가 없으면 .npz 를 붙인다 — 비교 전에 같은 규칙으로 맞춘다."""
+    return path if path.endswith(".npz") else path + ".npz"
+
+
+def guard_out(path):
+    """런타임 보정 파일을 덮지 못하게 — 확장자·상대경로·symlink·하드링크 모두 막는다."""
+    rt = config.YOLO_CALIBRATION_PATH
+    p = norm_out(path)
+    same = os.path.realpath(p) == os.path.realpath(rt)
+    if not same and os.path.exists(p) and os.path.exists(rt):
+        same = os.path.samefile(p, rt)
+    if same:
+        raise SystemExit(f"🔴 런타임 보정 파일({rt})은 덮어쓰지 않는다 — --out 을 바꿀 것")
+    return p
+
+
 def pose_of(corners, w):
     """자세 요약 — 중심(화면 폭 비율) · 넓이 비율 · 기울기(도)."""
     pts = corners.reshape(-1, 2)
@@ -64,7 +81,8 @@ def is_new_pose(p, poses, min_move, min_area, min_tilt):
     for q in poses:
         moved = ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2) ** 0.5 >= min_move
         scaled = abs(p[2] - q[2]) / max(q[2], 1e-6) >= min_area
-        tilted = abs(p[3] - q[3]) >= min_tilt
+        d = abs(p[3] - q[3]) % 180                  # 코너 순서가 180° 뒤집혀도 같은 자세다(8×6칸 판은 대칭)
+        tilted = min(d, 180 - d) >= min_tilt
         if not (moved or scaled or tilted):
             return False
     return True
@@ -137,8 +155,7 @@ def calibrate(obj_pts, img_pts, size):
 
 def solve(samples, size, out_path, meta):
     """계산 → 튀는 장 제거 → 저장 → 기존 VGA 값과 비교."""
-    if os.path.abspath(out_path) == os.path.abspath(config.YOLO_CALIBRATION_PATH):
-        raise SystemExit(f"🔴 런타임 보정 파일({out_path})은 덮어쓰지 않는다 — --out 을 바꿀 것")
+    out_path = guard_out(out_path)
     objp = np.zeros((CHESSBOARD[0] * CHESSBOARD[1], 3), np.float32)
     objp[:, :2] = np.mgrid[0:CHESSBOARD[0], 0:CHESSBOARD[1]].T.reshape(-1, 2)
     names = [n for n, _ in samples]
@@ -158,7 +175,13 @@ def solve(samples, size, out_path, meta):
     verdict = "✅ 합격" if rms <= RMS_GOAL else "🔴 불합격"
     print(f"  {verdict} (기준 {RMS_GOAL}px) · 장별 오차 median {np.median(errs):.3f} · max {max(errs):.3f}")
     w, h = size
-    meta.update(rms=float(rms), n_used=len(keep), n_captured=len(samples), flipped=True,
+    ok = rms <= RMS_GOAL
+    if not ok:                                      # 🔴 불합격본은 합격본 자리에 두지 않는다
+        out_path = out_path[:-4] + "_fail.npz"
+    elif os.path.exists(out_path) and not meta.get("force"):
+        out_path = out_path[:-4] + datetime.now().strftime("_%Y%m%d_%H%M%S") + ".npz"
+        print(f"  ⚠️ 기존 파일이 있어 새 이름으로 저장한다(덮으려면 --force)")
+    meta.update(rms=float(rms), n_used=len(keep), n_captured=len(samples), flipped=bool(config.CAMERA_FLIP_VERTICAL),
                 used=[names[k] for k in keep], created=datetime.now().isoformat(timespec="seconds"))
     np.savez(out_path, camera_matrix=K, dist_coeffs=D, image_size=np.array([w, h]),
              meta=json.dumps(meta, ensure_ascii=False))
@@ -170,18 +193,21 @@ def solve(samples, size, out_path, meta):
     print(f"  덮은 범위 — 중심에서 가장 먼 코너 {rmax:.0f}px / 화면 모서리 {rcorner:.0f}px = {100 * rmax / rcorner:.0f}% "
           f"(그 바깥은 추정)")
     # 참고 — 기존 VGA 파일(반전 전 계산)을 이 해상도로 늘렸을 때
-    vga = os.path.join(_DEMO_DIR, "camera_calibration.npz")
-    if os.path.exists(vga):
+    vga = config.YOLO_CALIBRATION_PATH
+    if os.path.exists(vga) and "image_size" in np.load(vga):
         v = np.load(vga)
         vw, vh = (int(x) for x in v["image_size"])
         s = w / vw
         vk = v["camera_matrix"]
         print(f"  [참고] 기존 VGA×{s:.2f} — fx {vk[0,0]*s:.1f} · fy {vk[1,1]*s:.1f} · cx {vk[0,2]*s:.1f} · "
-              f"cy {vk[1,2]*s:.1f} (반전을 반영하면 {(vh - 1 - vk[1,2])*s:.1f})")
-    return rms <= RMS_GOAL
+              f"cy {vk[1,2]*s:.1f} (반전을 반영하면 {((vh - 1 - vk[1,2]) + 0.5) * s - 0.5:.1f})")
+        if abs(K[0, 0] / (vk[0, 0] * s) - 1) > 0.10:
+            print(f"  ⚠️ 참고값과 초점거리가 {100 * (K[0, 0] / (vk[0, 0] * s) - 1):+.0f}% 다르다 — "
+                  f"화각이 다르거나 기존 파일이 현재 카메라와 맞지 않는다")
+    return ok, out_path
 
 
-def save_check_image(sample_png, out_path, size):
+def save_check_image(sample_png, out_path, size, dest_dir):
     """보정 전·후 나란히 — 직선이 펴지는지 눈으로 본다."""
     data = np.load(out_path)
     K, D = data["camera_matrix"], data["dist_coeffs"]
@@ -189,13 +215,15 @@ def save_check_image(sample_png, out_path, size):
     newK, _ = cv2.getOptimalNewCameraMatrix(K, D, size, config.CALIB_ALPHA, size)
     und = cv2.undistort(img, K, D, None, newK)
     both = np.hstack([img, np.full((img.shape[0], 8, 3), 255, np.uint8), und])
-    p = os.path.splitext(out_path)[0] + "_check.png"
+    p = os.path.join(dest_dir, os.path.splitext(os.path.basename(out_path))[0] + "_check.png")
     cv2.imwrite(p, both)
     print(f"  보정 전·후 비교: {p}")
 
 
 def capture(args):
     from bench_detector import _connect_tcp, _recv_latest_frame   # 수신은 기존 도구와 같은 경로
+    if args.out:
+        guard_out(args.out)                        # 🔴 몇 분 찍은 뒤가 아니라 시작 전에 막는다
     host = args.host or config.CAMERA_TCP_HOST
     sock = _connect_tcp(host)
     if sock is None:
@@ -211,20 +239,26 @@ def capture(args):
     still_buf = []                                  # 멈춘 채로 이어진 프레임들의 코너 — 평균해 저장
     last_t, status = 0.0, "카메라를 체스보드에 비추세요"
     hulls = []                                      # 저장한 자세의 테두리 — 외부 체스보드 방식에서 빈 곳을 보여 준다
-    n_before = 0
+    n_before, next_no, loaded_size = 0, 1, None
     if args.add_to:                                 # 기존 샘플에 이어 찍기 — 빈 곳(가장자리)을 보충한다
-        for png in sorted(glob.glob(os.path.join(sample_dir, "s*.png"))):
+        for png in sample_pngs(sample_dir):
             c0 = np.load(png.replace(".png", "_corners.npy")).astype(np.float32)
+            ih, iw = cv2.imread(png).shape[:2]
+            if loaded_size is None:
+                loaded_size = (iw, ih)
+            elif (iw, ih) != loaded_size:           # 🔴 해상도가 섞이면 좌표계가 섞인다
+                raise SystemExit(f"🔴 {png} 크기 {iw}×{ih} ≠ {loaded_size} — 샘플 폴더에 해상도가 섞였다")
             samples.append((os.path.basename(png), c0))
-            poses.append(pose_of(c0, cv2.imread(png).shape[1]))
+            poses.append(pose_of(c0, iw))
             hulls.append(cv2.convexHull(c0.reshape(-1, 2)).reshape(-1, 2))
         n_before = len(samples)
+        next_no = 1 + max((int(os.path.basename(n)[1:-4]) for n, _ in samples), default=0)   # 🔴 빈 번호가 있어도 겹치지 않게
         print(f"[이어 찍기] 기존 {n_before}장 불러옴 — {sample_dir}")
     ext = args.board == "external"
-    if not ext:
-        cv2.imshow(WIN, board_canvas(sw, sh, f"0 / {args.samples}", status))
-        cv2.waitKey(1)
     target = n_before + args.samples if args.add_to else args.samples
+    if not ext:
+        cv2.imshow(WIN, board_canvas(sw, sh, f"{n_before} / {target}", status))
+        cv2.waitKey(1)
     while len(samples) < target:
         data = _recv_latest_frame(sock)
         if data is None:
@@ -237,6 +271,9 @@ def capture(args):
         if size is None:
             size = (w, h)
             print(f"[프레임] {w}×{h} · 반전 적용")
+            if loaded_size is not None and size != loaded_size:   # 🔴 펌웨어 해상도와 샘플 폴더가 다르면 중단
+                print(f"🔴 스트림 {w}×{h} ≠ 기존 샘플 {loaded_size[0]}×{loaded_size[1]} — 펌웨어 해상도를 확인할 것")
+                sock.close(); cv2.destroyAllWindows(); return 1
         c = find_corners(frame)
         now = time.time()
         # 🔴 손 떨림 차단 — 센서가 한 장을 약 36ms 에 걸쳐 줄 단위로 읽어(롤링 셔터) 그사이 움직이면
@@ -253,7 +290,9 @@ def capture(args):
             status = "체스보드를 찾는 중..."
         elif now - last_t < args.interval:
             pass
-        elif still is None or still > args.still_px:
+        elif still is None:
+            status = "체스보드 찾음 — 멈춤 확인 중..."
+        elif still > args.still_px:
             status = (f"움직이는 중 — 멈출 때까지 기다리는 중 (흔들림 {still if still is not None else 0:.1f}px)" if ext
                       else f"움직이는 중 — 카메라를 멈춰 주세요 (흔들림 {still if still is not None else 0:.1f}px)")
         elif len(still_buf) < args.avg:
@@ -265,7 +304,7 @@ def capture(args):
             if poses and not is_new_pose(p, poses, args.min_move, args.min_area, args.min_tilt):
                 status = "비슷한 자세 — 각도·거리·위치를 바꿔 주세요"
             else:
-                name = f"s{len(samples)+1:02d}.png"
+                name = f"s{next_no:02d}.png"; next_no += 1
                 cv2.imwrite(os.path.join(sample_dir, name), frame)
                 np.save(os.path.join(sample_dir, name.replace(".png", "_corners.npy")), c)
                 samples.append((name, c)); poses.append(p); last_t = now
@@ -284,20 +323,34 @@ def capture(args):
         print(f"🔴 샘플 {len(samples)}장 — 계산하지 않는다(최소 10). 샘플: {sample_dir}")
         return 1
     out = args.out or os.path.join(_DEMO_DIR, f"camera_calibration_{size[0]}x{size[1]}.npz")
-    ok = solve(samples, size, out, {"source": "calib_capture", "sample_dir": sample_dir, "host": host, "drop": args.drop_outliers})
-    save_check_image(os.path.join(sample_dir, samples[0][0]), out, size)
+    ok, out = solve(samples, size, out, {"source": "calib_capture", "sample_dir": os.path.abspath(sample_dir), "host": host,
+                                         "drop": args.drop_outliers, "force": args.force})
+    save_check_image(os.path.join(sample_dir, samples[0][0]), out, size, sample_dir)
     print(f"샘플 보존: {sample_dir}")
     return 0 if ok else 2
 
 
+def sample_pngs(d):
+    """샘플 이름 규칙(sNN.png + sNN_corners.npy)에 맞는 것만."""
+    import re
+    return sorted(p for p in glob.glob(os.path.join(d, "s*.png"))
+                  if re.fullmatch(r"s\d+\.png", os.path.basename(p)) and os.path.exists(p[:-4] + "_corners.npy"))
+
+
 def from_dir(args):
     d = args.from_dir
-    pngs = sorted(glob.glob(os.path.join(d, "s*.png")))
+    pngs = sample_pngs(d)
+    if not pngs:
+        raise SystemExit(f"🔴 {d} 에 샘플(sNN.png + sNN_corners.npy)이 없다")
+    sizes = {cv2.imread(p).shape[:2] for p in pngs}
+    if len(sizes) > 1:
+        raise SystemExit(f"🔴 샘플 크기가 섞였다: {sizes}")
     samples = [(os.path.basename(p), np.load(p.replace(".png", "_corners.npy"))) for p in pngs]
-    h, w = cv2.imread(pngs[0]).shape[:2]
+    h, w = sizes.pop()
     out = args.out or os.path.join(_DEMO_DIR, f"camera_calibration_{w}x{h}.npz")
-    ok = solve(samples, (w, h), out, {"source": "calib_capture --from-dir", "sample_dir": d, "drop": args.drop_outliers})
-    save_check_image(pngs[0], out, (w, h))
+    ok, out = solve(samples, (w, h), out, {"source": "calib_capture --from-dir", "sample_dir": os.path.abspath(d),
+                                           "drop": args.drop_outliers, "force": args.force})
+    save_check_image(pngs[0], out, (w, h), d)
     return 0 if ok else 2
 
 
@@ -328,7 +381,15 @@ def self_test():
         # 다양성 판정 점검 — 같은 자세는 거절, 옮긴 자세는 통과해야 한다
         assert not is_new_pose(p, [p], 0.08, 0.25, 8), "같은 자세를 새 자세로 받았다"
         assert is_new_pose((p[0] + 0.2, p[1], p[2], p[3]), [p], 0.08, 0.25, 8), "옮긴 자세를 거절했다"
-        print("  다양성 판정 ✅")
+        assert not is_new_pose((p[0], p[1], p[2], p[3] + 179), [p], 0.08, 0.25, 8), "코너 순서 뒤집힘을 새 자세로 받았다"
+        print("  다양성 판정 ✅ (180° 뒤집힘 포함)")
+        rt = config.YOLO_CALIBRATION_PATH
+        for bad in (rt, rt[:-4], os.path.relpath(rt)):
+            try:
+                guard_out(bad); raise AssertionError(f"가드가 {bad} 를 통과시켰다")
+            except SystemExit:
+                pass
+        print("  런타임 파일 보호 ✅ (확장자 없음·상대경로)")
     return 0 if c is not None else 1
 
 
@@ -347,7 +408,9 @@ def main():
                     help="외부 화면용 체스보드 PNG 를 만든다(칸 크기가 정수로 같게) — 예: --make-board 1920 1080")
     ap.add_argument("--screen", type=int, nargs=2, default=(1920, 1280), metavar=("W", "H"))
     ap.add_argument("--host", default=None)
-    ap.add_argument("--out", default=None, help="기본 = Demo/camera_calibration_<W>x<H>.npz (기존 파일을 덮어쓰지 않는다)")
+    ap.add_argument("--out", default=None, help="기본 = Demo/camera_calibration_<W>x<H>.npz · 런타임 파일은 거부 · "
+                    "같은 이름이 있으면 시각 붙인 새 이름(덮으려면 --force) · 불합격은 _fail 로 저장")
+    ap.add_argument("--force", action="store_true", help="합격 결과가 기존 해상도별 파일을 덮어쓰게 한다")
     ap.add_argument("--from-dir", default=None)
     ap.add_argument("--drop-outliers", action="store_true", help="오차가 중앙값의 2배를 넘는 장을 빼고 다시 계산(기본 끔 — 가장자리 정보가 먼저 빠진다)")
     ap.add_argument("--add-to", default=None, metavar="샘플폴더", help="기존 샘플 폴더에 이어 찍고 전체로 다시 계산(--samples 는 추가할 장수)")
