@@ -319,6 +319,9 @@ def capture(args):
             print("중단(q)"); break
     sock.close()
     cv2.destroyAllWindows()
+    if args.add_to and len(samples) == n_before:     # 🔴 새 샘플이 없으면 다시 계산·저장하지 않는다(2026-09-23 수신 끊김 때 발생)
+        print("🔴 새 샘플 없음 — 계산하지 않는다")
+        return 1
     if len(samples) < 10 or size is None:
         print(f"🔴 샘플 {len(samples)}장 — 계산하지 않는다(최소 10). 샘플: {sample_dir}")
         return 1
