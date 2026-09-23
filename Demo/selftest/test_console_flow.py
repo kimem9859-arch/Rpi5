@@ -20,7 +20,6 @@ _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ["SOP_USB_CAMERA"] = "0"          # 웹캠 점유 방지
 
 import config
 config.RECORDING_ENABLED = False            # 테스트가 녹화 파일을 남기지 않게
@@ -475,26 +474,13 @@ def test_sheet_sized_on_first_open():
     win.close()
 
 
-def test_cctv_switch_needs_confirm():
-    """🔴 CCTV 전환은 확인을 받고 나서 바뀐다 (2026-08-04).
-
-    실수로 카메라가 바뀌면 감지가 끊긴다. 종료 확인창과 같은 방어다.
-    ⚠️ 모달을 실제로 띄우면 테스트가 응답을 기다리며 멎는다 — 확인 함수를
-       가짜로 바꿔 「응답을 받은 뒤」만 검사한다.
-    """
-    print("\n[13] CCTV 전환 확인")
+def test_no_usb_camera():
+    """USB 웹캠(CCTV)은 제거됐다 — 카메라는 ESP32 하나뿐 (spec 2026-09-23 D5)."""
+    print("\n[13] 카메라 단일 경로")
     win = make_console()
-    before = win._active_camera
-
-    win._confirm_camera_switch = lambda target: False      # 「아니요」
-    win._toggle_camera_source()
-    check(win._active_camera == before, f"거절하면 그대로: {win._active_camera}")
-
-    asked = []
-    win._confirm_camera_switch = lambda target: asked.append(target) or True   # 「예」
-    win._toggle_camera_source()
-    check(asked and asked[0] != before, f"전환할 카메라를 묻는다: {asked}")
-    check(win._active_camera != before, f"승낙하면 바뀐다: {win._active_camera}")
+    check(not hasattr(win, "usb_camera_thread"), "USB 스레드가 없다")
+    check(not hasattr(win, "_toggle_camera_source"), "카메라 전환 메서드가 없다")
+    check(win.camera_thread._is_active, "ESP32 스레드가 기동부터 활성")
     win.close()
 
 
@@ -545,7 +531,7 @@ def test_reset_when_idle_is_safe():
 
 
 def test_detect_box_toggle():
-    """🔴 설정에서 탐지 박스를 끄면 두 카메라 스레드에 모두 전달되는가.
+    """🔴 설정에서 탐지 박스를 끄면 카메라 스레드에 전달되는가.
 
     🔑 표시만 끄는 것이다 — 끈 상태에서도 순서 위반 판정은 그대로 돈다(설계 §4.2).
     """
@@ -555,7 +541,6 @@ def test_detect_box_toggle():
 
     win.settings_panel._box_buttons[False].setChecked(True)
     check(win.camera_thread.draw_boxes() is False, "끄면 ESP32 스레드에 전달")
-    check(win.usb_camera_thread.draw_boxes() is False, "끄면 USB 스레드에도 전달")
 
     # 끈 상태에서도 판정은 살아 있다
     win._on_cta()
@@ -834,11 +819,6 @@ def test_fps_stops_when_camera_dies():
               f"끊기면 빈칸 — 마지막 값이 남지 않는다: '{win.fps_label.text()}'")
         check(win._fps_intervals == [],
               "표본도 버린다 — 카메라가 돌아오면 새로 쌓는다")
-
-        # 카메라를 바꾸면 이전 카메라의 간격을 물려받지 않는다
-        win._fps_intervals = [0.05] * 10
-        win._switch_camera("usb", quiet=True)
-        check(win._fps_intervals == [], "카메라 전환 시에도 표본을 버린다")
     finally:
         config.SHOW_FPS = was
         win.close()

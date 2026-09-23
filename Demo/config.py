@@ -378,18 +378,6 @@ HAND_ROI_RING_PX   = 25
 HAND_WINDOW_N      = 0      # 최근 몇 프레임을 보는가 (0 = 꺼짐, §10 스윕 미달로 폐기)
 HAND_WINDOW_M      = 3      # 그중 몇 번 관측되면 '계속 있는 것'으로 보는가 (N=0이라 미사용)
 
-# CCTV(USB 웹캠) 스레드 사용 여부.
-# 🔴 False 로 두면 GUI 가 /dev/video0 을 점유하지 않는다 — 시나리오 촬영 때 웹캠을
-#    3인칭 기록(ffmpeg)에 양보하기 위한 스위치. 이때 상단 'CCTV' 버튼은 무동작.
-# 환경변수 SOP_USB_CAMERA=0 으로도 끌 수 있다(run_scenario.sh 가 이 경로를 쓴다).
-USB_CAMERA_ENABLED = os.environ.get("SOP_USB_CAMERA", "1") != "0"
-
-# 기동 시 어느 카메라로 시작하는가 — "esp32"(기본) | "usb".
-# 🔴 기본값은 바꾸지 않는다. 시연·운용은 그대로 ESP32 로 뜬다.
-#    측정 전용 스위치다 — ESP32 는 무선·전원·장면(프레임 크기)이 함께 흔들려
-#    「애니메이션만 변수」인 대조(G6)를 만들 수 없다(2026-08-26 실측). 그때는
-#    SOP_CAMERA=usb 로 공급을 고정하고 잰다.
-CAMERA_SOURCE = os.environ.get("SOP_CAMERA", "esp32")
 HAND_DRAW          = True     # 화면에 랜드마크·검지끝 표시
 
 # =============================================================================

@@ -25,7 +25,7 @@ from config import (
     ACCENT, BTN_ACTIVE, BTN_INACTIVE, BTN_CALIB,
     STATUS_OK, STATUS_WARNING, STATUS_DANGER,
 )
-from camera_thread import CameraThread, UsbCameraThread, close_detector
+from camera_thread import CameraThread, close_detector
 from fsm import SafetyFSM, State, Feedback
 from roi_zones import INSIDE as ZONE_INSIDE
 from recipe import load_recipe, RecipeError
@@ -209,7 +209,6 @@ class SafetyConsole(QMainWindow):
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
-        self._active_camera = "esp32"
         self._last_yolo_classes = set()
         self._last_roi = (None, 0)   # (ROI 라벨, 구역 단계) — 로그 중복 억제용
 
@@ -297,27 +296,16 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.yolo_detections_signal.connect(self._on_yolo_detections)
         self.camera_thread.roi_signal.connect(self._on_roi)
         self.camera_thread.hand_signal.connect(self._on_hand)
-        # 공구 판정(A-2) — ESP32 1인칭에만 붙인다(USB 는 시연 경로가 아니다).
+        # 공구 판정(A-2) — ESP32 1인칭 입력.
         self.camera_thread.tool_signal.connect(self._on_tool)
         self.camera_thread.calibration_needed_signal.connect(self._on_calibration_needed)
         self.camera_thread.connect_failed_signal.connect(
             lambda n: self._on_connect_gave_up("카메라", n))
         self.camera_thread.start()
 
-        # 🔴 두 카메라를 동시에 돌리지 않는다 (2026-08-04).
-        #    종전에는 ESP32·USB 스레드가 **둘 다 추론**했는데 화면엔 하나만 나왔다.
-        #    실측에서 USB 쪽이 약 14%p 를 쓰고 있었다. 쓰는 쪽만 돌린다.
-        self.usb_camera_thread = UsbCameraThread()
-        self.usb_camera_thread.change_pixmap_signal.connect(self._update_usb_frame)
-        self.usb_camera_thread.log_signal.connect(self._append_log)
-        self.usb_camera_thread.yolo_detections_signal.connect(self._on_yolo_detections)
-        self.usb_camera_thread.roi_signal.connect(self._on_roi)
-        self.usb_camera_thread.hand_signal.connect(self._on_hand)
-        # start() 는 _switch_camera 가 필요할 때만 부른다 — 아래 초기 전환에서 결정된다.
-
-        # 기동 시 한쪽만 연다 — 기본은 ESP32 이고, USB 는 CCTV 전환 때 열린다.
-        # config.CAMERA_SOURCE(환경변수 SOP_CAMERA)로 측정 때만 usb 로 띄운다.
-        self._switch_camera(config.CAMERA_SOURCE, quiet=True)
+        # 카메라는 ESP32-S3 1인칭 하나뿐이다 — USB 웹캠(CCTV)은 2026-09-23 제거
+        # (spec D5 · 백업 태그 backup/webcam-before-removal-20260923).
+        self.camera_label.setText("ESP32-S3 연결 대기 중...")
         self._append_log("[시스템] Vision AI 안전 콘솔 시작")
         if self._recipe:
             self._append_log(f"[레시피] '{self._recipe['process_name']}' 로드 — {self.fsm.step_count}단계")
@@ -433,7 +421,6 @@ class SafetyConsole(QMainWindow):
         self.menu_panel.closed.connect(lambda: self._toggle_menu(False))
         self.menu_panel.log_clicked.connect(self._show_log)
         self.menu_panel.calibrate_clicked.connect(lambda: self._open_calibration_dialog())
-        self.menu_panel.cctv_clicked.connect(self._toggle_camera_source)
         self.menu_panel.check_clicked.connect(self._open_check)
         self.menu_panel.record_clicked.connect(self._open_record)
         self.menu_panel.settings_clicked.connect(self._open_settings)
@@ -598,21 +585,12 @@ class SafetyConsole(QMainWindow):
     # =========================================================================
     @pyqtSlot(QImage)
     def _update_camera_frame(self, qt_image):
-        if self._active_camera != "esp32":
-            return
         self._note_frame(qt_image)
         if config.DEMO_HIDE_VIDEO:
             # 🔴 표시만 검정이다 — _note_frame 은 위에서 이미 돌았고, 검출·판정·
             #    1인칭 녹화는 그대로다. 「UI만」 회차용.
             self.camera_label.clear()
             return
-        self.camera_label.setPixmap(QPixmap.fromImage(self._fit_to_label(qt_image)))
-
-    @pyqtSlot(QImage)
-    def _update_usb_frame(self, qt_image):
-        if self._active_camera != "usb":
-            return
-        self._note_frame(qt_image)
         self.camera_label.setPixmap(QPixmap.fromImage(self._fit_to_label(qt_image)))
 
     def _fit_to_label(self, qt_image):
@@ -668,54 +646,6 @@ class SafetyConsole(QMainWindow):
                 self._record_camera_frame(cv2.cvtColor(arr, cv2.COLOR_RGB2BGR))
             except Exception as e:
                 print(f"[녹화 프레임 오류] {e}")
-
-    def _switch_camera(self, source, quiet=False):
-        """카메라 전환 — 🔴 쓰는 쪽만 스레드를 돌린다(둘 다 돌리면 CPU 낭비).
-
-        ⚠️ 멈춘 스레드를 다시 start() 할 수는 없다(QThread 규약). 그래서 쓰지 않는
-           쪽은 **set_active(False) 로 처리만 끄고** 스레드는 유지한다. 처리를 끄면
-           추론이 돌지 않아 부담이 사라진다 — 이것이 실측 14%p 의 정체였다.
-        """
-        self._active_camera = source
-        self._last_yolo_classes = set()
-        self._fps_intervals.clear()     # 카메라가 다르면 FPS 도 다르다 — 섞지 않는다
-        self.camera_thread.set_active(source == "esp32")
-        self.usb_camera_thread.set_active(source == "usb")
-        if source == "usb" and not self.usb_camera_thread.isRunning():
-            self.usb_camera_thread.start()      # 필요해진 순간에만 연다
-        label = "초소형카메라 (ESP32-S3)" if source == "esp32" else "CCTV (USB 웹캠)"
-        self._append_log(f"[카메라] {label}로 전환")
-        if not quiet:
-            self._notify("work", "카메라 전환", label)
-        if source == "esp32":
-            self.camera_label.setText("ESP32-S3 연결 대기 중...")
-
-    def _confirm_camera_switch(self, target):
-        """전환 확인창. 🔴 모달은 **여기서만** 띄운다 — 분리해 두면 테스트가
-        이 함수를 가짜로 바꿔 「응답을 받은 뒤」만 검사할 수 있다.
-
-        기본 선택은 「아니요」다. 실수로 카메라가 바뀌면 감지가 끊긴다
-        (종료 확인창과 같은 방어).
-        """
-        name = "CCTV(USB 웹캠)" if target == "usb" else "초소형카메라(ESP32-S3)"
-        reply = QMessageBox.question(
-            self,
-            "카메라 전환 확인",
-            f"{name} 로 전환할까요?\n\n"
-            "전환하는 동안 잠시 영상이 끊깁니다.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,   # 기본 선택 = 아니오 (오동작 방지)
-        )
-        return reply == QMessageBox.StandardButton.Yes
-
-    def _toggle_camera_source(self):
-        """메뉴의 「CCTV 전환」 — 두 카메라를 번갈아 쓴다. 🔴 확인을 받고 바꾼다."""
-        target = "usb" if self._active_camera == "esp32" else "esp32"
-        self._toggle_menu(False)          # 모달이 뜨는 동안 메뉴가 남아 있지 않게
-        if not self._confirm_camera_switch(target):
-            self._append_log("[카메라] 전환 취소됨")
-            return
-        self._switch_camera(target)
 
     # =========================================================================
     # [글라스 UI — 패널 열고 닫기]
@@ -858,8 +788,7 @@ class SafetyConsole(QMainWindow):
         (numpy 변환이 비싸다). 1차 점검은 프레임을 보지 않으므로 결과가 같다.
         """
         from camera_thread import DETECTOR_AVAILABLE
-        cam = (self.camera_thread if self._active_camera == "esp32"
-               else self.usb_camera_thread)
+        cam = self.camera_thread
         return dict(
             camera_thread=cam,
             detector_available=DETECTOR_AVAILABLE,
@@ -887,9 +816,7 @@ class SafetyConsole(QMainWindow):
     def _on_retry(self, key):
         """점검 화면의 「재연결」 버튼."""
         if key == "camera":
-            for cam in (self.camera_thread, self.usb_camera_thread):
-                if hasattr(cam, "retry_connect"):
-                    cam.retry_connect()
+            self.camera_thread.retry_connect()
             self._append_log("[점검] 카메라 재연결 요청")
         elif key in ("interlock", "interlock_ack"):
             self.interlock.retry_connect()
@@ -995,12 +922,8 @@ class SafetyConsole(QMainWindow):
         self._append_log(f"[설정] 패널 배경 → {'있음' if on else '없음'}")
 
     def _on_boxes_changed(self, on):
-        """탐지 박스 표시 on/off — 🔴 **두 카메라 스레드 모두**에 전달한다.
-
-        한쪽만 바꾸면 CCTV 로 전환했을 때 설정이 안 먹은 것처럼 보인다.
-        """
+        """탐지 박스 표시 on/off."""
         self.camera_thread.set_draw_boxes(on)
-        self.usb_camera_thread.set_draw_boxes(on)
         self._append_log(f"[설정] 탐지 박스 표시 → {'있음' if on else '없음'}")
 
     def _tool_display_name(self, key):
@@ -1629,7 +1552,6 @@ class SafetyConsole(QMainWindow):
             self.gpio_input.close,
             self.interlock.close,
             self.camera_thread.stop,
-            self.usb_camera_thread.stop,
             close_detector,
         ):
             try:
@@ -1800,7 +1722,6 @@ class SafetyConsole(QMainWindow):
         self._stop_recording()
         self._append_log("[시스템] 카메라 스레드 종료 중...")
         self.camera_thread.stop()
-        self.usb_camera_thread.stop()
         close_detector()
         self.gpio_input.close()
         self.interlock.close()
