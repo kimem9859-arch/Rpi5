@@ -213,26 +213,9 @@ def main():
     undist = {"map": None}
 
     def load_undistort(w, h):
-        """왜곡보정 맵 — camera_thread._load_undistort_map 과 같은 계산.
-
-        🔴 camera_thread 를 import 하지 않는다 — Qt·Hailo 를 끌어와 무겁고
-           장치를 잡는다(frame_orient.py 머리말이 같은 이유로 갈라져 있다).
-           대신 계산을 여기 옮겨 적는다. 🔴 alpha 는 config.CALIB_ALPHA 를 읽어
-           복제하지 않는다(도구 기본값이 config 를 안 따라 4번 물렸다).
-        """
-        path = config.YOLO_CALIBRATION_PATH
-        if not os.path.exists(path):
-            return None, "missing"
-        data = np.load(path)
-        if "image_size" in data:
-            iw, ih = int(data["image_size"][0]), int(data["image_size"][1])
-            if (iw, ih) != (w, h):
-                return None, "mismatch"
-        cam_mat, dist = data["camera_matrix"], data["dist_coeffs"]
-        new_mat, _ = cv2.getOptimalNewCameraMatrix(
-            cam_mat, dist, (w, h), config.CALIB_ALPHA, (w, h))
-        return cv2.initUndistortRectifyMap(
-            cam_mat, dist, None, new_mat, (w, h), cv2.CV_16SC2), "ok"
+        """왜곡보정 맵 — frame_orient.load_undistort 가 정본(해상도별 파일 선택 포함)."""
+        maps, status, _ = frame_orient.load_undistort(w, h)
+        return maps, status
 
     def process(frame):
         f = frame_orient.flip(frame)
