@@ -16,7 +16,6 @@ from config import (
     CAMERA_TCP_HOST, CAMERA_TCP_PORT,
     TCP_RECV_TIMEOUT_SEC, TCP_RECONNECT_DELAY_SEC, TCP_MAX_FRAME_BYTES,
     CONNECT_MAX_TRIES,
-    YOLO_CALIBRATION_PATH,
     YOLO_CONF_HIGH, YOLO_IOU_MATCH, YOLO_MAX_MISS,
 )
 
@@ -147,7 +146,7 @@ def zone_at_point(fx, fy, tracks, ring=None):
     판정 규칙 정본은 `roi_zones.zone_at_point` 하나뿐이다 — 여기서 다시 구현하지 말 것.
     """
     if ring is None:
-        ring = getattr(config, "HAND_ROI_RING_PX", 0)
+        ring = getattr(config, "HAND_ROI_RING_PX_VGA", 0)
     return roi_zones.zone_at_point(fx, fy, _labeled_boxes(tracks), ring)
 
 
@@ -157,25 +156,6 @@ def roi_at_point(fx, fy, tracks):
     ⚠️ 시그니처를 유지한 호환용 얇은 래퍼다. 단계가 필요하면 `zone_at_point` 를 쓸 것.
     """
     return roi_zones.zone_at_point(fx, fy, _labeled_boxes(tracks), 0)[0]
-
-
-# =============================================================================
-# [캘리브레이션 헬퍼]
-# =============================================================================
-def _load_undistort_map(path, w, h):
-    if not os.path.exists(path):
-        return None, 'missing'
-    data = np.load(path)
-    if 'image_size' in data:
-        iw, ih = int(data['image_size'][0]), int(data['image_size'][1])
-        if iw != w or ih != h:
-            return None, 'mismatch'
-    cam_mat = data['camera_matrix']
-    dist    = data['dist_coeffs']
-    new_mat, _ = cv2.getOptimalNewCameraMatrix(cam_mat, dist, (w, h),
-                                               config.CALIB_ALPHA, (w, h))
-    map1, map2 = cv2.initUndistortRectifyMap(cam_mat, dist, None, new_mat, (w, h), cv2.CV_16SC2)
-    return (map1, map2), 'ok'
 
 
 def box_bgr(name, tool=False):
@@ -199,8 +179,6 @@ class CameraThread(QThread):
     yolo_detections_signal    = pyqtSignal(list)
     roi_signal                = pyqtSignal(str, int)  # (버튼 ROI 라벨, 단계) — ""·0 = 없음
                                                      # 단계 2=박스 안(위험) / 1=링(접근). roi_zones 참조
-    raw_frame_signal          = pyqtSignal(object)
-    calibration_needed_signal = pyqtSignal()
     connect_failed_signal     = pyqtSignal(int)   # 연속 실패 횟수 — 알림용
     tool_signal               = pyqtSignal(list, object)  # (dets, fingertip) — A-2 공구 판정 입력
                                                  # dets = [(클래스명, 점수, x1,y1,x2,y2), ...]
@@ -219,8 +197,7 @@ class CameraThread(QThread):
         self._tracks             = []
         self._undistort_map      = None
         self._lock               = threading.Lock()
-        self._calibration_active = False
-        self._last_frame_wh      = None
+        self._ring_px            = config.HAND_ROI_RING_PX_VGA   # 첫 프레임에 해상도 비례로 정한다
 
         # 지연 개선: 수신 전용 스레드 → 최신 프레임만 유지
         self._latest_raw   = None
@@ -312,27 +289,15 @@ class CameraThread(QThread):
     # [캘리브레이션]
     # =========================================================================
     def _init_calibration(self, w, h):
-        maps, status = _load_undistort_map(YOLO_CALIBRATION_PATH, w, h)
+        """첫 프레임 크기로 보정 파일과 픽셀 배율을 정한다 (spec 2026-09-23 §2.2·§2.4)."""
+        maps, status, path = frame_orient.load_undistort(w, h)
         self._undistort_map = maps
-        if status == 'missing':
-            self.log_signal.emit("[캘리브레이션] 파일 없음. 재캘리브레이션 필요.")
-            self.calibration_needed_signal.emit()
-        elif status == 'mismatch':
-            self.log_signal.emit("[캘리브레이션] 해상도 불일치. 재캘리브레이션 필요.")
-            self.calibration_needed_signal.emit()
+        self._ring_px = int(round(config.HAND_ROI_RING_PX_VGA * frame_orient.px_scale(w, h)))
+        if maps is None:
+            self.log_signal.emit(f"[캘리브레이션] {w}×{h} 보정 파일 없음({status}) — "
+                                 f"test/calib_capture.py 로 만들 것. 보정 없이 진행")
         else:
-            self.log_signal.emit("[캘리브레이션] 왜곡 보정 로드 완료.")
-
-    def reload_calibration(self):
-        if self._last_frame_wh is None:
-            return
-        w, h = self._last_frame_wh
-        maps, status = _load_undistort_map(YOLO_CALIBRATION_PATH, w, h)
-        self._undistort_map = maps
-        if status == 'ok':
-            self.log_signal.emit("[캘리브레이션] 재로드 완료.")
-        else:
-            self.log_signal.emit(f"[캘리브레이션] 재로드 실패: {status}")
+            self.log_signal.emit(f"[캘리브레이션] {os.path.basename(path)} 로드 ({w}×{h}) · 링 {self._ring_px}px")
 
     def _undistort(self, frame):
         if self._undistort_map is None:
@@ -459,12 +424,8 @@ class CameraThread(QThread):
 
                     if not calibration_initialized:
                         h, w = frame.shape[:2]
-                        self._last_frame_wh = (w, h)
                         self._init_calibration(w, h)
                         calibration_initialized = True
-
-                    if self._calibration_active:
-                        self.raw_frame_signal.emit(frame.copy())
 
                     frame = self._process_frame(frame)
 
@@ -564,7 +525,7 @@ class CameraThread(QThread):
                 frame = self._draw_tools(frame)
 
         # HOI → FSM: 손끝이 든 버튼 ROI 라벨을 통지 (없으면 "")
-        roi, level = zone_at_point(*fingertip, self._tracks) if fingertip else (None, None)
+        roi, level = zone_at_point(*fingertip, self._tracks, ring=self._ring_px) if fingertip else (None, None)
         self.roi_signal.emit(roi or "", level or 0)
 
         if sink is not None:

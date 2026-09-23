@@ -31,23 +31,23 @@ def check(cond, msg):
 
 
 def test_menu_signals():
-    """메뉴 항목 6개 + 종료가 각각 신호를 낸다.
+    """메뉴 항목 5개 + 종료가 각각 신호를 낸다.
 
-    구성(2026-09-23): 점검(연결) · 녹화 · 로그 · 캘리브레이션 · 설정 ·
-    작업 초기화 + 종료 — CCTV 는 USB 웹캠 제거로 삭제(spec 2026-09-23 D5)
+    구성(2026-09-23): 점검(연결) · 녹화 · 로그 · 설정 · 작업 초기화 + 종료
+    — CCTV 는 USB 웹캠 제거로(D5), 캘리브레이션은 calib_capture.py 로 옮겨(D2) 삭제
     """
     print("\n[1] MenuPanel 신호")
     host = QWidget()
     m = MenuPanel(host)
     got = []
     for name in ("check_clicked", "record_clicked", "log_clicked",
-                 "calibrate_clicked", "settings_clicked",
+                 "settings_clicked",
                  "reset_clicked", "shutdown_clicked"):
         getattr(m, name).connect(lambda n=name: got.append(n))
     for b in m._items:
         b.click()
     m._shutdown.click()
-    check(len(got) == 7, f"7개 신호 발생: {got}")
+    check(len(got) == 6, f"6개 신호 발생: {got}")
     check("check_clicked" in got and "record_clicked" in got,
           "점검(연결)·녹화 항목이 신설됨")
     check("reset_clicked" in got, "작업 초기화 항목이 신호를 낸다")
@@ -68,13 +68,20 @@ def test_menu_has_free_slots():
     """항목 수와 남은 자리 (design §4.7).
 
     항목 4개 → 6개(2026-08-04) → 7개(2026-08-16 「작업 초기화」)
-    → **6개**(2026-09-23 「CCTV 전환」 삭제). 여유 자리는 0칸 그대로.
+    → **5개**(2026-09-23 「CCTV 전환」·「캘리브레이션」 삭제). 여유 자리는 0칸 그대로.
     """
     print("\n[3] 추후 항목 자리")
     host = QWidget()
     m = MenuPanel(host)
     check(len(m._free) == 0, f"빈 자리 {len(m._free)}칸")
-    check(len(m._items) == 6, f"메뉴 항목 {len(m._items)}개")
+    check(len(m._items) == 5, f"메뉴 항목 {len(m._items)}개")
+
+
+def test_no_calibration_item():
+    """캘리브레이션은 test/calib_capture.py 로만 한다(spec 2026-09-23 D2)."""
+    print("\n[3-c] 캘리브레이션 항목 없음")
+    import overlay_menu
+    check(not hasattr(overlay_menu.MenuPanel, "calibrate_clicked"), "캘리브레이션 신호가 남아 있지 않다")
 
 
 def test_no_cctv_item():

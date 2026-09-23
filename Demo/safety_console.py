@@ -8,7 +8,7 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QTextBrowser, QPushButton, QSizePolicy,
-    QDialog, QApplication, QMessageBox,
+    QApplication, QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtSlot, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
@@ -19,10 +19,9 @@ from config import (
     RECORDING_ENABLED, RECORDING_SAVE_DIR, RECORDING_FPS, RECORDING_CODEC,
     LOG_SAVE_DIR,
     CAMERA_TCP_HOST, CAMERA_TCP_PORT,
-    YOLO_CALIBRATION_PATH,
     BG_PRIMARY, BG_PANEL, BG_SURFACE, BG_LOG,
     BORDER_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_LOG,
-    ACCENT, BTN_ACTIVE, BTN_INACTIVE, BTN_CALIB,
+    ACCENT, BTN_ACTIVE, BTN_INACTIVE,
     STATUS_OK, STATUS_WARNING, STATUS_DANGER,
 )
 from camera_thread import CameraThread, close_detector
@@ -44,144 +43,6 @@ import precheck
 from fps import fps_from_intervals, fps_stale
 from demo_recorder import DemoRecorder
 from state_publisher import StatePublisher
-
-
-# =============================================================================
-# [캘리브레이션 다이얼로그]
-# =============================================================================
-class CalibrationDialog(QDialog):
-    CHESSBOARD   = (7, 5)
-    SAMPLE_COUNT = 20
-    DETECT_FLAGS = (cv2.CALIB_CB_ADAPTIVE_THRESH |
-                    cv2.CALIB_CB_NORMALIZE_IMAGE  |
-                    cv2.CALIB_CB_FAST_CHECK)
-
-    _CHESSBOARD_PATH = os.path.join(os.path.dirname(__file__), 'chessboard.png')
-
-    def __init__(self, camera_thread, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("캘리브레이션 — 체스보드를 카메라에 보여주세요")
-        self.setModal(False)
-        self.setFixedSize(520, 480)
-        self.setStyleSheet(f"background-color: {BG_PRIMARY}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_COLOR};")
-
-        self._camera_thread = camera_thread
-        self._captured      = 0
-        self._obj_points    = []
-        self._img_points    = []
-        self._last_cap_t    = 0.0
-        self._frame_size    = None
-        self._done          = False
-
-        objp = np.zeros((self.CHESSBOARD[0] * self.CHESSBOARD[1], 3), np.float32)
-        objp[:, :2] = np.mgrid[0:self.CHESSBOARD[0], 0:self.CHESSBOARD[1]].T.reshape(-1, 2)
-        self._objp = objp
-
-        # 체스보드 이미지
-        self._board_label = QLabel()
-        self._board_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._board_label.setStyleSheet(f"background-color: {BG_SURFACE}; border: 1px solid {BORDER_COLOR};")
-        self._board_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._load_chessboard_image()
-
-        self._status_label = QLabel(f"메인 화면을 보며 체스보드를 카메라에 비춰주세요  (0 / {self.SAMPLE_COUNT})")
-        self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._status_label.setWordWrap(True)
-        self._status_label.setStyleSheet(f"font-size: 13px; padding: 6px; color: {TEXT_PRIMARY}; background-color: {BG_PANEL};")
-
-        self._cancel_btn = QPushButton("취소")
-        self._cancel_btn.setStyleSheet(
-            f"background-color: {STATUS_DANGER}; color: {TEXT_PRIMARY};"
-            f"padding: 6px 18px; border-radius: 2px; font-size: 13px; font-weight: bold; border: none;"
-        )
-        self._cancel_btn.clicked.connect(self.reject)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(self._board_label)
-        layout.addWidget(self._status_label)
-        layout.addWidget(self._cancel_btn, alignment=Qt.AlignmentFlag.AlignRight)
-
-        camera_thread._calibration_active = True
-        camera_thread.raw_frame_signal.connect(self._on_frame)
-
-    def _load_chessboard_image(self):
-        if os.path.exists(self._CHESSBOARD_PATH):
-            self._board_label.setPixmap(
-                QPixmap(self._CHESSBOARD_PATH).scaled(
-                    500, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-                )
-            )
-        else:
-            self._board_label.setText("chessboard.png 파일을 Demo 폴더에 넣어주세요")
-            self._board_label.setStyleSheet(f"color: {STATUS_DANGER}; font-size: 14px; background-color: {BG_SURFACE};")
-
-    # -------------------------------------------------------------------------
-    @pyqtSlot(object)
-    def _on_frame(self, frame):
-        if self._done:
-            return
-
-        self._frame_size = (frame.shape[1], frame.shape[0])
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.equalizeHist(gray)
-        found, corners = cv2.findChessboardCorners(gray, self.CHESSBOARD, self.DETECT_FLAGS)
-
-        if found:
-            corners2 = cv2.cornerSubPix(
-                gray, corners, (11, 11), (-1, -1),
-                (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001),
-            )
-            now = time.time()
-            if now - self._last_cap_t >= 1.0:
-                self._obj_points.append(self._objp)
-                self._img_points.append(corners2)
-                self._captured += 1
-                self._last_cap_t = now
-                self._status_label.setText(
-                    f"인식됨! 캡처: {self._captured} / {self.SAMPLE_COUNT}"
-                )
-                if self._captured >= self.SAMPLE_COUNT:
-                    self._run_calibration()
-        else:
-            self._status_label.setText(
-                f"체스보드를 찾는 중...  ({self._captured} / {self.SAMPLE_COUNT})"
-            )
-
-    def _run_calibration(self):
-        self._done = True
-        self._cleanup()
-        self._status_label.setText("캘리브레이션 계산 중...")
-        QApplication.processEvents()
-
-        w, h = self._frame_size
-        ret, cam_mat, dist, _, _ = cv2.calibrateCamera(
-            self._obj_points, self._img_points, (w, h), None, None
-        )
-        np.savez(
-            YOLO_CALIBRATION_PATH,
-            camera_matrix=cam_mat,
-            dist_coeffs=dist,
-            image_size=np.array([w, h]),
-        )
-        self._status_label.setText(
-            f"완료!  RMS 오차: {ret:.4f}  —  camera_calibration.npz 저장됨"
-        )
-        QTimer.singleShot(2000, self.accept)
-
-    def _cleanup(self):
-        try:
-            self._camera_thread.raw_frame_signal.disconnect(self._on_frame)
-        except Exception:
-            pass
-        self._camera_thread._calibration_active = False
-
-    def reject(self):
-        self._cleanup()
-        super().reject()
-
-    def closeEvent(self, event):
-        self._cleanup()
-        event.accept()
 
 
 # =============================================================================
@@ -298,7 +159,6 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.hand_signal.connect(self._on_hand)
         # 공구 판정(A-2) — ESP32 1인칭 입력.
         self.camera_thread.tool_signal.connect(self._on_tool)
-        self.camera_thread.calibration_needed_signal.connect(self._on_calibration_needed)
         self.camera_thread.connect_failed_signal.connect(
             lambda n: self._on_connect_gave_up("카메라", n))
         self.camera_thread.start()
@@ -415,7 +275,6 @@ class SafetyConsole(QMainWindow):
         self.menu_panel = MenuPanel(central)
         self.menu_panel.closed.connect(lambda: self._toggle_menu(False))
         self.menu_panel.log_clicked.connect(self._show_log)
-        self.menu_panel.calibrate_clicked.connect(lambda: self._open_calibration_dialog())
         self.menu_panel.check_clicked.connect(self._open_check)
         self.menu_panel.record_clicked.connect(self._open_record)
         self.menu_panel.settings_clicked.connect(self._open_settings)
@@ -1558,21 +1417,6 @@ class SafetyConsole(QMainWindow):
             subprocess.Popen(["sudo", "shutdown", "-h", "now"])
         except Exception as e:
             self._append_log(f"[시스템] 종료 명령 실패: {e}")
-
-    # =========================================================================
-    # [캘리브레이션]
-    # =========================================================================
-    @pyqtSlot()
-    def _on_calibration_needed(self):
-        self._append_log("[캘리브레이션] 필요: 상단 '캘리브레이션' 버튼을 눌러 실행하세요.")
-
-    def _open_calibration_dialog(self):
-        dlg = CalibrationDialog(self.camera_thread, self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.camera_thread.reload_calibration()
-            self._append_log("[캘리브레이션] 완료. 왜곡 보정 재적용.")
-        else:
-            self._append_log("[캘리브레이션] 취소됨.")
 
     # =========================================================================
     # [시연영상 촬영] — 설계 = 상위 specs/2026-09-03-시연영상-촬영-design.md

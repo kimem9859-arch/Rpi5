@@ -90,7 +90,6 @@ TEXT_LOG       = "#9acd9a"
 ACCENT       = "#e8a000"
 BTN_ACTIVE   = "#1a5fb4"
 BTN_INACTIVE = "#2a2a2a"
-BTN_CALIB    = "#4a235a"
 
 STATUS_OK      = "#00c853"
 STATUS_WARNING = "#ff6d00"
@@ -364,7 +363,8 @@ HAND_MIN_SCORE     = 0.2
 # ROI 링(1단계) 폭 px — 검출 박스를 이만큼 넓힌 테두리가 '접근' 구역이다(roi_zones).
 # 🔴 0으로 두면 도넛이 꺼지고 도입 전과 동일 동작 = 롤백 스위치.
 # 25 = §10.22 무릎점(개입 감지 92%·오경보 분당 1.1회. 40px는 감지 그대로·오경보 2배)
-HAND_ROI_RING_PX   = 25
+# 🔴 VGA(640×480) 기준값이다. 런타임은 frame_orient.px_scale(프레임) 을 곱해 쓴다(XGA → 40px).
+HAND_ROI_RING_PX_VGA = 25
 
 # 창 기반 체류 누적 (2026-07-27) — 직전 관측을 유지할지를 **시간이 아니라 관측 횟수**로 판단.
 # 종전 갭메우기는 시간 기준(FSM_GAP_FILL_SEC)이라 fps 가 7.7~11.3 으로 흔들리면 실제 창이

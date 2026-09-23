@@ -159,7 +159,6 @@ class MenuPanel(_Sheet):
     log_clicked = pyqtSignal()
     check_clicked = pyqtSignal()      # 점검(연결) — 수동 재연결·재확인
     record_clicked = pyqtSignal()     # 녹화 — 필요할 때만 켠다
-    calibrate_clicked = pyqtSignal()
     settings_clicked = pyqtSignal()
     reset_clicked = pyqtSignal()      # 작업 초기화 — 「작업 시작」 직전으로 되돌린다
     shutdown_clicked = pyqtSignal()
@@ -188,7 +187,6 @@ class MenuPanel(_Sheet):
         for text, sig in (("🔧  점검 (연결)", self.check_clicked),
                           ("⏺  녹화", self.record_clicked),
                           ("📜  로그", self.log_clicked),
-                          ("🎯  캘리브레이션", self.calibrate_clicked),
                           ("⚙  설정", self.settings_clicked),
                           ("↺  작업 초기화", self.reset_clicked)):
             b = _row_button(text)
