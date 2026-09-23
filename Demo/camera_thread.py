@@ -198,6 +198,7 @@ class CameraThread(QThread):
         self._undistort_map      = None
         self._lock               = threading.Lock()
         self._ring_px            = config.HAND_ROI_RING_PX_VGA   # 첫 프레임에 해상도 비례로 정한다
+        self._calib_wh           = None      # 보정·링을 정한 프레임 크기 — 바뀌면 다시 정한다
 
         # 지연 개선: 수신 전용 스레드 → 최신 프레임만 유지
         self._latest_raw   = None
@@ -299,6 +300,16 @@ class CameraThread(QThread):
         else:
             self.log_signal.emit(f"[캘리브레이션] {os.path.basename(path)} 로드 ({w}×{h}) · 링 {self._ring_px}px")
 
+    def _ensure_calibration(self, w, h):
+        """프레임 크기가 보정을 정한 크기와 다르면 다시 정한다.
+
+        🔴 GUI 를 켠 채 ESP32 를 VGA↔XGA 로 다시 구우면 재연결 뒤 크기가 바뀐다 — 옛 맵을
+           그대로 쓰면 cv2.remap 이 예외 없이 잘리거나 검게 채운 프레임을 낸다.
+        """
+        if (w, h) != self._calib_wh:
+            self._calib_wh = (w, h)
+            self._init_calibration(w, h)
+
     def _undistort(self, frame):
         if self._undistort_map is None:
             return frame
@@ -366,7 +377,6 @@ class CameraThread(QThread):
         else:
             self.log_signal.emit("[Detector] 사용 불가!")
 
-        calibration_initialized = False
 
         while self._running:
             # 🔴 무한 재시도 금지 — 3초마다 영원히 돌면 로그가 계속 쌓인다(3분에 약 60줄).
@@ -422,10 +432,8 @@ class CameraThread(QThread):
                     if frame is None:
                         continue
 
-                    if not calibration_initialized:
-                        h, w = frame.shape[:2]
-                        self._init_calibration(w, h)
-                        calibration_initialized = True
+                    h, w = frame.shape[:2]
+                    self._ensure_calibration(w, h)
 
                     frame = self._process_frame(frame)
 
