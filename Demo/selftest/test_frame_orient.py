@@ -37,6 +37,13 @@ def test_per_resolution_size_mismatch():
         _save(d, "camera_calibration_1024x768.npz", 640, 480)   # 이름과 내용이 다름
         assert fo.calibration_path(1024, 768, base_dir=d) == (None, "mismatch")
 
+def test_file_without_image_size_is_not_used():
+    """🔴 크기를 모르는 보정 파일은 어느 해상도에서도 쓰지 않는다 — 맞는지 확인할 수 없다."""
+    with tempfile.TemporaryDirectory() as d:
+        np.savez(os.path.join(d, "camera_calibration.npz"), camera_matrix=K, dist_coeffs=D)
+        assert fo.calibration_path(640, 480, base_dir=d) == (None, "mismatch")
+        assert fo.calibration_path(1024, 768, base_dir=d) == (None, "mismatch")
+
 def test_load_undistort_returns_path():
     with tempfile.TemporaryDirectory() as d:
         _save(d, "camera_calibration_1024x768.npz", 1024, 768)

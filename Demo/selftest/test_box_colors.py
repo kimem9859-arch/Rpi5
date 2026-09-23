@@ -63,14 +63,20 @@ def box_bgr_of_hex(h):
 
 
 if __name__ == "__main__":
-    test_hex_to_bgr()
-    test_every_button_class_has_color()
-    test_every_recipe_tool_has_color()
-    test_unknown_falls_back()
-    print()
-    if _fails:
-        print(f"❌ 실패 {len(_fails)}건")
-        for m in _fails:
-            print(f"   - {m}")
-        sys.exit(1)
-    print("✅ 박스 색표 검증 통과")
+    try:
+        test_hex_to_bgr()
+        test_every_button_class_has_color()
+        test_every_recipe_tool_has_color()
+        test_unknown_falls_back()
+        print()
+        if _fails:
+            print(f"❌ 실패 {len(_fails)}건")
+            for m in _fails:
+                print(f"   - {m}")
+            sys.exit(1)
+        print("✅ 박스 색표 검증 통과")
+    finally:
+        # 🔴 camera_thread 를 import 하면 Hailo 탐지기가 열린다 — 닫지 않으면 종료 중
+        #    세그폴트가 나서 통과/실패가 exit code 로 안 드러난다(test_camera_calib 와 같은 처리).
+        import camera_thread
+        camera_thread.close_detector()

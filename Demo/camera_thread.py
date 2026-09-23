@@ -466,8 +466,8 @@ class CameraThread(QThread):
     # =========================================================================
     def _process_frame(self, frame):
         # 🔴 방향 보정은 **반전 → 왜곡보정 → 회전** 순서다(frame_orient 참조).
-        #    회전을 앞에 두면 480×640 이 되어 왜곡보정 맵(640×480 전용)이
-        #    'mismatch' 로 조용히 꺼진다.
+        #    회전을 앞에 두면 세로(480×640 · 768×1024)가 되어 센서 원본 크기(가로)로
+        #    만든 왜곡보정 맵이 'mismatch' 로 조용히 꺼진다.
         frame = frame_orient.flip(frame)
 
         with self._lock:

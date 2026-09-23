@@ -53,6 +53,7 @@ def calibration_path(w, h, base_dir=None):
     ① `camera_calibration_<w>x<h>.npz`(test/calib_capture.py 가 만든다) 를 먼저 찾고
     ② 없으면 기존 `camera_calibration.npz` 를 **image_size 가 맞을 때만** 쓴다.
     🔴 크기가 안 맞는 파일은 절대 쓰지 않는다 — 다른 해상도의 보정은 틀린 보정이다.
+       image_size 가 **없는** 파일도 쓰지 않는다 — 맞는지 확인할 수 없다('mismatch').
     """
     d = base_dir or os.path.dirname(config.YOLO_CALIBRATION_PATH)
     per = os.path.join(d, f"camera_calibration_{w}x{h}.npz")
@@ -62,7 +63,7 @@ def calibration_path(w, h, base_dir=None):
         return None, "missing"
     for p in cand:
         data = np.load(p)
-        if "image_size" not in data or tuple(int(v) for v in data["image_size"]) == (w, h):
+        if "image_size" in data and tuple(int(v) for v in data["image_size"]) == (w, h):
             return p, "ok"
     return None, "mismatch"
 

@@ -29,7 +29,7 @@
 
 ```bash
 cd ~/sop-project/Rpi5/Demo
-python3 -u test/bench_detector.py --source esp32 --frames 4000 --save-raw --no-video --raw-every 5
+python3 -u test/bench_detector.py --frames 4000 --save-raw --no-video --raw-every 5
 ```
 
 - `--raw-every 5` — 인접 프레임은 거의 같다. 전부 저장하면 낭비이자 **누출 위험**이다.

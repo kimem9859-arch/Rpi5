@@ -151,6 +151,10 @@ def main():
             continue
         if args.only and args.only not in name:
             continue
+        # 사진이 없는 세션(촬영 실패 등) 하나가 배치 전체를 멈추지 않게 알리고 건너뛴다
+        if not any(f.endswith(".png") for f in os.listdir(os.path.join(RAW_DIR, name))):
+            print(f"⚠️ 건너뜀 — PNG 없음: {name}")
+            continue
         sessions.append(name)
 
     if not sessions:

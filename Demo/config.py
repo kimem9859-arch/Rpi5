@@ -253,9 +253,7 @@ def demo_wants(what):
     t = DEMO_TARGETS
     if t == "all":
         return True
-    if t == "fpv+gui":
-        return what in ("fpv", "gui")
-    return what == t
+    return what in ("fpv", "gui")          # "fpv+gui" — 위에서 두 값만 허용한다
 # 첫 카메라 프레임을 이만큼 기다렸다 없으면 그냥 시작한다.
 # ESP32 가 안 붙었을 때 영영 시작 못 하는 것을 막는다.
 DEMO_CAPTURE_START_TIMEOUT = 10.0
