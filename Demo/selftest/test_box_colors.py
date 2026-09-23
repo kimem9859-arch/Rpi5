@@ -30,7 +30,7 @@ def test_hex_to_bgr():
     """16진수 → BGR 튜플. RGB 로 뒤집히면 여기서 잡힌다."""
     print("\n[1] BGR 변환")
     check(box_bgr("B1") == (0, 212, 255), f"B1 노랑 #FFD400 → BGR {box_bgr('B1')}")
-    check(box_bgr("B4") == (255, 125, 46), f"B4 파랑 #2E7DFF → BGR {box_bgr('B4')}")
+    check(box_bgr("B4") == (255, 182, 107), f"B4 밝은 파랑 #6BB6FF → BGR {box_bgr('B4')}")
     check(box_bgr("B2") == (255, 255, 255), "B2 흰 → (255,255,255)")
 
 
