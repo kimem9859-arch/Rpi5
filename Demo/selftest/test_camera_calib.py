@@ -52,7 +52,11 @@ def test_same_size_is_noop():
 
 
 if __name__ == "__main__":
-    for n, fn in list(globals().items()):
-        if n.startswith("test_"):
-            fn(); print("ok", n)
-    print("ALL OK")
+    try:
+        for n, fn in list(globals().items()):
+            if n.startswith("test_"):
+                fn(); print("ok", n)
+        print("ALL OK")
+    finally:
+        # 🔴 닫지 않으면 종료 중 세그폴트가 나서 통과/실패가 exit code 로 안 드러난다(test_imports 와 같은 처리).
+        ct.close_detector()
