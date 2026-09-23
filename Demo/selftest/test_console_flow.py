@@ -10,6 +10,7 @@
     순서 위반까지 실제로 밟는다.
 
 ⚠️ HW(ESP32·Arduino)가 없어도 전부 fallback 되므로 이 테스트는 HW 없이 돈다.
+🔴 HW 가 **꽂혀 있어도** 쓰지 않는다 — GPIO 입력·인터락을 끄고 만든다(`make_console`).
 """
 
 import os
@@ -66,6 +67,10 @@ def make_console():
     #    시험이 아니다.
     import config
     config.GPIO_INPUT_ENABLED = False
+    # 🔴 인터락도 끈다 — config 는 Arduino 포트가 잡히면 켜지므로, 보드가 꽂힌 채
+    #    돌리면 이 시험이 **실제 릴레이 보드에 BLOCK·RUN 을 보낸다**(2026-09-23 실측:
+    #    「릴레이가 계속 작동」). 인터락 기록(session_stats)은 끈 채로도 남는다.
+    config.INTERLOCK_ENABLED = False
     from safety_console import SafetyConsole
     win = SafetyConsole()
     win.resize(1920, 1080)
@@ -77,6 +82,8 @@ def test_boot():
     """창이 만들어지고 오버레이가 다 붙는가."""
     print("\n[1] 기동")
     win = make_console()
+    check(win.interlock._enabled is False,
+          "인터락이 꺼진 채 만들어졌다 — 실제 릴레이에 명령을 보내지 않는다")
     for name in ("status_panel", "gauge_panel", "glow", "alert",
                  "menu_panel", "notify_panel", "settings_panel",
                  "btn_menu", "btn_notify", "btn_cta", "camera_label"):
