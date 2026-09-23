@@ -86,9 +86,9 @@ static volatile uint32_t statSendMsMax = 0;  // send() 소요 최대
 //      12480/16 = 780 row · 780 x 46.0us = **35.9ms** ≈ 프레임 주기 36ms
 //    → 지금 카메라는 노출을 한 프레임이 꽉 차도록 쓰고 있다.
 //
-// ⚠️ **굽자마자 달라지는 것은 없다** — 기본은 공장값 유지(대조군)다.
-//    바꾸려면 시리얼 `EXP:<rows>`, 되돌리려면 `EXP:0`.
-//    전원을 껐다 켜도 공장값으로 돌아간다(플래시에 남지 않는다).
+// 🔴 **부팅 때 0x3A0E=2(노출 상한 밴드 2 → 최대 약 9ms)를 건다** — 상위 §12.66-(18) 채택값
+//    (2026-09-23 런타임 XGA 전환). 되돌리려면 시리얼 `W:3A0E:08`(공장값).
+//    시리얼 `EXP:<rows>`·`EXP:0` 진단은 그대로다. 플래시 설정이 아니라 매 부팅마다 건다.
 
 // row 한 줄을 읽는 시간(us). HTS 2300 / SCLK 50MHz — 둘 다 드라이버가 정한 값이라
 // 펌웨어에서 바꾸지 않는 한 고정이다(근거 = 상위 §12.65-(1)).
@@ -363,7 +363,7 @@ void setup() {
   config.pin_pwdn     = PWDN_GPIO_NUM;
   config.pin_reset    = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.frame_size   = FRAMESIZE_VGA;
+  config.frame_size   = FRAMESIZE_XGA;   // 1024x768 — 2026-09-23 런타임 XGA 전환(런타임이 첫 프레임 크기로 맞춘다)
   config.pixel_format = PIXFORMAT_JPEG;
   // 버퍼 2개 + LATEST — fb_count=1 이면 전송이 끝나야 다음 캡처가 시작돼
   // 캡처·전송 태스크를 코어까지 나눠 놓고도 직렬화된다(2026-08-10 실측:
@@ -385,6 +385,11 @@ void setup() {
     sensor_t *ss = esp_camera_sensor_get();
     if (ss) Serial.printf("Sensor: PID=0x%04x VER=0x%02x MIDH=0x%02x MIDL=0x%02x\n",
                           ss->id.PID, ss->id.VER, ss->id.MIDH, ss->id.MIDL);
+  }
+  // 노출 상한 밴드 = 2 → 최대 노출 약 9ms (상위 §12.66-(18) 채택 · 해상도와 무관 — 한 줄 읽는 시간이 같다 §12.68-(3))
+  {
+    sensor_t *se = esp_camera_sensor_get();
+    if (se && se->set_reg) { se->set_reg(se, 0x3A0E, 0xFF, 0x02); delay(300); }
   }
   printExposure("boot");
 
