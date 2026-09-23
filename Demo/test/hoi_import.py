@@ -69,6 +69,9 @@ import statistics as st
 import sys
 
 _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(_TEST_DIR))
+import frame_orient                     # noqa: E402  해상도 배율 단일 출처
+import cv2                              # noqa: E402
 LOGS_DIR = os.path.join(_TEST_DIR, "logs")
 RAW_DIR = os.path.join(_TEST_DIR, "raw")
 CACHE_DIR = os.path.join(_TEST_DIR, "palm_cache")
@@ -87,8 +90,9 @@ CREATE TABLE sessions (
     posture      TEXT,               -- 'flat' | 'upright' (파일명에 없어 수동 매핑)
     model        TEXT,
     frames       INTEGER, duration_sec REAL, fps REAL,
-    emo_width    REAL,               -- 근접도 대리지표 (§10.28)
-    top_y        REAL, bottom_y REAL -- 윗줄(B2·B3)/아랫줄(B1·B4) median y (§10.26)
+    emo_width    REAL,               -- 근접도 대리지표 (§10.28) — 🔴 VGA 기준으로 환산해 담는다
+    top_y        REAL, bottom_y REAL,-- 윗줄(B2·B3)/아랫줄(B1·B4) median y (§10.26) — VGA 기준
+    px_scale     REAL                -- 이 세션 사진의 배율(VGA 1.0 · XGA 1.6). 원래 좌표 = 값 × px_scale
 );
 CREATE TABLE button_boxes (          -- 눌림 ±15프레임 구간만
     session_id TEXT REFERENCES sessions(id),
@@ -101,7 +105,7 @@ CREATE TABLE presses (               -- 눌림 1회 = 1행
     ts          REAL,                -- 세션 시작 기준 초
     gap_frames  INTEGER,             -- 직전 눌림과의 간격 (첫 눌림 NULL) — §10.29⑥의 축
     gap_sec     REAL,
-    button_y    REAL,                -- 그 버튼의 세션 median y — §10.26 절벽 판정의 축
+    button_y    REAL,                -- 그 버튼의 세션 median y — §10.26 절벽 판정의 축 · 🔴 VGA 기준(÷ px_scale)
     is_violation INTEGER,            -- 오답인가 (규칙 미정 세션은 NULL)
     expected_button TEXT             -- 그때 기대되던 버튼 (FSM 시뮬레이터가 기대단계를 여기 맞춘다)
 );
@@ -232,6 +236,18 @@ def _expected_buttons(presses, flags):
             for f, (_, b) in zip(flags, presses)]
 
 
+def _px_scale(sid):
+    """세션 사진(첫 PNG)의 배율 — 절벽·권장 y 는 VGA 좌표라 y 값을 이것으로 나눠 담는다.
+    raw 가 없으면 1.0(옛 세션은 전부 VGA 다)."""
+    d = os.path.join(RAW_DIR, sid)
+    pngs = sorted(glob.glob(os.path.join(d, "*.png")))
+    img = cv2.imread(pngs[0]) if pngs else None
+    if img is None:
+        return 1.0
+    h, w = img.shape[:2]
+    return frame_orient.px_scale(w, h)
+
+
 def _import_session(con, sid):
     """세션 1개의 sessions·presses·button_boxes 적재. → (눌림 수, 규칙명 or None)."""
     date_s, time_s, condition, model = _parse_session_id(sid)
@@ -259,15 +275,18 @@ def _import_session(con, sid):
             if cls == "EMO":
                 emo_w.append(x2 - x1)
 
+    # 🔴 픽셀 지표는 VGA 기준으로 환산해 담는다 — 절벽(337)·권장 y 가 VGA 좌표다(button_boxes 는 원래 좌표)
+    scale = _px_scale(sid)
+
     def med(*classes):
         vals = [v for c in classes for v in ys.get(c, [])]
-        return st.median(vals) if vals else None
+        return st.median(vals) / scale if vals else None
 
     con.execute(
-        "INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (sid, f"{date_s[:4]}-{date_s[4:6]}-{date_s[6:]}", time_s, condition, posture,
          model, frames, duration, fps,
-         st.median(emo_w) if emo_w else None, med("B2", "B3"), med("B1", "B4")))
+         st.median(emo_w) / scale if emo_w else None, med("B2", "B3"), med("B1", "B4"), scale))
 
     # ── gpio: 눌림 (정답 라벨)
     presses = [(int(r["frame"]), r["button"])
