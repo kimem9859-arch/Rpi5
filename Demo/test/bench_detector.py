@@ -6,23 +6,22 @@
     cd ~/sop-project/Rpi5/Demo
     python3 test/bench_detector.py                              # ESP32, 기본 300프레임
     python3 test/bench_detector.py --frames 100 --no-video
-    python3 test/bench_detector.py --source esp32 --frames 500  # ESP32-S3(OV3660) TCP
-    python3 test/bench_detector.py --source usb   --frames 500  # USB 웹캠 (B4 원인 대조)
+    python3 test/bench_detector.py --frames 500                 # ESP32-S3 TCP
     python3 test/bench_detector.py --frames 300 --no-video --hand   # HOI 포함 FPS (§4 NFR-1)
        ⚠ FPS 측정에 --save-raw 를 붙이지 말 것 — PNG 인코딩이 CPU를 뺏어 3fps 가량 낮게 나온다
          (실측: --raw-every 5 → 12.5fps vs --raw-every 1 → 8.1fps, 추론시간은 동일).
 
-플립(--flip, 기본 auto):
-    esp32 → 수직(카메라 거꾸로 장착 보정, 추론에 필요)
-    usb   → 없음(실런타임의 좌우 미러링은 표시용. 거울상은 학습 방향과 달라 검출률 왜곡)
+소스: ESP32-S3 TCP 하나뿐이다. USB 웹캠 경로(--source usb·노출 고정)는 2026-09-23 제거
+    (백업 태그 backup/webcam-before-removal-20260923).
+
+플립(--flip, 기본 auto = config.CAMERA_FLIP_VERTICAL — 카메라 거꾸로 장착 보정, 추론에 필요)
 
 회전(옵션 없음 — config.CAMERA_ROTATE_CCW90 을 그대로 따른다):
-    esp32 → 반시계 90°(2026-08-26 장착 구도 변경 보정). 프레임이 480×640 세로가 된다.
-    usb   → 없음(그 구도와 무관한 카메라다)
+    반시계 90°(2026-08-26 장착 구도 변경 보정). 프레임이 세로가 된다(VGA 480×640 · XGA 768×1024).
     🔴 실험 축이 아니라 런타임과 맞춰야 하는 값이라 CLI 로 열지 않았다.
 
 출력 (파일명 태그 = YYYYMMDD_HHMMSS_<src>[_<condition>][_<model>]):
-    <src>       = esp32 | usb
+    <src>       = esp32 (옛 세션엔 usb 도 있다)
     <condition> = --condition 지정 시에만. 예: fluorescent/lowlight/daylight/cleanroom
     <model>     = config가 가리키는 모델 stem(console_v2 등) — 자동 유도
     예: test/logs/20260720_143012_esp32_lowlight_console_v2_rawdet_log.csv
@@ -48,7 +47,6 @@ import re
 import select
 import socket
 import struct
-import subprocess
 import sys
 import threading
 import time
@@ -109,46 +107,6 @@ def _recv_latest_frame(sock):
             return None
         if not readable:
             return data
-
-
-def _lock_usb_exposure(index, exposure, wb_temp=None):
-    """USB 웹캠의 자동 노출을 끄고 노출값을 고정. (WB는 wb_temp를 준 경우에만 고정)
-
-    ESP32(OV3660)는 펌웨어 고정 설정으로 스트리밍하는데 USB 웹캠은 AE가 켜져 있어
-    ① 시작 직후 과노출(포화 50%) ② 정반사로 버튼 색이 날아가 B1·B3가 B2로 오분류.
-    두 카메라를 대등한 조건으로 비교하려면 USB 쪽 노출도 고정해야 한다.
-
-    ※ auto_exposure=1(Manual)을 먼저 걸어야 exposure_time_absolute가 활성화된다.
-    ※ WB는 기본적으로 **자동을 유지**한다. UVC 드라이버는 색온도(R↔B) 축만 제공하고
-      틴트(G↔M) 축이 없어, 형광등 녹색 스파이크를 수동으로 잡을 수 없다(2026-07-10 실측:
-      최대 6500K에서도 흰 버튼 G=206 vs B/R=148/145로 초록 캐스트 잔존). 자동 AWB가 더 낫다.
-    """
-    dev = f"/dev/video{index}"
-    steps = [
-        ("auto_exposure", 1),                    # 1 = Manual Mode
-        ("exposure_time_absolute", exposure),
-    ]
-    if wb_temp is not None:
-        steps += [("white_balance_automatic", 0), ("white_balance_temperature", wb_temp)]
-
-    ok = True
-    for name, val in steps:
-        try:
-            r = subprocess.run(["v4l2-ctl", "-d", dev, "-c", f"{name}={val}"],
-                               capture_output=True, text=True, timeout=5)
-            if r.returncode != 0:
-                print(f"[노출고정] {name}={val} 실패: {r.stderr.strip()}")
-                ok = False
-        except FileNotFoundError:
-            print("[노출고정] v4l2-ctl 없음 — `sudo apt install v4l-utils` 필요. 자동노출 유지.")
-            return False
-        except Exception as e:
-            print(f"[노출고정] {name} 설정 오류: {e}")
-            ok = False
-    if ok:
-        wb_desc = f"WB={wb_temp}K(고정)" if wb_temp is not None else "WB=자동(유지)"
-        print(f"[노출고정] auto_exposure=Manual  exposure={exposure}  {wb_desc}")
-    return ok
 
 
 def _connect_tcp(host):
@@ -240,7 +198,7 @@ def _draw_detections(frame, tracks, fps, frame_no):
 # =============================================================================
 def run_bench(args):
     ts        = datetime.now().strftime("%Y%m%d_%H%M%S")
-    source    = args.source                       # esp32 | usb — 카메라 소스 태그
+    source    = "esp32"                           # 소스 태그 — 파일명·db_import 규약이라 남긴다
     host      = args.host or config.CAMERA_TCP_HOST
     max_frames = args.frames
 
@@ -254,19 +212,15 @@ def run_bench(args):
                    else getattr(config, "HEF_MODEL_PATH", None))
     model_name = os.path.splitext(os.path.basename(_model_path))[0] if _model_path else None
 
-    # 플립 결정. auto = esp32:수직 / usb:없음.
-    #  - ESP32 수직 플립은 카메라가 물리적으로 거꾸로 장착돼 있어 바로잡는 보정 → 추론에 필요.
-    #  - USB 좌우 플립은 실런타임(UsbCameraThread)의 표시용 미러링 → 거울상 입력은 학습 데이터와
-    #    방향이 달라 검출률을 떨어뜨리므로 검출 측정에서는 적용하지 않는다.
+    # 플립 결정. auto = 수직 — 카메라가 물리적으로 거꾸로 장착돼 있어 바로잡는 보정(추론에 필요).
     if args.flip == "auto":
-        flip_mode = ("v" if config.CAMERA_FLIP_VERTICAL else "none") if source == "esp32" else "none"
+        flip_mode = "v" if config.CAMERA_FLIP_VERTICAL else "none"
     else:
         flip_mode = args.flip
 
     # 회전 보정 — ESP32 장착 구도(2026-08-26 시계방향 90°)를 되돌린다. 플립과 달리
     # 실험 축이 아니라 **런타임과 맞춰야 하는 값**이라 config 를 그대로 따른다.
-    # USB 웹캠은 그 구도와 무관하므로 돌리지 않는다.
-    rotate_on = (source == "esp32") and config.CAMERA_ROTATE_CCW90
+    rotate_on = config.CAMERA_ROTATE_CCW90
 
     # 🔑 왜곡보정 맵은 **첫 프레임의 실제 크기**로 만든다 — config 에 해상도 상수가 없고,
     #    센서 설정이 바뀌어도 따라가야 한다. None=아직 시도 안 함 / False=없음 / 맵.
@@ -277,7 +231,7 @@ def run_bench(args):
         elif flip_mode == "h":  f = cv2.flip(f, 1)
         elif flip_mode == "vh": f = cv2.flip(f, -1)
         # 🔴 반전 → (왜곡보정) → 회전 — 런타임(`frame_orient.apply_full`)과 같은 순서여야 한다.
-        if args.undistort and source == "esp32":
+        if args.undistort:
             if umap_box[0] is None:
                 h0, w0 = f.shape[:2]
                 umap_box[0] = frame_orient.undistort_map(w0, h0) or False
@@ -285,7 +239,7 @@ def run_bench(args):
                     print(f"🔴 [왜곡보정] {w0}×{h0} 용 캘리브레이션 맵 없음 — 보정 없이 진행한다")
             if umap_box[0] is not False:
                 f = frame_orient.undistort(f, umap_box[0])
-        return frame_orient.rotate(f) if source == "esp32" else f
+        return frame_orient.rotate(f)
 
     os.makedirs(_LOGS_DIR, exist_ok=True)
     os.makedirs(_VIDEOS_DIR, exist_ok=True)
@@ -417,9 +371,8 @@ def run_bench(args):
             hand_tracker = None
             print("  ⚠️ 손 검출이 비활성이다 — 이 세션의 FPS는 'HOI 포함'이 아니다")
 
-    # --- 프레임 소스 설정 (esp32 TCP / usb VideoCapture) ---
+    # --- 프레임 소스 설정 (ESP32 TCP) ---
     sock = None
-    cap  = None
     latest_raw  = [None]
     raw_lock    = threading.Lock()
     raw_event   = threading.Event()
@@ -431,22 +384,11 @@ def run_bench(args):
         if hand_tracker is not None:
             hand_tracker.close()
 
-    if source == "esp32":
-        sock = _connect_tcp(host)
-        if sock is None:
-            print("ESP32 연결 실패. 종료합니다.")
-            _close_models()
-            return
-    else:  # usb
-        cap = cv2.VideoCapture(args.usb_index)
-        if not cap.isOpened():
-            print(f"USB 웹캠(index {args.usb_index}) 열기 실패. 종료합니다.")
-            _close_models()
-            return
-        print(f"[USB] 웹캠 index {args.usb_index} 열림.")
-        # VideoCapture 오픈 후에 걸어야 드라이버가 되돌리지 않는다.
-        if args.lock_exposure:
-            _lock_usb_exposure(args.usb_index, args.exposure, args.wb)
+    sock = _connect_tcp(host)
+    if sock is None:
+        print("ESP32 연결 실패. 종료합니다.")
+        _close_models()
+        return
 
     # VideoWriter 비동기 큐
     video_queue  = None
@@ -474,24 +416,22 @@ def run_bench(args):
         video_thread = threading.Thread(target=_video_worker, daemon=True)
         video_thread.start()
 
-    recv_thread = None
-    if source == "esp32":
-        def recv_worker():
-            while running[0]:
-                data = _recv_latest_frame(sock)
-                if data is None:
-                    recv_error[0] = True
-                    raw_event.set()
-                    break
-                with raw_lock:
-                    if latest_raw[0] is not None:
-                        stale_skipped[0] += 1      # 아직 안 쓴 것을 덮는다 = 버림
-                    latest_raw[0] = data
-                recv_count[0] += 1
+    def recv_worker():
+        while running[0]:
+            data = _recv_latest_frame(sock)
+            if data is None:
+                recv_error[0] = True
                 raw_event.set()
+                break
+            with raw_lock:
+                if latest_raw[0] is not None:
+                    stale_skipped[0] += 1      # 아직 안 쓴 것을 덮는다 = 버림
+                latest_raw[0] = data
+            recv_count[0] += 1
+            raw_event.set()
 
-        recv_thread = threading.Thread(target=recv_worker, daemon=True)
-        recv_thread.start()
+    recv_thread = threading.Thread(target=recv_worker, daemon=True)
+    recv_thread.start()
 
     # --- 상태 변수 ---
     tracks        = []
@@ -520,34 +460,27 @@ def run_bench(args):
     raw_saved   = [0]                              # PNG로 저장된 프레임 수
     raw_dropped = [0]                              # 큐 포화로 저장 못 한 프레임 수
 
-    # --- 워밍업: AE/AWB 수렴 대기 (USB는 시작 직후 포화 50%까지 과노출) ---
-    warmup = (60 if source == "usb" else 0) if args.warmup < 0 else args.warmup
+    # --- 워밍업: AE/AWB 수렴 대기 ---
+    warmup = max(0, args.warmup)
     if warmup > 0:
         print(f"[워밍업] {warmup}프레임 폐기 — 자동노출 수렴 대기...")
         got = 0
         while got < warmup:
-            if source == "esp32":
-                if not raw_event.wait(timeout=config.TCP_RECV_TIMEOUT_SEC):
-                    print("[워밍업] 스트림 수신 없음. 중단합니다.")
-                    break
-                raw_event.clear()
-                if recv_error[0]:
-                    break
-                with raw_lock:
-                    if latest_raw[0] is None:
-                        continue
-            else:
-                ok, _ = cap.read()
-                if not ok:
-                    print("[워밍업] USB 프레임 수신 실패. 중단합니다.")
-                    break
+            if not raw_event.wait(timeout=config.TCP_RECV_TIMEOUT_SEC):
+                print("[워밍업] 스트림 수신 없음. 중단합니다.")
+                break
+            raw_event.clear()
+            if recv_error[0]:
+                break
+            with raw_lock:
+                if latest_raw[0] is None:
+                    continue
             got += 1
         print(f"[워밍업] {got}프레임 폐기 완료.\n")
 
     _flip_desc = {"v": "수직", "h": "좌우", "vh": "수직+좌우", "none": "없음"}[flip_mode]
-    _lock_desc = " 노출=고정" if (source == "usb" and args.lock_exposure) else ""
     _rot_desc = "  회전=CCW90" if rotate_on else ""
-    print(f"\n[벤치마크 시작] 소스={source}  플립={_flip_desc}{_rot_desc}  워밍업={warmup}{_lock_desc}  "
+    print(f"\n[벤치마크 시작] 소스={source}  플립={_flip_desc}{_rot_desc}  워밍업={warmup}  "
           f"{max_frames}프레임 측정 — Ctrl+C로 중단\n")
 
     # manifest — 이 raw가 어떤 조건에서 찍혔는지. 없으면 나중에 PNG 더미의 의미를 잃는다.
@@ -560,14 +493,10 @@ def run_bench(args):
                 "model":          model_name,
                 "gpio":           bool(args.gpio),
                 "hand":           hand_tracker is not None,
-                "esp32_host":     host if source == "esp32" else None,
-                "usb_index":      args.usb_index if source == "usb" else None,
+                "esp32_host":     host,
                 "flip_mode":      flip_mode,
                 "rotate_ccw90":   rotate_on,
                 "warmup_frames":  warmup,
-                "lock_exposure":  bool(args.lock_exposure and source == "usb"),
-                "exposure":       args.exposure if (args.lock_exposure and source == "usb") else None,
-                "wb":             args.wb,
                 "raw_every":      args.raw_every,
                 "backend":        detector.backend_name,
                 "hef_path":       getattr(config, "HEF_MODEL_PATH", None),
@@ -580,29 +509,23 @@ def run_bench(args):
 
     try:
         while frame_no < max_frames:
-            if source == "esp32":
-                if not raw_event.wait(timeout=config.TCP_RECV_TIMEOUT_SEC):
-                    print("[타임아웃] 스트림 수신 없음. 종료합니다.")
-                    break
-                raw_event.clear()
-                if recv_error[0]:
-                    print("[오류] TCP 수신 오류. 종료합니다.")
-                    break
+            if not raw_event.wait(timeout=config.TCP_RECV_TIMEOUT_SEC):
+                print("[타임아웃] 스트림 수신 없음. 종료합니다.")
+                break
+            raw_event.clear()
+            if recv_error[0]:
+                print("[오류] TCP 수신 오류. 종료합니다.")
+                break
 
-                with raw_lock:
-                    data = latest_raw[0]
-                    latest_raw[0] = None       # 꺼냈으면 비운다 — 같은 프레임 중복 처리 방지
-                if data is None:
-                    continue
+            with raw_lock:
+                data = latest_raw[0]
+                latest_raw[0] = None       # 꺼냈으면 비운다 — 같은 프레임 중복 처리 방지
+            if data is None:
+                continue
 
-                frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-                if frame is None:
-                    continue
-            else:  # usb
-                ok, frame = cap.read()
-                if not ok or frame is None:
-                    print("[오류] USB 웹캠 프레임 수신 실패. 종료합니다.")
-                    break
+            frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                continue
             frame = _apply_flip(frame)
 
             frame_no += 1
@@ -742,8 +665,6 @@ def run_bench(args):
                 pass
         if recv_thread is not None:
             recv_thread.join(timeout=3)
-        if cap is not None:
-            cap.release()
 
         # 종료된 트랙 stability 기록
         alive_ids = {t.get("track_id") for t in tracks}
@@ -781,10 +702,9 @@ def run_bench(args):
         print(f"평균 FPS   : {sum(valid_fps)/len(valid_fps):.1f}")
         print(f"최저 FPS   : {min(valid_fps):.1f}")
         print(f"최고 FPS   : {max(valid_fps):.1f}")
-    if source == "esp32":
-        print(f"수신 프레임 : {recv_count[0]}")
-        print(f"처리 프레임 : {frame_no}")
-        print(f"버린 프레임 : {stale_skipped[0]}  ← 처리보다 수신이 빨라 덮인 장수")
+    print(f"수신 프레임 : {recv_count[0]}")
+    print(f"처리 프레임 : {frame_no}")
+    print(f"버린 프레임 : {stale_skipped[0]}  ← 처리보다 수신이 빨라 덮인 장수")
     print(f"\n[소스: {source}]  클래스별 누적 탐지 (confirmed 트랙 ≥{config.YOLO_CONF_HIGH}):")
     for name in CLASS_NAMES:
         count = cls_counts.get(name, 0)
@@ -851,24 +771,10 @@ if __name__ == "__main__":
     parser.add_argument("--frames",    type=int, default=300, help="측정 프레임 수 (기본 300)")
     parser.add_argument("--host",      type=str, default=None, help="ESP32 IP 오버라이드")
     parser.add_argument("--no-video",  action="store_true",    help="영상 저장 생략")
-    parser.add_argument("--source",    choices=["esp32", "usb"], default="esp32",
-                        help="카메라 소스 (esp32=OV3660 TCP / usb=웹캠). B4 원인 대조용")
-    parser.add_argument("--usb-index", type=int, default=0,
-                        help="USB 웹캠 장치 인덱스 (--source usb, 기본 0)")
     parser.add_argument("--flip", choices=["auto", "none", "v", "h", "vh"], default="auto",
-                        help="플립 보정. auto=esp32:수직(거꾸로 장착 보정)/usb:없음. "
-                             "USB의 실런타임 좌우 플립은 표시용 미러링이라 검출 측정엔 해로움")
-    parser.add_argument("--warmup", type=int, default=-1,
-                        help="측정 전 버릴 프레임 수(AE 수렴 대기). 기본 auto = usb:60 / esp32:0")
-    parser.add_argument("--lock-exposure", action="store_true",
-                        help="USB 웹캠 자동노출 해제 후 고정 (ESP32와 조건 대등화). WB는 자동 유지")
-    parser.add_argument("--exposure", type=int, default=250,
-                        help="--lock-exposure 시 exposure_time_absolute. "
-                             "기본 250 = 2026-07-10 실측 최적(5클래스 20/20, B4 conf 0.801). "
-                             "값은 조명마다 다르니 test/tune_exposure.py로 재선정")
-    parser.add_argument("--wb", type=int, default=None,
-                        help="지정 시 white_balance_temperature(K) 고정. 미지정=자동 AWB 유지(권장). "
-                             "형광등 녹색 스파이크는 색온도 축으로 못 잡아 수동 고정 시 초록 캐스트 발생")
+                        help="플립 보정. auto=config.CAMERA_FLIP_VERTICAL(거꾸로 장착 보정)")
+    parser.add_argument("--warmup", type=int, default=0,
+                        help="측정 전 버릴 프레임 수(AE 수렴 대기). 기본 0")
     parser.add_argument("--save-raw", action="store_true",
                         help="detector에 들어간 프레임을 무손실 PNG로 저장(test/raw/). "
                              "저장 영상은 검출 오버레이본이라 재분석 불가 — 재현·console_v2 평가용")

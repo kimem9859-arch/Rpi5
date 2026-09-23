@@ -69,7 +69,6 @@ echo "▶ 촬영을 시작합니다. 5개 버튼(B1~B4·EMO)이 화면에 들어
 echo
 
 python3 test/bench_detector.py \
-    --source esp32 \
     --condition "$COND" \
     --frames "$FRAMES" \
     --save-raw --raw-every "$RAW_EVERY"

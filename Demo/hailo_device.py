@@ -7,7 +7,7 @@
 
     물리 NPU 가 기기당 하나이므로 **모듈 수준 싱글턴이 하드웨어 구조를 그대로 반영**한다.
     억지 전역 상태가 아니다. 덕분에 `create_detector()` 시그니처를 바꾸지 않아도 되고,
-    호출부 5곳(camera_thread·bench_detector·tune_exposure·score_hef·replay_raw)이
+    호출부 4곳(camera_thread·bench_detector·score_hef·replay_raw — tune_exposure 는 2026-09-23 삭제)이
     그대로 동작한다.
 
 ⚠️ **스케줄러를 쓰면 `network_group.activate()` 를 직접 호출하지 않는다.**

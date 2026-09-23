@@ -31,9 +31,10 @@
     성능 지표로 쓰지 않는다(2026-08-14-공구입력-A2-design §G6 과 같은 규율).
 
 전제:
-    ① 카메라 — 기본은 **USB 웹캠**(`--camera usb`). 🔴 ESP32 로는 재지 않는다:
-       무선·배터리 전압·장면 복잡도(프레임 크기 12~48KB)가 함께 흔들려 FPS 가
-       3~25 로 요동하므로, 애니메이션 효과(수 %)를 분리할 수 없다(2026-08-26 실측).
+    ① 카메라 — **ESP32 뿐이다.** 🔴 USB 웹캠 기준 측정(§10.48 · `--camera usb`)은 웹캠 제거
+       (2026-09-23) 전의 기록이다. ESP32 는 무선·배터리 전압·장면 복잡도(프레임 크기
+       12~48KB)가 함께 흔들려 FPS 가 3~25 로 요동하므로, 애니메이션 효과(수 %)를
+       분리하기 어렵다(2026-08-26 실측) — 재측정하면 이 한계를 결과와 함께 적는다.
     ② EMO 복귀(GPIO26 LOW) — 열려 있으면 BLOCK 에 갇혀 단계가 진행되지 않는다
     ③ 카메라 앞을 비워 둘 것 — 손이 들어가면 추론 부하가 달라져 비교가 깨진다
 
@@ -155,11 +156,10 @@ def check_run(text, steps):
     return problems
 
 
-def run_once(anim_on, timeout, min_fps, camera):
+def run_once(anim_on, timeout, min_fps):
     """GUI 를 띄우고 사람이 진행·종료(ESC)하기를 기다린 뒤 로그를 수집한다."""
     env = dict(os.environ)
     env["SOP_UI_ANIM"] = "1" if anim_on else "0"
-    env["SOP_CAMERA"] = camera
     env.setdefault("DISPLAY", ":0")
 
     started = time.time() - 1
@@ -204,9 +204,6 @@ def main():
                     help="ON/OFF 교차 쌍 수 (기본 3 → 총 6런)")
     ap.add_argument("--timeout", type=float, default=600,
                     help="한 런을 기다리는 최대 초")
-    ap.add_argument("--camera", default="usb", choices=("usb", "esp32"),
-                    help="측정에 쓸 카메라. 기본 usb — ESP32 는 무선·전원·장면이 함께 "
-                         "흔들려 애니메이션 효과를 분리할 수 없다(2026-08-26)")
     ap.add_argument("--min-fps", type=float, default=10.0, dest="min_fps",
                     help="런을 인정할 최소 FPS 중앙값 — 카메라 공급이 무너진 런을 거른다")
     args = ap.parse_args()
@@ -220,7 +217,7 @@ def main():
             order.append("t")
 
     print("=" * 60)
-    print(f"애니메이션 ON/OFF FPS 전후 비교 (G6) — {runs}런 · 카메라 {args.camera}")
+    print(f"애니메이션 ON/OFF FPS 전후 비교 (G6) — {runs}런 · 카메라 esp32")
     print(f"레시피: {process_name} — {len(steps)}단계")
     print()
     print("각 런에서 할 일:")
@@ -241,7 +238,7 @@ def main():
         #    어긋나 교차 배치의 의미(드리프트 상쇄)가 사라진다.
         while True:
             print(f"[{i+1}/{runs}] 기동 중… GUI 가 뜨면 진행하세요.", flush=True)
-            r = run_once(anim_on, args.timeout, args.min_fps, args.camera)
+            r = run_once(anim_on, args.timeout, args.min_fps)
             if r.get("error"):
                 print(f"   🔴 {r['error']}")
                 return 1
