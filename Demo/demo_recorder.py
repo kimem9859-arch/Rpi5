@@ -1,4 +1,4 @@
-"""시연영상 촬영 — 한 번 실행에 5개 파일. 인코딩은 전부 ffmpeg 가 한다.
+"""시연영상 촬영 — 한 번 실행에 영상 3개(GUI · 1인칭 오버레이 켬/끔). 인코딩은 전부 ffmpeg 가 한다.
 
 설계 = 상위 `docs/superpowers/specs/2026-09-03-시연영상-촬영-design.md`
 
@@ -39,7 +39,7 @@ def keep_screen_awake():
 
 
 class DemoRecorder:
-    """촬영 한 세트(5개 파일)의 수명을 쥔다."""
+    """촬영 한 세트(영상 3개)의 수명을 쥔다."""
 
     def __init__(self, out_dir, stamp, scenario, overlay):
         self._dir = out_dir
@@ -81,7 +81,6 @@ class DemoRecorder:
             # 「UI만」 회차는 화면 자체가 검정 배경 + UI 라 그것이 곧 ②다.
             'gui_full': (self.path_for('GUI화면만') if config.DEMO_HIDE_VIDEO
                          else self.path_for('GUI전체', self._overlay)),
-            'webcam':   self.path_for('3인칭웹캠'),
             'fpv_on':   self.path_for('1인칭풀', '켬'),
             'fpv_off':  self.path_for('1인칭풀', '끔'),
         })
@@ -95,7 +94,7 @@ class DemoRecorder:
                        'target': list(config.DEMO_CAPTURE_SIZE)}, fp, ensure_ascii=False)
         self._started = time.time()
         self._running = True
-        # 🔴 1인칭을 안 찍는 회차(3인칭만)는 밀어넣을 파이프가 없다 — 스레드도 안 돈다.
+        # 1인칭을 안 찍는 회차면 밀어넣을 파이프가 없다 — 스레드도 안 돈다.
         if config.demo_wants("fpv"):
             self._feeder = threading.Thread(target=self._feed, daemon=True, name="demo-feeder")
             self._feeder.start()

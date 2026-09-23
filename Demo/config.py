@@ -218,7 +218,8 @@ RECORDING_EXT      = "mp4"
 
 # --- 시연영상 촬영 모드 -------------------------------------------------------
 # 🔴 평소 실행과 완전히 분리된 경로다. SOP_DEMO_CAPTURE=1 일 때만 켜진다.
-#    한 번 실행에 5개 영상을 동시에 남긴다(GUI전체·UI만·1인칭 오버레이 유/무·3인칭).
+#    한 번 실행에 GUI 화면과 1인칭(오버레이 유/무)을 동시에 남긴다.
+#    3인칭 웹캠은 2026-09-23 제거(spec D5 — 백업 태그 backup/webcam-before-removal-20260923).
 #    설계 = 상위 specs/2026-09-03-시연영상-촬영-design.md
 DEMO_CAPTURE      = os.environ.get("SOP_DEMO_CAPTURE", "0") == "1"
 DEMO_CAPTURE_DIR  = os.path.join(RECORDING_SAVE_DIR, '시연영상')
@@ -232,25 +233,24 @@ DEMO_CAPTURE_DIR  = os.path.join(RECORDING_SAVE_DIR, '시연영상')
 DEMO_CAPTURE_SIZE = tuple(
     int(v) for v in os.environ.get("SOP_DEMO_SIZE", "1280x720").split("x"))
 DEMO_CAPTURE_FPS  = 15.0
-# 1인칭 원본 프레임 크기 — ESP32 640x480 이 회전(CCW90) 뒤 480x640 세로가 된다.
-# 🔴 첫 프레임이 있으면 그 크기를 쓰고, 이것은 10초 폴백 경로의 기본값이다.
+# 1인칭 원본 프레임 크기의 **폴백** — 회전(CCW90) 뒤 세로. VGA 면 480x640, XGA 면 768x1024.
+# 🔴 첫 프레임이 있으면 그 크기를 쓰고, 이것은 첫 프레임 없이 시작한 10초 폴백 경로의
+#    기본값일 뿐이다(나중에 온 프레임은 이 크기로 줄여 담긴다 — demo_recorder._feed).
 DEMO_FPV_SIZE     = (480, 640)
-# 3인칭 웹캠 저장 규격. 카메라는 1920x1080 으로 열고 이 크기로 인코딩한다.
-# 🔴 1080p 는 분당 약 230MB 다(2026-09-04 실측) — 회차를 여러 번 가면 디스크가 찬다.
-#    편집에서 3인칭은 대개 작게 쓰여 720p 로 충분하다는 사용자 판단(2026-09-04).
-DEMO_WEBCAM_SIZE  = (1280, 720)
 
 # 이번 회차에 무엇을 찍는가 — 유선/무선으로 촬영을 쪼개면서 신설(2026-09-05).
-#   "all"     기존 방식 — 한 번에 4개
+#   "all"     기존 방식 — 찍을 수 있는 것 전부(= 1인칭 2벌 + GUI)
 #   "fpv+gui" 1인칭 2벌 + GUI — ESP32 를 USB 로 물린 유선 회차
-#   "webcam"  3인칭 웹캠 하나 — ESP32 없이 연기하는 무선 회차
-# 🔴 "webcam" 회차는 카메라 프레임을 기다리지 않고 **즉시** 시작한다
-#    (ESP32 가 없으므로 기다려봐야 10초 폴백만 낭비한다).
+# 🔴 "webcam"(3인칭 웹캠만) 회차는 2026-09-23 웹캠 제거로 없어졌다 — 받으면 기동을 멈춘다.
+#    조용히 무시하면 아무것도 안 찍힌 촬영본이 남는다.
 DEMO_TARGETS = os.environ.get("SOP_DEMO_TARGETS", "all")
+if DEMO_TARGETS not in ("all", "fpv+gui"):
+    raise SystemExit(f"[config] SOP_DEMO_TARGETS={DEMO_TARGETS!r} 는 지원하지 않는다 — "
+                     "'all' 또는 'fpv+gui'. 3인칭 웹캠 회차는 2026-09-23 제거됐다.")
 
 
 def demo_wants(what):
-    """이번 회차가 `what`('fpv'|'gui'|'webcam')을 찍는가."""
+    """이번 회차가 `what`('fpv'|'gui')을 찍는가."""
     t = DEMO_TARGETS
     if t == "all":
         return True

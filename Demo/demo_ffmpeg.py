@@ -10,12 +10,10 @@
    결론: **촬영 중에는 원본 그대로만 담고, 규격 맞추기는 촬영이 끝난 뒤 한다**
    (`demo_postprocess.py`). 사람이 연기하는 동안 CPU 를 아끼는 것이 전부다.
 
-촬영 중 도는 것 (4개 프로세스):
+촬영 중 도는 것 (3개 프로세스 · 3인칭 웹캠은 2026-09-23 제거):
   A. x11grab(창 영역) → GUI 화면. 「UI만」 회차면 그것이 곧 ②다
      🔴 창 영역만 잘라 **작업표시줄·제목표시줄을 뺀다.**
-  B. v4l2 /dev/video0 → ④3인칭웹캠 1920×1080 15fps
-     🔴 OpenCV 로 열면 MJPG 지정이 무시돼 1080p 5fps 로 떨어진다(2026-07-22 실측).
-  C·D. 파이프(rawvideo) → ③-a/③-b 1인칭 **원본 480×640 그대로**(확대는 나중에)
+  C·D. 파이프(rawvideo) → ③-a/③-b 1인칭 **원본 크기 그대로**(VGA 480×640 · XGA 768×1024 — 확대는 나중에)
 
 촬영 뒤에 하는 것 (`demo_postprocess.py`):
   ③ 을 규격 캔버스에 레터박스로 얹기
@@ -64,7 +62,7 @@ class FfmpegSet:
     def start(self, screen_rect, fpv_size, paths):
         """screen_rect = 화면 절대 좌표 (x, y, w, h) — 창 내용 영역.
         fpv_size = 1인칭 원본 프레임 (w, h).
-        paths = {'gui_full', 'webcam', 'fpv_on', 'fpv_off'}
+        paths = {'gui_full', 'fpv_on', 'fpv_off'}
         반환 = 문제 사유 목록.
         """
         problems = []
@@ -89,22 +87,6 @@ class FfmpegSet:
                 "-f", "x11grab", "-framerate", str(fps),
                 "-video_size", f"{w}x{h}",
                 "-i", f"{display}+{x},{y}"] + _X264 + [paths['gui_full']]))
-
-        # B. USB 웹캠 — 검출 없는 순수 촬영본
-        # 🔴 카메라는 1920x1080 MJPG 로 열고 **인코딩만 규격(기본 720p)으로 줄인다.**
-        #    v4l2 입력 해상도를 낮추면 시야각이 잘리는 웹캠이 있어 원본은 그대로 받는다.
-        #    1080p 로 담으면 분당 230MB — 6회차 촬영이면 4GB 를 넘는다(2026-09-04 실측).
-        if not config.demo_wants("webcam"):
-            pass                                  # 이 회차는 3인칭을 안 찍는다
-        elif os.path.exists("/dev/video0"):
-            self._procs.append(self._spawn([
-                "-f", "v4l2", "-input_format", "mjpeg",
-                "-video_size", "1920x1080", "-framerate", str(fps),
-                "-i", "/dev/video0",
-                "-vf", f"scale={config.DEMO_WEBCAM_SIZE[0]}:{config.DEMO_WEBCAM_SIZE[1]}",
-                ] + _X264 + [paths['webcam']]))
-        else:
-            problems.append("USB 웹캠(/dev/video0)이 없어 3인칭 녹화를 건너뜁니다")
 
         # C·D. 1인칭 두 벌 — 원본 크기 그대로. 확대는 촬영이 끝난 뒤에 한다.
         fw, fh = fpv_size
