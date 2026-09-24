@@ -1,0 +1,422 @@
+{
+ "overlay.place": {
+  "desc": "오버레이 위젯을 부모 영역 안에 비율(%)로 계산해 배치한다.",
+  "note": ""
+ },
+ "overlay._glow": {
+  "desc": "글자 후광을 넣던 자리지만 지금은 아무 일도 하지 않는다.",
+  "note": "빈 함수(L87 return). 2026-08-03 폐기 후 호출부(overlay.py L119·L574, overlay_menu.py L90) 유지용으로만 남음 — 사실상 죽은 코드."
+ },
+ "overlay._Panel.__init__": {
+  "desc": "반투명 패널의 공통 뼈대를 만들고 마우스 클릭을 통과시킨다.",
+  "note": ""
+ },
+ "overlay._Panel.apply_theme": {
+  "desc": "현재 테마 색으로 패널 배경(켜짐/꺼짐)을 다시 칠한다.",
+  "note": "L118-119 에서 자식 QLabel 마다 no-op 인 _glow 를 부른다(무의미한 루프)."
+ },
+ "overlay.StatusPanel.__init__": {
+  "desc": "좌상단에 작업 상태와 공정 단계 목록 패널을 만든다.",
+  "note": ""
+ },
+ "overlay.StatusPanel.update_view": {
+  "desc": "현재 상태와 단계별 완료·진행·예정 표시를 화면에 갱신한다.",
+  "note": "인자 sub_running 이 본문에서 전혀 쓰이지 않는다(L177). docstring 은 '진행 중'으로 표시한다고 하지만 동작 없음. 호출부(safety_console.py L1301)도 넘기지 않는다."
+ },
+ "overlay.StatusPanel.relayout": {
+  "desc": "상태·단계 패널을 화면 왼쪽 위 정해진 비율 위치에 놓는다.",
+  "note": ""
+ },
+ "overlay.GaugePanel.__init__": {
+  "desc": "상단 중앙에 대기 시간 게이지와 공구 안내 칸을 만든다.",
+  "note": ""
+ },
+ "overlay.GaugePanel.update_view": {
+  "desc": "서브 작업 진행률과 필요한 공구·쥔 상태를 게이지에 보여 준다.",
+  "note": ""
+ },
+ "overlay.GaugePanel.update_view._step": {
+  "desc": "게이지 채움 막대를 목표값까지 조금씩 늘려 그린다.",
+  "note": ""
+ },
+ "overlay.GaugePanel._stop_pulse": {
+  "desc": "공구 안내 문구의 깜빡임을 멈추고 직전 공구 상태를 지운다.",
+  "note": ""
+ },
+ "overlay.GaugePanel.relayout": {
+  "desc": "공구가 필요하면 넓게, 아니면 좁게 게이지 위치를 잡는다.",
+  "note": ""
+ },
+ "overlay.GlowFrame.__init__": {
+  "desc": "영상 테두리를 빛나게 할 투명 틀을 숨긴 채 만든다.",
+  "note": ""
+ },
+ "overlay.GlowFrame.set_level": {
+  "desc": "경고·차단 단계에 맞춰 영상 테두리 색을 켜거나 끈다.",
+  "note": ""
+ },
+ "overlay.GlowFrame.level": {
+  "desc": "지금 켜진 테두리 단계(없음·경고·차단)를 알려 준다.",
+  "note": "앱 코드에서는 읽지 않고 테스트(test_overlay.py·test_console_flow.py)만 사용."
+ },
+ "overlay.GlowFrame.relayout": {
+  "desc": "테두리를 화면 가운데 영상 영역(75%)에 맞춰 놓는다.",
+  "note": "place() 와 달리 parent_rect 의 left/top 오프셋을 무시하고 x=pw*0.125, y=0 으로 고정(L465). 비율은 모듈 상수 VIDEO_*_RATIO."
+ },
+ "overlay.AlertBanner.__init__": {
+  "desc": "경고·차단 안내 배너와 해제 버튼을 숨긴 채 만든다.",
+  "note": ""
+ },
+ "overlay.AlertBanner.show_order_violation": {
+  "desc": "순서 위반 경고 배너를 해제 버튼과 함께 띄운다.",
+  "note": ""
+ },
+ "overlay.AlertBanner.show_wrong_tool": {
+  "desc": "다른 공구를 쥐었다는 경고를 해제 버튼 없이 띄운다.",
+  "note": ""
+ },
+ "overlay.AlertBanner.show_block": {
+  "desc": "인터락 차단 배너를 차단 해제 버튼과 함께 띄운다.",
+  "note": "reason 기본 문구가 하드코딩(L539); 유일한 호출부(safety_console.py L1317)가 인자 없이 부르므로 EMO(비상정지)로 BLOCK 이 돼도 '순서 위반이 계속되어 인터락이 작동했습니다'로 표시된다(같은 블록 L1307 주석은 EMO 는 순서 위반이 아니라고 함)."
+ },
+ "overlay.AlertBanner._paint": {
+  "desc": "배너의 아이콘·제목·안내문·버튼·색을 한꺼번에 그린다.",
+  "note": ""
+ },
+ "overlay.AlertBanner.mode": {
+  "desc": "지금 떠 있는 배너 종류(순서·공구·차단)를 알려 준다.",
+  "note": ""
+ },
+ "overlay.AlertBanner.hide_all": {
+  "desc": "배너를 숨기고 깜빡임과 등장 예약을 모두 끈다.",
+  "note": ""
+ },
+ "overlay.AlertBanner.relayout": {
+  "desc": "차단이면 화면 중앙, 경고면 아래쪽에 배너를 놓는다.",
+  "note": ""
+ },
+ "overlay.ConnBar.__init__": {
+  "desc": "우하단에 카메라·인터락·GPIO 연결 표시 아이콘을 만든다.",
+  "note": ""
+ },
+ "overlay.ConnBar.update_state": {
+  "desc": "연결 상태에 따라 아이콘 배경을 초록·빨강·회색으로 칠한다.",
+  "note": ""
+ },
+ "overlay.ConnBar.apply_theme": {
+  "desc": "테마가 바뀌면 연결 표시 색을 다시 칠한다.",
+  "note": ""
+ },
+ "overlay.ConnBar.relayout": {
+  "desc": "연결 표시줄을 오른쪽 아래 구석에 놓는다.",
+  "note": "위치 0.03/0.04 가 _POS 표(L32) 밖 리터럴(L661) — 모듈 docstring 의 '% 값은 _POS 사본' 규칙과 어긋남."
+ },
+ "overlay_menu._Sheet.__init__": {
+  "desc": "열었을 때만 나오는 진한 패널을 숨긴 채 만든다.",
+  "note": ""
+ },
+ "overlay_menu._Sheet._make_close_button": {
+  "desc": "패널 오른쪽 위에 닫기(✕) 버튼을 만들어 준다.",
+  "note": ""
+ },
+ "overlay_menu._Sheet.apply_theme": {
+  "desc": "시트 패널에 진한 배경과 테마 색을 입힌다.",
+  "note": "L89-90 에서 no-op 인 _glow 를 라벨마다 부른다."
+ },
+ "overlay_menu._row_button": {
+  "desc": "메뉴 항목용 글자형 버튼을 만든다.",
+  "note": ""
+ },
+ "overlay_menu.NotifyButton.__init__": {
+  "desc": "알림(🔔) 버튼과 숫자 배지를 만든다.",
+  "note": "BADGE_BG/FG 색이 하드코딩(L112-113) — theme.py 로 색을 모은다는 overlay.py 규칙과 어긋남(테마 전환에 안 따라감)."
+ },
+ "overlay_menu.NotifyButton.set_count": {
+  "desc": "안 읽은 알림 수를 배지에 표시하고 0이면 숨긴다.",
+  "note": ""
+ },
+ "overlay_menu.NotifyButton._place_badge": {
+  "desc": "배지를 버튼 안 오른쪽 위 모서리에 맞춰 놓는다.",
+  "note": ""
+ },
+ "overlay_menu.NotifyButton.resizeEvent": {
+  "desc": "버튼 크기가 바뀌면 배지 위치를 다시 잡는다.",
+  "note": ""
+ },
+ "overlay_menu.MenuPanel.__init__": {
+  "desc": "점검·녹화·로그·설정·초기화·종료 메뉴 패널을 만든다.",
+  "note": "self._free 루프가 range(0)(L199)이라 아무것도 안 만든다 — 남은 빈 칸 기능의 잔재. closed 시그널(L165)은 ✕ 버튼이 없어 emit 되지 않는데 safety_console.py L276 이 연결해 둠."
+ },
+ "overlay_menu.MenuPanel._hline": {
+  "desc": "메뉴 구분선 한 줄을 만든다.",
+  "note": ""
+ },
+ "overlay_menu.MenuPanel.apply_theme": {
+  "desc": "메뉴 제목·항목·종료 버튼·구분선에 테마 색을 입힌다.",
+  "note": "항목 버튼 QSS 가 _row_button 의 것을 그대로 복사(L226-230). self._free 가 늘 비어 L235-237 루프는 무동작."
+ },
+ "overlay_menu.MenuPanel.relayout": {
+  "desc": "메뉴 패널을 ☰ 버튼 아래 오른쪽에 세로로 놓는다.",
+  "note": ""
+ },
+ "overlay_menu.NotifyPanel.__init__": {
+  "desc": "알림 목록을 담을 스크롤 패널을 만든다.",
+  "note": "closed 시그널(L257)은 ✕ 버튼이 없어 emit 되지 않지만 safety_console.py L285 가 연결해 둠."
+ },
+ "overlay_menu.NotifyPanel.push": {
+  "desc": "알림 한 건을 아이콘과 함께 목록 맨 아래에 추가한다.",
+  "note": "알림 행이 무한히 쌓인다(삭제·상한 없음, 메모리 전용)."
+ },
+ "overlay_menu.NotifyPanel._scroll_to_latest": {
+  "desc": "알림 목록을 가장 최근 항목이 보이게 내린다.",
+  "note": ""
+ },
+ "overlay_menu.NotifyPanel.showEvent": {
+  "desc": "알림 패널을 열 때 최신 알림 위치로 스크롤한다.",
+  "note": ""
+ },
+ "overlay_menu.NotifyPanel.count": {
+  "desc": "쌓인 알림 개수를 알려 준다.",
+  "note": "앱 코드에서는 쓰지 않고 테스트(test_overlay_menu.py·test_console_flow.py)만 사용."
+ },
+ "overlay_menu.NotifyPanel.apply_theme": {
+  "desc": "알림 패널 제목에 테마 색을 입힌다.",
+  "note": ""
+ },
+ "overlay_menu.NotifyPanel.relayout": {
+  "desc": "알림 패널을 🔔 버튼 위 왼쪽에 놓는다.",
+  "note": ""
+ },
+ "overlay_menu.SettingsPanel.__init__": {
+  "desc": "공구·테마·패널배경·탐지박스를 고르는 설정 패널을 만든다.",
+  "note": "공구 제목이 '4단계 지정 공구'로 하드코딩(L395)인데 recipe.json 의 wait_tool 단계는 2단계(B2 펌프/퍼지)다 — 화면 문구와 레시피 불일치."
+ },
+ "overlay_menu.SettingsPanel.set_tools": {
+  "desc": "레시피가 준 공구 목록으로 선택 버튼들을 다시 만든다.",
+  "note": ""
+ },
+ "overlay_menu.SettingsPanel.set_tool_editable": {
+  "desc": "작업 중에는 공구를 못 바꾸게 막고 안내문을 띄운다.",
+  "note": ""
+ },
+ "overlay_menu.SettingsPanel.apply_theme": {
+  "desc": "설정 패널의 제목·라디오 버튼에 테마 색을 입힌다.",
+  "note": ""
+ },
+ "overlay_menu.SettingsPanel.relayout": {
+  "desc": "설정 패널을 화면 한가운데 놓는다.",
+  "note": ""
+ },
+ "overlay_menu.CheckPanel.__init__": {
+  "desc": "연결 점검 결과와 '다시 점검' 버튼이 있는 패널을 만든다.",
+  "note": ""
+ },
+ "overlay_menu.CheckPanel.update_results": {
+  "desc": "점검 항목별 ✓/✗와 설명, 필요 시 재연결 버튼을 그린다.",
+  "note": ""
+ },
+ "overlay_menu.CheckPanel.apply_theme": {
+  "desc": "점검 패널 제목과 버튼에 테마 색을 입힌다.",
+  "note": ""
+ },
+ "overlay_menu.CheckPanel.relayout": {
+  "desc": "점검 패널을 화면 한가운데 놓는다.",
+  "note": "폭 0.34 리터럴(L613) — _SETTINGS_W(L44)와 같은 값을 따로 적음."
+ },
+ "overlay_menu.RecordPanel.__init__": {
+  "desc": "전체화면/카메라 녹화 시작·중지 버튼이 있는 패널을 만든다.",
+  "note": ""
+ },
+ "overlay_menu.RecordPanel.set_save_dir": {
+  "desc": "녹화 파일 저장 폴더 경로를 버튼에 표시한다.",
+  "note": "self._save_dir 에 저장하지만 어디서도 다시 읽지 않는다(L689)."
+ },
+ "overlay_menu.RecordPanel.set_state": {
+  "desc": "녹화 중/중지 상태에 맞춰 문구와 버튼을 바꾼다.",
+  "note": "'H.264(.mp4)로 저장 — 약 0.3MB/분'(L701) 하드코딩 — 코덱·확장자는 config.RECORDING_CODEC/EXT 가 정본이고 용량 수치 근거 없음."
+ },
+ "overlay_menu.RecordPanel.apply_theme": {
+  "desc": "녹화 패널 버튼·글자에 테마 색을 입힌다.",
+  "note": "중지 버튼 글자색 #ffffff 하드코딩(L721)."
+ },
+ "overlay_menu.RecordPanel.relayout": {
+  "desc": "녹화 패널을 화면 한가운데 놓는다.",
+  "note": ""
+ },
+ "precheck.CheckResult.__init__": {
+  "desc": "점검 한 항목의 이름·통과 여부·설명을 담는다.",
+  "note": ""
+ },
+ "precheck.CheckResult.mark": {
+  "desc": "통과면 ✓, 실패면 ✗ 기호를 돌려준다.",
+  "note": ""
+ },
+ "precheck.CheckResult.__repr__": {
+  "desc": "점검 결과를 디버그용 짧은 글로 보여 준다.",
+  "note": ""
+ },
+ "precheck.run_stage1": {
+  "desc": "카메라·모델·인터락·GPIO가 연결·로드됐는지 점검한다.",
+  "note": "검출 모델 통과 문구 'console_v2 로드됨'(L58) 하드코딩 — 실제 모델은 config.HEF_MODEL_PATH 가 정본이라 모델을 바꾸면 어긋난다."
+ },
+ "precheck.run_stage2": {
+  "desc": "작업 시작 전 영상·버튼·손 검출·인터락이 실제로 되는지 본다.",
+  "note": "앱에서 호출하지 않는다 — 호출처는 selftest/test_precheck.py 뿐(safety_console 은 run_stage1 만 사용). 영상 신선도 2.0초 하드코딩(L94), fps.fps_stale 기본값과 중복."
+ },
+ "precheck._probe_hand": {
+  "desc": "프레임 한 장으로 손 검출 추론이 오류 없이 도는지 시험한다.",
+  "note": "run_stage2 에서만 불려 사실상 앱에서 안 쓰임."
+ },
+ "precheck.summary": {
+  "desc": "점검 결과 묶음이 전부 통과인지와 '3/5' 같은 통과 수를 돌려준다.",
+  "note": "앱 호출처 없음 — selftest/test_precheck.py 만 사용."
+ },
+ "recipe.load_recipe": {
+  "desc": "공정 레시피 JSON 파일을 읽고 검사해 돌려준다.",
+  "note": ""
+ },
+ "recipe._validate": {
+  "desc": "레시피의 단계 순서·버튼 중복·EMO 겹침·체류시간이 맞는지 검사한다.",
+  "note": "dwell_threshold_sec 누락 시 기본 1.0 으로 통과시키지만(L51) safety_console.py L114 는 recipe['dwell_threshold_sec'] 로 직접 읽어 KeyError 가능. 값 자체도 config.FSM_DWELL_THRESHOLD_SEC(0.3)와 recipe.json(0.3)에 중복."
+ },
+ "recipe._validate_sub": {
+  "desc": "단계별 서브 작업(대기·공구)의 종류·시간·공구 목록을 검사한다.",
+  "note": ""
+ },
+ "session_stats._now": {
+  "desc": "시각을 받으면 그대로, 없으면 현재 시각을 쓴다.",
+  "note": ""
+ },
+ "session_stats.SessionStats.__init__": {
+  "desc": "작업 결과 집계기를 빈 상태로 만든다.",
+  "note": ""
+ },
+ "session_stats.SessionStats.reset": {
+  "desc": "모아 둔 단계·위반·공구·검출 기록을 모두 비운다.",
+  "note": ""
+ },
+ "session_stats.SessionStats.start": {
+  "desc": "새 작업 집계를 시작하고 레시피 이름과 시작 시각을 적는다.",
+  "note": ""
+ },
+ "session_stats.SessionStats.running": {
+  "desc": "지금 작업 집계가 진행 중인지 알려 준다.",
+  "note": ""
+ },
+ "session_stats.SessionStats.button_pressed": {
+  "desc": "올바른 버튼이 눌린 시각을 단계 소요시간용으로 적어 둔다.",
+  "note": "인자 expected 는 쓰이지 않는다(L52-54). 오답 눌림은 기록하지 않음."
+ },
+ "session_stats.SessionStats.step_done": {
+  "desc": "한 단계가 끝난 시각과 걸린 시간을 기록한다.",
+  "note": ""
+ },
+ "session_stats.SessionStats.sub_started": {
+  "desc": "공구가 필요한 서브 작업이 시작되면 공구 기록 칸을 만든다.",
+  "note": ""
+ },
+ "session_stats.SessionStats.sub_done": {
+  "desc": "서브 작업 종료 알림을 받지만 아무것도 하지 않는다.",
+  "note": "빈 함수(pass, L80)인데 safety_console.py L1158 에서 계속 호출된다."
+ },
+ "session_stats.SessionStats.tool_grasped": {
+  "desc": "요구 공구를 쥔 시간과 다른 공구를 쥔 횟수를 센다.",
+  "note": ""
+ },
+ "session_stats.SessionStats.violation": {
+  "desc": "순서 위반 한 건(기대·실제 버튼, 경고/차단)을 기록한다.",
+  "note": ""
+ },
+ "session_stats.SessionStats.interlock": {
+  "desc": "인터락이 걸린 시각과 풀린 시각을 기록한다.",
+  "note": ""
+ },
+ "session_stats.SessionStats.frame": {
+  "desc": "프레임 한 장의 검출 이름별 등장 수와 신뢰도 합을 더한다.",
+  "note": "이름만 넘기면 신뢰도 0.0 을 표본으로 더한다(L116) — None 은 제외하는 규칙과 달리 평균을 끌어내림. 단 실제 호출(safety_console.py L842)은 늘 튜플이라 이 분기는 미사용."
+ },
+ "session_stats.SessionStats.finish": {
+  "desc": "작업 결과를 한 묶음으로 정리해 돌려주고 집계를 멈춘다.",
+  "note": "부작용: _started=None 으로 running 을 끈다(L150). 두 번 부르면 시작시각·총시간이 '지금' 기준으로 바뀐다."
+ },
+ "state_publisher.StatePublisher.__init__": {
+  "desc": "음성비서에 줄 상태 파일 위치를 정하고 폴더를 만든다.",
+  "note": ""
+ },
+ "state_publisher.StatePublisher.publish": {
+  "desc": "현재 작업 상태를 공유 메모리 파일에 안전하게 통째로 쓴다.",
+  "note": ""
+ },
+ "state_publisher.StatePublisher.clear": {
+  "desc": "작업이 없을 때 상태 파일을 지운다.",
+  "note": "self._ok 가 False(폴더 생성 실패)여도 삭제를 시도한다 — 예외는 삼키므로 무해."
+ },
+ "sub_task.SubTask.__init__": {
+  "desc": "한 단계의 서브 작업을 시작 시각과 함께 준비한다.",
+  "note": ""
+ },
+ "sub_task.SubTask.is_active": {
+  "desc": "진행할 서브 작업이 있는 단계인지 알려 준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.needs_tool": {
+  "desc": "이 서브 작업이 공구를 쥐어야 하는 종류인지 알려 준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.label": {
+  "desc": "게이지에 보일 서브 작업 이름을 돌려준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.total_sec": {
+  "desc": "서브 작업에 필요한 전체 대기 시간(초)을 돌려준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.elapsed_sec": {
+  "desc": "서브 작업이 시작된 뒤 지난 시간(초)을 돌려준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.progress": {
+  "desc": "대기 진행률을 0~1 사이 값으로 돌려준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.time_done": {
+  "desc": "대기 시간이 다 찼는지 알려 준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.want_tool": {
+  "desc": "이 단계가 요구하는 공구 이름(키)을 돌려준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.want_tool_name": {
+  "desc": "요구 공구의 한글 표시 이름을 돌려준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.tool_ok": {
+  "desc": "요구한 공구를 제대로 쥐었는지 알려 준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.wrong_tool": {
+  "desc": "다른 공구를 쥐고 있으면 그 공구를 돌려준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.wrong_tool_name": {
+  "desc": "잘못 쥔 공구의 한글 표시 이름을 돌려준다.",
+  "note": ""
+ },
+ "sub_task.SubTask._tool_name": {
+  "desc": "공구 키를 레시피의 한글 이름으로 바꿔 준다.",
+  "note": ""
+ },
+ "sub_task.SubTask.can_advance": {
+  "desc": "시간과 공구 조건이 채워져 다음 단계로 넘어갈 수 있는지 판단한다.",
+  "note": ""
+ },
+ "sub_task.SubTask.tick": {
+  "desc": "서브 작업의 현재 시각을 갱신한다.",
+  "note": ""
+ },
+ "sub_task.SubTask.set_tool": {
+  "desc": "손에 쥔 것으로 판정된 공구를 기록한다.",
+  "note": ""
+ }
+}

@@ -1,0 +1,234 @@
+{
+ "demo_ffmpeg._screen_size": {
+  "desc": "현재 모니터 화면의 가로·세로 크기를 알아낸다.",
+  "note": ""
+ },
+ "demo_ffmpeg.FfmpegSet.__init__": {
+  "desc": "촬영용 ffmpeg 프로세스 목록과 1인칭 파이프 목록을 빈 채로 준비한다.",
+  "note": ""
+ },
+ "demo_ffmpeg.FfmpegSet._spawn": {
+  "desc": "주어진 옵션으로 ffmpeg 프로세스 하나를 띄운다.",
+  "note": ""
+ },
+ "demo_ffmpeg.FfmpegSet.start": {
+  "desc": "GUI 화면 녹화와 1인칭 영상 두 벌 녹화를 시작하고 문제를 알려준다.",
+  "note": "fpv 두 벌 중 하나가 즉시 죽으면 fpv_pipes 가 1개로 줄어(107-108행), demo_recorder._feed 의 len(pipes)==2 조건(demo_recorder.py:116) 때문에 남은 한 벌에도 프레임이 전혀 안 들어간다."
+ },
+ "demo_ffmpeg.FfmpegSet.stop": {
+  "desc": "녹화 프로세스들을 안전하게 끝내 영상 파일을 마무리한다.",
+  "note": ""
+ },
+ "demo_recorder.keep_screen_awake": {
+  "desc": "촬영 중 화면보호기가 켜져 화면이 꺼지지 않게 막는다.",
+  "note": "docstring(32행)에 「1인칭·3인칭은 멀쩡」이라는 3인칭 언급이 남아 있다 — 3인칭 웹캠은 2026-09-23 제거됨."
+ },
+ "demo_recorder.DemoRecorder.__init__": {
+  "desc": "시연영상 촬영 한 세트의 저장 위치·이름·상태값을 준비한다.",
+  "note": "_fpv_size 는 여기서 초기화되지 않고 start()(79행)에서 처음 생긴다."
+ },
+ "demo_recorder.DemoRecorder.path_for": {
+  "desc": "촬영 영상 파일이 저장될 경로를 만든다.",
+  "note": ""
+ },
+ "demo_recorder.DemoRecorder.submit_camera": {
+  "desc": "카메라가 넘긴 최신 프레임 두 장을 보관만 해 둔다.",
+  "note": ""
+ },
+ "demo_recorder.DemoRecorder.start": {
+  "desc": "영상 녹화를 시작하고 촬영 정보 파일을 남긴다.",
+  "note": ""
+ },
+ "demo_recorder.DemoRecorder._feed": {
+  "desc": "1초에 15번씩 최신 1인칭 프레임을 녹화 프로세스에 넘긴다.",
+  "note": "파이프 쓰기가 실패해 break 해도 _pushed 는 1 증가한다(125행). 파이프가 2개가 아니면(116행) 아무 경고 없이 프레임을 안 민다."
+ },
+ "demo_recorder.DemoRecorder.stop": {
+  "desc": "녹화를 멈추고 촬영 시간·넘긴 프레임 수를 돌려준다.",
+  "note": ""
+ },
+ "demo_recorder.DemoRecorder.write_info": {
+  "desc": "촬영 설정·길이·영상 파일 크기를 촬영정보.txt 에 적는다.",
+  "note": ""
+ },
+ "voice_assistant.log": {
+  "desc": "현재 시각을 붙여 메시지를 화면에 출력한다.",
+  "note": ""
+ },
+ "voice_assistant.metric": {
+  "desc": "발화마다 측정값 한 줄을 기록 파일에 덧붙인다.",
+  "note": ""
+ },
+ "voice_assistant.AudioLog.__init__": {
+  "desc": "오디오 기록 폴더를 만들고 마이크 전체 녹음 파일을 연다.",
+  "note": ""
+ },
+ "voice_assistant.AudioLog.mic": {
+  "desc": "마이크로 받은 소리를 전체 녹음 파일에 이어 쓴다.",
+  "note": ""
+ },
+ "voice_assistant.AudioLog.utterance": {
+  "desc": "잘라낸 말소리와 그 인식 글자를 짝지어 저장한다.",
+  "note": ""
+ },
+ "voice_assistant.AudioLog.played": {
+  "desc": "스피커로 튼 미리 만든 음성 파일을 복사해 남긴다.",
+  "note": ""
+ },
+ "voice_assistant.AudioLog.played_pcm": {
+  "desc": "그때 합성해 튼 음성과 그 문장을 파일로 남긴다.",
+  "note": ""
+ },
+ "voice_assistant.AudioLog.close": {
+  "desc": "마이크 전체 녹음 파일을 닫는다.",
+  "note": "호출하는 곳이 없다 — run() 은 무한 루프이고 once 로 return 할 때도 alog.close() 를 부르지 않는다(마이크_전체.wav 헤더가 마무리 안 될 수 있음)."
+ },
+ "voice_assistant.esp_ip": {
+  "desc": "오디오 보드(ESP32)의 IP 주소를 파일에서 읽어 온다.",
+  "note": ".camera_ip 경로(44행)가 config._CAMERA_IP_FILE(config.py:277)과 중복 정의돼 있다."
+ },
+ "voice_assistant.build_stt": {
+  "desc": "한국어 음성인식(STT) 모델을 불러와 준비한다.",
+  "note": ""
+ },
+ "voice_assistant.transcribe": {
+  "desc": "잘라낸 말소리를 글자로 바꾼다.",
+  "note": ""
+ },
+ "voice_assistant.wav_payload": {
+  "desc": "음성 파일을 ESP32 스피커로 보낼 전송 묶음으로 만든다.",
+  "note": "체크섬·프레임 구성이 voice_tts.frame(voice_tts.py:49-59)과 같은 코드로 중복돼 있다(주석상 의도적)."
+ },
+ "voice_assistant.connect_mic": {
+  "desc": "ESP32 마이크 연결이 될 때까지 계속 다시 붙는다.",
+  "note": ""
+ },
+ "voice_assistant.Speaker.__init__": {
+  "desc": "ESP32 스피커 명령 채널의 주소를 기억해 둔다.",
+  "note": "ip 를 생성 때 한 번만 받는다(380행) — 마이크는 재연결마다 주소 파일을 다시 읽지만 스피커는 통신경로 폴백을 따라가지 않는다."
+ },
+ "voice_assistant.Speaker._ensure": {
+  "desc": "스피커 채널이 없으면 연결하고 음량을 5단계로 맞춘다.",
+  "note": ""
+ },
+ "voice_assistant.Speaker._drain": {
+  "desc": "ESP32 가 보낸 재생 결과 응답을 읽어 모은다.",
+  "note": ""
+ },
+ "voice_assistant.Speaker.send": {
+  "desc": "스피커 채널로 데이터를 보내고 실패하면 한 번 더 시도한다.",
+  "note": ""
+ },
+ "voice_assistant.Speaker.reset": {
+  "desc": "끊긴 스피커 연결을 버려 다음에 새로 붙게 한다.",
+  "note": ""
+ },
+ "voice_assistant.Speaker.chime": {
+  "desc": "ESP32 에 「띠링」 소리를 내라고 명령한다.",
+  "note": ""
+ },
+ "voice_assistant.Speaker.play": {
+  "desc": "미리 만든 답변 음성을 ESP32 로 보내 틀고 성공 여부를 확인한다.",
+  "note": ""
+ },
+ "voice_assistant.ask_async": {
+  "desc": "LLM 질문을 뒤에서 따로 돌려 기다리는 시간을 줄인다.",
+  "note": ""
+ },
+ "voice_assistant.ask_async._work": {
+  "desc": "LLM 에 물어 받은 답을 상자에 담는다.",
+  "note": ""
+ },
+ "voice_assistant.run": {
+  "desc": "마이크 소리를 계속 듣다가 호출어·질문을 알아듣고 음성으로 답한다.",
+  "note": "모듈 docstring(13행)은 「실HW 에서 아직 돌아본 적이 없다(2026-09-06)」인데 본문 주석들은 2026-09-07 실측을 인용해 낡았다."
+ },
+ "voice_assistant.main": {
+  "desc": "명령줄 옵션을 읽어 음성비서를 시작한다.",
+  "note": "--ip 도움말(576행)은 기본값이 Demo/.camera_ip 라 하지만 실제로는 .audio_ip 를 먼저 본다(esp_ip, 171행)."
+ },
+ "voice_card._state_path": {
+  "desc": "GUI 상태 파일(state.json)의 위치를 정한다.",
+  "note": ""
+ },
+ "voice_card.read_state": {
+  "desc": "GUI 가 남긴 작업 상태를 읽고 믿을 수 없으면 버린다.",
+  "note": ""
+ },
+ "voice_card._seen_tool": {
+  "desc": "카메라에 지금 가장 확실히 보이는 공구 이름을 고른다.",
+  "note": "voice_lib.answer_key(voice_lib.py:212-225)와 같은 최고점 공구 선택 로직의 중복 — 27행 주석상 의도적으로 따로 둠."
+ },
+ "voice_card._state_bucket": {
+  "desc": "작업 상태를 차단·경고·정상 셋 중 하나로 묶는다.",
+  "note": ""
+ },
+ "voice_card.card_facts": {
+  "desc": "답이 맞는지 대조할 공구·단계·버튼·상태 값을 모은다.",
+  "note": ""
+ },
+ "voice_card.build_card": {
+  "desc": "LLM 에게 줄 현재 작업 사실을 글로 정리한다.",
+  "note": ""
+ },
+ "voice_card.verify_answer": {
+  "desc": "LLM 답이 말하는 사이 상황이 바뀌어 틀리지 않았는지 확인한다.",
+  "note": ""
+ },
+ "voice_lib._norm": {
+  "desc": "글자에서 띄어쓰기와 문장부호를 지운다.",
+  "note": ""
+ },
+ "voice_lib.is_wake": {
+  "desc": "말 속에 호출어 「가디언」이 들어 있는지 판단한다.",
+  "note": "docstring·주석은 「앞 두 글자 접두 매칭」이라 하지만 실제로는 문장 어디든 포함 여부(53행 `w in n`)를 보며, 목록에 3글자 「가지언」「아디언」도 있다."
+ },
+ "voice_lib.is_tool_question": {
+  "desc": "「앞에 보이는 게 뭐야」처럼 공구를 묻는 말인지 판단한다.",
+  "note": ""
+ },
+ "voice_lib.is_question": {
+  "desc": "호출 뒤 대기 시간 안의 말을 비서에게 한 질문으로 본다.",
+  "note": ""
+ },
+ "voice_lib.rms": {
+  "desc": "소리 조각의 크기(음량)를 계산한다.",
+  "note": ""
+ },
+ "voice_lib._frame_rms": {
+  "desc": "소리를 20ms 조각으로 나눠 조각마다 크기를 계산한다.",
+  "note": ""
+ },
+ "voice_lib.noise_floor": {
+  "desc": "주변 소음이 얼마나 큰지 계산한다.",
+  "note": ""
+ },
+ "voice_lib.find_utterance": {
+  "desc": "녹음 속에서 사람이 말한 구간의 시작과 끝을 찾는다.",
+  "note": ""
+ },
+ "voice_lib.read_tool_dets": {
+  "desc": "공구 인식 결과 파일을 읽고 최신인지 확인한다.",
+  "note": "기본 경로 TOOL_SHM(41행 \"/dev/shm/sop_tool/resp.json\")이 config.TOOL_SHM_DIR(config.py:402)을 하드코딩 중복. docstring 의 camera_thread.py:242 인용(193행)은 낡은 행 번호(현재 해당 로직은 약 229행)."
+ },
+ "voice_lib.answer_key": {
+  "desc": "공구 인식 결과에 맞는 답변 음성 파일 이름을 고른다.",
+  "note": ""
+ },
+ "voice_llm.ask": {
+  "desc": "작업 사실과 질문을 LLM(ollama)에 보내 답 문장을 받는다.",
+  "note": ""
+ },
+ "voice_tts.Tts.__init__": {
+  "desc": "한국어 음성합성(TTS) 모델을 불러와 들고 있는다.",
+  "note": ""
+ },
+ "voice_tts.Tts.synth": {
+  "desc": "문장을 사람 목소리 음성 데이터로 만든다.",
+  "note": ""
+ },
+ "voice_tts.frame": {
+  "desc": "합성한 음성을 ESP32 스피커로 보낼 전송 묶음으로 만든다.",
+  "note": "voice_assistant.wav_payload(voice_assistant.py:208-217)와 같은 체크섬 코드의 중복(docstring 이 일치 필요를 명시)."
+ }
+}

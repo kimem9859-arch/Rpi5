@@ -1,0 +1,430 @@
+{
+ "anim.enabled": {
+  "desc": "화면 애니메이션을 켤지 설정값(UI_ANIMATION)을 확인한다.",
+  "note": ""
+ },
+ "anim.tween": {
+  "desc": "0에서 1로 부드럽게 변하는 값을 만들어 애니메이션을 돌린다.",
+  "note": ""
+ },
+ "anim.flash": {
+  "desc": "표시 줄을 잠깐 색으로 반짝였다가 원래 모양으로 되돌린다.",
+  "note": ""
+ },
+ "anim.flash.step": {
+  "desc": "반짝임 배경색을 점점 옅게 바꿔 칠한다.",
+  "note": ""
+ },
+ "anim.slide_in": {
+  "desc": "안내 배너를 아래에서 미끄러지듯 제자리로 올린다.",
+  "note": ""
+ },
+ "anim.busy": {
+  "desc": "위젯이 지금 움직이는 중인지 알려 준다.",
+  "note": ""
+ },
+ "anim.Pulse.__init__": {
+  "desc": "차단 배너 테두리 맥박 효과를 준비한다.",
+  "note": ""
+ },
+ "anim.Pulse.start": {
+  "desc": "차단 배너 테두리가 천천히 깜빡이기 시작한다.",
+  "note": ""
+ },
+ "anim.Pulse.start.step": {
+  "desc": "테두리 색의 진하기를 단계에 맞춰 바꾼다.",
+  "note": ""
+ },
+ "anim.Pulse.stop": {
+  "desc": "테두리 깜빡임을 멈춘다.",
+  "note": "TextPulse.stop 과 달리 멈춘 뒤 원래 QSS 로 되돌리지 않는다(anim.py:123-126). 호출부 overlay.AlertBanner.hide_all 이 곧바로 hide() 해서 드러나지 않는다."
+ },
+ "anim.Pulse.active": {
+  "desc": "테두리 깜빡임이 돌고 있는지 알려 준다.",
+  "note": ""
+ },
+ "anim.TextPulse.__init__": {
+  "desc": "공구 안내 글자의 밝기 맥박 효과를 준비한다.",
+  "note": ""
+ },
+ "anim.TextPulse._apply": {
+  "desc": "글자색을 주어진 진하기로 칠한다.",
+  "note": ""
+ },
+ "anim.TextPulse.start": {
+  "desc": "공구 안내 글자가 밝아졌다 어두워지기를 시작한다.",
+  "note": ""
+ },
+ "anim.TextPulse.start.step": {
+  "desc": "한 바퀴 동안 글자 진하기를 올렸다 내린다.",
+  "note": ""
+ },
+ "anim.TextPulse.stop": {
+  "desc": "글자 맥박을 멈추고 또렷한 상태로 둔다.",
+  "note": ""
+ },
+ "anim.TextPulse.active": {
+  "desc": "글자 맥박이 돌고 있는지 알려 준다.",
+  "note": ""
+ },
+ "main.main": {
+  "desc": "앱 전체 글꼴·색을 정하고 콘솔 창을 띄워 프로그램을 실행한다.",
+  "note": "주석이 서로 어긋난다 — 24-26행은 SOP_FULLSCREEN 촬영에 showMaximized 를 쓴다고, 28-29행은 「최대화·전체화면을 쓰지 않는다」고 적었고 52-53행은 여전히 showMaximized 한다(run_scenario.sh:87 이 SOP_FULLSCREEN=1 설정). 전역 스타일(15-22행)은 theme.py 가 아니라 config 단일 색(BG_PRIMARY 등)이라 화이트 테마로 바꿔도 안 바뀐다."
+ },
+ "overlay_result._hhmmss": {
+  "desc": "초를 「N분 M초」 같은 읽기 쉬운 글로 바꾼다.",
+  "note": ""
+ },
+ "overlay_result._stamp": {
+  "desc": "시각 값을 날짜·시각 글자로 바꾼다.",
+  "note": ""
+ },
+ "overlay_result.ResultPanel.__init__": {
+  "desc": "작업 완료 결과창의 제목·판정·본문·주의문 칸을 만든다.",
+  "note": ""
+ },
+ "overlay_result.ResultPanel.show_result": {
+  "desc": "작업 결과(순서·시간·위반·인터락·공구·검출)를 결과창에 채워 띄운다.",
+  "note": ""
+ },
+ "overlay_result.ResultPanel.show_result.tname": {
+  "desc": "공구 키를 화면용 이름(예: 렌치)으로 바꾼다.",
+  "note": ""
+ },
+ "overlay_result.ResultPanel._det_line": {
+  "desc": "검출 항목 하나를 「검출 N 프레임·평균 신뢰도」 한 줄로 만든다.",
+  "note": ""
+ },
+ "overlay_result.ResultPanel._section": {
+  "desc": "결과창에 제목 하나와 그 아래 여러 줄을 붙인다.",
+  "note": ""
+ },
+ "overlay_result.ResultPanel.apply_theme": {
+  "desc": "결과창 제목·주의문 등에 현재 테마 색을 입힌다.",
+  "note": "판정 문구(_verdict, 85행)와 본문 항목(_section, 155·161행)은 show_result 때만 색을 칠해, 결과창이 열린 채 테마를 바꾸면 이 줄들은 옛 테마 색으로 남는다."
+ },
+ "overlay_result.ResultPanel.relayout": {
+  "desc": "결과창을 화면 가운데 정해진 비율 크기로 놓는다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole.__init__": {
+  "desc": "레시피·FSM·인터락·버튼입력·카메라를 준비하고 시작 로그를 남긴다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._init_ui": {
+  "desc": "영상·상태판·게이지·메뉴·알림·결과창 등 화면 요소를 만들고 연결한다.",
+  "note": "settings_panel.closed 를 _toggle_settings(False) 에 두 번 연결한다(303·308행) — 닫을 때마다 두 번 불린다(무해하나 중복)."
+ },
+ "safety_console.SafetyConsole._relayout": {
+  "desc": "창 크기에 맞춰 영상과 모든 패널·버튼 위치를 다시 잡는다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole.resizeEvent": {
+  "desc": "창 크기가 바뀌면 화면 배치를 다시 한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._apply_theme": {
+  "desc": "현재 테마(다크/화이트) 색을 모든 패널·버튼에 칠한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._update_camera_frame": {
+  "desc": "새 카메라 프레임을 기록하고 화면에 영상을 보여 준다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._fit_to_label": {
+  "desc": "카메라 영상을 화면 칸 크기에 맞게 늘리거나 잘라 준다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._note_frame": {
+  "desc": "프레임 도착 시각·크기를 적어 FPS·점검·녹화에 쓰게 한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._toggle_menu": {
+  "desc": "메뉴 창을 열거나 닫는다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._toggle_notify": {
+  "desc": "알림 창을 열거나 닫고, 열면 안 읽은 수를 지운다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._toggle_settings": {
+  "desc": "설정 창을 열거나 닫고, 작업 중이면 공구 변경을 막는다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._sheets": {
+  "desc": "화면에 겹쳐 뜨는 창(시트) 목록을 돌려준다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._close_sheets": {
+  "desc": "지정한 하나만 빼고 열린 창과 로그 창을 모두 닫는다.",
+  "note": "558행 `except_ is not self.log_browser` 검사는 호출부가 log_browser 를 넘기는 곳이 없어 항상 참이다(죽은 분기)."
+ },
+ "safety_console.SafetyConsole._any_sheet_open": {
+  "desc": "열려 있는 창이 하나라도 있는지 알려 준다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._sync_cta_visibility": {
+  "desc": "가운데 「작업 시작」 버튼을 보일지 지금 상태로 정한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._open_check": {
+  "desc": "메뉴에서 연결 점검 창을 열고 점검을 바로 돌린다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._open_record": {
+  "desc": "메뉴에서 녹화 창을 열고 현재 녹화 상태를 보여 준다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._open_recordings_folder": {
+  "desc": "녹화 저장 폴더를 파일관리자로 연다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._run_manual_check": {
+  "desc": "연결 점검(1차)을 지금 다시 돌려 결과를 보여 준다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._update_conn_bar": {
+  "desc": "1초마다 카메라·인터락·버튼 연결 상태와 FPS를 갱신한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._check_ctx": {
+  "desc": "점검에 필요한 카메라·인터락·최근 프레임 등을 한데 모은다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._frame_for_check": {
+  "desc": "점검용으로 최근 화면을 이미지 배열로 바꿔 준다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_retry": {
+  "desc": "점검 창의 재연결 요청을 카메라·인터락에 전하고 다시 점검한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._toggle_sheet": {
+  "desc": "점검·녹화 같은 창을 열거나 닫고 크기를 다시 맞춘다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._open_settings": {
+  "desc": "메뉴를 닫고 설정 창을 연다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._set_log_visible": {
+  "desc": "로그 창과 그 닫기 버튼을 함께 보이거나 숨긴다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._show_log": {
+  "desc": "메뉴에서 로그 창을 열거나 닫는다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._dim_others": {
+  "desc": "창이 열리거나 경고가 뜨면 뒤 화면을 어둡게 가린다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._wire_tool_settings": {
+  "desc": "레시피의 공구 목록을 설정 창 선택지로 넘긴다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_tool_changed": {
+  "desc": "설정에서 고른 지정 공구를 이번 실행 동안 적용한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_theme_changed": {
+  "desc": "화면 테마를 바꾸고 모든 화면에 다시 칠한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_panel_bg_changed": {
+  "desc": "단계·게이지 패널 배경을 켜거나 끈다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_boxes_changed": {
+  "desc": "화면의 검출 박스 표시를 켜거나 끈다.",
+  "note": "표시 전용이 아니다 — 켜면 camera_thread.py:504-512 에서 버튼 박스·라벨이 그려진 frame 으로 손 검출(_hand.detect)이 돈다. 표시 설정이 손 검출 입력을 바꾼다(시연촬영 중엔 sink 때문에 항상 그려진다, 497행)."
+ },
+ "safety_console.SafetyConsole._tool_display_name": {
+  "desc": "공구 키를 레시피의 화면용 이름으로 바꾼다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_connect_gave_up": {
+  "desc": "카메라·인터락 연결을 포기하면 알림 한 건으로 알린다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._notify": {
+  "desc": "알림을 추가하고 안 읽은 수 배지를 올린다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._append_log": {
+  "desc": "시각을 붙여 로그 창과 로그 파일에 한 줄 적는다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_yolo_detections": {
+  "desc": "버튼 검출 결과를 기억·로그하고 결과 집계에 한 프레임으로 센다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_hand": {
+  "desc": "이번 프레임에 손이 보였는지 기억한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_roi": {
+  "desc": "손끝이 든 버튼 구역을 FSM에 넘기고 바뀌면 로그한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_tool": {
+  "desc": "공구 검출 결과로 공구 판정을 갱신해 서브 작업에 넘긴다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._sim_tool_grasped": {
+  "desc": "시연용 T 키로 요구 공구를 쥔 것으로 처리한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_start_process": {
+  "desc": "작업을 시작해 FSM·결과 집계를 첫 단계로 맞춘다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._press_button": {
+  "desc": "버튼 눌림을 받아 서브 작업을 시작하거나 FSM에 전한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._commit_button": {
+  "desc": "버튼 눌림을 FSM에 실제로 전하고 단계 진행·완료를 처리한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._show_result": {
+  "desc": "작업이 끝나면 결과를 집계해 결과창을 띄운다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._close_result": {
+  "desc": "결과창을 닫고 화면 어둡게·시작 버튼을 정리한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._sub_spec_for": {
+  "desc": "그 버튼 단계의 서브 작업(대기·공구) 내용을 찾아 준다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._publish_state": {
+  "desc": "음성비서가 읽을 현재 작업 상태를 파일로 내보낸다.",
+  "note": "서브작업 공구를 레시피 원본(spec.get(\"tool\"), 1047행)에서 읽어, 설정에서 바꾼 지정 공구(_tool_override)가 반영되지 않는다 — _sub_spec_for(1021-1022행)와 다르다."
+ },
+ "safety_console.SafetyConsole._step_name": {
+  "desc": "단계 번호로 레시피의 단계 이름을 찾는다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._step_button": {
+  "desc": "단계 번호로 레시피의 버튼 이름을 찾는다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._begin_sub": {
+  "desc": "대기·공구 서브 작업을 시작하고 필요하면 공구 검사를 켠다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._end_tool_scan": {
+  "desc": "공구 검사를 끄고 공구 판정 상태를 버린다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._tick_sub": {
+  "desc": "0.2초마다 서브 작업 시간을 흘리고 화면을 갱신한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._update_sub_view": {
+  "desc": "서브 작업 상태에 맞춰 게이지·공구 경고를 보이고 조건이 차면 진행한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._finish_sub": {
+  "desc": "서브 작업을 끝내고 미뤄 둔 버튼 눌림을 FSM에 전한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_cta": {
+  "desc": "가운데 「작업 시작」 버튼을 누르면 작업을 시작한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_alert_release": {
+  "desc": "경고·차단 배너의 해제 버튼을 처리한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._release_block": {
+  "desc": "비상정지가 복귀됐을 때만 차단을 푼다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_reset_clicked": {
+  "desc": "비상정지 복귀와 사용자 확인 뒤 작업을 처음으로 되돌린다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._reset_work": {
+  "desc": "작업 상태·서브 작업·경고를 모두 지워 시작 전으로 돌린다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole.keyPressEvent": {
+  "desc": "키보드 1~4·E·T·ESC로 버튼 눌림·공구·창 닫기를 흉내 낸다.",
+  "note": "독스트링(1261행)은 「Full Screen 이라 메뉴가 유일한 출구」라 하나 main.py 는 전체화면을 쓰지 않는다(show/showMaximized/고정크기, main.py:28-29·52-55)."
+ },
+ "safety_console.SafetyConsole._on_fsm_state": {
+  "desc": "FSM 상태가 바뀌면 상태판·경고·차단 표시와 집계를 맞춘다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_interlock": {
+  "desc": "차단 신호를 기록하고 인터락 장치에 차단/복구를 보낸다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_feedback": {
+  "desc": "경고·차단 피드백을 로그하고 경고등 명령을 보낸다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_interlock_fault": {
+  "desc": "물리 차단이 확인 안 되면 경고창으로 즉시 알린다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._on_shutdown_clicked": {
+  "desc": "확인 뒤 녹화·장치를 정리하고 라즈베리파이를 끈다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._start_demo_capture": {
+  "desc": "시연영상 촬영(화면·1인칭 등)을 한 번만 시작한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._stop_demo_capture": {
+  "desc": "시연영상 촬영을 멈추고 촬영 정보를 저장한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._start_recording": {
+  "desc": "전체 화면 또는 카메라 영역 녹화를 시작한다.",
+  "note": "카메라 모드에서 첫 프레임이 없을 때 크기 폴백이 가로 (640, 480)으로 박혀 있다(1483행) — 회전(CCW90) 뒤 프레임은 세로라 config.DEMO_FPV_SIZE(480, 640)와 어긋난다. 독스트링은 「메뉴에서 켤 때만」이라 하나 194행이 RECORDING_ENABLED 이면 자동 시작한다(현재 config 값 False)."
+ },
+ "safety_console.SafetyConsole._capture_window_frame": {
+  "desc": "전체 화면 녹화 때 창 모습을 한 장씩 찍어 저장한다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._record_camera_frame": {
+  "desc": "카메라 영역 녹화 때 받은 프레임을 영상에 적는다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole._stop_recording": {
+  "desc": "녹화를 멈추고 파일 크기를 로그·알림으로 알린다.",
+  "note": ""
+ },
+ "safety_console.SafetyConsole.closeEvent": {
+  "desc": "창을 닫을 때 촬영·녹화·카메라·장치를 정리한다.",
+  "note": ""
+ },
+ "theme.set_theme": {
+  "desc": "화면 테마(다크/화이트)를 바꾼다.",
+  "note": ""
+ },
+ "theme.current": {
+  "desc": "지금 쓰는 테마 이름을 알려 준다.",
+  "note": ""
+ },
+ "theme.C": {
+  "desc": "현재 테마에서 이름에 맞는 색 값을 꺼내 준다.",
+  "note": ""
+ },
+ "theme.panel_qss": {
+  "desc": "오버레이 패널의 배경·테두리·글자 스타일을 만든다.",
+  "note": ""
+ },
+ "theme.text_qss": {
+  "desc": "글자의 색·굵기 스타일을 만든다.",
+  "note": "독스트링(139-140행)이 그림자는 QGraphicsDropShadowEffect 로 건다(overlay.py)고 하나, 그 방식(overlay._glow)은 2026-08-03 폐기돼 쓰지 않는다(overlay.py:74-80) — 낡은 설명."
+ },
+ "theme.gauge_qss": {
+  "desc": "게이지 막대 바탕의 스타일을 만든다.",
+  "note": ""
+ }
+}
