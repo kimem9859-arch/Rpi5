@@ -131,6 +131,28 @@ def test_i2_unplug_detected_and_new_number():
         c.close()
 
 
+def test_i3_resync_sends_latest():
+    """I3 — 붙는 동안(부팅 대기) 들어온 해제가 옛 BLOCK 에 덮이지 않는다(검토 C8)."""
+    print("\n[I3] 재연결 동기화")
+    old_wait = config.INTERLOCK_BOOT_WAIT_SEC
+    config.INTERLOCK_BOOT_WAIT_SEC = 0.4               # 부팅 대기 중에 명령이 들어오게
+    tmp = tempfile.mkdtemp()
+    dev = os.path.join(tmp, "ttyACM0")
+    box = {"p": None}
+    c = _ctl(box)
+    try:
+        c.set_interlock(True)                          # 미연결 중 BLOCK (보류)
+        open(dev, "w").close()
+        box["p"] = dev                                 # 꽂음 → 재연결 시작
+        time.sleep(0.2)                                # 부팅 대기 중에
+        c.set_feedback(Feedback.NONE)                  # 해제 → RUN
+        ok = _wait(lambda: len(_FakeSerial.opened[-1].writes) >= 2, 3.0)
+        writes = _FakeSerial.opened[-1].writes
+        check(ok and writes[-1] == "RUN", f"마지막으로 나간 명령 = RUN — {writes}")
+    finally:
+        c.close()
+        config.INTERLOCK_BOOT_WAIT_SEC = old_wait
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

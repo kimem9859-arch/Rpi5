@@ -40,6 +40,9 @@ _FEEDBACK_TO_CMD = {
     "BLOCK":   "BLOCK",
 }
 
+# 재연결 동기화 표시 — 전송 워커가 **꺼낼 때** 그 시점의 최신 요청으로 바꿔 보낸다(I3).
+_SYNC = object()
+
 
 class InterlockController:
     """FSM 판정을 Arduino 릴레이 명령으로 변환·전송하는 시리얼 매니저.
@@ -72,7 +75,8 @@ class InterlockController:
         self._lock   = threading.Lock()
         self._ser    = None
         self._closing = False
-        self._last_cmd = None     # 재연결 시 재전송용 마지막 명령
+        self._last_cmd = None     # 마지막으로 전송(또는 보류)한 명령 — 중복 제거용
+        self._desired = None      # FSM 이 마지막으로 요청한 상태 — 재연결 동기화가 보낸다(I3)
         self._queue = queue.Queue()   # (cmd, force) — GUI 스레드 비블로킹용
 
         if not self._enabled:
@@ -136,8 +140,10 @@ class InterlockController:
         - 재연결(_last_cmd 있음): 마지막 명령을 다시 보내 끊기기 전 상태 복원
           (BLOCK 중 케이블이 빠졌다 붙어도 차단이 풀리지 않음).
         """
-        cmd = self._last_cmd if self._last_cmd is not None else "RUN"
-        self._write(cmd, force=True)
+        # 🔴 지금 _last_cmd 를 읽어 넣으면 안 된다 — 붙는 동안(부팅 대기) 들어온 요청이 아직
+        #    처리 전이라, 옛 BLOCK 이 대기열 **맨 뒤**에 들어가 마지막으로 나갔다(검토 C8:
+        #    FSM 은 PROCESS_RUN 인데 릴레이는 BLOCK). 표시만 넣고 워커가 꺼낼 때 최신 요청을 보낸다.
+        self._write(_SYNC, force=True)
 
     def _reconnect_loop(self):
         """연결이 없을 때 주기적으로 재연결을 시도하는 백그라운드 루프.
@@ -216,6 +222,8 @@ class InterlockController:
         """
         if not self._enabled:
             return
+        if cmd is not _SYNC:
+            self._desired = cmd
         self._queue.put((cmd, force))
 
     def _writer_loop(self):
@@ -225,6 +233,8 @@ class InterlockController:
             if item is None:
                 return
             cmd, force = item
+            if cmd is _SYNC:
+                cmd = self._desired or "RUN"     # 첫 연결이면 RUN(Pi 가 정한 정상)
             try:
                 self._write_now(cmd, force)
             except Exception as e:  # 어떤 실패도 워커를 죽이지 않는다
