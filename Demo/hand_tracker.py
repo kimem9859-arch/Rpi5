@@ -27,6 +27,25 @@ import config
 
 TIP = 8          # MediaPipe 손 랜드마크 인덱스 8 = 검지 끝. 접촉 판정 기준점(§7.2)
 
+
+def pick_hand(flags, lms, min_score):
+    """여러 손 중 **신뢰도가 가장 높은 손 하나**의 랜드마크. 기준 미달·손 없음이면 None.
+
+    🔴 신뢰도와 좌표는 **같은 손**에서 가져온다(R1 · 검토 C10) — 종전에는 신뢰도는 모든 손
+       중 최댓값, 좌표는 0번 손(팜 점수 1위)이라, 1번 손만 좋으면 엉터리 0번 손끝이 판정에
+       들어갔다. 두 손을 함께 판정하지는 않는다(설계 R1).
+    """
+    import numpy as np
+    if flags is None or len(lms) == 0:
+        return None
+    f = np.asarray(flags, dtype=float).reshape(-1)[:len(lms)]
+    if f.size == 0:
+        return None
+    i = int(np.argmax(f))
+    if f[i] < min_score:
+        return None
+    return lms[i]
+
 _paths_ready = False
 
 
@@ -170,11 +189,9 @@ class HandTracker:
                 res = self._lm.predict(roi_img)    # 손 모델은 3값(flag, lm, handedness)
                 flags, norm_lm = res[0], res[1]
                 lms = self._lm.denormalize_landmarks(norm_lm, roi_affine)
-            if len(lms) == 0 or flags is None:
+            hand = pick_hand(flags, lms, config.HAND_MIN_SCORE)
+            if hand is None:
                 return None
-            if float(np.max(flags)) < config.HAND_MIN_SCORE:
-                return None
-            hand = lms[0]
             self.last_landmarks = hand
             tip = (int(hand[TIP][0]), int(hand[TIP][1]))
             if draw_on is not None and getattr(config, "HAND_DRAW", True):
