@@ -11,7 +11,7 @@ def _iou(a,b):
     ix1,iy1=max(a[0],b[0]),max(a[1],b[1]); ix2,iy2=min(a[2],b[2]),min(a[3],b[3])
     inter=max(0,ix2-ix1)*max(0,iy2-iy1)
     return 0.0 if inter==0 else inter/((a[2]-a[0])*(a[3]-a[1])+(b[2]-b[0])*(b[3]-b[1])-inter)
-def upd(tracks,dets,opc=True):   # verbatim logic of camera_thread._update_tracks/_one_per_class
+def upd(tracks,dets,opc=True):   # verbatim logic of camera_thread._update_tracks/_one_per_class — ⚠️ 2026-09-24 기준(③ R2 전: 두 프레임 확정·오래된 트랙 우선 없음)
     used=[False]*len(dets)
     for t in tracks:
         bi,bv=-1,IOU
