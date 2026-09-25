@@ -423,8 +423,8 @@ class GaugePanel(_Panel):
 # [경고·차단] design §4.5·§4.6
 # =============================================================================
 
-_BANNER_POS = {"width": 0.44, "bottom": 0.13}
-_BLOCK_POS  = {"width": 0.46}
+# 경고·공구 경고·차단 박스는 같은 크기·자리 — 화면 정중앙(사용자 결정 2026-09-25).
+_ALERT_POS = {"width": 0.46}
 
 
 class GlowFrame(QWidget):
@@ -449,9 +449,13 @@ class GlowFrame(QWidget):
         self.hide()
 
     def set_level(self, level):
-        """level: None | "warn" | "block"."""
+        """level: None | "warn" | "block".
+
+        🔴 테두리는 theme.GLOW_BORDER 가 켜졌을 때만 그린다 — 기본 끔(사용자 결정 2026-09-25).
+           꺼져 있어도 상태(level)는 기억한다.
+        """
         self._level = level
-        if level is None:
+        if level is None or not getattr(theme, "GLOW_BORDER", False):
             self.hide()
             return
         token, border, spread = self._SPEC[level]
@@ -545,11 +549,14 @@ class AlertBanner(_Panel):
                     f"쥔 것: {wrong_name} — {want_name}로 바꿔 주세요",
                     "", release_text=None, indent2=False)
 
-    def show_block(self, reason="순서 위반이 계속되어 인터락이 작동했습니다"):
-        """차단 — 해제 버튼 있음(EMO 미복귀 거부는 기존 _release_block 이 담당)."""
+    def show_block(self, reason="순서 위반이 계속되어 인터락이 작동했습니다", hint=""):
+        """차단 — 해제 버튼 있음(EMO 미복귀 거부는 기존 _release_block 이 담당).
+
+        hint = 둘째 줄(들여쓰기) — EMO 차단은 복귀 방법을 적는다.
+        """
         self._mode = "block"
-        self._paint("danger", "⛔", "전기 입력 차단됨", reason, "",
-                    release_text="차단 해제", indent2=False)
+        self._paint("danger", "⛔", "전기 입력 차단됨", reason, hint,
+                    release_text="차단 해제", indent2=bool(hint))
 
     def _paint(self, token, mark, title, line1, line2, release_text, indent2):
         # 🔴 self._mode 는 show_* 가 여기 오기 **전에** 이미 새 값이다. 그래서 화면에
@@ -562,10 +569,12 @@ class AlertBanner(_Panel):
         self._icon.setStyleSheet(theme.text_qss(token, 800))
         self._title.setText(title)
         self._title.setStyleSheet(theme.text_qss(token, 800))
+        # 🔴 빈 줄도 자리를 둔다(빈칸 한 글자) — 순서 경고·공구 경고·차단 박스의 높이를
+        #    통일한다(사용자 결정 2026-09-25). 줄을 숨기면 박스마다 높이가 달라진다.
         for lbl, text in ((self._line1, line1), (self._line2, line2)):
-            lbl.setText(text)
+            lbl.setText(text or "\u00a0")
             lbl.setStyleSheet(theme.text_qss("text", 600))
-            lbl.setVisible(bool(text))
+            lbl.setVisible(True)
         self._line2.setStyleSheet(
             theme.text_qss("text", 600) + ("padding-left: 14px;" if indent2 else ""))
 
@@ -621,11 +630,14 @@ class AlertBanner(_Panel):
         #    마다 relayout 을 부르므로, 그대로 두면 등장 중에 위치가 튄다.
         if anim.busy(self):
             return
-        if self._mode == "block":
-            place(self, parent_rect, width=_BLOCK_POS["width"])       # 중앙을 가린다
-        else:
-            place(self, parent_rect, width=_BANNER_POS["width"],
-                  bottom=_BANNER_POS["bottom"])
+        # 모든 박스가 같은 크기·자리 — 화면 정중앙(사용자 결정 2026-09-25).
+        # 🔴 높이는 **실제 폭에서의 높이**로 잰다 — sizeHint 는 폭을 모른 채 긴 문구를 두 줄로
+        #    접어, 한 줄에 들어가는데도 차단 박스만 20px 커졌다.
+        pw, ph = parent_rect.width(), parent_rect.height()
+        w = int(pw * _ALERT_POS["width"])
+        h = self.heightForWidth(w) if self.hasHeightForWidth() else self.sizeHint().height()
+        self.setGeometry(QRect(parent_rect.left() + (pw - w) // 2,
+                               parent_rect.top() + (ph - h) // 2, w, h))
         # 위치가 정해진 **지금** 등장한다(_paint 시점에는 목표 위치를 몰랐다).
         if self._needs_entrance:
             self._needs_entrance = False

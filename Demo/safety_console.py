@@ -1408,7 +1408,8 @@ class SafetyConsole(QMainWindow):
             else:
                 # 🔴 EMO 차단을 「순서 위반」이라 적지 않는다(G5) — 해제하려면 EMO 부터
                 #    복귀해야 한다는 것을 문구가 알려야 한다.
-                self.alert.show_block("비상정지로 차단됐습니다 — EMO 를 복귀한 뒤 해제하세요")
+                self.alert.show_block("비상정지로 차단됐습니다",
+                                      "— EMO 를 복귀한 뒤 「차단 해제」를 누르세요")
                 self._notify("danger", "비상정지", "전기 입력 차단됨")
             self._dim_others(True)
         elif new == State.WARNING:

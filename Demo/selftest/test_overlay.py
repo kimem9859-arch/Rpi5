@@ -487,7 +487,7 @@ def _px(root, x, y):
 
 
 def test_g8_glow_and_banner_paint():
-    """G8 — 발광 테두리와 배너 판이 실제로 그려진다(픽셀 · 리뷰 U7·U8)."""
+    """G8 — 배너 판이 실제로 그려진다(픽셀 · 리뷰 U8). 가장자리 테두리는 아래 별도 시험(사용자 결정)."""
     print("\n[G8] 발광·배너 그리기")
     old_bg = getattr(theme, "PANEL_BACKGROUND", True)
     theme.PANEL_BACKGROUND = False                   # 기본값 — 이때 안 그려졌다
@@ -500,9 +500,6 @@ def test_g8_glow_and_banner_paint():
         alert.show_block()
         alert.setGeometry(QRect(200, 200, 400, 150))
         root.show(); _app.processEvents()
-        x = glow.geometry().left() + 3
-        check(_px(root, x, 300) == theme.C("danger").lower(),
-              f"테두리 자리 = {_px(root, x, 300)} (기대 {theme.C('danger')})")
         check(_px(root, 210, 280) != "#808080",
               f"배너 판 = {_px(root, 210, 280)} (배경 회색 그대로면 안 그려진 것)")
         alert.apply_theme()                          # 떠 있는 동안 테마 재적용
@@ -511,6 +508,52 @@ def test_g8_glow_and_banner_paint():
         root.close()
     finally:
         theme.PANEL_BACKGROUND = old_bg
+
+def test_glow_border_off_by_default():
+    """사용자 결정(2026-09-25) — 화면 가장자리 주황·빨강 테두리를 쓰지 않는다. 되살리려면 theme.GLOW_BORDER=True."""
+    print("\n[G8] 가장자리 테두리 — 기본 끔")
+    root = QWidget(); root.resize(800, 600); root.setStyleSheet("background:#808080;")
+    glow = GlowFrame(root); glow.relayout(root.rect())
+    glow.set_level("block")
+    root.show(); _app.processEvents()
+    x = glow.geometry().left() + 3
+    check(_px(root, x, 300) == "#808080", f"기본값 — 테두리 자리 = {_px(root, x, 300)} (배경 그대로여야 한다)")
+    check(glow.level == "block", "상태(level)는 기억한다")
+    old = getattr(theme, "GLOW_BORDER", None)
+    theme.GLOW_BORDER = True
+    try:
+        glow.set_level("block"); _app.processEvents()
+        check(_px(root, x, 300) == theme.C("danger").lower(),
+              f"켜면 테두리 자리 = {_px(root, x, 300)} (기대 {theme.C('danger')})")
+    finally:
+        if old is None:
+            del theme.GLOW_BORDER
+        else:
+            theme.GLOW_BORDER = old
+    root.close()
+
+
+def test_alert_boxes_same_place():
+    """사용자 결정(2026-09-25) — 순서 경고·공구 경고·차단 박스는 같은 크기·자리(화면 가운데)."""
+    print("\n[배너] 경고·차단 박스 통일")
+    host = QWidget(); host.setGeometry(SCREEN)
+    rects = {}
+    for mode, show in (("order", lambda b: b.show_order_violation("B1", "클린·가스차단")),
+                       ("tool", lambda b: b.show_wrong_tool("드라이버", "렌치")),
+                       ("block", lambda b: b.show_block()),
+                       ("emo", lambda b: b.show_block("비상정지로 차단됐습니다",
+                                                      "— EMO 를 복귀한 뒤 「차단 해제」를 누르세요"))):
+        b = AlertBanner(host)
+        b.apply_theme()
+        show(b)
+        b.relayout(SCREEN)
+        rects[mode] = b.geometry()
+    sizes = {m: (r.width(), r.height()) for m, r in rects.items()}
+    check(len(set(sizes.values())) == 1, f"크기가 같다 — {sizes}")
+    c = SCREEN.center()
+    check(all(abs(r.center().x() - c.x()) <= 2 and abs(r.center().y() - c.y()) <= 2
+              for r in rects.values()),
+          f"모두 화면 정중앙 — {[(m, r.center().x(), r.center().y()) for m, r in rects.items()]}")
 
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):

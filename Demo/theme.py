@@ -101,6 +101,11 @@ DIM_OPACITY = 0.40
 #        의도한 것이 아니었으므로 껐다 켤 수 있게만 만들어 둔다.)
 PANEL_BACKGROUND = False
 
+# 🔴 경고·차단 때 화면(영상 영역) 가장자리의 주황·빨강 발광 테두리를 그릴지.
+#    사용자 결정(2026-09-25): **쓰지 않는다** — 경고·차단은 가운데 박스로만 알린다.
+#    되살리려면 True(GlowFrame 은 상태만 기억하고 있다).
+GLOW_BORDER = False
+
 _current = DEFAULT_THEME
 
 
