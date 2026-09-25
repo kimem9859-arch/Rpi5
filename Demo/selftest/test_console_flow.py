@@ -1017,6 +1017,49 @@ def test_g3_press_ignored_during_block():
     check(win.fsm._emo_active, "EMO 는 차단 중에도 판정기에 닿는다")
     win.close()
 
+def notify_titles(win):
+    """알림 패널에 쌓인 글자 전부(제목·부제)."""
+    from PyQt6.QtWidgets import QLabel
+    return [lbl.text() for row in win.notify_panel._rows for lbl in row.findChildren(QLabel)]
+
+
+def test_g4_emo_release_ends_work():
+    """G4 — EMO 해제 → 「작업 시작」 전 대기. 진행 중이던 작업은 알림 하나로 끝나고 집계가 비워진다."""
+    print("\n[G4] EMO 해제 뒤처리")
+    win = make_console()
+    win._on_cta()
+    key(win, "1"); finish_sub(win)                   # 1단계 완료
+    key(win, "E")
+    win._on_alert_release()
+    check(win.fsm.state == State.IDLE, f"IDLE({win.fsm.state.value})")
+    check(not win.btn_cta.isHidden(), "「작업 시작」 버튼이 다시 보인다")
+    check(win.result_panel.isHidden(), "결과창은 뜨지 않는다")
+    check(not win._stats.running and win._stats._steps == [], "집계가 비워진다")
+    check(any("비상정지로 작업 중단" in t for t in notify_titles(win)),
+          "「비상정지로 작업 중단」 알림")
+    win._on_cta()                                    # 새로 시작
+    for k in ("1", "2", "3", "4"):
+        key(win, k)
+        finish_sub(win)
+    out = win._stats.finish()
+    check(len(out["steps"]) == 4, f"결과 단계 수 = 이번 회차 4 — {len(out['steps'])}")
+    win.close()
+
+
+def test_g5_emo_banner_text():
+    """G5 — EMO 차단은 「순서 위반」이 아니라 「비상정지」 문구다 · 위반 차단은 그대로."""
+    print("\n[G5] EMO 차단 문구")
+    win = make_console()
+    win._on_cta()
+    key(win, "E")
+    check("비상정지" in win.alert._line1.text(), f"EMO 차단 = '{win.alert._line1.text()}'")
+    win.close()
+    win = make_console()
+    win._on_cta()
+    key(win, "3")
+    check("순서 위반" in win.alert._line1.text(), f"위반 차단 = '{win.alert._line1.text()}'")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

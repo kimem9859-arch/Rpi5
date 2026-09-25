@@ -1229,7 +1229,16 @@ class SafetyConsole(QMainWindow):
             box.setModal(False)
             box.show()
             return
+        was_running = self._stats.running
         self.fsm.release_block()
+        if self.fsm.state == State.IDLE:
+            # EMO 차단 해제 → 「작업 시작」 전 대기(P5 · 설계 D4). 진행 중이던 작업은 여기서
+            # 끝난다 — 결과창 없이 알림 하나로 마무리하고 집계를 비운다(G4).
+            self._stats.reset()
+            self._append_log("[FSM] 비상정지 해제 — 「작업 시작」 전 대기")
+            if was_running:
+                self._notify("danger", "비상정지로 작업 중단",
+                             "「작업 시작」을 눌러 1단계부터 다시 합니다")
 
     # =========================================================================
     # [작업 초기화] — 「작업 시작」을 누르기 직전 상태로 되돌린다
@@ -1362,13 +1371,18 @@ class SafetyConsole(QMainWindow):
             #    적으면 결과창 머리가 「⚠ 위반이 있었습니다」로 뒤집힌다(리뷰 I2).
             #    작동 시각은 아래 인터락 기록이 이미 담고 있어 정보 손실이 없다.
             emo = self._emo_button()
+            self.glow.set_level("block")
             if self._last_button != emo:
                 self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "block")
-            self.glow.set_level("block")
-            self.alert.show_block()
+                self.alert.show_block()
+                self._notify("danger", "전기 입력 차단됨",
+                             f"{self.fsm.expected_step}단계 {self.fsm.correct_roi}")
+            else:
+                # 🔴 EMO 차단을 「순서 위반」이라 적지 않는다(G5) — 해제하려면 EMO 부터
+                #    복귀해야 한다는 것을 문구가 알려야 한다.
+                self.alert.show_block("비상정지로 차단됐습니다 — EMO 를 복귀한 뒤 해제하세요")
+                self._notify("danger", "비상정지", "전기 입력 차단됨")
             self._dim_others(True)
-            self._notify("danger", "전기 입력 차단됨",
-                         f"{self.fsm.expected_step}단계 {self.fsm.correct_roi}")
         elif new == State.WARNING:
             # 🔴 경고는 **버튼을 누르지 않고** 손이 오답 ROI 에 머물러 난 것이다 —
             #    「실제」에 마지막 물리 눌림(_last_button)을 적으면 방금 정상
