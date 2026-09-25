@@ -1,0 +1,27 @@
+[config] ⚠️ 인터록 장치를 못 찾았다 (ESP32 는 인터록이 아니다)
+[config] → 인터록을 비활성화한다. 강제하려면 SOP_INTERLOCK_PORT=/dev/ttyACMx
+세션                                               거울     차단   위반     오경보/분
+20260722_153747_esp32_press-sim_console_v2    93.8%      -    0      0.00
+20260722_154542_esp32_press-sim-holdout_cons  66.7%      -    0      3.47
+20260722_164709_esp32_press-sim-slow_console  92.3%      -    0      0.80
+20260722_165024_esp32_falsealarm-clean_conso      -      -    0      0.00
+20260722_165122_esp32_falsealarm-clean_conso 100.0%      -    0      1.06
+20260722_165239_esp32_press-sim-slow-holdout 100.0%      -    0      0.00
+20260722_175036_esp32_violation-press_consol  85.0%  80.0%   20      0.00
+20260722_180015_esp32_violation-press-slow_c  70.6%  64.7%   17      0.88
+20260724_182051_esp32_upright-normal_console 100.0%      -    0      0.00
+20260724_182248_esp32_upright-violation_cons  91.7%  87.5%   24      0.95
+20260724_183221_esp32_upright-falsealarm_con  96.7%      -    0      0.00
+20260724_183505_esp32_upright-holdout_consol  68.8%      -    0      0.92
+20260724_185727_esp32_ypos1-high-diag_consol  77.8%  66.7%    6      1.59
+20260724_185836_esp32_ypos2-high-front_conso  54.5%  33.3%    3      0.00
+20260724_185938_esp32_ypos3-mid-front_consol  64.3%  83.3%    6      0.00
+20260724_190044_esp32_ypos4-low-diag_console  81.8%      -    0      2.27
+20260724_190143_esp32_ypos5-low-front_consol  81.2%  75.0%    8      2.11
+20260724_193521_esp32_far-high_console_v2    100.0%  66.7%    6      1.65
+20260724_193808_esp32_far-low_console_v2      57.1%  83.3%    6      0.00
+20260724_195429_esp32_far-high-r1_console_v2  85.7%  61.5%   26      0.00
+20260724_195928_esp32_far-high-r2_console_v2  95.8%  70.4%   27      0.78
+20260724_200122_esp32_far-high-r3_console_v2  98.0%  70.6%   34      0.88
+
+통합  거울  86.9% (437/503)  ·  차단  72.1% (132/183)
