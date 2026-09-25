@@ -66,6 +66,9 @@ class SafetyFSM:
         # 오답 ROI 체류 타이머 (MONITOR 오답 분기)
         self._dwell_roi    = None  # 현재 체류 중인 오답 ROI id
         self._dwell_start  = None  # 체류 시작 시각
+        # 방금 완료한 버튼 (P2 · 2026-09-25) — 손이 그 ROI 를 떠날 때까지 체류 판정에서 뺀다.
+        # 단계가 넘어가는 순간 손끝이 아직 그 버튼 위라 곧바로 오답 체류가 되던 것(검토 C2).
+        self._just_done    = None
 
         # 갭메우기 (§9.4) — 손 검출이 한두 프레임 끊겨도 직전 관측을 유지한다.
         # 없으면 한 프레임 놓칠 때마다 체류가 리셋돼 실제보다 짧게 잡힌다(§10.22 실측:
@@ -182,6 +185,11 @@ class SafetyFSM:
                 self._win.clear()
                 roi, level = None, None
 
+        # P2 — 방금 완료한 버튼 예외는 손이 그 ROI 를 떠나면(다른 ROI · 진짜 이탈) 끝난다.
+        #      상태와 무관한 사실이라 게이트보다 먼저 본다.
+        if self._just_done is not None and roi != self._just_done:
+            self._just_done = None
+
         # --- ③ 상태 게이트 — 전이는 여기서만 막는다 ---
         if self.state in (State.IDLE, State.WARNING, State.BLOCK):
             # 경고/차단 중에는 비전 틱으로 자동 전이하지 않음 (해제 버튼이 주체)
@@ -198,8 +206,10 @@ class SafetyFSM:
         if self.state == State.PROCESS_RUN:
             self._goto(State.MONITOR)
 
-        if roi == self.correct_roi:
-            # 정답 ROI 진입: 눌림 대기 (진전은 press_button에서). 오답 타이머 해제.
+        if roi in (self.correct_roi, self._just_done, self._emo):
+            # 정답 ROI: 눌림 대기 (진전은 press_button 에서). 오답 타이머 해제.
+            # 방금 완료한 버튼(P2)·EMO(P3)도 체류 판정 대상이 아니다 — EMO 는 설계 §5.1
+            # 「위반 판정 대상 아님」이고, **누르면** press_button 이 즉시 BLOCK 한다(검토 C3).
             self._reset_dwell()
             return
 
@@ -236,6 +246,7 @@ class SafetyFSM:
     def _step_complete(self):
         """정답 처리: 다음 단계로. 마지막 단계면 공정 완료 → IDLE."""
         self._reset_dwell()
+        self._just_done = self.correct_roi     # P2 — 기대단계를 올리기 전에 기억한다
         if self.expected_step >= self.step_count:
             self.expected_step = 1
             self._goto(State.IDLE)        # 공정 완료 (§6 4단계: B4 정답→IDLE)
@@ -267,6 +278,7 @@ class SafetyFSM:
            여기서는 다음 작업이 깨끗이 시작되도록 플래그만 정리한다.
         """
         self._reset_dwell()
+        self._just_done = None
         self._emo_active = False
         self.expected_step = 1
         self._goto(State.IDLE)          # 이미 IDLE 이면 아무 일도 하지 않는다

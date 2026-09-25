@@ -403,6 +403,79 @@ def test_reset_clears_dwell():
     assert fsm._dwell_start is None
 
 
+# ============================================================================
+# 판정 수정 ① (2026-09-25) — 설계 docs/superpowers/specs/2026-09-25-런타임-문제수정-design.md §2
+# 재현 원본 = Rpi5/조사/런타임-검토-20260924/fsm_sim_check.py (검토 C2·C3·C5)
+# ============================================================================
+DT15 = 1 / 15      # 실제 카메라 약 15fps
+
+
+def feed(fsm, roi, t0, t1, dt=0.1, **kw):
+    """t0~t1 을 dt 간격 프레임으로 먹인다(양 끝 포함) — 실제 카메라처럼 촘촘한 관측."""
+    n = max(1, int(round((t1 - t0) / dt)))
+    for i in range(n + 1):
+        fsm.update_vision(roi, t0 + (t1 - t0) * i / n, **kw)
+    return t1
+
+
+def test_p2_lingering_on_just_completed_button():
+    """P2 — 방금 완료한 버튼 위에 손가락을 둬도 경고가 없다(검토 C2 재현 2)."""
+    fsm, _ = make_fsm(threshold=0.3, gap_fill=0.3)
+    run(fsm)
+    feed(fsm, "B1", 0.0, 0.3)
+    fsm.press_button("B1", 0.3)             # 1단계 완료 → 기대 B2
+    assert fsm.correct_roi == "B2"
+    feed(fsm, "B1", 0.3, 1.0)               # 0.7초 머묾 — 종전엔 0.3초 뒤 경고
+    assert fsm.state == State.MONITOR
+
+
+def test_p2_exception_ends_when_hand_leaves():
+    """P2 — 손이 떠난 뒤(갭메우기 만료) 다시 오면 그때는 오답으로 센다.
+
+    ⚠️ 판정기는 「안 보임」과 「다른 곳」을 구별하지 못한다 — 검출이 0.3초 넘게 끊겨도
+       떠난 것으로 본다(계획서 Review Focus 1 · 한계).
+    """
+    fsm, _ = make_fsm(threshold=0.3, gap_fill=0.3)
+    run(fsm)
+    fsm.press_button("B1", 0.0)
+    feed(fsm, "B1", 0.0, 0.5)
+    feed(fsm, None, 0.6, 1.2)               # 갭메우기보다 오래 안 보임 = 떠남
+    assert fsm.state == State.PROCESS_RUN
+    feed(fsm, "B1", 1.3, 1.7)               # 돌아와 0.4초 머묾
+    assert fsm.state == State.WARNING
+
+
+def test_p2_exception_ends_on_other_roi():
+    """P2 가드(전후 통과) — 다른 버튼으로 옮겼다 돌아오면 예외가 끝난다."""
+    fsm, _ = make_fsm(threshold=0.3, gap_fill=0.3)
+    run(fsm)
+    fsm.press_button("B1", 0.0)
+    fsm.update_vision("B1", now=0.0)
+    fsm.update_vision("B2", now=0.05)       # 정답 B2 로 옮김
+    feed(fsm, "B1", 0.1, 0.5)               # 다시 B1 에 0.4초
+    assert fsm.state == State.WARNING
+
+
+def test_p2_real_press_still_blocks():
+    """P2 가드(전후 통과) — 예외는 체류에만. 방금 완료한 버튼을 실제로 다시 누르면 차단."""
+    fsm, _ = make_fsm(threshold=0.3, gap_fill=0.3)
+    run(fsm)
+    fsm.press_button("B1", 0.0)
+    feed(fsm, "B1", 0.0, 0.5)
+    fsm.press_button("B1", 0.5)
+    assert fsm.state == State.BLOCK
+
+
+def test_p3_emo_dwell_does_not_warn():
+    """P3 — EMO 박스에 머물러도 순서 경고가 없다(설계 §5.1 · 검토 C3 재현 4)."""
+    fsm, _ = make_fsm(threshold=0.3, gap_fill=0.3)
+    run(fsm)
+    feed(fsm, "EMO", 0.0, 1.0, dt=DT15)
+    assert fsm.state == State.MONITOR
+    fsm.press_button("EMO", 1.0)            # 누르면 지금처럼 즉시 차단
+    assert fsm.state == State.BLOCK
+
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
