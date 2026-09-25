@@ -16,6 +16,7 @@
 """
 import argparse
 import array
+import atexit
 import json
 import os
 import socket
@@ -160,6 +161,17 @@ class AudioLog:
         if self.full:
             self.full.close()
             self.full = None
+
+
+def open_audio_log(path):
+    """오디오 기록을 열고 **프로그램이 끝날 때 닫도록** 등록한다(V4).
+
+    🔴 닫지 않으면 마이크_전체.wav 의 머리(길이)가 안 써져 파일이 깨질 수 있다. run() 은
+       빠져나가는 길이 여러 개(리허설 종료·Ctrl+C)라 atexit 에 맡긴다.
+    """
+    alog = AudioLog(path)
+    atexit.register(alog.close)
+    return alog
 
 
 def esp_ip():
@@ -396,7 +408,7 @@ def run(ip, once=False, a_ip=None):
         except Exception as e:                 # noqa: BLE001
             log(f"🔴 런타임 TTS 를 못 올렸다 — 고정 wav 로만 답한다: {e}")
 
-    alog = AudioLog(AUDIO_DIR)
+    alog = open_audio_log(AUDIO_DIR)
     if AUDIO_DIR:
         log(f"오디오 기록 → {AUDIO_DIR}")
     spk = Speaker(ip)

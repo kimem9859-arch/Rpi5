@@ -55,6 +55,26 @@ def test_v1_silence_during_playback_is_waited():
     b.close()
 
 
+def test_v4_audio_log_closed_at_exit():
+    """V4 — 오디오 기록(마이크_전체.wav)을 프로그램이 끝날 때 닫도록 등록한다(함수목록 §4.1-8)."""
+    print("\n[V4] 녹음 파일 닫기")
+    reg = []
+    atx = getattr(va, "atexit", None)
+    old = atx.register if atx else None
+    if atx:
+        atx.register = lambda fn, *a, **k: reg.append(fn)
+    try:
+        opener = getattr(va, "open_audio_log", None)
+        check(opener is not None, "open_audio_log 가 있다")
+        if opener is not None:
+            alog = opener(tempfile.mkdtemp())
+            check(any(getattr(f, "__self__", None) is alog and f.__name__ == "close" for f in reg),
+                  "종료 때 alog.close 가 불리도록 등록된다")
+            alog.close()
+    finally:
+        if atx:
+            atx.register = old
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

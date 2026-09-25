@@ -127,6 +127,10 @@ dets, fresh = read_tool_dets(path=tmp, now=time.time() + 10)
 check(not fresh, "🔴 3초보다 낡으면 신선하지 않다")
 os.unlink(tmp)
 
+# ---- V3 가드(전후 통과) — 호출어는 발화 어디에 있어도 잡는다(설명을 이 동작에 맞췄다)
+check(is_wake("아 저기 가디언 지금 몇 단계야"), "V3 — 군말 뒤의 호출어도 잡는다")
+check(not is_wake("지금 몇 단계야"), "V3 — 호출어가 없으면 아니다")
+
 print()
 if _fails:
     print(f"🔴 실패 {len(_fails)}건")
