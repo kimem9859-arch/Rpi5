@@ -49,6 +49,7 @@ class _FakeSub:
         self.progress, self.time_done = progress, progress >= 1.0
         self.needs_tool, self.want_tool_name = needs_tool, "렌치"
         self.tool_ok, self.wrong_tool = tool_ok, wrong_tool
+        self.paused = False          # SubTask 의 일시정지 여부(GUI 수정 G1 — 게이지가 읽는다)
 
 
 def check(cond, msg):
