@@ -48,11 +48,12 @@ class FakeDetector:
 camera_thread._detector = FakeDetector()
 
 # 화면에 검출된 버튼 박스 4개 (검출 모델이 매 프레임 준다고 가정한 좌표)
+# 🔑 이미 자리 잡은(확정) 트랙이다 — 판정은 확정 트랙만 쓴다(인식 수정 R2)
 TRACKS = [
-    {"cls": 1, "box": (50, 400, 150, 500)},    # B1
-    {"cls": 2, "box": (200, 400, 300, 500)},   # B2
-    {"cls": 3, "box": (350, 400, 450, 500)},   # B3
-    {"cls": 4, "box": (500, 400, 600, 500)},   # B4
+    {"cls": 1, "box": (50, 400, 150, 500), "confirmed": True},    # B1
+    {"cls": 2, "box": (200, 400, 300, 500), "confirmed": True},   # B2
+    {"cls": 3, "box": (350, 400, 450, 500), "confirmed": True},   # B3
+    {"cls": 4, "box": (500, 400, 600, 500), "confirmed": True},   # B4
 ]
 
 CENTER = {  # 각 버튼 박스 중심 (손끝을 여기 두면 그 ROI)

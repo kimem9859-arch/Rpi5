@@ -16,7 +16,7 @@ from config import (
     CAMERA_TCP_HOST, CAMERA_TCP_PORT,
     TCP_RECV_TIMEOUT_SEC, TCP_RECONNECT_DELAY_SEC, TCP_MAX_FRAME_BYTES,
     CONNECT_MAX_TRIES,
-    YOLO_CONF_HIGH, YOLO_IOU_MATCH, YOLO_MAX_MISS,
+    YOLO_CONF_HIGH, YOLO_IOU_MATCH, YOLO_MAX_MISS, YOLO_CONFIRM_HITS,
 )
 
 # =============================================================================
@@ -88,7 +88,9 @@ def _update_tracks(tracks, detections):
             t['box'] = (d[2], d[3], d[4], d[5])
             t['score'] = d[1]
             t['miss'] = 0
-            if d[1] >= YOLO_CONF_HIGH:
+            t['hits'] = t.get('hits', 1) + 1
+            # 🔑 새 트랙은 **연속 YOLO_CONFIRM_HITS 프레임** 봐야 확정한다(R2)
+            if d[1] >= YOLO_CONF_HIGH and t['hits'] >= YOLO_CONFIRM_HITS:
                 t['confirmed'] = True
             used[best_i] = True
         else:
@@ -99,9 +101,13 @@ def _update_tracks(tracks, detections):
         if d[1] >= YOLO_CONF_HIGH:
             tracks.append({
                 'cls': d[0], 'box': (d[2], d[3], d[4], d[5]),
-                'score': d[1], 'miss': 0, 'confirmed': True,
+                'score': d[1], 'miss': 0, 'hits': 1,
+                'confirmed': YOLO_CONFIRM_HITS <= 1,
             })
-    tracks[:] = [t for t in tracks if t['miss'] <= YOLO_MAX_MISS and t['confirmed']]
+    # 확정 트랙은 YOLO_MAX_MISS 까지 가림을 견디고, 미확정 트랙은 한 번이라도 놓치면 버린다
+    tracks[:] = [t for t in tracks
+                 if (t['confirmed'] and t['miss'] <= YOLO_MAX_MISS)
+                 or (not t['confirmed'] and t['miss'] == 0)]
     tracks[:] = _one_per_class(tracks)
     return tracks
 
@@ -118,12 +124,21 @@ def _one_per_class(tracks):
     같은 조건이면 점수가 높은 쪽을 고른다. 점수만 보면 갱신이 멈춘 옛 트랙이
     이길 수 있어 박스가 뒤처진다.
     """
+    # 🔑 미확정 트랙은 판정·표시에 안 쓰이므로 여기서 겨루지 않는다 — 확정되는 두 번째
+    #    프레임에 겨룬다(R2). 겨루는 순서 = 지금 보임(miss) → **오래됨(hits)** → 점수.
+    #    점수가 오래됨보다 앞이면, 손가락에 가려 점수가 떨어진 진짜 트랙이 다른 곳의
+    #    같은 클래스 가짜에 밀려 지워졌다(검토 C11ⓑ · 설계 R2 「오래된 트랙 우선」).
+    def rank(t):
+        return (t['miss'], -t.get('hits', 1), -t['score'])
+
     best = {}
     for t in tracks:
+        if not t['confirmed']:
+            continue
         prev = best.get(t['cls'])
-        if prev is None or (t['miss'], -t['score']) < (prev['miss'], -prev['score']):
+        if prev is None or rank(t) < rank(prev):
             best[t['cls']] = t
-    return [t for t in tracks if best[t['cls']] is t]
+    return [t for t in tracks if not t['confirmed'] or best[t['cls']] is t]
 
 
 # =============================================================================
@@ -137,7 +152,8 @@ def _labeled_boxes(tracks):
     """
     if _detector is None:
         return []
-    return [(_detector.class_name(t['cls']), *t['box']) for t in tracks]
+    # 🔴 확정 트랙만 — 미확정(한 프레임) 트랙은 판정에 쓰지 않는다(R2)
+    return [(_detector.class_name(t['cls']), *t['box']) for t in tracks if t['confirmed']]
 
 
 def zone_at_point(fx, fy, tracks, ring=None):
@@ -320,6 +336,8 @@ class CameraThread(QThread):
     # =========================================================================
     def _draw_yolo(self, frame, tracks):
         for t in tracks:
+            if not t['confirmed']:
+                continue                 # 미확정 트랙은 그리지 않는다(R2)
             cls_id = t['cls']
             x1, y1, x2, y2 = t['box']
             name = _detector.class_name(cls_id)
@@ -504,7 +522,8 @@ class CameraThread(QThread):
             if draw_overlay:
                 frame = self._draw_yolo(frame, tracks)
             self.yolo_detections_signal.emit([
-                (_detector.class_name(t['cls']), t['score'], *t['box']) for t in tracks
+                (_detector.class_name(t['cls']), t['score'], *t['box'])
+                for t in tracks if t['confirmed']          # 미확정 트랙은 내보내지 않는다(R2)
             ])
 
         # 손 검출 → 검지 끝. 랜드마크 표시는 hand_tracker 가 frame 에 직접 그린다.
