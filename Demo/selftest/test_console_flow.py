@@ -1200,6 +1200,20 @@ def test_r5_stream_reset_clears_fsm_observation():
           f"체류·관측이 지워진다 — {win.fsm._dwell_roi}·{win.fsm.last_roi}")
     win.close()
 
+def test_i1_block_banner_says_screen_only():
+    """I1 — 인터락이 안 붙은 채 차단되면 배너가 「화면에서만 차단 중」이라고 알린다(검토 C7)."""
+    print("\n[I1] 인터락 없는 차단")
+    win = make_console()                             # 시험은 인터락을 끈다 → 미연결
+    win._on_cta()
+    key(win, "3")                                    # 오답 → BLOCK
+    check("화면에서만" in win.alert._line2.text(), f"위반 차단 둘째 줄 = {win.alert._line2.text()!r}")
+    win.close()
+    win = make_console()
+    win._on_cta()
+    key(win, "E")
+    check("화면에서만" in win.alert._line2.text(), f"EMO 차단 둘째 줄 = {win.alert._line2.text()!r}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

@@ -254,9 +254,10 @@ class InterlockController:
             self._last_cmd = cmd
             ser = self._ser
             if ser is None or not getattr(ser, "is_open", False):
+                # 🔑 미연결 BLOCK 은 알람 창을 띄우지 않는다 — 인터락이 꺼져 있던 종전에는 이
+                #    경로에 오지 않았고, 이제는 차단 배너가 「화면에서만 차단 중」을 알린다(I1).
+                #    붙어 있다가 쓰기·ACK 가 실패한 경우는 아래에서 그대로 알람한다.
                 self._log(f"[인터락] (미연결) 명령 보류: {cmd}")
-                if cmd == "BLOCK":
-                    self._fault("BLOCK 송신 불가(시리얼 미연결) — 릴레이 차단 미확인")
                 return
             attempts = 1 + (self._block_retries if cmd == "BLOCK" else 0)
             for i in range(attempts):

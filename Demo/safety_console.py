@@ -1160,6 +1160,19 @@ class SafetyConsole(QMainWindow):
             self._tool_state = None
         self.camera_thread.set_tool_scan(False)
 
+    def _show_block_banner(self, emo):
+        """차단 배너 문구 — EMO 차단은 「비상정지」(G5), 위반 차단은 기본 문구.
+
+        🔴 인터락이 안 붙어 있으면 전기가 끊기지 않았다 — 둘째 줄에 「화면에서만 차단 중」을
+           적어 끊겼다고 믿게 두지 않는다(I1 · 검토 C7).
+        """
+        itl_hint = "" if self.interlock.connected else "⚠ 인터락 미연결 — 화면에서만 차단 중"
+        if emo:
+            self.alert.show_block("비상정지로 차단됐습니다",
+                                  itl_hint or "— EMO 를 복귀한 뒤 「차단 해제」를 누르세요")
+        else:
+            self.alert.show_block(hint=itl_hint)
+
     def _cancel_sub(self, why):
         """진행 중인 서브 작업을 버린다 — 🔴 눌림을 FSM 에 전달하지 않는다(설계 D5 · 차단 = 취소).
 
@@ -1414,14 +1427,13 @@ class SafetyConsole(QMainWindow):
             self.glow.set_level("block")
             if self._last_button != emo:
                 self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "block")
-                self.alert.show_block()
+                self._show_block_banner(emo=False)
                 self._notify("danger", "전기 입력 차단됨",
                              f"{self.fsm.expected_step}단계 {self.fsm.correct_roi}")
             else:
                 # 🔴 EMO 차단을 「순서 위반」이라 적지 않는다(G5) — 해제하려면 EMO 부터
                 #    복귀해야 한다는 것을 문구가 알려야 한다.
-                self.alert.show_block("비상정지로 차단됐습니다",
-                                      "— EMO 를 복귀한 뒤 「차단 해제」를 누르세요")
+                self._show_block_banner(emo=True)
                 self._notify("danger", "비상정지", "전기 입력 차단됨")
             self._dim_others(True)
         elif new == State.WARNING:
