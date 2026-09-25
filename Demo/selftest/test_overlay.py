@@ -482,6 +482,36 @@ def test_gauge_shows_paused():
     g.update_view(s)
     check(not g._time.text().startswith("일시정지"), f"풀리면 = '{g._time.text()}'")
 
+def _px(root, x, y):
+    return root.grab().toImage().pixelColor(x, y).name()
+
+
+def test_g8_glow_and_banner_paint():
+    """G8 — 발광 테두리와 배너 판이 실제로 그려진다(픽셀 · 리뷰 U7·U8)."""
+    print("\n[G8] 발광·배너 그리기")
+    old_bg = getattr(theme, "PANEL_BACKGROUND", True)
+    theme.PANEL_BACKGROUND = False                   # 기본값 — 이때 안 그려졌다
+    try:
+        root = QWidget(); root.resize(800, 600); root.setStyleSheet("background:#808080;")
+        glow = GlowFrame(root); glow.relayout(root.rect())
+        alert = AlertBanner(root)
+        alert.apply_theme()                          # _init_ui → _apply_theme 와 같은 순서
+        glow.set_level("block")
+        alert.show_block()
+        alert.setGeometry(QRect(200, 200, 400, 150))
+        root.show(); _app.processEvents()
+        x = glow.geometry().left() + 3
+        check(_px(root, x, 300) == theme.C("danger").lower(),
+              f"테두리 자리 = {_px(root, x, 300)} (기대 {theme.C('danger')})")
+        check(_px(root, 210, 280) != "#808080",
+              f"배너 판 = {_px(root, 210, 280)} (배경 회색 그대로면 안 그려진 것)")
+        alert.apply_theme()                          # 떠 있는 동안 테마 재적용
+        _app.processEvents()
+        check(_px(root, 210, 280) != "#808080", "테마를 다시 칠해도 판이 남는다")
+        root.close()
+    finally:
+        theme.PANEL_BACKGROUND = old_bg
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

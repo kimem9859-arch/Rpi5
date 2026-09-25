@@ -442,6 +442,9 @@ class GlowFrame(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        # 🔴 파이썬 하위 클래스 QWidget 은 이 속성 없이는 QSS 테두리를 **안 그린다**
+        #    (리뷰 U7 — 픽셀로 확인: 테두리 자리가 배경 그대로였다 · _Panel.apply_theme 과 같은 원인).
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._level = None
         self.hide()
 
@@ -492,6 +495,7 @@ class AlertBanner(_Panel):
             self, lambda: theme.panel_qss("sheet", padding="14px 18px"),
             theme.C("danger"))
         self._shown_mode = None         # 화면에 그려져 있는 mode (등장 트리거 비교용)
+        self._last_paint = None         # 마지막 _paint 인자 — 테마를 다시 칠할 때 쓴다(G8)
         self._needs_entrance = False    # 다음 relayout 에서 미끄러져 들어올 것
 
         lay = QHBoxLayout(self)
@@ -552,6 +556,7 @@ class AlertBanner(_Panel):
         #    그려져 있던 모드를 따로 들고 비교한다.
         prev_mode = self._shown_mode
         self._shown_mode = self._mode
+        self._last_paint = (token, mark, title, line1, line2, release_text, indent2)
         c = theme.C(token)
         self._icon.setText(mark)
         self._icon.setStyleSheet(theme.text_qss(token, 800))
@@ -592,6 +597,17 @@ class AlertBanner(_Panel):
     @property
     def mode(self):
         return self._mode
+
+    def apply_theme(self):
+        """🔴 배너는 판·테두리가 곧 경고 표시다 — 「공정 단계 패널 배경」 설정과 무관하게 늘 그린다(G8).
+
+        기본 `_Panel.apply_theme` 은 PANEL_BACKGROUND(기본 끔)에 따라 배경 그리기를 꺼서
+        배너 판·색 테두리·차단 맥박이 한 번도 안 그려졌다(리뷰 U8). 떠 있는 동안 테마를
+        바꾸면 지금 모드로 다시 칠한다 — 일반 패널 QSS 로 덮이면 색 테두리가 사라졌다.
+        """
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        if self._mode is not None and self._last_paint is not None:
+            self._paint(*self._last_paint)
 
     def hide_all(self):
         self._mode = None
