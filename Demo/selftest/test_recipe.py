@@ -192,6 +192,27 @@ def test_wait_seconds_are_ten():
     print("  PASS  서브 작업 대기 10초")
 
 
+# ----------------------------------------------------- 체류 임계값 (판정 수정 P7 · 2026-09-25)
+def test_missing_dwell_filled_from_config():
+    """🔴 dwell_threshold_sec 가 없으면 config 값으로 채운다 — 종전엔 숨은 기본 1.0(폐기값)으로
+    통과시키고 GUI 는 키를 직접 읽어 KeyError 가 났다(함수목록 §4.1-9)."""
+    import config
+    data = {k: v for k, v in GOOD.items() if k != "dwell_threshold_sec"}
+    with tempfile.TemporaryDirectory() as tmp:
+        r = load_recipe(_write(tmp, data))
+    assert r["dwell_threshold_sec"] == config.FSM_DWELL_THRESHOLD_SEC
+    print("  PASS  체류 임계 누락 → config 값으로 채움")
+
+
+def test_real_recipe_dwell_matches_config():
+    """🔴 가드(전후 통과) — 런타임(recipe.json)과 측정 도구(config)의 체류 임계가 같다.
+    도구가 config 를 안 따라 네 번 물렸다 — 값이 갈라지면 여기서 잡는다."""
+    import config
+    assert load_recipe()["dwell_threshold_sec"] == config.FSM_DWELL_THRESHOLD_SEC, \
+        "recipe.json 과 config.FSM_DWELL_THRESHOLD_SEC 가 다르다 — 측정이 런타임을 대표하지 못한다"
+    print("  PASS  recipe.json 체류 임계 == config")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

@@ -9,6 +9,8 @@
 import json
 import os
 
+import config
+
 DEFAULT_RECIPE_PATH = os.path.join(os.path.dirname(__file__), "recipe.json")
 
 
@@ -48,7 +50,10 @@ def _validate(data):
     if data.get("emo_button") in buttons:
         raise RecipeError(f"emo_button({data.get('emo_button')})이 공정 버튼과 겹칩니다.")
 
-    thr = data.get("dwell_threshold_sec", 1.0)
+    # 🔑 없으면 config 값을 **채워 넣는다**(P7 · 2026-09-25) — 호출부(GUI)가 키를 직접 읽어도
+    #    KeyError 가 나지 않고, 종전의 숨은 기본 1.0(폐기값)이 사라진다. 측정 도구는 config 를
+    #    읽으므로 두 값이 같아야 한다 — selftest/test_recipe.py 가 검사한다.
+    thr = data.setdefault("dwell_threshold_sec", config.FSM_DWELL_THRESHOLD_SEC)
     if not (isinstance(thr, (int, float)) and thr > 0):
         raise RecipeError(f"dwell_threshold_sec가 양수가 아닙니다: {thr}")
 
