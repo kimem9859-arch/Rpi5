@@ -250,13 +250,14 @@ class Speaker:
     def __init__(self, ip):
         self.ip = ip
         self.s = None
-        self.f = None
+        self.f = None                 # 쓰지 않는다(V1) — 옛 시험·호출부 호환용으로만 남긴다
+        self._rbuf = b""              # 소켓에서 받은 아직 줄이 안 된 바이트
 
     def _ensure(self):
         if self.s is None:
             self.s = socket.create_connection((self.ip, CMD_PORT), 10)
             self.s.settimeout(30)
-            self.f = self.s.makefile("rb")
+            self._rbuf = b""
             # 🔑 음량을 붙을 때마다 올린다 — 펌웨어 기본은 3단계(진폭 6000)인데
             #    2026-09-07 실청취에서 **작아서 잘 안 들렸다.** 5단계(13000)로 올리니
             #    "무슨 말인지 들릴 정도"가 됐다(⛔ §10.49 판정 통과).
@@ -280,14 +281,14 @@ class Speaker:
         self.s.settimeout(1.0)
         while time.time() < end:
             try:
-                line = self.f.readline()
-            except socket.timeout:
+                line = self._readline()
+            except (OSError, AttributeError):
+                break
+            if line is None:
                 # 🔴 재생 중에는 펌웨어가 몇 초간 아무것도 안 보낸다 — 여기서
                 #    포기하면 「확인되지 않았다」로 잘못 판정한다(2026-09-07 에
                 #    실제로 그랬다. 소리는 났는데 로그만 실패로 남았다).
                 continue
-            except (OSError, AttributeError):
-                break
             if not line:
                 break
             t = line.decode("utf-8", "replace").strip()
@@ -297,6 +298,26 @@ class Speaker:
                     break
         self.s.settimeout(30)
         return out
+
+    def _readline(self):
+        """한 줄(b"...\\n")을 소켓에서 직접 읽는다. 타임아웃이면 None · 닫혔으면 b"".
+
+        🔴 `socket.makefile()` 을 쓰지 않는다 — 그 객체는 타임아웃이 **한 번** 나면 이후 모든
+           읽기가 OSError("cannot read from timed out object") 라, 첫 재생의 무음 뒤로 재생
+           확인이 전부 실패했다(검토 C6 · 성능검증 §10.61 「원인 미규명」의 원인). 그 사이
+           메인 루프가 재생 중에 마이크를 다시 들었다.
+        """
+        while b"\n" not in self._rbuf:
+            try:
+                chunk = self.s.recv(4096)
+            except socket.timeout:
+                return None
+            if not chunk:
+                line, self._rbuf = self._rbuf, b""
+                return line
+            self._rbuf += chunk
+        line, _, self._rbuf = self._rbuf.partition(b"\n")
+        return line + b"\n"
 
     def send(self, payload, expect=False):
         for attempt in (1, 2):
@@ -318,6 +339,7 @@ class Speaker:
 
     def reset(self):
         """링크가 끊겼을 때 명령 채널도 버린다 — 다음 send 에서 다시 붙는다."""
+        self._rbuf = b""
         if self.s is not None:
             try:
                 self.s.close()
