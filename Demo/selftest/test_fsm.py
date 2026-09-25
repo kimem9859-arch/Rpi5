@@ -153,9 +153,11 @@ def test_emo_blocks_immediately_and_resets_on_release():
     assert fsm.expected_step == 2
     fsm.press_button("EMO")                 # 비상정지 → 즉시 BLOCK
     assert fsm.state == State.BLOCK
-    fsm.release_block()                     # EMO 해제 → READY + 기대=1 리셋
-    assert fsm.state == State.PROCESS_RUN
+    fsm.release_block()                     # EMO 해제 → 「작업 시작」 전 대기 (P5 · 규칙 변경 2026-09-25)
+    assert fsm.state == State.IDLE
     assert fsm.expected_step == 1            # 시퀀스 전체 재시작
+    assert log["interlock"][-1] is False     # 인터락 해제
+    assert fsm._emo_active is False
 
 
 def test_emo_from_any_state():
@@ -474,6 +476,49 @@ def test_p3_emo_dwell_does_not_warn():
     assert fsm.state == State.MONITOR
     fsm.press_button("EMO", 1.0)            # 누르면 지금처럼 즉시 차단
     assert fsm.state == State.BLOCK
+
+
+def test_p5_emo_before_start_does_not_start_work():
+    """P5 — 작업 시작 전(IDLE) EMO 를 풀어도 작업이 저절로 시작되지 않는다(검토 C5 재현 5)."""
+    fsm, _ = make_fsm()
+    fsm.press_button("EMO")
+    assert fsm.state == State.BLOCK
+    fsm.release_block()
+    assert fsm.state == State.IDLE
+
+
+def test_p5_violation_block_release_unchanged():
+    """P5 가드(전후 통과) — 위반 차단 해제는 지금처럼 READY → PROCESS_RUN · 기대단계 유지."""
+    fsm, _ = make_fsm()
+    run(fsm)
+    fsm.press_button("B3")                  # 오답 눌림 → BLOCK
+    fsm.release_block()
+    assert fsm.state == State.PROCESS_RUN
+    assert fsm.expected_step == 1
+
+
+def test_p6_correct_press_during_warning_completes_step():
+    """P6 — 경고 중 정답 버튼 → 경고 해제 + 단계 완료(설계 D3 — 판정기 쪽)."""
+    fsm, log = make_fsm(threshold=0.3, gap_fill=0.3)
+    run(fsm)
+    feed(fsm, "B2", 0.0, 0.4)
+    assert fsm.state == State.WARNING
+    fsm.press_button("B1", 0.5)
+    assert fsm.expected_step == 2
+    assert fsm.state == State.PROCESS_RUN
+    assert log["feedback"][-1] == Feedback.NONE
+
+
+def test_p6_correct_press_during_warning_on_last_step():
+    """P6 — 마지막 단계에서도 경고 중 정답이면 공정 완료(IDLE)."""
+    fsm, _ = make_fsm(threshold=0.3, gap_fill=0.3)
+    run(fsm)
+    for b in ("B1", "B2", "B3"):
+        fsm.press_button(b)
+    feed(fsm, "B1", 1.0, 1.4)               # 기대 B4 인데 B1 에 머묾 → 경고
+    assert fsm.state == State.WARNING
+    fsm.press_button("B4", 1.5)
+    assert fsm.state == State.IDLE
 
 
 if __name__ == "__main__":

@@ -7,7 +7,8 @@
 
 핵심 불변식(§6·§9): 기대단계 N에 대해 정답 ROI = f"B{N}", 그 외 공정 버튼은
 오답. **오답은 단계를 절대 진전시키지 않는다.** 위반으로 BLOCK된 뒤 해제해도
-기대단계는 유지되며, EMO 해제만 기대단계를 1로 리셋한다.
+기대단계는 유지되며, EMO 해제는 「작업 시작」 전 대기(IDLE · 기대단계 1)로 돌아간다
+(2026-09-25 규칙 변경 — 설계 docs/superpowers/specs/2026-09-25-런타임-문제수정-design.md D4).
 """
 
 import collections
@@ -233,8 +234,10 @@ class SafetyFSM:
             return  # 차단 중 입력 무시 (해제 버튼만 유효)
 
         if button == self.correct_roi:
-            # 정답 버튼 눌림 → Step Complete
-            if self.state in (State.MONITOR, State.PROCESS_RUN):
+            # 정답 버튼 눌림 → Step Complete. **WARNING 중 정답도 완료한다** — 경고 해제 +
+            # 단계 완료(P6 · 규칙 변경 2026-09-25 D3). 장비는 이미 그 단계를 수행했으므로
+            # 판정 단계를 어긋나게 두지 않는다. 서브 작업이 있는 단계는 GUI 가 먼저 받는다.
+            if self.state in (State.MONITOR, State.PROCESS_RUN, State.WARNING):
                 self._step_complete()
             return
 
@@ -289,14 +292,17 @@ class SafetyFSM:
             self._goto(State.MONITOR)
 
     def release_block(self):
-        """BLOCK 해제 버튼 → READY 복귀.
+        """BLOCK 해제 버튼.
 
-        위반 BLOCK은 기대단계 유지, EMO BLOCK은 기대단계=1 리셋(§6·§9.2).
+        - 위반 BLOCK → READY 복귀 · 기대단계 유지(§7.3-7).
+        - EMO BLOCK → **「작업 시작」 전 대기(IDLE) · 기대단계 1**(P5 · 규칙 변경 2026-09-25 D4).
+          언제 눌렀든 같다. 종전 「READY 복귀 + 1단계」는 작업 시작 전·완료 뒤 EMO 를 풀면
+          「작업 시작」 없이 작업이 도는 구멍이 있었다(검토 C5).
         """
         if self.state != State.BLOCK:
             return
         if self._emo_active:
-            self.expected_step = 1
-            self._emo_active   = False
+            self.reset()                # IDLE · 기대 1 · EMO 플래그 정리 · 인터락 해제(_goto)
+            return
         self._goto(State.READY)
         self._goto(State.PROCESS_RUN)
