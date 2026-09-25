@@ -468,6 +468,21 @@ def test_p2_real_press_still_blocks():
     assert fsm.state == State.BLOCK
 
 
+def test_p2_exception_survives_short_gap():
+    """P2 — 갭메우기 안의 짧은 끊김은 「떠남」이 아니다(손가락이 방금 버튼 위에 그대로 있다).
+
+    판정은 갭메우기를 거친 관측으로 한다 — 원관측(한 프레임 None)으로 예외를 끝내면
+    실카메라의 짧은 검출 끊김마다 방금 버튼이 오답 체류가 된다.
+    """
+    fsm, _ = make_fsm(threshold=0.3, gap_fill=0.3)
+    run(fsm)
+    fsm.press_button("B1", 0.0)
+    for t, r in [(0.0, "B1"), (0.1, None), (0.2, "B1"), (0.3, None),
+                 (0.4, "B1"), (0.5, None), (0.6, "B1"), (0.7, "B1")]:
+        fsm.update_vision(r, t)
+    assert fsm.state == State.MONITOR
+
+
 def test_p3_emo_dwell_does_not_warn():
     """P3 — EMO 박스에 머물러도 순서 경고가 없다(설계 §5.1 · 검토 C3 재현 4)."""
     fsm, _ = make_fsm(threshold=0.3, gap_fill=0.3)
