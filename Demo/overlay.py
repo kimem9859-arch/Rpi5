@@ -425,6 +425,7 @@ class GaugePanel(_Panel):
 
 # 경고·공구 경고·차단 박스는 같은 크기·자리 — 화면 정중앙(사용자 결정 2026-09-25).
 _ALERT_POS = {"width": 0.46}
+_ALERT_SEL = "QWidget#glassPanel"   # 박스 스타일을 박스 자신에게만(_Panel 의 objectName)
 
 
 class GlowFrame(QWidget):
@@ -496,14 +497,16 @@ class AlertBanner(_Panel):
 
         # 차단 맥박 — 🔴 mode 를 벗어나거나 숨길 때 반드시 stop() 한다.
         self._pulse = anim.Pulse(
-            self, lambda: theme.panel_qss("sheet", padding="14px 18px"),
-            theme.C("danger"))
+            self, lambda: theme.panel_qss("sheet", padding="0"),
+            theme.C("danger"), selector=_ALERT_SEL)
         self._shown_mode = None         # 화면에 그려져 있는 mode (등장 트리거 비교용)
         self._last_paint = None         # 마지막 _paint 인자 — 테마를 다시 칠할 때 쓴다(G8)
         self._needs_entrance = False    # 다음 relayout 에서 미끄러져 들어올 것
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
+        # 🔴 박스 안 여백은 **레이아웃 여백**으로 준다 — QSS padding 은 맨 QWidget 의 배치에
+        #    반영되지 않아 해제 버튼이 테두리에 붙었다(리뷰 M6 · 사용자 요청 2026-09-25).
+        lay.setContentsMargins(18, 14, 18, 14)
         lay.setSpacing(14)
 
         self._icon = QLabel("⚠")
@@ -587,8 +590,10 @@ class AlertBanner(_Panel):
         else:
             self._release.hide()
 
-        self.setStyleSheet(theme.panel_qss("sheet", padding="14px 18px")
-                           + f"border-color: {c};")
+        # 🔴 선택자로 **박스에만** 건다 — 선택자 없이 걸면 padding 이 안쪽 글자 칸마다 번져
+        #    줄 사이가 벌어졌다(제목 칸 25 → 54px). 여백은 레이아웃이 맡는다.
+        self.setStyleSheet(f"{_ALERT_SEL} {{ {theme.panel_qss('sheet', padding='0')}"
+                           f"border-color: {c}; }}")
         for lbl in (self._icon, self._title, self._line1, self._line2):
             _glow(lbl)
         self.raise_()

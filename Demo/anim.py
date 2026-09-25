@@ -97,10 +97,11 @@ class Pulse:
     base_qss_fn: 맥박이 덧씌울 바탕 QSS 를 그때그때 만들어 주는 함수(테마 전환 대응).
     """
 
-    def __init__(self, widget, base_qss_fn, color_hex):
+    def __init__(self, widget, base_qss_fn, color_hex, selector=None):
         self._w = widget
         self._base = base_qss_fn
         self._c = color_hex
+        self._sel = selector            # 주면 「selector { … }」 로 감싸 그 위젯에만 건다
         self._anim = None
 
     def start(self):
@@ -111,8 +112,8 @@ class Pulse:
 
         def step(t):
             a = 0.30 + 0.70 * float(t)
-            self._w.setStyleSheet(
-                base + f"border: 1px solid rgba({c.red()},{c.green()},{c.blue()},{a:.2f});")
+            qss = base + f"border: 1px solid rgba({c.red()},{c.green()},{c.blue()},{a:.2f});"
+            self._w.setStyleSheet(f"{self._sel} {{ {qss} }}" if self._sel else qss)
 
         if not enabled():
             step(1.0)

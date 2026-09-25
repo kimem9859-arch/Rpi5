@@ -555,6 +555,25 @@ def test_alert_boxes_same_place():
               for r in rects.values()),
           f"모두 화면 정중앙 — {[(m, r.center().x(), r.center().y()) for m, r in rects.items()]}")
 
+def test_alert_box_inner_margin():
+    """박스 안 여백(사용자 요청 2026-09-25) — 해제 버튼이 박스 테두리에 붙지 않고, 박스의 안쪽
+    여백이 글자 칸마다 번져 줄 사이가 벌어지지 않는다(리뷰 M6)."""
+    print("\n[배너] 박스 안 여백")
+    host = QWidget(); host.setGeometry(SCREEN)
+    for mode, show in (("order", lambda b: b.show_order_violation("B1", "클린·가스차단")),
+                       ("block", lambda b: b.show_block())):
+        b = AlertBanner(host)
+        b.apply_theme()
+        show(b)
+        b.relayout(SCREEN)
+        host.show(); _app.processEvents()
+        gap_r = b.width() - 1 - b._release.geometry().right()
+        check(gap_r >= 12, f"{mode} — 해제 버튼 오른쪽 여백 {gap_r}px (12px 이상)")
+        fh = b._title.fontMetrics().height()
+        check(b._title.height() <= fh + 8,
+              f"{mode} — 제목 칸 높이 {b._title.height()}px ≈ 글자 높이 {fh}px (여백이 번지면 +28px)")
+    host.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
