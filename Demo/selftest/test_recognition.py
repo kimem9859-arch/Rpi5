@@ -132,6 +132,39 @@ def test_r2_moved_box_follows_after_two_frames():
     ct._update_tracks(tr, [_det(0, 0.9, b)])
     check([x[1:] for x in ct._labeled_boxes(tr)] == [b], "두 번째 프레임 — 새 자리")
 
+# ---------------------------------------------------------------- R3 손 검출 입력
+class _RecordingHand:
+    """손 검출 대역 — 받은 프레임을 복사해 둔다."""
+    available = True
+    reason = ""
+
+    def __init__(self):
+        self.seen = []
+
+    def detect(self, frame, draw_on=None):
+        self.seen.append(frame.copy())
+        return None
+
+
+def _thread():
+    th = ct.CameraThread()
+    th._hand = _RecordingHand()
+    return th
+
+
+def test_r3_hand_sees_frame_before_boxes():
+    """R3 — 손 모델 입력에 버튼 박스 선이 없다(함수목록 §4.1-1 — 표시 설정이 손 입력을 바꾸던 것)."""
+    print("\n[R3] 손 검출 입력")
+    th = _thread()
+    th.set_draw_boxes(True)
+    _FAKE_DET.dets = [(0, 0.9, 20, 20, 60, 60)]
+    img = np.zeros((120, 160, 3), np.uint8)
+    for _ in range(2):                                   # 두 번째 프레임에 B1 확정 → 그림
+        th._process_frame(img.copy())
+    seen = th._hand.seen[-1]
+    check(int(seen.max()) == 0, f"손 모델 입력에 박스 선이 없다 — 최댓값 {int(seen.max())}")
+    _FAKE_DET.dets = []
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
