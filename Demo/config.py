@@ -312,11 +312,16 @@ CONNECT_MAX_TRIES = 5
 # ⚠️ 인터록 Arduino 의 USB 신원(vid/pid)은 아직 확인하지 못했다(보드가 없어서).
 #    지금 규칙은 「ESP32 가 아닌 시리얼 장치가 정확히 하나면 그것」이다.
 #    보드를 꽂아 신원을 확인하면 그 vid/pid 로 좁힐 것.
-def _resolve_interlock_port():
-    """인터록 Arduino 의 경로. 확신할 수 없으면 None."""
+def resolve_interlock_port(quiet=False):
+    """인터록 Arduino 의 경로. 확신할 수 없으면 None.
+
+    🔑 인터락 컨트롤러가 **연결할 때마다** 다시 부른다(I1·I2) — 켠 뒤에 꽂거나, 다시 꽂혀
+       번호(ttyACM0 → 1)가 바뀌어도 찾는다. quiet=True 면 안내를 찍지 않는다(재시도 루프용).
+    """
+    say = (lambda m: None) if quiet else print
     forced = os.environ.get("SOP_INTERLOCK_PORT")
     if forced:
-        print(f"[config] 인터록 포트 강제 지정: {forced}")
+        say(f"[config] 인터록 포트 강제 지정: {forced}")
         return forced
     try:
         from serial.tools import list_ports
@@ -326,19 +331,23 @@ def _resolve_interlock_port():
         if len(cands) == 1:
             return cands[0]
         if len(cands) > 1:
-            print(f"[config] ⚠️ 인터록 후보가 여럿이라 고를 수 없다: {cands}")
+            say(f"[config] ⚠️ 인터록 후보가 여럿이라 고를 수 없다: {cands}")
         else:
-            print("[config] ⚠️ 인터록 장치를 못 찾았다 (ESP32 는 인터록이 아니다)")
+            say("[config] ⚠️ 인터록 장치를 못 찾았다 (ESP32 는 인터록이 아니다)")
     except Exception as e:
-        print(f"[config] ⚠️ 포트 해석 실패: {e}")
-    print("[config] → 인터록을 비활성화한다. 강제하려면 SOP_INTERLOCK_PORT=/dev/ttyACMx")
+        say(f"[config] ⚠️ 포트 해석 실패: {e}")
+    say("[config] → 찾을 때까지 연결하지 않는다(꽂히면 자동으로 붙는다). "
+        "강제하려면 SOP_INTERLOCK_PORT=/dev/ttyACMx")
     return None
 
-_INTERLOCK_PORT_RESOLVED = _resolve_interlock_port()
+_INTERLOCK_PORT_RESOLVED = resolve_interlock_port()
 
-# 🔴 포트를 못 고르면 인터록 자체를 끈다 — 위 주석의 이유.
-INTERLOCK_ENABLED = _INTERLOCK_PORT_RESOLVED is not None
-INTERLOCK_PORT    = _INTERLOCK_PORT_RESOLVED or "/dev/ttyACM0"  # 표시용 기본값
+# 🔴 포트를 못 찾아도 인터록을 **끄지 않는다**(I1) — 끄면 나중에 꽂아도 살아나지 않고 차단이
+#    조용히 화면에서만 걸렸다. 모르는 장치에는 여전히 연결하지 않는다(위 주석).
+#    일부러 끄려면 SOP_INTERLOCK=0.
+INTERLOCK_ENABLED = os.environ.get("SOP_INTERLOCK", "1") != "0"
+INTERLOCK_PORT    = _INTERLOCK_PORT_RESOLVED     # None = 아직 못 찾음(연결할 때마다 다시 찾는다)
+INTERLOCK_BOOT_WAIT_SEC = 2.0        # UNO R4 는 연결 직후 리셋된다 — 부팅을 기다린다
 INTERLOCK_BAUD    = 115200
 INTERLOCK_TIMEOUT = 1.0              # 시리얼 read/write 타임아웃(초), ACK 대기 포함
 INTERLOCK_BLOCK_ACK_RETRIES = 2      # BLOCK 무ACK 시 재전송 횟수(초과 시 on_fault 알람)

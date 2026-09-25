@@ -21,6 +21,7 @@ Arduino로 `RUN`/`WARN`/`BLOCK` 한 줄 명령을 보내고 `ACK`를 확인한�
 EMO는 Pi GPIO로 FSM이 직접 BLOCK 전이 → 동일하게 "BLOCK" 송신(별도 메시지 없음).
 """
 
+import os
 import queue
 import threading
 import time
@@ -48,7 +49,10 @@ class InterlockController:
 
     def __init__(self, port=None, baud=None, timeout=None,
                  enabled=None, log=None, on_fault=None, on_give_up=None):
+        # 🔑 port 를 주면 그것만 쓰고, 안 주면 **연결할 때마다** config 로 다시 찾는다(I1·I2)
+        self._fixed_port = port
         self._port    = port if port is not None else config.INTERLOCK_PORT
+        self._absent  = False     # 장치를 못 찾은 상태 — 안내는 한 번만 · 이 동안은 포기하지 않는다(I1)
         self._baud    = baud if baud is not None else config.INTERLOCK_BAUD
         self._timeout = timeout if timeout is not None else config.INTERLOCK_TIMEOUT
         self._reconnect_delay = getattr(config, "INTERLOCK_RECONNECT_DELAY_SEC", 3.0)
@@ -99,15 +103,23 @@ class InterlockController:
         """시리얼 포트 열기 시도. 실패는 로그만 남기고 False 반환."""
         if serial is None:
             return False
+        port = self._fixed_port or config.resolve_interlock_port(quiet=True)
+        if port is None:
+            if not self._absent:
+                self._log("[인터락] 장치를 못 찾았다 — 꽂히면 자동으로 붙는다")
+                self._absent = True
+            return False
+        self._absent = False
         with self._lock:
             if self._ser is not None and getattr(self._ser, "is_open", False):
                 return True
             try:
                 self._ser = serial.Serial(
-                    self._port, self._baud, timeout=self._timeout,
+                    port, self._baud, timeout=self._timeout,
                     write_timeout=self._timeout)
+                self._port = port
                 # UNO R4 는 연결 직후 리셋 → 부팅 대기. 짧게 비운다.
-                time.sleep(2.0)
+                time.sleep(getattr(config, "INTERLOCK_BOOT_WAIT_SEC", 2.0))
                 self._ser.reset_input_buffer()
                 self._log(f"[인터락] 연결됨 — {self._port} @ {self._baud}")
                 return True
@@ -132,10 +144,17 @@ class InterlockController:
 
         🔴 무한 재시도 금지 — 3초마다 영원히 돌면 "연결 실패" 로그가 계속 쌓인다.
            CONNECT_MAX_TRIES 회 실패하면 멈추고 on_give_up 을 부른다.
+        🔑 단, 장치를 **못 찾은** 동안은 세지 않고 계속 찾는다(I1) — 못 찾음 안내는 한 번만
+           남아 쌓이지 않고, 켠 뒤에 꽂아도 붙어야 한다. 포기는 찾은 장치가 안 열릴 때만.
            다시 붙이려면 메뉴 → 점검(연결) 에서 retry_connect() 를 부른다.
         """
         max_tries = getattr(config, "CONNECT_MAX_TRIES", 5)
         while not self._closing:
+            if self._ser is not None and not self.connected:
+                # 🔴 열려 있다고 믿는 핸들의 장치가 사라졌다(뽑힘) — 버리고 다시 찾는다(I2)
+                with self._lock:
+                    self._drop()
+                self._log("[인터락] 장치가 사라졌다(뽑힘) — 다시 찾는다")
             if self.connected:
                 self._fail_count = 0
                 self._give_up = False
@@ -145,6 +164,8 @@ class InterlockController:
                 if self._open():
                     self._fail_count = 0
                     self._sync_after_open()
+                elif self._absent:
+                    pass                   # 🔑 못 찾은 동안은 포기하지 않는다(I1)
                 else:
                     self._fail_count += 1
                     if self._fail_count >= max_tries:
@@ -179,7 +200,13 @@ class InterlockController:
            오른쪽 아래 「인터락 연결」만 빨갛게 떠 있었다. 시연 영상에 그대로
            찍힐 뻔했다.
         """
-        return self._ser is not None and getattr(self._ser, "is_open", False)
+        ser = self._ser
+        if ser is None or not getattr(ser, "is_open", False):
+            return False
+        # 🔴 열림 표시만 믿지 않는다 — 뽑혀도 쓰기가 실패할 때까지 녹색이었다(검토 C9).
+        #    장치 노드가 사라졌으면 끊김이다.
+        path = getattr(ser, "port", None) or self._port
+        return bool(path) and os.path.exists(path)
 
     # -------------------------------------------------------------- 전송 코어
     def _write(self, cmd, force=False):
