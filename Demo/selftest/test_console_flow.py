@@ -1095,7 +1095,11 @@ def test_g2_block_not_covered_and_stays():
 
 
 def test_g11_wrong_tool_counted_once():
-    """G11 — 검출이 깜빡여도 같은 오답 공구는 한 번만 알리고 센다 · 내려놓고 다시 쥐면 다시 센다(U12)."""
+    """G11 — 검출이 깜빡여도 같은 오답 공구는 한 번만 알리고 센다 · 내려놓고 다시 쥐면 다시 센다(U12).
+
+    「내려놓음」 = 손이 보이는데 쥔 공구가 없는 스캔이 3번 연달아(약 3초) — 한두 번은
+    쥔 채 공구 검출만 빠진 것일 수 있다(tool_v3 는 손끝이 박스 안인지로만 쥠을 본다).
+    """
     print("\n[G11] 다른 공구 횟수")
     win = make_console()
     win._on_cta()
@@ -1109,7 +1113,13 @@ def test_g11_wrong_tool_counted_once():
     win.camera_thread.tool_signal.emit([box_other], None)         # 손이 잠깐 안 보임
     win.camera_thread.tool_signal.emit([box_other], (350, 150))   # 다시 보임
     check(win.notify_panel.count - n0 == 1, f"알림 1건 — {win.notify_panel.count - n0}")
-    win.camera_thread.tool_signal.emit([box_other], (10, 10))     # 빈손으로 보임 = 내려놓음
+    for _ in range(2):                                            # 쥔 채 검출만 두 번 빠짐(리뷰)
+        win.camera_thread.tool_signal.emit([box_other], (10, 10))
+    win.camera_thread.tool_signal.emit([box_other], (350, 150))
+    check(win.notify_panel.count - n0 == 1,
+          f"빈손 스캔 2번은 내려놓음이 아니다 — 알림 {win.notify_panel.count - n0}건")
+    for _ in range(3):                                            # 빈손이 3번 연달아 = 내려놓음
+        win.camera_thread.tool_signal.emit([box_other], (10, 10))
     win.camera_thread.tool_signal.emit([box_other], (350, 150))   # 다시 쥠
     out = win._stats.finish()
     check(out["tools"][-1]["wrong"].get(other) == 2,

@@ -79,6 +79,7 @@ class SafetyConsole(QMainWindow):
         self._tool_state = None      # 공구 판정 상태기계(A-2) — wait_tool 동안만 존재
         self._tool_override = None   # 설정 메뉴에서 바꾼 지정 공구(세션 한정)
         self._wrong_tool_noted = None  # 이미 알리고 센 오답 공구(G11) — 같은 공구는 한 번
+        self._empty_hand_scans = 0     # 손이 보이는데 쥔 공구가 없는 스캔이 연달아 나온 수(G11)
         self._unread = 0             # 안 읽은 알림 수 — 배지에 표시
         self._recording_mode = "full"
         self._recording_size = (WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -889,10 +890,14 @@ class SafetyConsole(QMainWindow):
         before = self._tool_state.phase
         tool = self._tool_state.update(dets, fingertip)
         self._sub.set_tool(tool)
-        # 🔑 손이 보이는데 쥔 공구가 없으면 「내려놓음」으로 본다 — 같은 오답 공구를 다시
-        #    쥐면 다시 센다(G11). 손이 안 보일 때(None)는 깜빡임이라 기억을 지우지 않는다.
-        if fingertip is not None and tool is None:
-            self._wrong_tool_noted = None
+        # 🔑 손이 보이는데 쥔 공구가 없는 스캔이 **연달아** TOOL_PUT_DOWN_SCANS 번이면
+        #    「내려놓음」으로 본다 — 같은 오답 공구를 다시 쥐면 다시 센다(G11). 한두 번은 쥔 채
+        #    검출만 빠진 것일 수 있다(부재를 근거로 쓰지 않는다 — tool_state 원칙).
+        #    손이 안 보일 때(None)는 세지 않는다.
+        if fingertip is not None:
+            self._empty_hand_scans = self._empty_hand_scans + 1 if tool is None else 0
+            if self._empty_hand_scans >= config.TOOL_PUT_DOWN_SCANS:
+                self._wrong_tool_noted = None
 
         # 🔑 판정 단계 표시는 게이지 패널이 맡는다(_update_sub_view → GaugePanel).
         #    grasped ⟺ tool_ok 라 SubTask 만 넘겨도 찾기/쥠이 구분된다.
@@ -914,7 +919,7 @@ class SafetyConsole(QMainWindow):
            `1`~`4` 로 흉내내는 것과 **같은 층**의 우회다(둘 다 상시 켜져 있다).
         🔑 「찾기」와 「집기」가 따로 있지 않다 — 진행 조건은 `SubTask.tool_ok`
            하나뿐이라 이 한 번으로 둘 다 채워진다. 판정기(`tool_state.ToolState`)는
-           통째로 우회한다.
+           판정 없이 「쥠」으로 **확정**한다(`force_grasped` · G9) — 다음 스캔이 덮지 않는다.
         ⚠️ 시간 조건은 **우회하지 않는다** — 대기가 남았으면 그대로 기다렸다가
            10초가 차는 순간 자동 진행한다(진행 조건은 시간 AND 공구 그대로).
         🔴 로그에 우회 사실을 남긴다 — 나중에 로그를 볼 때 실제 검출이었는지
@@ -1127,6 +1132,7 @@ class SafetyConsole(QMainWindow):
         self._sub = SubTask(spec)
         self._sub_button = button
         self._wrong_tool_noted = None
+        self._empty_hand_scans = 0
         self._sub_timer.start()
         self._append_log(f"[서브] {spec['label']} 시작 ({spec['sec']}초)")
         # 공구 판정(A-2) — wait_tool 일 때만 상태기계를 만들고 스캔을 켠다.

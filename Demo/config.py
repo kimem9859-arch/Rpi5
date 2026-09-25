@@ -395,6 +395,9 @@ TOOL_ENABLED           = os.environ.get("SOP_TOOL", "1") != "0"
 TOOL_CONF              = 0.65
 # 공구 판정은 상시 작업이 아니다 — 서브 대기 중에만 돈다. 추론 약 0.5초의 2배 여유.
 TOOL_SCAN_INTERVAL_SEC = 1.0
+# 손이 보이는데 쥔 공구가 없는 스캔이 이만큼 **연달아** 나오면 「내려놓음」으로 본다(GUI 수정 G11).
+# 한두 번은 쥔 채 공구 검출만 빠진 것일 수 있다 — 스캔 1초 간격이라 약 3초.
+TOOL_PUT_DOWN_SCANS   = 3
 # 🗑️ TOOL_PLACED_COUNT 는 2026-08-16 에 사라졌다 — 「넣음」 마디를 없애면서
 #    연속 미검출을 셀 일이 없어졌다(경위 = 통합문서 §10.44).
 TOOL_MODEL_PATH        = os.path.join(_BASE_DIR, 'models', 'tool_v3.pt')
