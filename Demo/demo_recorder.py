@@ -21,6 +21,9 @@ import cv2
 import config
 from demo_ffmpeg import FfmpegSet
 
+# 1인칭 두 벌의 이름 — FfmpegSet.fpv_pipes 순서(fpv_on, fpv_off)와 같다.
+FPV_NAMES = ("오버레이 켬", "오버레이 끔")
+
 
 def keep_screen_awake():
     """촬영 중 화면이 꺼지지 않게 `xscreensaver` 의 활동 타이머를 되돌린다.
@@ -53,6 +56,17 @@ class DemoRecorder:
         self._started = 0.0
         self._pushed = 0
         self._awake_at = 0.0
+        self._dead = []              # 멈춘 1인칭 이름 — GUI 가 take_dead() 로 가져가 알린다(G12)
+
+    def _mark_dead(self, name):
+        with self._lock:
+            self._dead.append(name)
+
+    def take_dead(self):
+        """멈춘 1인칭 이름들 — 가져가면 비워진다(GUI 스레드가 부른다)."""
+        with self._lock:
+            out, self._dead = self._dead, []
+        return out
 
     # -- 파일 -----------------------------------------------------------------
     def path_for(self, kind, overlay=None):
@@ -92,6 +106,10 @@ class DemoRecorder:
                        'fpv_size': list(fpv_size),
                        'overlay': self._overlay,
                        'target': list(config.DEMO_CAPTURE_SIZE)}, fp, ensure_ascii=False)
+        # 시작하자마자 죽은 1인칭은 None 자리로 남는다(demo_ffmpeg) — 알림 대상에 올린다(G12).
+        for name, pipe in zip(FPV_NAMES, self._ff.fpv_pipes):
+            if pipe is None:
+                self._mark_dead(name)
         self._started = time.time()
         self._running = True
         # 1인칭을 안 찍는 회차면 밀어넣을 파이프가 없다 — 스레드도 안 돈다.
@@ -114,14 +132,20 @@ class DemoRecorder:
             with self._lock:
                 latest = self._latest
             if latest is not None and len(pipes) == 2:
-                for stream, img in zip(pipes, latest):
+                for i, (stream, img) in enumerate(zip(pipes, latest)):
+                    if stream is None:
+                        continue                  # 이미 멈춘 쪽
                     try:
                         if (img.shape[1], img.shape[0]) != self._fpv_size:
                             img = cv2.resize(img, self._fpv_size)
                         stream.write(img.tobytes())
                     except (BrokenPipeError, ValueError, OSError):
-                        self._running = False
-                        break
+                        # 🔴 이 쪽만 버린다 — 종전에는 하나가 죽으면 둘 다 조용히 멈췄다(G12)
+                        pipes[i] = None
+                        self._mark_dead(FPV_NAMES[i])
+                if all(p is None for p in pipes):
+                    self._running = False
+                    break
                 self._pushed += 1
             sleep = next_t - time.time()
             if sleep > 0:

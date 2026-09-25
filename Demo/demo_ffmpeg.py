@@ -105,7 +105,9 @@ class FfmpegSet:
                 problems.append(f"ffmpeg 가 즉시 종료됨 (코드 {p.returncode})")
                 self._procs.remove(p)
                 if p.stdin in self.fpv_pipes:
-                    self.fpv_pipes.remove(p.stdin)
+                    # 🔴 빼지 말고 자리를 비운다 — 빼면 [켬, 끔] 짝이 어긋나 남은 쪽에도
+                    #    아무것도 안 밀렸다(G12). 받는 쪽(demo_recorder)이 None 을 건너뛴다.
+                    self.fpv_pipes[self.fpv_pipes.index(p.stdin)] = None
         return problems
 
     def stop(self):

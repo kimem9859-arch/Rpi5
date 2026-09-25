@@ -209,6 +209,10 @@ class SafetyConsole(QMainWindow):
             self._demo_dir = os.path.join(config.DEMO_CAPTURE_DIR, '촬영본', folder)
             self._demo = DemoRecorder(self._demo_dir, stamp,
                                       config.DEMO_SCENARIO, config.DEMO_OVERLAY)
+            # 🔴 sink 를 **지금** 붙인다 — 촬영 시작(첫 프레임 도착 시)에 붙이면 그 순간
+            #    `_latest` 가 비어 1인칭 크기가 늘 폴백 480×640 이 됐다(리뷰 U11 · G10).
+            #    카메라 스레드는 화면 신호보다 먼저 sink 를 부르므로 첫 프레임이 이미 담긴다.
+            self.camera_thread.set_frame_sink(self._demo.submit_camera)
             self.camera_thread.set_draw_boxes(config.DEMO_OVERLAY == "켬")
             QTimer.singleShot(int(config.DEMO_CAPTURE_START_TIMEOUT * 1000),
                               self._start_demo_capture)
@@ -635,6 +639,12 @@ class SafetyConsole(QMainWindow):
                 f"[FPS] {fps:.1f} (애니메이션 {'on' if config.UI_ANIMATION else 'off'})")
         if config.SHOW_FPS:
             self.fps_label.setText("" if fps is None else f"{fps:.1f} fps")
+
+        # 시연 녹화 1인칭 두 벌 중 멈춘 것 — 🔴 조용히 멈추지 않게 알린다(G12).
+        if self._demo is not None and self._demo_on:
+            for name in self._demo.take_dead():
+                self._append_log(f"[시연촬영] ⚠️ 1인칭 「{name}」 녹화가 멈췄습니다 — 다른 쪽은 계속합니다")
+                self._notify("danger", "시연 녹화 일부 중단", f"1인칭 {name}")
 
     def _check_ctx(self, with_frame=True):
         """점검이 보는 대상 묶음. 1·2차·수동이 같은 것을 본다.
@@ -1522,8 +1532,8 @@ class SafetyConsole(QMainWindow):
         g = self.geometry()
         tl = self.mapToGlobal(QPoint(0, 0))
         r = self.camera_label.geometry()
-        # 🔴 sink 를 먼저 붙인다 — start() 가 첫 프레임 크기를 보고 ffmpeg 입력 규격을 정한다.
-        self.camera_thread.set_frame_sink(self._demo.submit_camera)
+        # 🔑 sink 는 __init__ 에서 이미 붙였다 — start() 가 첫 프레임 크기를 보고 ffmpeg
+        #    입력 규격을 정한다(G10).
         problems = self._demo.start(
             (tl.x(), tl.y(), g.width(), g.height()),
             (r.x(), r.y(), r.width(), r.height()))

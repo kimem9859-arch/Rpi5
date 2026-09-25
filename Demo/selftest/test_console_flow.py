@@ -1143,6 +1143,37 @@ def test_g6_g7_tool_settings_follow_recipe():
     check(sub["tool"] == "driver", f"공개된 공구 = {sub['tool']}")
     win.close()
 
+def test_g10_frame_sink_attached_at_start():
+    """G10 — 시연 촬영이면 카메라 sink 를 기동 때 붙여 첫 프레임이 촬영 시작 전에 담긴다(U11)."""
+    print("\n[G10] 1인칭 녹화 크기 — sink 선연결")
+    old = (config.DEMO_CAPTURE, config.DEMO_CAPTURE_START_TIMEOUT)
+    config.DEMO_CAPTURE = True
+    config.DEMO_CAPTURE_START_TIMEOUT = 3600         # 시험 중 촬영이 실제로 시작되지 않게
+    try:
+        win = make_console()
+        check(win.camera_thread._frame_sink is not None, "기동 직후 sink 가 붙어 있다")
+        win._demo_done = True                        # 닫을 때 촬영을 켜지 않게
+        win.close()
+    finally:
+        config.DEMO_CAPTURE, config.DEMO_CAPTURE_START_TIMEOUT = old
+
+
+def test_g12_dead_fpv_stream_notifies():
+    """G12 — 1인칭 녹화 한쪽이 멈추면 알림이 뜬다."""
+    print("\n[G12] 녹화 중단 알림")
+    win = make_console()
+
+    class _FakeDemo:
+        def take_dead(self):
+            return ["오버레이 켬"]
+
+    win._demo, win._demo_on = _FakeDemo(), True
+    n0 = win.notify_panel.count
+    win._update_conn_bar()
+    check(win.notify_panel.count == n0 + 1, f"알림 +1 — {win.notify_panel.count - n0}")
+    win._demo, win._demo_on = None, False
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
