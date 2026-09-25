@@ -558,6 +558,16 @@ def test_r5_forget_keeps_just_done():
     feed(fsm, "B1", 1.0, 1.6)
     assert fsm.state == State.MONITOR
 
+def test_v2_emo_active_property():
+    """V2 — EMO 로 걸린 차단인지 밖에서 읽을 수 있다(음성비서 상태 공개용)."""
+    fsm, _ = make_fsm()
+    run(fsm)
+    assert fsm.emo_active is False
+    fsm.press_button("EMO")
+    assert fsm.emo_active is True
+    fsm.release_block()
+    assert fsm.emo_active is False
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

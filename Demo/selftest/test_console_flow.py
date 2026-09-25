@@ -1214,6 +1214,18 @@ def test_i1_block_banner_says_screen_only():
     check("화면에서만" in win.alert._line2.text(), f"EMO 차단 둘째 줄 = {win.alert._line2.text()!r}")
     win.close()
 
+def test_v2_emo_published_to_voice():
+    """V2 — EMO 로 멈추면 음성비서 상태에 「비상정지」가 실린다."""
+    print("\n[V2] EMO 상태 공개")
+    win = make_console()
+    pubs = []
+    win._state_pub.publish = pubs.append
+    win._on_cta()
+    key(win, "E")
+    check(bool(pubs) and pubs[-1].get("비상정지") is True,
+          f"비상정지 = {pubs[-1].get('비상정지') if pubs else '공개 없음'}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

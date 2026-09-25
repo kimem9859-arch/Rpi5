@@ -1107,6 +1107,7 @@ class SafetyConsole(QMainWindow):
                 "다음단계명": self._step_name(nxt) if nxt else None,
                 "다음버튼": self._step_button(nxt) if nxt else None,
                 "상태": self.fsm.state.value,
+                "비상정지": self.fsm.emo_active,     # EMO 차단을 순서 위반과 가른다(V2)
                 "서브작업": sub,
                 "결과": result,
             })

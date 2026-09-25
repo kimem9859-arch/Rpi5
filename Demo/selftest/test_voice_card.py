@@ -38,7 +38,17 @@ LIVE = {
 }
 
 
+def test_v2_emo_block_card():
+    """V2 — EMO 로 멈춘 차단은 「순서를 어겨」가 아니라 「비상정지」라고 쓴다(검토 C17)."""
+    print("── V2 EMO 차단 카드")
+    card = build_card(dict(LIVE, 상태="BLOCK", 비상정지=True), [], False)
+    check("비상정지" in card and "순서를 어겨" not in card, f"EMO 차단 카드: {card}")
+    card2 = build_card(dict(LIVE, 상태="BLOCK", 비상정지=False), [], False)
+    check("순서를 어겨" in card2, "위반 차단은 그대로")
+
+
 def main():
+    test_v2_emo_block_card()
     tmp = tempfile.mkdtemp(prefix="sop_card_test_")
     path = os.path.join(tmp, "state.json")
     try:
