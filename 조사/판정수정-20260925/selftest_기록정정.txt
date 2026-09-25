@@ -1,0 +1,32 @@
+# 자가 테스트 기록 정정 (2026-09-25)
+# before_selftest.txt · after_selftest.txt 는 기록 명령 결함으로 **종료 코드가 모두 0 으로 적혔다** — 증거로 쓰지 않는다.
+#   결함 = echo "$(basename $t) exit=$?" — 명령 치환 $(basename) 이 먼저 돌아 $? 를 0 으로 덮는다.
+#   올바른 명령 = timeout 600 $py "$t" >/dev/null 2>&1; rc=$?; echo "$(basename $t) exit=$rc"
+# 아래 = 판정 수정 ① 이 끝난 상태(Rpi5 21975f9 — ① 뒤 문서 커밋만 더해진 상태)를 git archive 로 꺼내 올바른 명령으로 다시 돌린 결과: 27개 전부 통과
+test_anim.py exit=0
+test_box_colors.py exit=0
+test_camera_calib.py exit=0
+test_console_flow.py exit=0
+test_font.py exit=0
+test_frame_orient.py exit=0
+test_fsm.py exit=0
+test_hand_group.py exit=0
+test_hoi_import_scale.py exit=0
+test_hoi_metrics.py exit=0
+test_hoi_sim.py exit=0
+test_holdout_score.py exit=0
+test_imports.py exit=0
+test_overlay.py exit=0
+test_overlay_menu.py exit=0
+test_precheck.py exit=0
+test_recipe.py exit=0
+test_session_stats.py exit=0
+test_state_publisher.py exit=0
+test_sub_task.py exit=0
+test_theme.py exit=0
+test_tool_gate.py exit=0
+test_tool_state.py exit=0
+test_voice_card.py exit=0
+test_voice_lib.py exit=0
+test_voice_llm.py exit=0
+test_voice_tts.py exit=0
