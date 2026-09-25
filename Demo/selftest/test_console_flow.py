@@ -1060,6 +1060,62 @@ def test_g5_emo_banner_text():
     check("순서 위반" in win.alert._line1.text(), f"위반 차단 = '{win.alert._line1.text()}'")
     win.close()
 
+def test_g2_tool_banner_does_not_cover_warning():
+    """G2 — 「다른 공구」 경고가 순서 경고를 덮지 않는다. 해제 버튼이 남는다(리뷰 U3 재현 C2)."""
+    print("\n[G2] 경고창 우선순위 — 순서 경고")
+    win = make_console()
+    win._on_cta()
+    key(win, "1"); finish_sub(win)
+    key(win, "2")                                    # 공구 서브
+    win._sub.set_tool("driver"); win._tick_sub()     # 다른 공구
+    check(win.alert.mode == "tool", "공구 경고")
+    dwell_warning(win, "B3")
+    win._tick_sub()                                  # 200ms 뒤
+    check(win.alert.mode == "order", f"순서 경고가 남는다({win.alert.mode})")
+    check(not win.alert._release.isHidden(), "「경고 해제」 버튼이 보인다")
+    win._on_alert_release()
+    win._tick_sub()
+    check(win.alert.mode == "tool", f"해제 뒤 공구 경고가 다시 뜬다({win.alert.mode})")
+    win.close()
+
+
+def test_g2_block_not_covered_and_stays():
+    """G2 가드(Task 2 뒤 통과) — 차단 배너는 공구 경고에 덮이지 않는다(리뷰 U2 재현 C)."""
+    print("\n[G2] 경고창 우선순위 — 차단")
+    win = make_console()
+    win._on_cta()
+    key(win, "1"); finish_sub(win)
+    key(win, "2")
+    win._sub.set_tool("driver"); win._tick_sub()
+    key(win, "3")                                    # 오답 → BLOCK
+    win._tick_sub()
+    check(win.alert.mode == "block", f"차단 배너 유지({win.alert.mode})")
+    check(not win.alert._release.isHidden(), "「차단 해제」 버튼이 보인다")
+    win.close()
+
+
+def test_g11_wrong_tool_counted_once():
+    """G11 — 검출이 깜빡여도 같은 오답 공구는 한 번만 알리고 센다 · 내려놓고 다시 쥐면 다시 센다(U12)."""
+    print("\n[G11] 다른 공구 횟수")
+    win = make_console()
+    win._on_cta()
+    key(win, "1"); finish_sub(win)
+    key(win, "2")
+    want = win._sub.want_tool
+    other = "driver" if want != "driver" else "pliers"
+    box_other = (other, 0.9, 300, 100, 400, 200)
+    n0 = win.notify_panel.count
+    win.camera_thread.tool_signal.emit([box_other], (350, 150))   # 다른 공구를 쥠
+    win.camera_thread.tool_signal.emit([box_other], None)         # 손이 잠깐 안 보임
+    win.camera_thread.tool_signal.emit([box_other], (350, 150))   # 다시 보임
+    check(win.notify_panel.count - n0 == 1, f"알림 1건 — {win.notify_panel.count - n0}")
+    win.camera_thread.tool_signal.emit([box_other], (10, 10))     # 빈손으로 보임 = 내려놓음
+    win.camera_thread.tool_signal.emit([box_other], (350, 150))   # 다시 쥠
+    out = win._stats.finish()
+    check(out["tools"][-1]["wrong"].get(other) == 2,
+          f"내려놓고 다시 쥐면 2회 — {out['tools'][-1]['wrong']}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

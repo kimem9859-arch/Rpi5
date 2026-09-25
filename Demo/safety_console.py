@@ -78,6 +78,7 @@ class SafetyConsole(QMainWindow):
         self._sub_button = None      # 그 서브 작업을 시작시킨 버튼
         self._tool_state = None      # 공구 판정 상태기계(A-2) — wait_tool 동안만 존재
         self._tool_override = None   # 설정 메뉴에서 바꾼 지정 공구(세션 한정)
+        self._wrong_tool_noted = None  # 이미 알리고 센 오답 공구(G11) — 같은 공구는 한 번
         self._unread = 0             # 안 읽은 알림 수 — 배지에 표시
         self._recording_mode = "full"
         self._recording_size = (WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -877,6 +878,10 @@ class SafetyConsole(QMainWindow):
         before = self._tool_state.phase
         tool = self._tool_state.update(dets, fingertip)
         self._sub.set_tool(tool)
+        # 🔑 손이 보이는데 쥔 공구가 없으면 「내려놓음」으로 본다 — 같은 오답 공구를 다시
+        #    쥐면 다시 센다(G11). 손이 안 보일 때(None)는 깜빡임이라 기억을 지우지 않는다.
+        if fingertip is not None and tool is None:
+            self._wrong_tool_noted = None
 
         # 🔑 판정 단계 표시는 게이지 패널이 맡는다(_update_sub_view → GaugePanel).
         #    grasped ⟺ tool_ok 라 SubTask 만 넘겨도 찾기/쥠이 구분된다.
@@ -1106,6 +1111,7 @@ class SafetyConsole(QMainWindow):
     def _begin_sub(self, button, spec):
         self._sub = SubTask(spec)
         self._sub_button = button
+        self._wrong_tool_noted = None
         self._sub_timer.start()
         self._append_log(f"[서브] {spec['label']} 시작 ({spec['sec']}초)")
         # 공구 판정(A-2) — wait_tool 일 때만 상태기계를 만들고 스캔을 켠다.
@@ -1158,14 +1164,21 @@ class SafetyConsole(QMainWindow):
 
         # 공구 오선택 — 🔴 해제 버튼 없이, 올바른 공구로 바꾸면 스스로 풀린다
         if sub.wrong_tool:
-            if self.alert.mode != "tool":
+            # 🔴 순서 경고·차단 배너를 덮지 않는다 — 우선순위 차단 > 순서 경고 > 공구
+            #    경고(G2). 덮으면 해제 버튼이 사라지고 배너 없이 갇혔다(리뷰 U2·U3).
+            if self.alert.mode is None:
                 self.alert.show_wrong_tool(sub.wrong_tool_name, sub.want_tool_name)
                 self.glow.set_level("warn")
                 self._dim_others(True)
+                self._relayout()
+            # 🔴 같은 오답 공구는 한 번만 알리고 센다(G11) — 손이 잠깐 안 보일 때마다
+            #    배너가 다시 떠도 결과창 횟수는 「집은 횟수」여야 한다(리뷰 U12).
+            #    기억은 공구가 바뀌거나 빈손이 보일 때(_on_tool) 지운다.
+            if sub.wrong_tool != self._wrong_tool_noted:
+                self._wrong_tool_noted = sub.wrong_tool
                 self._notify("warn", "다른 공구입니다",
                              f"{sub.wrong_tool_name} → {sub.want_tool_name} 필요")
                 self._stats.tool_grasped(sub.wrong_tool, False)
-                self._relayout()
         elif self.alert.mode == "tool":
             self.alert.hide_all()
             self.glow.set_level(None)
