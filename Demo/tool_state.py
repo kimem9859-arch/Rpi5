@@ -68,6 +68,14 @@ class ToolState:
     def want_tool(self):
         return self._want
 
+    def force_grasped(self):
+        """시연용 `t` — 요구 공구를 쥔 것으로 **확정**한다(판정 우회 · G9).
+
+        확정은 유지되므로(`update` 첫 줄) 다음 스캔 결과가 덮어쓰지 못한다 — 종전에는
+        SubTask 만 바꿔 약 1초 뒤 스캔이 「찾기」로 되돌렸다(리뷰 U6).
+        """
+        self._phase = "grasped"
+
     # ------------------------------------------------------------------ 판정
     def update(self, dets, fingertip):
         """한 번의 스캔 결과를 먹인다.

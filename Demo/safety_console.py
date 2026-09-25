@@ -917,6 +917,8 @@ class SafetyConsole(QMainWindow):
             self._append_log(f"[시험] t — {sub.want_tool_name} 는 이미 쥔 상태입니다")
             return
 
+        if self._tool_state is not None:
+            self._tool_state.force_grasped()     # 🔴 판정기도 확정해야 다음 스캔이 안 덮는다(G9)
         sub.set_tool(sub.want_tool)
         self._stats.tool_grasped(sub.want_tool, True)
         self._append_log(f"[시험] t — 공구 「{sub.want_tool_name}」를 쥔 것으로 "

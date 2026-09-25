@@ -219,6 +219,15 @@ def test_쥔공구_클래스는_부재를_근거로_쓰지_않는다():
     check(st.phase == "search", "완료로 넘어가지 않는다")
 
 
+def test_force_grasped_sticks():
+    """G9 — 시연용 확정은 이후 스캔(손·공구 없음)에도 유지된다."""
+    print("\n[G9] 시연용 확정 유지")
+    s = ToolState("wrench")
+    s.force_grasped()
+    check(s.phase == "grasped", "grasped")
+    check(s.update([], None) == "wrench", "손이 안 보여도 wrench")
+    check(s.update([], (10, 10)) == "wrench", "빈손이어도 wrench")
+
 if __name__ == "__main__":
     t0 = time.time()
     test_안쥐면_완료_안됨()
@@ -237,6 +246,7 @@ if __name__ == "__main__":
     test_오답을_쥐면_접미어를_벗겨_경고()
     test_요구공구가_이긴다()
     test_쥔공구_클래스는_부재를_근거로_쓰지_않는다()
+    test_force_grasped_sticks()
 
     elapsed = time.time() - t0
     print()

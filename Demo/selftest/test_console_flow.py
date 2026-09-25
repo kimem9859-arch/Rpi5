@@ -1116,6 +1116,18 @@ def test_g11_wrong_tool_counted_once():
           f"내려놓고 다시 쥐면 2회 — {out['tools'][-1]['wrong']}")
     win.close()
 
+def test_g9_sim_tool_key_survives_next_scan():
+    """G9 — `t` 로 쥔 처리는 다음 공구 검출 결과에 덮이지 않는다(리뷰 U6 재현 D)."""
+    print("\n[G9] t 키 유지")
+    win = make_console()
+    win._on_cta()
+    key(win, "1"); finish_sub(win)
+    key(win, "2")
+    key(win, "t")
+    win.camera_thread.tool_signal.emit([], (100, 100))            # 다음 스캔: 공구 미검출
+    check(win._sub is not None and win._sub.tool_ok, "t 로 쥔 처리가 유지된다")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
