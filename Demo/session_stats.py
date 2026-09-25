@@ -73,6 +73,13 @@ class SessionStats:
         if not spec.get("tool"):
             return
         self._tool_names.update(spec.get("tool_names") or {})
+        # 🔑 차단으로 취소된 서브를 같은 버튼으로 다시 시작하면 **이어 쓴다**(설계 D5 · G1) —
+        #    새로 만들면 결과창에 같은 단계 공구 줄이 두 번 찍힌다. 오답 횟수는 남기고
+        #    쥔 시각은 이번 시도부터 다시 잰다.
+        if self._tools and self._tools[-1]["button"] == button:
+            self._tools[-1].update({"want": spec.get("tool"), "_start": _now(now),
+                                    "grasp_sec": None})
+            return
         self._tools.append({"button": button, "want": spec.get("tool"),
                             "_start": _now(now), "grasp_sec": None, "wrong": {}})
 

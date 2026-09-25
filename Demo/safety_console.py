@@ -940,6 +940,12 @@ class SafetyConsole(QMainWindow):
            그 지연 덕분에 대기 중 다른 버튼을 누르면 기대단계가 아직 안 올라가 있어
            FSM 이 **자동으로 오답 판정**한다 — FSM 을 고칠 필요가 없다(design §5).
         """
+        # 🔴 차단 중에는 판정기처럼 화면도 버튼을 받지 않는다 — EMO 만 통과한다(G3).
+        #    받으면 차단 중에 서브 작업이 시작돼, 해제가 먼저 끝나면 그 눌림이 단계
+        #    완료로 인정됐다(리뷰 U4 · 인터락이 GND 를 못 끊는 fallback·키보드에서).
+        if self.fsm.state == State.BLOCK and button != self._emo_button():
+            self._append_log(f"[버튼] {button} 눌림 — 차단 중이라 무시")
+            return
         self._last_button = button
         # 🔴 눌림 시각은 **여기서** 찍는다 — _commit_button 이 아니다. 서브 작업이
         #    있는 단계에서 _commit_button 은 10초 대기가 끝난 뒤에 불려, 거기서
@@ -969,6 +975,12 @@ class SafetyConsole(QMainWindow):
             #    레시피 단계 버튼(B1~B4)만 들어가므로 EMO 와 같아질 수 없고,
             #    아래 _commit_button 으로 그대로 가서 비상정지가 동작한다.
             if button == self._sub_button:
+                if self.fsm.state == State.WARNING:
+                    # 경고 중 정답 = 경고 해제 + 멈춘 서브 작업을 이어서(설계 §2.2 · D3).
+                    # 🔴 단계를 곧바로 완료하지 않는다 — 남은 대기를 건너뛰는 우회로다.
+                    self._append_log(f"[서브] {button} — 경고 해제, {self._sub.label} 이어서")
+                    self.fsm.release_warning()      # → _on_fsm_state 가 서브를 재개한다
+                    return
                 self._append_log(f"[서브] {button} 재입력 무시 — {self._sub.label} 진행 중")
                 return
             self._commit_button(button)   # 다른 버튼 → FSM 이 오답 판정
@@ -976,6 +988,10 @@ class SafetyConsole(QMainWindow):
 
         spec = self._sub_spec_for(button)
         if spec is not None and self.fsm.state != State.IDLE and button == self.fsm.correct_roi:
+            if self.fsm.state == State.WARNING:
+                # 경고 중 정답 = 경고 해제 + 평소처럼 서브 작업 시작(설계 §2.2 · D3)
+                self._append_log(f"[FSM] 경고 중 정답 {button} — 경고 해제")
+                self.fsm.release_warning()
             self._begin_sub(button, spec)
             return
 
@@ -1078,6 +1094,15 @@ class SafetyConsole(QMainWindow):
                 return s.get("button", "")
         return ""
 
+    def _emo_button(self):
+        """비상정지 버튼 이름.
+
+        🔴 `.get(...)` 기본값은 키가 **없을 때만** 적용된다 — emo_button 키가 있는데 값이
+           null(None)이면 여전히 None 이 돌아와 fsm.py 의 config 폴백과 어긋난다.
+           `or` 로 None 도 폴백시킨다.
+        """
+        return (self._recipe or {}).get("emo_button") or config.FSM_EMO_BUTTON
+
     def _begin_sub(self, button, spec):
         self._sub = SubTask(spec)
         self._sub_button = button
@@ -1101,6 +1126,19 @@ class SafetyConsole(QMainWindow):
         if self._tool_state is not None:
             self._tool_state = None
         self.camera_thread.set_tool_scan(False)
+
+    def _cancel_sub(self, why):
+        """진행 중인 서브 작업을 버린다 — 🔴 눌림을 FSM 에 전달하지 않는다(설계 D5 · 차단 = 취소).
+
+        해제한 뒤에는 그 버튼부터 다시 누른다.
+        """
+        if self._sub is not None and self._sub.is_active:
+            self._append_log(f"[서브] {self._sub.label} 취소 — {why}")
+        self._sub_timer.stop()
+        self._end_tool_scan()
+        self._sub = None
+        self._sub_button = None
+        self.gauge_panel.update_view(None)
 
     def _tick_sub(self):
         if self._sub is None or not self._sub.is_active:
@@ -1302,15 +1340,28 @@ class SafetyConsole(QMainWindow):
         self._append_log(f"[FSM] {old.value} → {new.value}")
         self._publish_state()
 
+        # 서브 작업은 판정기 상태를 따른다(설계 2026-09-25 D5 · G1) — 경고 = 일시정지 ·
+        # 차단 = 취소. 🔴 따로 돌게 두면 EMO 해제 뒤 대기 중이던 눌림이 뒤늦게 확정돼
+        # 가짜 차단이 나고(리뷰 U1), 경고 중 게이지가 차서 진행이 조용히 사라진다(U10).
+        sub = self._sub
+        if sub is not None and sub.is_active:
+            if new == State.BLOCK:
+                self._cancel_sub("차단")
+            elif new == State.WARNING:
+                sub.pause()
+                self._append_log(f"[서브] {sub.label} 일시정지 — 경고 중")
+                self.gauge_panel.update_view(sub)
+            elif old == State.WARNING and sub.paused:
+                sub.resume()
+                self._append_log(f"[서브] {sub.label} 이어서 — 경고 해제")
+                self.gauge_panel.update_view(sub)
+
         # 발광·배너는 상태에 따라 — 🔴 발광은 영상 영역에만(GlowFrame 이 담당)
         if new == State.BLOCK:
             # 🔴 비상정지(EMO)는 순서 위반이 아니다 — 정당한 안전 조작이다. 위반으로
             #    적으면 결과창 머리가 「⚠ 위반이 있었습니다」로 뒤집힌다(리뷰 I2).
             #    작동 시각은 아래 인터락 기록이 이미 담고 있어 정보 손실이 없다.
-            # 🔴 .get(...) 기본값은 키가 "없을 때"만 적용된다 — emo_button 키가
-            #    있는데 값이 null(None)이면 여전히 None 이 돌아와 fsm.py 의
-            #    config 폴백과 어긋난다. `or` 로 None 도 폴백시킨다.
-            emo = (self._recipe or {}).get("emo_button") or config.FSM_EMO_BUTTON
+            emo = self._emo_button()
             if self._last_button != emo:
                 self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "block")
             self.glow.set_level("block")

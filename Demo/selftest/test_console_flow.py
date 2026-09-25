@@ -831,6 +831,192 @@ def test_fps_stops_when_camera_dies():
         win.close()
 
 
+# ============================================================================
+# ②GUI 상태 일치 (2026-09-25) — 설계 docs/superpowers/specs/2026-09-25-런타임-문제수정-design.md §3
+# 재현 원본 = Rpi5/조사/런타임-검토-20260924/flow_probe.py (리뷰 U#)
+# ============================================================================
+def dwell_warning(win, roi="B3"):
+    """오답 ROI 에 레시피 체류 임계를 넘겨 머문다 — 0.1초 간격 프레임으로 WARNING 을 만든다."""
+    t0 = time.time()
+    for i in range(6):
+        win.fsm.update_vision(roi, t0 + i * 0.1)
+
+
+def finish_sub(win):
+    """서브 작업의 시간·공구 조건을 채우고 타이머 틱 한 번을 흉내 낸다."""
+    if win._sub is None:
+        return
+    win._sub.tick(now=time.time() + 999)
+    if win._sub.needs_tool:
+        win._sub.set_tool(win._sub.want_tool)
+    win._update_sub_view()
+
+
+def test_g1_warning_pauses_sub():
+    """G1 — 경고가 뜨면 서브 작업이 멈추고, 풀면 남은 시간부터 잇는다(리뷰 U10)."""
+    print("\n[G1] 경고 = 서브 작업 일시정지")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")                                    # B1 → 10초 서브 시작
+    dwell_warning(win, "B3")
+    check(win.fsm.state == State.WARNING, f"B3 머묾 → WARNING({win.fsm.state.value})")
+    check(win._sub is not None and win._sub.paused, "서브 작업이 멈춘다")
+    if win._sub is not None:
+        win._sub.tick(now=time.time() + 999)         # 멈춘 동안 시간이 흘러도
+        win._update_sub_view()
+    check(win._sub is not None and win.fsm.expected_step == 1,
+          "🔴 멈춘 동안은 게이지가 차지 않아 진행하지 않는다")
+    check(win.gauge_panel._time.text().startswith("일시정지"),
+          f"게이지 = '{win.gauge_panel._time.text()}'")
+    win._on_alert_release()                          # 경고 해제
+    check(win._sub is not None and not win._sub.paused, "해제하면 이어서 돈다")
+    finish_sub(win)
+    check(win.fsm.expected_step == 2, f"남은 시간이 차면 진행 → {win.fsm.expected_step}")
+    win.close()
+
+
+def test_g1_block_cancels_sub():
+    """G1 — 차단이 걸리면 서브 작업을 버린다. 해제 뒤 그 버튼부터 다시."""
+    print("\n[G1] 차단 = 서브 작업 취소")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")                                    # B1 서브
+    key(win, "3")                                    # 대기 중 오답 → BLOCK
+    check(win.fsm.state == State.BLOCK, f"BLOCK({win.fsm.state.value})")
+    check(win._sub is None, "서브 작업이 취소된다")
+    win._on_alert_release()
+    check(win.fsm.state == State.PROCESS_RUN and win.fsm.expected_step == 1,
+          f"해제 뒤 1단계 그대로({win.fsm.state.value}·{win.fsm.expected_step})")
+    check(win._sub is None, "취소된 서브가 뒤늦게 확정되지 않는다")
+    key(win, "1")                                    # 그 버튼부터 다시
+    check(win._sub is not None and win._sub.is_active and not win._sub.paused,
+          "B1 을 다시 누르면 새로 시작")
+    win.close()
+
+
+def test_g1_emo_during_sub_no_fake_block():
+    """G1 — EMO 로 멈춘 뒤 대기 중이던 눌림이 뒤늦게 확정돼 가짜 차단이 나지 않는다(U1 재현 A)."""
+    print("\n[G1] EMO 뒤 가짜 차단 없음")
+    win = make_console()
+    win._on_cta()
+    key(win, "1"); finish_sub(win)
+    key(win, "2"); finish_sub(win)
+    key(win, "3")                                    # B3 서브 시작
+    key(win, "E")                                    # 비상정지
+    check(win._sub is None, "EMO 차단 → 서브 취소")
+    win._on_alert_release()                          # EMO 해제 → 작업 시작 전 대기(P5)
+    check(win.fsm.state == State.IDLE, f"IDLE({win.fsm.state.value})")
+    check(win._stats._violations == [], f"위반 기록 없음 — {win._stats._violations}")
+    win.close()
+
+
+def test_g1_emo_during_warning_cancels_and_idles():
+    """G1 — 경고로 멈춰 있을 때 EMO → 서브 취소 · 해제하면 「작업 시작」 전 대기."""
+    print("\n[G1] 경고 중 EMO")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")
+    dwell_warning(win, "B3")
+    key(win, "E")
+    check(win._sub is None, "멈춰 있던 서브가 취소된다")
+    win._on_alert_release()
+    check(win.fsm.state == State.IDLE and win._sub is None,
+          f"해제 → IDLE·서브 없음({win.fsm.state.value})")
+    win.close()
+
+
+def test_g1_wrong_press_during_warning_cancels_paused_sub():
+    """G1 — 경고 중 오답을 눌러 차단으로 넘어가면 멈춰 있던 서브도 버린다."""
+    print("\n[G1] 경고 → 차단이면 취소")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")
+    dwell_warning(win, "B3")
+    key(win, "3")                                    # 경고 중 오답 눌림 → BLOCK
+    check(win.fsm.state == State.BLOCK, f"BLOCK({win.fsm.state.value})")
+    check(win._sub is None, "멈춰 있던 서브도 취소")
+    win.close()
+
+
+def test_g1_retry_after_block_keeps_one_tool_record():
+    """G1 — 공구 단계에서 차단 뒤 다시 하면 결과창 공구 줄은 하나다(취소한 시도와 이어 쓴다).
+
+    ⚠️ 고치기 전 코드에서는 통과한다 — 그때는 차단해도 서브가 취소되지 않아 다시 시작할
+       일이 없었다. G1(취소)을 넣으면 실패하고(Step 4), 집계를 고쳐 통과시킨다(Step 5).
+    """
+    print("\n[G1] 차단 뒤 재시도 — 공구 기록 하나")
+    win = make_console()
+    win._on_cta()
+    key(win, "1"); finish_sub(win)
+    key(win, "2")                                    # 공구 서브
+    key(win, "3")                                    # 오답 → BLOCK → 취소
+    win._on_alert_release()
+    key(win, "2"); finish_sub(win)                   # 다시 해서 완료
+    out = win._stats.finish()
+    check([t["button"] for t in out["tools"]] == ["B2"],
+          f"공구 기록 = {[t['button'] for t in out['tools']]}")
+    win.close()
+
+
+def test_d3_correct_press_during_warning_resumes_sub():
+    """D3 — 경고 중 정답(멈춘 서브의 버튼) = 경고 해제 + 이어서. 단계를 건너뛰지 않는다."""
+    print("\n[D3] 경고 중 정답 — 서브 이어서")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")
+    dwell_warning(win, "B3")
+    key(win, "1")                                    # 경고 중 정답
+    check(win.fsm.state != State.WARNING, f"경고 해제({win.fsm.state.value})")
+    check(win._sub is not None and not win._sub.paused, "서브가 이어서 돈다")
+    check(win.fsm.expected_step == 1, "🔴 남은 대기를 건너뛰지 않는다 — 아직 1단계")
+    win.close()
+
+
+def test_d3_correct_press_during_warning_starts_sub():
+    """D3 — 버튼을 누르기 전 경고가 떴을 때 정답을 누르면 경고 해제 + 서브 시작."""
+    print("\n[D3] 경고 중 정답 — 서브 시작")
+    win = make_console()
+    win._on_cta()
+    dwell_warning(win, "B3")                         # B1 을 누르기 전에 경고
+    check(win.fsm.state == State.WARNING, "WARNING")
+    key(win, "1")
+    check(win.fsm.state != State.WARNING, f"경고 해제({win.fsm.state.value})")
+    check(win._sub is not None and win._sub.is_active and not win._sub.paused,
+          "서브 작업이 새로 시작된다")
+    win.close()
+
+
+def test_d3_correct_press_during_warning_no_sub_step():
+    """D3 가드(전후 통과) — 서브가 없는 4단계에서 경고 중 정답 = 해제 + 완료(①묶음 P6)."""
+    print("\n[D3] 경고 중 정답 — 4단계 완료")
+    win = make_console()
+    win._on_cta()
+    for k in ("1", "2", "3"):
+        key(win, k); finish_sub(win)
+    dwell_warning(win, "B1")
+    check(win.fsm.state == State.WARNING, "4단계에서 WARNING")
+    key(win, "4")
+    check(win.fsm.state == State.IDLE, f"공정 완료({win.fsm.state.value})")
+    check(not win.result_panel.isHidden(), "결과창이 뜬다")
+    win.close()
+
+
+def test_g3_press_ignored_during_block():
+    """G3 — 차단 중 정답 버튼은 화면에서도 무시된다 · EMO 는 통과한다(리뷰 U4 재현 A3)."""
+    print("\n[G3] 차단 중 입력 무시")
+    win = make_console()
+    win._on_cta()
+    key(win, "3")                                    # 1단계에서 B3 → BLOCK
+    key(win, "1")                                    # 차단 중 정답
+    check(win._sub is None, "서브 작업이 시작되지 않는다")
+    win._on_alert_release()
+    check(win._sub is None and win.fsm.expected_step == 1,
+          "해제 뒤에도 그 눌림은 인정되지 않는다")
+    key(win, "3")                                    # 다시 차단
+    key(win, "E")                                    # 차단 중 EMO
+    check(win.fsm._emo_active, "EMO 는 차단 중에도 판정기에 닿는다")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
