@@ -130,6 +130,44 @@ def test_real_clock_default():
     check(st.elapsed_sec < 1.0, f"방금 만들었으므로 경과 {st.elapsed_sec:.3f}s")
 
 
+# ----------------------------------------------------- 일시정지 (설계 2026-09-25 D5 · G1)
+def test_pause_freezes_time():
+    """경고로 멈춘 동안은 시간이 흐르지 않는다."""
+    print("\n[일시정지] 멈춘 동안 시간 정지")
+    s = SubTask(WAIT, now=0.0)
+    s.tick(now=10.0)
+    s.pause(now=10.0)
+    s.tick(now=25.0)
+    check(s.paused, "pause → paused")
+    check(abs(s.elapsed_sec - 10.0) < 1e-9, f"멈춘 뒤 15초가 지나도 경과 10초 — {s.elapsed_sec}")
+
+
+def test_resume_continues_from_remaining():
+    """풀리면 남은 시간부터 잇는다 — 멈춘 시간은 두 번 멈춰도 합쳐서 뺀다."""
+    print("\n[일시정지] 이어서")
+    s = SubTask(WAIT, now=0.0)
+    s.tick(now=10.0); s.pause(now=10.0); s.tick(now=25.0)
+    s.resume(now=25.0)
+    s.tick(now=30.0)
+    check(not s.paused, "resume → paused 아님")
+    check(abs(s.elapsed_sec - 15.0) < 1e-9, f"멈춘 15초는 빼고 15초 — {s.elapsed_sec}")
+    s.pause(now=30.0); s.resume(now=34.0); s.tick(now=40.0)
+    check(abs(s.elapsed_sec - 21.0) < 1e-9, f"두 번째 멈춤 4초도 뺀다 — {s.elapsed_sec}")
+    s.tick(now=50.0)
+    check(s.time_done and s.can_advance, "남은 시간이 차면 진행 가능")
+
+
+def test_paused_never_advances():
+    """🔴 멈춘 동안은 시간·공구가 다 차 있어도 넘어가지 않는다."""
+    print("\n[일시정지] 진행 금지")
+    s = SubTask(TOOL, now=0.0)
+    s.tick(now=31.0)                 # 시간은 이미 찼다
+    s.pause(now=31.0)
+    s.set_tool(s.want_tool)          # 멈춘 동안 요구 공구를 쥔다
+    check(not s.can_advance, "멈춰 있으면 can_advance=False")
+    s.resume(now=40.0)
+    check(s.can_advance, "풀리면 곧바로 진행 가능")
+
 if __name__ == "__main__":
     t0 = time.time()
     test_none_spec_advances_immediately()
@@ -140,6 +178,9 @@ if __name__ == "__main__":
     test_wait_type_has_no_tool_state()
     test_display_fields()
     test_real_clock_default()
+    test_pause_freezes_time()
+    test_resume_continues_from_remaining()
+    test_paused_never_advances()
 
     elapsed = time.time() - t0
     print()

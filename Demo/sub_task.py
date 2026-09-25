@@ -37,6 +37,9 @@ class SubTask:
         #   ② 정답 공구를 쥐었을 때 그 공구(→ tool_ok, 그 뒤로 유지)
         # 아무것도 안 쥔 동안은 None 이다. 판정 = tool_state.ToolState
         self._tool = None
+        # 일시정지(설계 2026-09-25 D5 · G1) — 경고가 뜨면 멈추고, 풀리면 남은 시간부터 잇는다.
+        self._paused_at = None       # 멈춘 시각. None 이면 진행 중
+        self._paused_total = 0.0     # 지금까지 멈춰 있던 시간의 합
 
     # ------------------------------------------------------------------ 상태
     @property
@@ -60,7 +63,8 @@ class SubTask:
     def elapsed_sec(self):
         if not self._spec:
             return 0.0
-        return max(0.0, self._now - self._start)
+        end = self._paused_at if self._paused_at is not None else self._now
+        return max(0.0, end - self._start - self._paused_total)
 
     @property
     def progress(self):
@@ -72,6 +76,11 @@ class SubTask:
     @property
     def time_done(self):
         return self.progress >= 1.0
+
+    @property
+    def paused(self):
+        """경고로 멈춰 있는가 — 멈춘 동안은 시간이 흐르지 않고 진행하지도 않는다."""
+        return self._paused_at is not None
 
     # ------------------------------------------------------------------ 공구
     @property
@@ -118,6 +127,8 @@ class SubTask:
         """
         if not self._spec:
             return True
+        if self.paused:
+            return False             # 🔴 멈춘 동안은 공구를 쥐어도 넘어가지 않는다(G1)
         if not self.time_done:
             return False
         return self.tool_ok if self.needs_tool else True
@@ -126,6 +137,20 @@ class SubTask:
     def tick(self, now=None):
         """현재 시각을 갱신한다. GUI 타이머가 주기적으로 부른다."""
         self._now = time.time() if now is None else now
+
+    def pause(self, now=None):
+        """경고가 뜨면 멈춘다(설계 D5 · G1). 이미 멈춰 있으면 아무 일도 없다."""
+        if self._spec and self._paused_at is None:
+            self._paused_at = time.time() if now is None else now
+
+    def resume(self, now=None):
+        """경고가 풀리면 **남은 시간부터** 잇는다 — 멈춘 동안은 경과에 넣지 않는다."""
+        if self._paused_at is None:
+            return
+        now = time.time() if now is None else now
+        self._paused_total += max(0.0, now - self._paused_at)
+        self._paused_at = None
+        self._now = now
 
     def set_tool(self, name):
         """손으로 쥔 공구를 갱신한다(아직 안 쥐었으면 None).

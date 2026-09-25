@@ -468,6 +468,20 @@ def test_result_panel_shows():
     panel.hide()
 
 
+def test_gauge_shows_paused():
+    """G1 — 경고로 멈춘 서브 작업은 게이지에 「일시정지」가 뜬다(설계 2026-09-25 D5)."""
+    print("\n[G1] 게이지 일시정지 표시")
+    host = QWidget()
+    g = GaugePanel(host)
+    s = SubTask(WAIT, now=0.0)
+    s.tick(now=12.0)
+    s.pause(now=12.0)
+    g.update_view(s)
+    check(g._time.text().startswith("일시정지"), f"시간 칸 = '{g._time.text()}'")
+    s.resume(now=20.0)
+    g.update_view(s)
+    check(not g._time.text().startswith("일시정지"), f"풀리면 = '{g._time.text()}'")
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

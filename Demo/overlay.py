@@ -319,9 +319,14 @@ class GaugePanel(_Panel):
         self._label.setText(sub.label)
         self._label.setStyleSheet(theme.text_qss("label", 600))
 
-        remain_token = "done" if sub.time_done else "current"
-        self._time.setText("완료" if sub.time_done
-                           else f"{int(sub.elapsed_sec)}/{int(sub.total_sec)}s")
+        if sub.paused:
+            # 경고로 멈춘 동안 — 시간이 흐르지 않는다는 것을 글자로 알린다(설계 D5 · G1)
+            remain_token = "warn"
+            self._time.setText(f"일시정지 {int(sub.elapsed_sec)}/{int(sub.total_sec)}s")
+        else:
+            remain_token = "done" if sub.time_done else "current"
+            self._time.setText("완료" if sub.time_done
+                               else f"{int(sub.elapsed_sec)}/{int(sub.total_sec)}s")
         self._time.setStyleSheet(theme.text_qss(remain_token, 700))
 
         self._track.setStyleSheet(theme.gauge_qss())
