@@ -77,6 +77,7 @@ class InterlockController:
         self._closing = False
         self._last_cmd = None     # 마지막으로 전송(또는 보류)한 명령 — 중복 제거용
         self._desired = None      # FSM 이 마지막으로 요청한 상태 — 재연결 동기화가 보낸다(I3)
+        self._verified = False    # 마지막 명령에 ACK 가 왔는가 — 「연결됨」 판단(설계 I2 · 최종 리뷰 I-3)
         self._queue = queue.Queue()   # (cmd, force) — GUI 스레드 비블로킹용
 
         if not self._enabled:
@@ -126,6 +127,7 @@ class InterlockController:
                 time.sleep(getattr(config, "INTERLOCK_BOOT_WAIT_SEC", 2.0))
                 self._ser.reset_input_buffer()
                 self._log(f"[인터락] 연결됨 — {self._port} @ {self._baud}")
+                self._verified = False    # 새 핸들 — 첫 ACK 전까지는 확인 안 됨
                 return True
             except Exception as e:  # SerialException 외 권한/장치없음 모두 흡수
                 self._ser = None
@@ -156,12 +158,12 @@ class InterlockController:
         """
         max_tries = getattr(config, "CONNECT_MAX_TRIES", 5)
         while not self._closing:
-            if self._ser is not None and not self.connected:
+            if self._ser is not None and not self._link_ok():
                 # 🔴 열려 있다고 믿는 핸들의 장치가 사라졌다(뽑힘) — 버리고 다시 찾는다(I2)
                 with self._lock:
                     self._drop()
                 self._log("[인터락] 장치가 사라졌다(뽑힘) — 다시 찾는다")
-            if self.connected:
+            if self._link_ok():
                 self._fail_count = 0
                 self._give_up = False
             elif self._give_up:
@@ -206,6 +208,13 @@ class InterlockController:
            오른쪽 아래 「인터락 연결」만 빨갛게 떠 있었다. 시연 영상에 그대로
            찍힐 뻔했다.
         """
+        # 🔴 열려 있기만 해서는 안 된다 — 마지막 명령에 **ACK 가 왔어야** 연결이다(설계 I2 「쓰기·ACK
+        #    결과로」 · 최종 리뷰 I-3). 응답하지 않는 엉뚱한 장치에 붙어도 녹색이 되고, 차단 배너에
+        #    「화면에서만」이 안 뜨던 것.
+        return self._link_ok() and self._verified
+
+    def _link_ok(self):
+        """핸들이 열려 있고 장치 노드가 있는가 — 재연결 루프가 쓰는 링크 판단(ACK 와 무관)."""
         ser = self._ser
         if ser is None or not getattr(ser, "is_open", False):
             return False
@@ -275,15 +284,18 @@ class InterlockController:
                 except Exception:
                     ack = ""
                 if ack == "ACK":
+                    self._verified = True
                     tag = f" (재시도 {i}회 후)" if i else ""
                     self._log(f"[인터락] → {cmd} (ACK){tag}")
                     return
                 if cmd != "BLOCK":
+                    self._verified = False
                     self._log(f"[인터락] → {cmd} (ACK 없음: '{ack}')")
                     return
                 self._log(f"[인터락] → BLOCK ACK 없음('{ack}') — 재시도 {i + 1}/{attempts - 1}"
                           if i < attempts - 1 else
                           f"[인터락] → BLOCK ACK 없음('{ack}')")
+            self._verified = False
             self._fault(f"BLOCK ACK {attempts}회 미수신 — 릴레이 차단 미확인, 배선·Arduino 점검")
 
     def _fault(self, msg):
@@ -303,6 +315,7 @@ class InterlockController:
         except Exception:
             pass
         self._ser = None
+        self._verified = False
 
     # ---------------------------------------------------------- FSM 콜백 연결
     def set_interlock(self, engaged):

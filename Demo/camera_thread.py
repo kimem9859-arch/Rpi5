@@ -534,11 +534,11 @@ class CameraThread(QThread):
                 self._tracks = _update_tracks(self._tracks, dets)
                 tracks = self._tracks
 
-        # 손 검출 → 검지 끝. 🔴 버튼 박스를 **그리기 전** 프레임으로 한다(R3) — 그린 뒤에 하면
-        #    화면 표시·촬영 여부가 손 모델 입력을 바꿨다(함수목록 §4.1-1). 랜드마크는
-        #    hand_tracker 가 추론 뒤 frame 에 직접 그린다(그 위에 박스가 그려진다).
-        # 🔴 draw_on=None 이어도 검출은 그대로 한다 — 반환값(손끝)은 ROI 판정에 쓴다.
-        fingertip = self._hand.detect(frame, draw_on=frame if draw_overlay else None)
+        # 🔴 손 모델에는 버튼 박스가 **없는** 그림을 넣는다(R3) — 박스를 그린 뒤의 프레임을 넣으면
+        #    화면 표시·촬영 여부가 손 모델 입력을 바꿨다(함수목록 §4.1-1). 그리기는 종전처럼 박스
+        #    **다음에** 랜드마크를 얹으므로(화면 모습 유지 · 최종 리뷰 M-7), 박스를 그릴 때만 박스
+        #    전 사본으로 검출한다.
+        hand_in = frame.copy() if (draw_overlay and DETECTOR_AVAILABLE) else frame
 
         if DETECTOR_AVAILABLE:
             if draw_overlay:
@@ -547,6 +547,10 @@ class CameraThread(QThread):
                 (_detector.class_name(t['cls']), t['score'], *t['box'])
                 for t in tracks if t['confirmed']          # 미확정 트랙은 내보내지 않는다(R2)
             ])
+
+        # 손 검출 → 검지 끝. 랜드마크는 hand_tracker 가 추론 뒤 frame 에 직접 그린다.
+        # 🔴 draw_on=None 이어도 검출은 그대로 한다 — 반환값(손끝)은 ROI 판정에 쓴다.
+        fingertip = self._hand.detect(hand_in, draw_on=frame if draw_overlay else None)
 
         # 🔴 집계 전용이다 — 판정에 쓰지 않는다. roi_signal 은 ROI 라벨만 주므로
         #    「ROI 밖의 손」과 「손 없음」이 구별되지 않는다(설계 §3.6).

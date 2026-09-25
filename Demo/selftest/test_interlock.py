@@ -31,6 +31,7 @@ def check(cond, msg):
 
 class _FakeSerial:
     opened = []
+    ack = True                        # False 면 ACK 를 돌려주지 않는 장치(최종 리뷰 I-3)
 
     def __init__(self, port, baud, timeout=None, write_timeout=None):
         if not str(port).startswith(tempfile.gettempdir()):
@@ -47,7 +48,8 @@ class _FakeSerial:
         if not os.path.exists(self.port):
             raise OSError("device gone")
         self.writes.append(b.decode().strip())
-        self._acks += 1
+        if _FakeSerial.ack:
+            self._acks += 1
 
     def flush(self):
         pass
@@ -152,6 +154,25 @@ def test_i3_resync_sends_latest():
     finally:
         c.close()
         config.INTERLOCK_BOOT_WAIT_SEC = old_wait
+
+def test_i2_no_ack_device_not_green():
+    """I2 — 열리기만 하고 ACK 가 없는 장치는 연결(녹색)로 보지 않는다(설계 I2 「쓰기·ACK 결과로」 · 최종 리뷰 I-3)."""
+    print("\n[I2] 무응답 장치")
+    tmp = tempfile.mkdtemp()
+    dev = os.path.join(tmp, "ttyACM0")
+    open(dev, "w").close()
+    box = {"p": dev}
+    _FakeSerial.ack = False
+    c = _ctl(box)
+    try:
+        ok = _wait(lambda: bool(_FakeSerial.opened) and _FakeSerial.opened[-1].port == dev
+                   and _FakeSerial.opened[-1].writes[:1] == ["RUN"])
+        check(ok, "장치는 열려 동기화 RUN 을 보냈다")
+        time.sleep(0.2)
+        check(not c.connected, "ACK 가 없으면 연결로 보지 않는다(녹색 아님)")
+    finally:
+        c.close()
+        _FakeSerial.ack = True
 
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):

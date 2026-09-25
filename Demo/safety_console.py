@@ -648,6 +648,12 @@ class SafetyConsole(QMainWindow):
                 self._append_log(f"[시연촬영] ⚠️ 1인칭 「{name}」 녹화가 멈췄습니다 — 다른 쪽은 계속합니다")
                 self._notify("danger", "시연 녹화 일부 중단", f"1인칭 {name}")
 
+        # 차단 배너의 「화면에서만」 줄은 인터락 연결을 따라간다 — 차단 중 뽑히면 전기가 끊겼다고
+        # 믿게 두지 않고, 다시 붙어 BLOCK 이 나가면 지운다(최종 리뷰 M-1)
+        if (self.alert.mode == "block"
+                and self.interlock.connected != getattr(self, "_block_banner_linked", None)):
+            self._show_block_banner(emo=self.fsm.emo_active)
+
     def _check_ctx(self, with_frame=True):
         """점검이 보는 대상 묶음. 1·2차·수동이 같은 것을 본다.
 
@@ -1174,10 +1180,16 @@ class SafetyConsole(QMainWindow):
         🔴 인터락이 안 붙어 있으면 전기가 끊기지 않았다 — 둘째 줄에 「화면에서만 차단 중」을
            적어 끊겼다고 믿게 두지 않는다(I1 · 검토 C7).
         """
-        itl_hint = "" if self.interlock.connected else "⚠ 인터락 미연결 — 화면에서만 차단 중"
+        linked = self.interlock.connected
+        self._block_banner_linked = linked          # 연결이 바뀌면 _update_conn_bar 가 다시 그린다
+        itl_hint = "" if linked else "⚠ 인터락 미연결 — 화면에서만 차단 중"
         if emo:
+            # 🔴 「화면에서만」이 붙어도 EMO 복귀 안내(G5)는 남긴다 — 하나로 바꿔 끼우면 해제
+            #    방법이 사라졌다(최종 리뷰 I-1). 문구 길이는 위반 차단 줄과 같게 — 길면 좁은
+            #    창에서 두 줄로 넘쳐 차단 박스만 커진다(세 박스 같은 크기 · 사용자 결정 ②).
             self.alert.show_block("비상정지로 차단됐습니다",
-                                  itl_hint or "— EMO 를 복귀한 뒤 「차단 해제」를 누르세요")
+                                  "⚠ 화면에서만 차단 · EMO 복귀 뒤 해제" if itl_hint
+                                  else "— EMO 를 복귀한 뒤 「차단 해제」를 누르세요")
         else:
             self.alert.show_block(hint=itl_hint)
 

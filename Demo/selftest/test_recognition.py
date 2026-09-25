@@ -177,6 +177,31 @@ def test_r5_reconnect_clears_tracks_and_signals():
     check(th._tracks == [], "옛 트랙이 비워진다")
     check(got == [1], "재연결 신호가 나간다")
 
+class _PaintingHand(_RecordingHand):
+    """손 검출 대역 — 그릴 곳에 손 표시 한 점을 찍는다."""
+
+    def detect(self, frame, draw_on=None):
+        super().detect(frame, draw_on)
+        if draw_on is not None:
+            draw_on[20, 40] = (1, 2, 3)                  # B1 박스 윗변(y=20) 위의 한 점
+        return None
+
+
+def test_r3_landmarks_drawn_over_boxes():
+    """R3 — 화면 모습은 종전 그대로: 손 랜드마크가 버튼 박스 선 **위에** 그려진다(최종 리뷰 M-7)."""
+    print("\n[R3] 그리는 순서")
+    th = ct.CameraThread()
+    th._hand = _PaintingHand()
+    th.set_draw_boxes(True)
+    _FAKE_DET.dets = [(0, 0.9, 20, 20, 60, 60)]
+    img = np.zeros((120, 160, 3), np.uint8)
+    for _ in range(2):                                   # 두 번째 프레임에 B1 확정 → 그림
+        out = th._process_frame(img.copy())
+    px = tuple(int(v) for v in out[20, 40])
+    check(px == (1, 2, 3), f"박스 선 위 한 점 = {px} — 랜드마크가 박스 위에 있어야 한다")
+    check(int(th._hand.seen[-1].max()) == 0, "손 모델 입력에는 여전히 박스 선이 없다")
+    _FAKE_DET.dets = []
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

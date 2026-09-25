@@ -1256,6 +1256,33 @@ def test_minor_emo_during_violation_block():
           f"음성 상태 비상정지 = {pubs[-1].get('비상정지') if pubs else '공개 없음'}")
     win.close()
 
+def test_final_emo_banner_keeps_release_hint():
+    """최종 리뷰 I-1 — 인터락이 없어도 EMO 차단 배너는 「EMO 복귀 뒤 차단 해제」 안내를 잃지 않는다(G5)."""
+    print("\n[리뷰 I-1] EMO 배너 안내")
+    win = make_console()
+    win._on_cta()
+    key(win, "E")
+    line2 = win.alert._line2.text()
+    check("화면에서만" in line2 and "EMO 복귀" in line2, f"EMO 차단 둘째 줄 = {line2!r}")
+    win.close()
+
+
+def test_final_banner_follows_interlock_link():
+    """최종 리뷰 M-1 — 차단 중 인터락 연결이 바뀌면 배너 「화면에서만」 줄도 따라 바뀐다."""
+    print("\n[리뷰 M-1] 차단 중 연결 변화")
+    from interlock import InterlockController
+    win = make_console()
+    win._on_cta()
+    key(win, "3")                                    # 위반 차단 — 인터락 미연결
+    real_cls = win.interlock.__class__
+    win.interlock.__class__ = type("_Linked", (real_cls,), {"connected": property(lambda s: True)})
+    win._update_conn_bar()
+    check("화면에서만" not in win.alert._line2.text(), f"붙으면 지운다 — {win.alert._line2.text()!r}")
+    win.interlock.__class__ = real_cls               # 다시 끊김
+    win._update_conn_bar()
+    check("화면에서만" in win.alert._line2.text(), f"끊기면 다시 알린다 — {win.alert._line2.text()!r}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
