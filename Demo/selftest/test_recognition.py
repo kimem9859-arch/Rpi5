@@ -165,6 +165,18 @@ def test_r3_hand_sees_frame_before_boxes():
     check(int(seen.max()) == 0, f"손 모델 입력에 박스 선이 없다 — 최댓값 {int(seen.max())}")
     _FAKE_DET.dets = []
 
+# ---------------------------------------------------------------- R5 재연결
+def test_r5_reconnect_clears_tracks_and_signals():
+    """R5 — (재)연결되면 끊기기 전 트랙을 버리고 GUI 에 알린다(검토 C4 — 옛 트랙이 남았다)."""
+    print("\n[R5] 재연결")
+    th = _thread()
+    th._tracks = [{'cls': 2, 'box': (1, 1, 5, 5), 'score': 0.9, 'miss': 3, 'hits': 5, 'confirmed': True}]
+    got = []
+    th.stream_reset_signal.connect(lambda: got.append(1))
+    th._on_connected()
+    check(th._tracks == [], "옛 트랙이 비워진다")
+    check(got == [1], "재연결 신호가 나간다")
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

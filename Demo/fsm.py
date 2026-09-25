@@ -286,6 +286,16 @@ class SafetyFSM:
         self.expected_step = 1
         self._goto(State.IDLE)          # 이미 IDLE 이면 아무 일도 하지 않는다
 
+    def forget_observation(self):
+        """카메라 (재)연결 — 끊기기 전 관측을 버린다(R5 · 설계 D9).
+
+        체류·마지막 관측·창을 지운다. 🔴 방금 완료한 버튼 예외(_just_done)는 **유지**한다 —
+        재연결 사이 손가락이 그 버튼 위에 그대로일 수 있다. 상태 전이는 하지 않는다.
+        """
+        self._reset_dwell()
+        self._last_roi = self._last_level = self._last_seen = None
+        self._win.clear()
+
     def release_warning(self):
         """WARNING 해제 버튼 → MONITOR 복귀. (기대단계 유지)"""
         if self.state == State.WARNING:

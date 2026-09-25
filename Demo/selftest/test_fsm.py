@@ -536,6 +536,28 @@ def test_p6_correct_press_during_warning_on_last_step():
     assert fsm.state == State.IDLE
 
 
+def test_r5_forget_observation_after_reconnect():
+    """R5 — 재연결 뒤 첫 프레임이 끊기기 전 체류에 이어 붙지 않는다(검토 C4)."""
+    fsm, _ = make_fsm(threshold=0.3, gap_fill=0.3)
+    run(fsm)
+    fsm.update_vision("B3", now=0.0)
+    fsm.update_vision("B3", now=0.1)
+    fsm.forget_observation()                # 카메라 재연결
+    fsm.update_vision("B3", now=5.0)        # 재연결 뒤 첫 프레임 — 종전엔 5초 체류로 경고
+    assert fsm.state == State.MONITOR
+    assert fsm.last_roi == "B3"
+
+
+def test_r5_forget_keeps_just_done():
+    """R5 — 재연결해도 방금 완료한 버튼 예외는 남는다(손가락이 그대로일 수 있다 · Review Focus 2)."""
+    fsm, _ = make_fsm(threshold=0.3, gap_fill=0.3)
+    run(fsm)
+    fsm.press_button("B1", 0.0)
+    feed(fsm, "B1", 0.0, 0.2)
+    fsm.forget_observation()
+    feed(fsm, "B1", 1.0, 1.6)
+    assert fsm.state == State.MONITOR
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

@@ -158,6 +158,7 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.log_signal.connect(self._append_log)
         self.camera_thread.yolo_detections_signal.connect(self._on_yolo_detections)
         self.camera_thread.roi_signal.connect(self._on_roi)
+        self.camera_thread.stream_reset_signal.connect(self._on_stream_reset)
         self.camera_thread.hand_signal.connect(self._on_hand)
         # 공구 판정(A-2) — ESP32 1인칭 입력.
         self.camera_thread.tool_signal.connect(self._on_tool)
@@ -857,6 +858,11 @@ class SafetyConsole(QMainWindow):
     @pyqtSlot(bool)   # 🔴 시그널(bool)과 반드시 일치해야 한다 — 어긋나면 기동 즉시 TypeError
     def _on_hand(self, seen):
         self._hand_seen = bool(seen)
+
+    def _on_stream_reset(self):
+        """카메라 (재)연결 — 끊기기 전 손 관측을 판정기에서 지운다(R5)."""
+        self.fsm.forget_observation()
+        self._append_log("[카메라] 연결 — 끊기기 전 손 관측을 버렸다")
 
     # =========================================================================
     # [판정부 FSM — 인식 입력 / 상태 출력]  통합문서 §8·§9

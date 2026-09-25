@@ -1184,6 +1184,22 @@ def test_g12_dead_fpv_stream_notifies():
     win._demo, win._demo_on = None, False
     win.close()
 
+def test_r5_stream_reset_clears_fsm_observation():
+    """R5 — 카메라 재연결 신호를 받으면 판정기가 끊기기 전 관측을 지운다."""
+    print("\n[R5] 재연결 → 판정기 관측 지움")
+    win = make_console()
+    win._on_cta()
+    t0 = time.time()
+    win.fsm.update_vision("B3", t0)
+    win.fsm.update_vision("B3", t0 + 0.1)
+    signal = getattr(win.camera_thread, "stream_reset_signal", None)
+    check(signal is not None, "카메라 스레드에 재연결 신호가 있다")
+    if signal is not None:
+        signal.emit()
+    check(win.fsm._dwell_roi is None and win.fsm.last_roi is None,
+          f"체류·관측이 지워진다 — {win.fsm._dwell_roi}·{win.fsm.last_roi}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

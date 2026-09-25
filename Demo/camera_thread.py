@@ -201,6 +201,7 @@ class CameraThread(QThread):
                                                  # fingertip = 그 프레임의 손끝 (x,y) 또는 None
                                                  # 🔴 @pyqtSlot(list, object) 와 짝을 맞출 것
     hand_signal                = pyqtSignal(bool)      # 이 프레임에서 손이 검출됐는가 (집계 전용)
+    stream_reset_signal        = pyqtSignal()          # 카메라 (재)연결 — 끊기기 전 관측을 버리라(R5)
 
     def __init__(self):
         super().__init__()
@@ -240,6 +241,17 @@ class CameraThread(QThread):
         self._tool_last = 0.0
         self._tool_dets = []          # 마지막 검출 결과 — 화면 표시용
         self._tool_dets_at = 0.0      # 그 결과가 온 시각(오래되면 지운다)
+
+    def _on_connected(self):
+        """(재)연결 직후 — 끊기기 전 트랙을 버리고 GUI 에 알린다(R5 · 설계 D9).
+
+        🔴 옛 트랙(miss ≤ YOLO_MAX_MISS)과 판정기 관측이 남으면, 재연결 뒤 첫 프레임이
+           끊기기 전 체류에 이어 붙어 곧바로 경고가 났다(검토 C4). 시간 간격으로 추측하지
+           않고(P4 보류 — 녹화의 짧은 끊김에도 반응했다) 연결 사건으로 지운다.
+        """
+        with self._lock:
+            self._tracks = []
+        self.stream_reset_signal.emit()
 
     def set_tool_scan(self, on):
         """공구 추론을 켜고 끈다 — `wait_tool` 서브 작업 동안에만 켠다.
@@ -424,6 +436,7 @@ class CameraThread(QThread):
                 continue
 
             self._fail_count = 0          # 붙었으면 카운터를 되돌린다
+            self._on_connected()
 
             self._recv_error = False
             self._raw_event.clear()
