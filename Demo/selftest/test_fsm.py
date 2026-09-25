@@ -568,6 +568,15 @@ def test_v2_emo_active_property():
     fsm.release_block()
     assert fsm.emo_active is False
 
+def test_reset_clears_just_done():
+    """가드(전후 통과) — 사소 3(① 리뷰 7): 작업 초기화는 방금 완료한 버튼 예외도 지운다(시험이 없었다)."""
+    fsm, _ = make_fsm()
+    run(fsm)
+    fsm.press_button("B1")
+    assert fsm._just_done == "B1"
+    fsm.reset()
+    assert fsm._just_done is None
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

@@ -1226,6 +1226,36 @@ def test_v2_emo_published_to_voice():
           f"비상정지 = {pubs[-1].get('비상정지') if pubs else '공개 없음'}")
     win.close()
 
+def test_minor_reset_during_warning_no_resume_log():
+    """사소 1(② 리뷰 4) — 경고로 멈춘 서브가 있을 때 작업 초기화하면 「이어서」가 찍히지 않는다."""
+    print("\n[사소 1] 경고 중 작업 초기화")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")                                    # B1 → 서브 시작
+    dwell_warning(win, "B3")                         # 경고 → 서브 일시정지
+    n0 = len(win.log_browser.toPlainText().splitlines())
+    win._reset_work()
+    tail = win.log_browser.toPlainText().splitlines()[n0:]
+    bad = [ln for ln in tail if "이어서 — 경고 해제" in ln]
+    check(not bad, f"초기화 뒤 「이어서」 로그 {len(bad)}줄")
+    check(win.fsm.state == State.IDLE and win._sub is None, "초기화는 그대로 된다")
+    win.close()
+
+
+def test_minor_emo_during_violation_block():
+    """사소 2(② 리뷰 5) — 위반 차단 중 EMO 를 누르면 배너·음성 상태가 「비상정지」로 바뀐다(G5·V2)."""
+    print("\n[사소 2] 위반 차단 중 EMO")
+    win = make_console()
+    pubs = []
+    win._state_pub.publish = pubs.append
+    win._on_cta()
+    key(win, "3")                                    # 오답 → 위반 BLOCK
+    key(win, "E")                                    # 차단 중 EMO
+    check("비상정지" in win.alert._line1.text(), f"배너 = '{win.alert._line1.text()}'")
+    check(bool(pubs) and pubs[-1].get("비상정지") is True,
+          f"음성 상태 비상정지 = {pubs[-1].get('비상정지') if pubs else '공개 없음'}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

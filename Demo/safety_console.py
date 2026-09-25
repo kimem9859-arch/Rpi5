@@ -1029,7 +1029,14 @@ class SafetyConsole(QMainWindow):
     def _commit_button(self, button):
         """FSM 에 실제로 눌림을 전달한다."""
         before = self.fsm.expected_step
+        was_block = self.fsm.state == State.BLOCK
         self.fsm.press_button(button, time.time())
+        if was_block and self.fsm.state == State.BLOCK and button == self._emo_button():
+            # 🔴 위반 차단 중 EMO — 판정기가 이미 BLOCK 이라 상태가 바뀌지 않아 _on_fsm_state 가
+            #    불리지 않는다. 그대로 두면 배너가 「순서 위반」 문구로 남고 음성비서도 위반
+            #    차단이라고 말한다(② 리뷰 5 · G5·V2).
+            self._show_block_banner(emo=True)
+            self._publish_state()
         if self.fsm.expected_step != before and self.fsm.state != State.IDLE:
             self._stats.step_done(before, button, self._step_name(before))
             self._append_log(f"[FSM] 단계 진행 → {self.fsm.expected_step}단계: "
@@ -1414,7 +1421,9 @@ class SafetyConsole(QMainWindow):
                 sub.pause()
                 self._append_log(f"[서브] {sub.label} 일시정지 — 경고 중")
                 self.gauge_panel.update_view(sub)
-            elif old == State.WARNING and sub.paused:
+            elif old == State.WARNING and sub.paused and new != State.IDLE:
+                # IDLE(작업 초기화·EMO 해제)은 아래 IDLE 분기가 서브를 정리한다 — 여기서 이으면
+                # 곧 버려질 작업에 「이어서」가 찍혔다(② 리뷰 4)
                 sub.resume()
                 self._append_log(f"[서브] {sub.label} 이어서 — 경고 해제")
                 self.gauge_panel.update_view(sub)

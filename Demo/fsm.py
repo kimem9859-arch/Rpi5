@@ -8,7 +8,7 @@
 핵심 불변식(§6·§9): 기대단계 N에 대해 정답 ROI = f"B{N}", 그 외 공정 버튼은
 오답. **오답은 단계를 절대 진전시키지 않는다.** 위반으로 BLOCK된 뒤 해제해도
 기대단계는 유지되며, EMO 해제는 「작업 시작」 전 대기(IDLE · 기대단계 1)로 돌아간다
-(2026-09-25 규칙 변경 — 설계 docs/superpowers/specs/2026-09-25-런타임-문제수정-design.md D4).
+(2026-09-25 규칙 변경 — 설계 상위 docs/superpowers/specs/2026-09-25-런타임-문제수정-design.md D4).
 """
 
 import collections
@@ -134,7 +134,13 @@ class SafetyFSM:
 
     # ------------------------------------------------------ 정비 시퀀스 (§9.3 1~2)
     def load_recipe(self):
-        """IDLE → READY → PROCESS RUN. 레시피(공정 매뉴얼) 로드 완료."""
+        """IDLE → READY → PROCESS RUN. 레시피(공정 매뉴얼) 로드 완료.
+
+        🔑 방금 완료한 버튼 예외(_just_done)는 여기서 지우지 않는다 — 마지막 단계를 누른 손이
+           그 버튼 위에 남은 채 새 작업이 시작되면, 손이 한 번 떠날 때까지 그 버튼 체류는
+           경고하지 않는다(P2 「손이 떠날 때까지」와 같은 규칙 · ① 리뷰 7). 작업 초기화
+           (reset)는 지운다.
+        """
         if self.state == State.IDLE:
             self._goto(State.READY)
             self._goto(State.PROCESS_RUN)
