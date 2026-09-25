@@ -39,7 +39,7 @@
   - **해상도는 런타임이 첫 프레임으로 맞춘다** — 보정 파일 선택과 픽셀 설정(링 = `HAND_ROI_RING_PX_VGA` 25 × `frame_orient.px_scale` → XGA 40px)이 첫 프레임 크기를 따른다. 펌웨어만 VGA↔XGA 로 바꿔 구우면 된다. 로그 `[캘리브레이션] <파일> 로드 (<w>×<h>) · 링 <n>px` 로 확인.
   - ⚠️ **검출 정확도 영향 미측정** — `detector.py` 는 프레임을 정사각 640×640 으로 **늘려서** 넣는다. 종전 4:3(세로 1.33배 늘림) → 회전 후 3:4(**가로** 1.33배 늘림)로 바뀌어 배포 모델이 보는 그림이 달라진다. 콘솔을 화면에 넣고 재측정할 것.
 - USB 웹캠(`UsbCameraThread`·CCTV 전환·시연/촬영/음성 녹화의 3인칭·`bench_detector --source usb`)은 **제거됐다** — 백업 태그 `backup/webcam-before-removal-20260923`(꺼낼 때 `git checkout <태그> -- <파일>`).
-- `_update_tracks()` — IoU 간이 트래킹, `YOLO_MAX_MISS` 초과 제거(**가림 대응**). YOLO `try/except` 선택 로드.
+- `_update_tracks()` — IoU 간이 트래킹, `YOLO_MAX_MISS` 초과 제거(**가림 대응**) · 새 트랙은 **`YOLO_CONFIRM_HITS`(2) 프레임 연속** 봐야 확정(판정·표시·검출 목록은 확정 트랙만) · 같은 클래스는 **지금 보임 → 오래됨 → 점수** 순으로 하나. 🔴 트랙을 손으로 만들어 판정 함수에 넘기면 `confirmed` 키가 있어야 한다(`selftest/test_hoi_sim.py`). YOLO `try/except` 선택 로드.
 - **`hand_tracker.py`** — **MediaPipe 프레임워크는 안 쓴다**(Python 3.13/aarch64 휠 없음). 같은 **모델**(BlazePalm·BlazeHandLandmark)을 Hailo `.hef`로 돌린다. `detect(frame)` → 검지끝 좌표. 장치는 `hailo_device`의 **공유 VDevice**(여기서 VDevice를 만들면 버튼 모델과 충돌). ⚠️ 모델·소스가 없거나 `HAND_ENABLED=False`면 **조용히 비활성**되고 `detect()`가 None → 손 검출이 없던 종전과 동일 동작. 🔴 모델·blaze 소스가 **repo 밖**(`~/lab/hoi/`)이라 클론·sop-pi-2에선 자동 비활성(vendoring 미결).
 - 🔴 **`safety_console`이 `camera_thread`에서 import하는 이름이 사라지면 GUI가 통째로 죽는다** — 실제로 발생(2026-07-22, `MEDIAPIPE_AVAILABLE`). 방어 = **`Demo/selftest/test_imports.py`**(GUI 진입점 import + AST로 import 이름 실재 대조). `camera_thread`의 최상위 이름을 바꾸면 **이 테스트를 반드시 돌릴 것**.
 
