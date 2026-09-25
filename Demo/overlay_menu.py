@@ -392,7 +392,7 @@ class SettingsPanel(_Sheet):
         head.addWidget(self._make_close_button())
         lay.addLayout(head)
 
-        self._tool_caption = QLabel("4단계 지정 공구")
+        self._tool_caption = QLabel("지정 공구")      # 단계 번호는 set_tools 가 레시피에서 붙인다(G6)
         self._tool_caption.setFont(config.font("small", 700))
         lay.addWidget(self._tool_caption)
 
@@ -458,9 +458,13 @@ class SettingsPanel(_Sheet):
 
         lay.addStretch()
 
-    def set_tools(self, tools, current_tool, tool_names=None):
-        """레시피가 준 선택지로 라디오를 만든다 — 목록을 코드에 박지 않는다."""
+    def set_tools(self, tools, current_tool, tool_names=None, step_order=None):
+        """레시피가 준 선택지로 라디오를 만든다 — 목록을 코드에 박지 않는다.
+
+        step_order = 공구를 쓰는 단계 번호 — 제목에 쓴다(G6 · 종전엔 「4단계」가 박혀 있었다).
+        """
         names = tool_names or {}
+        self._tool_caption.setText(f"{step_order}단계 지정 공구" if step_order else "지정 공구")
         for b in list(self._tool_buttons.values()):
             self._tool_group.removeButton(b)
             b.setParent(None)

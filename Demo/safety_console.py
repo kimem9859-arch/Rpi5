@@ -754,7 +754,8 @@ class SafetyConsole(QMainWindow):
             sub = s.get("sub") or {}
             if sub.get("type") == "wait_tool":
                 self.settings_panel.set_tools(
-                    sub.get("tools", []), sub.get("tool"), sub.get("tool_names"))
+                    sub.get("tools", []), sub.get("tool"), sub.get("tool_names"),
+                    step_order=s.get("order"))
                 return
 
     def _on_tool_changed(self, tool_key):
@@ -1066,7 +1067,9 @@ class SafetyConsole(QMainWindow):
             sub = None
             for s in steps:
                 if s.get("order") == cur and s.get("sub"):
-                    spec = s["sub"]
+                    # 🔴 설정에서 바꾼 지정 공구를 반영한다 — 판정(_sub_spec_for)과 같은 값이어야
+                    #    음성 안내가 실제 판정 공구와 맞다(G7).
+                    spec = self._sub_spec_for(s.get("button")) or s["sub"]
                     tool = spec.get("tool")
                     sub = {"label": spec.get("label", ""), "sec": spec.get("sec"),
                            "tool": tool,

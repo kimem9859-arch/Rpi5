@@ -1128,6 +1128,21 @@ def test_g9_sim_tool_key_survives_next_scan():
     check(win._sub is not None and win._sub.tool_ok, "t 로 쥔 처리가 유지된다")
     win.close()
 
+def test_g6_g7_tool_settings_follow_recipe():
+    """G6 — 설정 창 제목 = 레시피 공구 단계 · G7 — 음성비서 상태에 바꾼 공구가 실린다."""
+    print("\n[G6·G7] 공구 설정")
+    win = make_console()
+    check(win.settings_panel._tool_caption.text() == "2단계 지정 공구",
+          f"설정 창 제목 '{win.settings_panel._tool_caption.text()}'")
+    pubs = []
+    win._state_pub.publish = pubs.append
+    win._tool_override = "driver"
+    win._on_cta()
+    key(win, "1"); finish_sub(win)                   # 2단계로
+    sub = pubs[-1]["서브작업"]
+    check(sub["tool"] == "driver", f"공개된 공구 = {sub['tool']}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

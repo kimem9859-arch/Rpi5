@@ -491,6 +491,13 @@ def test_settings_radios_uniform():
     check(all("spacing" in q for q in qss), "동그라미-글자 간격이 명시돼 있다")
 
 
+def test_settings_tool_caption_from_step():
+    """G6 — 지정 공구 제목이 레시피의 공구 단계 번호를 따른다."""
+    print("\n[G6] 지정 공구 제목")
+    p = SettingsPanel()
+    p.set_tools(["a", "b"], "a", None, step_order=2)
+    check(p._tool_caption.text() == "2단계 지정 공구", f"'{p._tool_caption.text()}'")
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
