@@ -666,6 +666,29 @@ def test_final_gauge_hide_after_tween_finished():
     finally:
         config.UI_ANIMATION = False
 
+def test_review_i2_u15_overlapping_tweens_stay_empty():
+    """종합 리뷰 중요 2 — 기본 설정(애니메이션 켬)에서 진행률이 보간 시간보다 빨리 바뀌어 보간이 겹쳐도,
+    숨긴 뒤 진행률이 0 으로 남는다. 새 보간이 앞 보간을 멈추지 않아 앞 것이 숨긴 뒤에도 돌며
+    진행률을 거의 가득 찬 값으로 되돌렸다(B-I2 재현 · U15 가 애니메이션 끈 조건에서만 확인됐다)."""
+    print("\n[종합 2] 겹친 보간 뒤 숨김")
+    from PyQt6.QtTest import QTest
+    config.UI_ANIMATION = True
+    try:
+        host = QWidget()
+        g = GaugePanel(host)
+        s = SubTask(WAIT, now=0.0)
+        for i in range(1, 10):                            # 진행률 0.1 … 0.9 — 보간(200ms)이 끝나기 전에 다음 값
+            if i > 1:
+                QTest.qWait(100)
+            s.tick(now=i * 3.0)
+            g.update_view(s)
+        g.update_view(None)                               # 🔑 마지막 갱신 직후 서브 종료 — 앞 보간이 아직 살아 있다
+        QTest.qWait(400)                                  # 남은 보간이 있다면 돌 시간
+        check(g._shown_progress == 0.0, f"숨긴 뒤 진행률 0 — 실제 {g._shown_progress:.3f}")
+        check(g._fill.width() == 0, f"채움 폭 0 — 실제 {g._fill.width()}")
+    finally:
+        config.UI_ANIMATION = False
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

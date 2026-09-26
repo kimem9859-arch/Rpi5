@@ -327,12 +327,7 @@ class GaugePanel(_Panel):
             self._stop_pulse()
             # 🔴 진행률도 비운다(리뷰 U15) — 남기면 다음 서브 게이지가 가득 찬 채 시작해 0으로
             #    줄어드는 보간이 번쩍였다.
-            # 🔴 끝난 보간은 스스로 지워진다(anim.tween = DeleteWhenStopped) — 지워진 뒤 stop() 을 부르면
-            #    RuntimeError 가 나고, 슬롯 안이면 PyQt 가 앱을 통째로 끝냈다(최종 리뷰 Critical 1 — 경고로
-            #    멈춘 서브를 차단으로 취소할 때 · 시간이 먼저 찬 공구 단계). 살아 있을 때만 멈춘다.
-            if self._gauge_anim is not None and not sip.isdeleted(self._gauge_anim):
-                self._gauge_anim.stop()
-            self._gauge_anim = None
+            self._stop_gauge_anim()
             self._shown_progress = self._target_progress = 0.0
             self._fill.setGeometry(0, 0, 0, 8)
             self.hide()
@@ -363,6 +358,9 @@ class GaugePanel(_Panel):
                 self._fill.setGeometry(
                     0, 0, int(self._track.width() * self._shown_progress), 8)
 
+            # 🔴 앞 보간을 멈추고 새로 건다 — _sub_timer 200ms = D_GAUGE 200ms 라 겹친다. 두면 숨길 때
+            #    마지막 것만 멈춰, 앞 것이 숨긴 뒤에도 돌며 진행률을 되살렸다(종합 리뷰 중요 2 · U15).
+            self._stop_gauge_anim()
             self._gauge_anim = anim.tween(self, anim.D_GAUGE, _step,
                                           curve=QEasingCurve.Type.Linear)
         else:
@@ -425,6 +423,17 @@ class GaugePanel(_Panel):
         # 🔴 호출부는 update_view() **뒤에** relayout 한다 — 판이 붙으면 높이가
         #    늘어나므로 순서가 반대면 판이 글자를 자른다(설계 §6.2).
         self.show()
+
+    def _stop_gauge_anim(self):
+        """채움 보간을 멈춘다.
+
+        🔴 끝난 보간은 스스로 지워진다(anim.tween = DeleteWhenStopped) — 지워진 뒤 stop() 을 부르면
+           RuntimeError 가 나고, 슬롯 안이면 PyQt 가 앱을 통째로 끝냈다(최종 리뷰 Critical 1 — 경고로
+           멈춘 서브를 차단으로 취소할 때 · 시간이 먼저 찬 공구 단계). 살아 있을 때만 멈춘다.
+        """
+        if self._gauge_anim is not None and not sip.isdeleted(self._gauge_anim):
+            self._gauge_anim.stop()
+        self._gauge_anim = None
 
     def _stop_pulse(self):
         """🔴 서브 작업이 끝나는 **모든 경로**에서 부른다 — 안 멈추면 CPU 를 먹는다."""
