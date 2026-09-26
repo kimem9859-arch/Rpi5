@@ -1387,6 +1387,34 @@ def test_final_minor_emo_repeat_notifies_once():
     check(notify_titles(win).count("비상정지") == n, "이미 EMO 차단이면 알림이 더 쌓이지 않는다")
     win.close()
 
+def test_review_i1_emo_during_reset_confirm_is_refused():
+    """종합 리뷰 중요 1 — 작업 초기화 확인창이 떠 있는 동안 EMO 가 눌리면 「예」를 눌러도 거부한다.
+    검사가 확인창 앞에만 있어, 모달 루프가 처리한 EMO 를 「예」 한 번이 풀어 인터락이 풀렸다(A-I1·B-I1 재현)."""
+    print("\n[종합 1] 초기화 확인창 중 EMO")
+    import safety_console
+    from PyQt6.QtWidgets import QMessageBox
+    win = make_console()
+    win._on_cta()
+    key(win, "1")
+    pressed = [False]
+    win.gpio_input.emo_active = lambda: pressed[0]   # 실제 버튼 레벨 흉내(GPIO 는 꺼 두었다)
+
+    def _question(*_a, **_k):                        # 확인창이 떠 있는 동안 EMO 가 눌리고 「예」
+        pressed[0] = True
+        win.gpio_button_signal.emit(win._emo_button())
+        return QMessageBox.StandardButton.Yes
+
+    old = safety_console.QMessageBox.question
+    safety_console.QMessageBox.question = _question
+    try:
+        win._on_reset_clicked()
+    finally:
+        safety_console.QMessageBox.question = old
+    check(win.fsm.state == State.BLOCK, f"차단 유지 — 인터락이 풀리지 않는다 (실제 {win.fsm.state.value})")
+    check(win.fsm.emo_active, "EMO 차단 그대로")
+    check("reset_refused" in win._popups, "「초기화 거부」 창")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

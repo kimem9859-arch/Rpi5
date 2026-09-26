@@ -1335,11 +1335,7 @@ class SafetyConsole(QMainWindow):
            on_interlock(False) 를 부른다) 무방비 상태가 된다.
         ⚠️ 녹화·로그·카메라·설정은 건드리지 않는다 — 되돌리는 것은 **작업 상태**뿐이다.
         """
-        if self.gpio_input.emo_active():
-            self._append_log("[FSM] 🚫 작업 초기화 거부 — EMO 미복귀(눌림/단선)")
-            self._popup("reset_refused", QMessageBox.Icon.Warning, "초기화 거부",
-                        "EMO가 아직 복귀되지 않았습니다.\n"
-                        "비상정지 버튼을 돌려 복귀(또는 EMO 배선 점검) 후 다시 시도하세요.")
+        if self._refuse_reset_if_emo():
             return
 
         # 진행 중이던 작업이 사라지는 비가역 동작 — 한 번 더 확인한다.
@@ -1355,8 +1351,23 @@ class SafetyConsole(QMainWindow):
         if reply != QMessageBox.StandardButton.Yes:
             self._append_log("[FSM] 작업 초기화 취소됨")
             return
+        # 🔴 확인창이 떠 있는 동안 EMO 가 눌렸을 수 있다 — 모달 루프도 GPIO 신호를 처리해
+        #    판정기는 이미 차단인데, 여기서 다시 보지 않으면 「예」 한 번이 EMO 를 누른 채
+        #    인터락을 풀었다(종합 리뷰 중요 1 · A-I1·B-I1 재현).
+        if self._refuse_reset_if_emo():
+            return
 
         self._reset_work()
+
+    def _refuse_reset_if_emo(self):
+        """EMO 가 물리적으로 복귀되지 않았으면 초기화를 거부하고 True."""
+        if not self.gpio_input.emo_active():
+            return False
+        self._append_log("[FSM] 🚫 작업 초기화 거부 — EMO 미복귀(눌림/단선)")
+        self._popup("reset_refused", QMessageBox.Icon.Warning, "초기화 거부",
+                    "EMO가 아직 복귀되지 않았습니다.\n"
+                    "비상정지 버튼을 돌려 복귀(또는 EMO 배선 점검) 후 다시 시도하세요.")
+        return True
 
     def _reset_work(self):
         """실제 되돌리기. 확인창 없이 부르는 경로가 생길 수 있어 따로 둔다."""
