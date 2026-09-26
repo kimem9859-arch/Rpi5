@@ -51,10 +51,10 @@ cat docs/TESTING_FSM.md        # 이 문서
 ## 3. 빠른 검증 — 하드웨어·카메라 없이 (약 1분)
 ```bash
 cd Demo
-../.venv/bin/python selftest/test_fsm.py     # FSM 전이 14종 → "14/14 passed"
-../.venv/bin/python selftest/test_recipe.py  # 레시피 5종    → "5/5 passed"
+../.venv/bin/python selftest/test_fsm.py     # FSM 전이 → "39/39 passed"
+../.venv/bin/python selftest/test_recipe.py  # 레시피      → "15/15 passed"
 ../.venv/bin/python selftest/test_hoi_sim.py # 인식→판정 4종 → "4/4 passed"
-../.venv/bin/python selftest/test_imports.py # 시연 경로 2종 → "2/2 passed"
+../.venv/bin/python selftest/test_imports.py # 시연 경로   → "3/3 passed"
 ../.venv/bin/python recipe.py                # 레시피 내용 출력 확인
 ```
 이 4개는 PyQt6/카메라 없이도 돈다(`test_hoi_sim`은 무거운 라이브러리를 스텁으로 막음).
@@ -84,14 +84,15 @@ python main.py
 4. 위반/차단 시 **"WARNING 해제" / "BLOCK 해제"** 버튼으로 복구
 
 ### 시연 시나리오
-- **정상 진행**: (1단계) 키 `1` → 2단계 → 키 `2` → … → 키 `4` → 공정 완료(IDLE)
-- **순서 위반(체류)**: 1단계에서 손을 B3 위에 **1초 이상** 체류 → `WARNING`(현재행 주황 ⚠)
+- **정상 진행**: (1단계) 키 `1` → 2단계 → 키 `2` → … → 키 `4` → 공정 완료(IDLE) — B1~B3 은 서브 작업(대기·공구)이 끝나야 다음 단계로 넘어간다(`T` = 요구 공구를 쥔 것으로 처리)
+- **순서 위반(체류)**: 1단계에서 손을 B3 위에 체류 임계(`config.FSM_DWELL_THRESHOLD_SEC` · 운용 0.3초) 넘게 머묾 → `WARNING`(현재행 주황 ⚠)
+- **경고 중 정답 버튼**: `WARNING` 에서 정답 키 → 경고 해제 + 평소 누른 것과 같게(서브 작업이 있으면 잇거나 시작 · 없으면 단계 완료 — 상위 §7.3-6·§8.2)
 - **순서 위반(강행)**: 위반 ROI에서 키 `3`(오답 버튼) → 즉시 `BLOCK`(빨강 ⛔, 인터록 ON 로그)
 - **비상정지**: 키 `E` → 즉시 BLOCK → "BLOCK 해제" → **「작업 시작」 전 대기(IDLE)** — 「작업 시작」을 다시 눌러야 1단계부터 시작한다
 - **위반 BLOCK 해제**: 오답 강행 BLOCK은 해제해도 **기대단계 유지**(EMO와 다름)
 
 ## 7. 알려진 한계 / 디버깅 포인트
-- **카메라 미연결**: ESP32(초소형카메라) 안 붙으면 프레임 0 → 비전 전이 없음. 상단 **CCTV**로 USB 웹캠 전환 가능.
+- **카메라 미연결**: ESP32(초소형카메라) 안 붙으면 프레임 0 → 비전 전이 없음. USB 웹캠(CCTV) 전환은 2026-09-23 제거됐다 — 키보드로 흐름만 확인한다.
 - **MediaPipe 없음**: 손끝 미검출 → ROI 항상 빈값 → 비전으로 MONITOR 진입 불가(키보드는 됨).
 - **FPV 깜빡임**: 손/박스가 프레임마다 들락거리면 체류 타이머가 리셋돼 WARNING이 안 뜰 수 있음(디바운스 미적용 — 실측 후 튜닝 대상).
 - **키 입력 안 먹음**: 메인창에 포커스가 있어야 함(버튼/로그 클릭 후엔 창을 한번 클릭).

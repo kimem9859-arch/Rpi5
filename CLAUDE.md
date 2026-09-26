@@ -2,7 +2,7 @@
 
 > SOP 가디언의 **라즈베리파이 런타임 코드** (PECVD 정비 SOP 순서위반 감시·차단).
 > 작업 브랜치 = **`main`** (2026-08-13 단일화 — `feature/*` 병합·삭제. `test-artifacts`만 측정
-> 원자료 보관용으로 남김). **설계 정본은 상위 sop-project `docs/통합수행설계문서…`**
+> 원자료 보관용으로 남김). **설계 정본은 상위 sop-project `docs/통합문서.md`**
 > (엄브렐러 클론 시 `../docs/…`). 사양은 거기서 읽고, 여기는 런타임 코드 맥락만 둔다.
 > ⚠️ 코드 수정 → **이 repo(Rpi5)** push / 통합문서 수정 → **상위 sop-project** push.
 
@@ -64,7 +64,7 @@
 ESP32-S3(OV3660) ─TCP:8888→ CameraThread
    (_recv_worker → 수직플립 → undistort → **회전CCW90** → detector → hand_tracker(손))
       ├─ change_pixmap_signal → SafetyConsole (화면)
-      └─ 검출 → zone_at_point(roi_zones: 링1/안쪽2 · 링 = VGA 25px × px_scale) → SafetyFSM.update_vision(roi, now, level)
+      └─ 검출 → zone_at_point(roi_zones: 링1/안쪽2 · 링 = VGA 25px × px_scale) → SafetyFSM.update_vision(roi, now = 카메라 수신 시각, level)
          → 체류(§7.4 dwell 0.3·갭메우기 0.3) → 상태전이·on_interlock·피드백
 ```
 
