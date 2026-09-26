@@ -645,6 +645,27 @@ def test_u15_gauge_starts_empty_next_time():
     g.update_view(None)                                   # 서브 종료
     check(g._shown_progress == 0.0 and g._target_progress == 0.0, "숨길 때 진행률을 0으로")
 
+def test_final_gauge_hide_after_tween_finished():
+    """최종 리뷰 Critical 1 — 기본 설정(애니메이션 켬)에서 채움 보간이 끝나 스스로 지워진 뒤 게이지를 숨겨도
+    예외가 나지 않는다(U15 수정이 지워진 보간을 멈추려다 슬롯 안에서 앱을 죽였다)."""
+    print("\n[리뷰 C-1] 끝난 보간 뒤 숨김")
+    from PyQt6.QtTest import QTest
+    config.UI_ANIMATION = True
+    try:
+        host = QWidget()
+        g = GaugePanel(host)
+        s = SubTask(WAIT, now=0.0)
+        s.tick(now=15.0)                                  # 절반 — 채움 보간 시작(끝나면 스스로 지워진다)
+        g.update_view(s)
+        QTest.qWait(400)                                  # 보간이 끝나 지워질 시간
+        try:
+            g.update_view(None)
+            check(g._shown_progress == 0.0, "끝난 보간 뒤에도 숨길 수 있다 — 진행률 0")
+        except RuntimeError as e:
+            check(False, f"끝난 보간을 멈추려다 예외 — {e}")
+    finally:
+        config.UI_ANIMATION = False
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

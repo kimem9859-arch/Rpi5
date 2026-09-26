@@ -1356,6 +1356,24 @@ def test_m9_emo_during_violation_block_notifies():
     check(notify_titles(win).count("비상정지") == n0 + 1, "알림 목록에 「비상정지」가 하나 는다")
     win.close()
 
+def test_final_paused_sub_cancelled_after_wait():
+    """최종 리뷰 Critical 1 — 이벤트 루프가 도는 기본 설정에서, 경고로 멈춘 서브를 잠시 뒤 차단으로 취소해도
+    예외가 나지 않는다(게이지 보간이 끝나 지워진 뒤 숨기다 앱이 죽었다 · 시연 흐름 그대로)."""
+    print("\n[리뷰 C-1] 멈춘 서브 → 대기 → 차단")
+    from PyQt6.QtTest import QTest
+    win = make_console()
+    win._on_cta()
+    key(win, "1")                                    # B1 → 서브 시작
+    QTest.qWait(500)                                 # 서브 틱 → 게이지 채움 보간
+    dwell_warning(win, "B3")                         # 경고 → 서브 일시정지(보간이 더 생기지 않는다)
+    QTest.qWait(500)                                 # 마지막 보간이 끝나 지워질 시간
+    try:
+        key(win, "3")                                # 오답 → 차단 → 서브 취소 → 게이지 숨김
+        check(win.fsm.state == State.BLOCK and win._sub is None, "차단되고 서브는 취소된다")
+    except RuntimeError as e:
+        check(False, f"서브 취소에서 예외 — {e}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

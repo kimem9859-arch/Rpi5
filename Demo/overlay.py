@@ -18,6 +18,7 @@
     → 대비는 **색으로만** 낸다. design §3 의 색 대비가 원래 주된 수단이었다.
 """
 
+from PyQt6 import sip
 from PyQt6.QtCore import Qt, QRect, QEasingCurve, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -326,9 +327,12 @@ class GaugePanel(_Panel):
             self._stop_pulse()
             # 🔴 진행률도 비운다(리뷰 U15) — 남기면 다음 서브 게이지가 가득 찬 채 시작해 0으로
             #    줄어드는 보간이 번쩍였다.
-            if self._gauge_anim is not None:
+            # 🔴 끝난 보간은 스스로 지워진다(anim.tween = DeleteWhenStopped) — 지워진 뒤 stop() 을 부르면
+            #    RuntimeError 가 나고, 슬롯 안이면 PyQt 가 앱을 통째로 끝냈다(최종 리뷰 Critical 1 — 경고로
+            #    멈춘 서브를 차단으로 취소할 때 · 시간이 먼저 찬 공구 단계). 살아 있을 때만 멈춘다.
+            if self._gauge_anim is not None and not sip.isdeleted(self._gauge_anim):
                 self._gauge_anim.stop()
-                self._gauge_anim = None
+            self._gauge_anim = None
             self._shown_progress = self._target_progress = 0.0
             self._fill.setGeometry(0, 0, 0, 8)
             self.hide()
