@@ -574,6 +574,21 @@ def test_alert_box_inner_margin():
               f"{mode} — 제목 칸 높이 {b._title.height()}px ≈ 글자 높이 {fh}px (여백이 번지면 +28px)")
     host.close()
 
+def test_u14_status_rows_follow_theme():
+    """U14 ① — 테마를 바꾸면 공정 단계 행도 새 색으로 다시 칠한다(다음 전이까지 옛 색으로 남던 것)."""
+    print("\n[U14] 공정 단계 행 테마")
+    theme.set_theme("dark")
+    try:
+        host = QWidget()
+        p = StatusPanel(STEPS, host)
+        p.update_view("PROCESS RUN", 2)
+        theme.set_theme("light")
+        p.apply_theme()
+        check(theme.C("current") in p._rows[1].styleSheet(), "현재 단계 행이 화이트 테마 색")
+        check(theme.C("done") in p._rows[0].styleSheet(), "완료 행이 화이트 테마 색")
+    finally:
+        theme.set_theme("dark")
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

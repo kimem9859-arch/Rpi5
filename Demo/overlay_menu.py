@@ -283,6 +283,7 @@ class NotifyPanel(_Sheet):
         lay.addWidget(self._scroll)
 
         self._rows = []
+        self._painted = []                # (라벨, 색 토큰, 굵기, 덧붙인 QSS) — 테마 전환 때 다시 칠한다(U14)
 
     def push(self, kind, title, sub=""):
         """알림 하나 추가. 최신이 맨 아래로 간다."""
@@ -302,14 +303,14 @@ class NotifyPanel(_Sheet):
         # 🔴 padding: 0 을 반드시 명시한다 — 시트의 padding(10px 12px)이 자식에
         #    상속되는데, 아이콘은 폭이 26px 로 고정이라 좌우 24px 에 눌려
         #    **글리프가 아예 안 그려졌다**(2026-08-04 확인).
-        icon.setStyleSheet(theme.text_qss(token, 600) + "padding: 0;")
+        self._paint(icon, token, 600, "padding: 0;")
         icon.setFixedWidth(26)          # 이모지는 종전 기호보다 넓다(20 → 26)
 
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         t = QLabel(title)
         t.setFont(config.font("body", 600))
-        t.setStyleSheet(theme.text_qss("text", 600))
+        self._paint(t, "text", 600)
         t.setWordWrap(True)
 
         # 🔴 아이콘과 제목을 **같은 줄**에 넣는다 — 레이아웃이 세로 중앙을 맞춰 준다.
@@ -328,7 +329,7 @@ class NotifyPanel(_Sheet):
         if sub:
             s = QLabel(sub)
             s.setFont(config.font("small"))
-            s.setStyleSheet(theme.text_qss("label", 500))
+            self._paint(s, "label", 500)
             s.setWordWrap(True)
             # 설명은 아이콘 폭만큼 들여쓴다 — 제목 글자와 왼쪽을 맞춘다.
             s.setContentsMargins(26 + 8, 0, 0, 0)   # 아이콘 폭 + 간격
@@ -338,6 +339,11 @@ class NotifyPanel(_Sheet):
         self._list.addWidget(row)         # addStretch 뒤에 넣어 아래로 쌓인다
         self._rows.append(row)
         self._scroll_to_latest()
+
+    def _paint(self, lbl, token, weight, extra=""):
+        """글자색을 칠하고 기억한다 — 테마가 바뀌면 apply_theme 이 다시 칠한다(리뷰 U14 ②)."""
+        lbl.setStyleSheet(theme.text_qss(token, weight) + extra)
+        self._painted.append((lbl, token, weight, extra))
 
     def _scroll_to_latest(self):
         bar = self._scroll.verticalScrollBar()
@@ -354,6 +360,10 @@ class NotifyPanel(_Sheet):
     def apply_theme(self):
         super().apply_theme()
         self._title.setStyleSheet(theme.text_qss("label", 700))
+        # 🔴 이미 쌓인 알림도 새 색으로 — 다크 글자(#e6e8ea)가 화이트 시트 위에 남아 거의 안
+        #    보였다(리뷰 U14 ②).
+        for lbl, token, weight, extra in self._painted:
+            lbl.setStyleSheet(theme.text_qss(token, weight) + extra)
 
     def relayout(self, parent_rect):
         p = _NOTIFY_POS
@@ -695,6 +705,7 @@ class RecordPanel(_Sheet):
 
     def set_state(self, recording, path="", elapsed=0):
         self._recording = recording
+        self._rec_path, self._rec_elapsed = path, elapsed   # 테마 전환 때 그대로 다시 그린다(U14 ⑤)
         if recording:
             self._state.setText(f"● 녹화 중 — {int(elapsed)}초")
             self._state.setStyleSheet(theme.text_qss("danger", 700))
@@ -723,7 +734,10 @@ class RecordPanel(_Sheet):
         self._btn_stop.setStyleSheet(
             f"QPushButton {{ background-color: {theme.C('danger')};"
             f" color: #ffffff; border: none; border-radius: 8px; padding: 10px 16px; }}")
-        self.set_state(getattr(self, "_recording", False))
+        # 🔴 경로·경과도 넘긴다 — 빠뜨리면 녹화 중 테마를 바꿀 때 파일 이름 줄이 지워지고 경과가
+        #    0초로 돌아갔다(리뷰 U14 ⑤).
+        self.set_state(getattr(self, "_recording", False),
+                       getattr(self, "_rec_path", ""), getattr(self, "_rec_elapsed", 0))
 
     def relayout(self, parent_rect):
         place(self, parent_rect, width=0.30)

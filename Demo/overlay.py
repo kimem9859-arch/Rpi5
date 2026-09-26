@@ -148,6 +148,7 @@ class StatusPanel(_Panel):
         super().__init__(parent)
         self._steps = list(steps)
         self._prev_step = None          # 애니메이션 트리거용 직전 expected_step
+        self._last_view = None          # 마지막 update_view 인자 — 테마 전환 때 다시 그린다(U14)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -176,6 +177,7 @@ class StatusPanel(_Panel):
 
     def update_view(self, state_value, expected_step, sub_running=False):
         """state_value = FSM State.value 문자열. sub_running 이면 현재 단계를 '진행 중'으로."""
+        self._last_view = (state_value, expected_step, sub_running)
         started = state_value != "IDLE"
         if state_value == "WARNING":
             cur_token, mark = "warn", "⚠"
@@ -232,6 +234,16 @@ class StatusPanel(_Panel):
                         b + f"border-left: {max(1, int(_ROW_BAR * float(t)))}px solid {c};"),
                     on_done=lambda r=row, b=base: r.setStyleSheet(b))
         self._prev_step = expected_step
+
+    def apply_theme(self):
+        """판과 함께 **마지막으로 그린 상태를 새 색으로** 다시 그린다(리뷰 U14 ①).
+
+        색은 update_view 가 칠하므로, 판만 다시 칠하면 다음 FSM 전이까지(IDLE 이면 작업 시작
+        전까지) 공정 단계 행이 옛 색으로 남았다. 같은 단계로 다시 그리므로 애니메이션은 없다.
+        """
+        super().apply_theme()
+        if self._last_view is not None:
+            self.update_view(*self._last_view)
 
     def relayout(self, parent_rect):
         p = _POS["status"]

@@ -498,6 +498,38 @@ def test_settings_tool_caption_from_step():
     p.set_tools(["a", "b"], "a", None, step_order=2)
     check(p._tool_caption.text() == "2단계 지정 공구", f"'{p._tool_caption.text()}'")
 
+def test_u14_notify_rows_follow_theme():
+    """U14 ② — 이미 쌓인 알림도 테마를 바꾸면 새 색으로(다크 글자가 흰 바탕에 묻히던 것)."""
+    print("\n[U14] 쌓인 알림 테마")
+    from PyQt6.QtWidgets import QLabel
+    theme.set_theme("dark")
+    try:
+        host = QWidget()
+        n = NotifyPanel(host)
+        n.push("work", "옛 알림", "부가 설명")
+        theme.set_theme("light")
+        n.apply_theme()
+        title = [lb for lb in n._rows[-1].findChildren(QLabel) if lb.text() == "옛 알림"][0]
+        check(theme.C("text") in title.styleSheet(), "제목 글자가 화이트 테마 색")
+    finally:
+        theme.set_theme("dark")
+
+
+def test_u14_record_panel_keeps_file_on_theme():
+    """U14 ⑤ — 녹화 중 테마를 바꿔도 파일 이름·경과가 지워지지 않는다."""
+    print("\n[U14] 녹화 패널 테마")
+    from overlay_menu import RecordPanel
+    try:
+        host = QWidget()
+        p = RecordPanel(host)
+        p.set_state(True, "/tmp/시연_01.mp4", 12)
+        theme.set_theme("light")
+        p.apply_theme()
+        check(p._note.text() == "시연_01.mp4", f"파일 이름 줄 = {p._note.text()!r}")
+        check("12초" in p._state.text(), f"경과 = {p._state.text()!r}")
+    finally:
+        theme.set_theme("dark")
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
