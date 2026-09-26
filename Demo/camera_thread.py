@@ -240,6 +240,7 @@ class CameraThread(QThread):
         self._raw_event    = threading.Event()
         self._recv_error   = False
         self._conn_gen     = 0       # 연결 번호 — 수신 스레드는 자기 연결일 때만 알린다(C19)
+        self._frame_err_at = None    # 마지막 「프레임 처리 오류」 로그 시각 — 5초에 한 번(C12)
 
         # 재연결 제한 — 무한 재시도로 로그가 쌓이는 것을 막는다.
         self._fail_count   = 0
@@ -422,6 +423,13 @@ class CameraThread(QThread):
             if data is None:
                 return
 
+    def _frame_error(self, e):
+        """프레임 처리 오류를 적는다 — 같은 오류가 매 프레임 이어져도 로그는 5초에 한 번(C12)."""
+        now = time.monotonic()
+        if self._frame_err_at is None or now - self._frame_err_at >= 5.0:
+            self._frame_err_at = now
+            self.log_signal.emit(f"[카메라] 프레임 처리 오류 — 그 프레임만 건너뛴다(연결 유지): {e!r}")
+
     # =========================================================================
     # [스레드 메인 루프]
     # =========================================================================
@@ -498,7 +506,14 @@ class CameraThread(QThread):
                     h, w = frame.shape[:2]
                     self._ensure_calibration(w, h)
 
-                    frame = self._process_frame(frame, t_frame)
+                    try:
+                        frame = self._process_frame(frame, t_frame)
+                    except Exception as e:                   # noqa: BLE001
+                        # 🔴 프레임 하나의 처리 오류(Hailo 일시 오류·공구 게이트 경쟁 등)로 연결을 끊지
+                        #    않는다 — 종전에는 아래 「수신 오류」로 가서 소켓을 닫고 3초 뒤 다시 붙어,
+                        #    영상이 끊기고 로그는 네트워크 탓처럼 보였다(검토 C12). 그 프레임만 버린다.
+                        self._frame_error(e)
+                        continue
 
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = rgb.shape

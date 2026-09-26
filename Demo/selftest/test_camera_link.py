@@ -142,6 +142,73 @@ def test_c16_console_passes_frame_time():
         return
     check(calls == [("B2", 77.25, 2)], f"update_vision 인자 = {calls}")
 
+# ---------------------------------------------------------------- C12 프레임 처리 오류
+class _FakeCam:
+    """ESP32 대역 — 붙는 손님마다 작은 JPEG 를 0.05초 간격으로 보낸다(4바이트 길이 + JPEG). 붙은 횟수를 센다."""
+
+    def __init__(self):
+        self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.srv.bind(("127.0.0.1", 0))
+        self.srv.listen(4)
+        self.srv.settimeout(0.2)
+        self.port = self.srv.getsockname()[1]
+        self.conns = 0
+        self._stop = False
+        ok, buf = cv2.imencode(".jpg", np.zeros((48, 64, 3), np.uint8))
+        self._frame = struct.pack("<I", len(buf)) + buf.tobytes()
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        while not self._stop:
+            try:
+                c, _ = self.srv.accept()
+            except OSError:
+                continue
+            self.conns += 1
+            threading.Thread(target=self._send, args=(c,), daemon=True).start()
+
+    def _send(self, c):
+        try:
+            while not self._stop:
+                c.sendall(self._frame)
+                time.sleep(0.05)
+        except OSError:
+            pass
+        finally:
+            c.close()
+
+    def close(self):
+        self._stop = True
+        self.srv.close()
+
+
+def test_c12_frame_error_keeps_connection():
+    """C12 — 프레임 처리 오류로 카메라 연결을 끊지 않는다(검토 C12 — 영상이 3초 넘게 끊기고 로그는 네트워크 탓)."""
+    print("\n[C12] 프레임 처리 오류")
+    cam = _FakeCam()
+    ct.CAMERA_TCP_PORT = cam.port
+    ct.TCP_RECONNECT_DELAY_SEC = 0.1
+    th = ct.CameraThread()
+    th.set_host("127.0.0.1")
+    logs, frames = [], []
+    th.log_signal.connect(logs.append, Qt.ConnectionType.DirectConnection)
+    th.change_pixmap_signal.connect(lambda img: frames.append(1), Qt.ConnectionType.DirectConnection)
+    _FAKE_DET.fail_next = 3                          # 세 프레임 연달아 처리 오류
+    runner = threading.Thread(target=th.run, daemon=True)
+    runner.start()
+    time.sleep(1.0)
+    th._running = False
+    th._raw_event.set()
+    runner.join(timeout=5)
+    cam.close()
+    _FAKE_DET.fail_next = 0
+    errs = [m for m in logs if "프레임 처리 오류" in m]
+    check(cam.conns == 1, "한 번만 붙는다 — 끊고 다시 붙으면 안 된다")
+    check(len(frames) >= 3, "오류 뒤에도 영상이 이어진다")
+    check(len(errs) == 1, "「프레임 처리 오류」 로그가 한 줄 — 이어진 오류는 묶는다")
+    check(not any("수신 오류" in m for m in logs), "「수신 오류」(네트워크 탓)로 적지 않는다")
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
