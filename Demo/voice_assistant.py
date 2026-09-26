@@ -164,10 +164,12 @@ class AudioLog:
 
 
 def open_audio_log(path):
-    """오디오 기록을 열고 **프로그램이 끝날 때 닫도록** 등록한다(V4).
+    """오디오 기록을 열고 **프로그램이 끝날 때 닫도록** 등록한다(V4 — 파일 핸들 정리).
 
-    🔴 닫지 않으면 마이크_전체.wav 의 머리(길이)가 안 써져 파일이 깨질 수 있다. run() 은
-       빠져나가는 길이 여러 개(리허설 종료·Ctrl+C)라 atexit 에 맡긴다.
+    🔑 닫지 않아도 파일은 깨지지 않는다 — 파이썬 `wave` 는 쓸 때마다 머리(길이)를 고쳐 써서,
+       SIGTERM 으로 끝나도 마이크_전체.wav 는 온전하다(③ 리뷰 M-3 · 2026-09-26 Python 3.13 확인).
+    ⚠️ atexit 은 정상 종료·Ctrl+C 에서만 돈다 — `voice/record_voice_demo.py` 는 `terminate()`
+       (SIGTERM)로 끝내므로 그 경로에서는 돌지 않는다(위 이유로 파일은 그래도 온전하다).
     """
     alog = AudioLog(path)
     atexit.register(alog.close)
@@ -289,6 +291,7 @@ class Speaker:
            쌓이지만 「최신 우선」이 정리한다.
         """
         out = []
+        done = False
         end = time.time() + wait
         self.s.settimeout(1.0)
         while time.time() < end:
@@ -307,7 +310,15 @@ class Speaker:
             if t:
                 out.append(t)
                 if "재생 완료" in t or "FAIL" in t:
+                    done = True
                     break
+        if not done:
+            # 🔴 끝 응답 없이 끝났으면 명령 채널을 버린다(③ 리뷰 M-2) — 남겨 두면 한도 뒤에 늦게 온
+            #    「[재생 완료]」가 **다음 재생의 확인으로 곧바로 읽혀** 그 재생 중에 다시 듣고, 이후
+            #    재생 확인이 한 칸씩 밀렸다. 다음 전송이 새로 붙는다(_ensure).
+            log(f"⚠️ 재생 확인이 {wait:.0f}초 안에 끝나지 않았다 — 명령 채널을 다시 붙인다")
+            self.reset()
+            return out
         self.s.settimeout(30)
         return out
 
@@ -364,9 +375,15 @@ class Speaker:
 
     def play(self, key, alog=None):
         path = os.path.join(WAV_DIR, f"{key}.wav")
+        try:
+            body, sec = wav_payload(path)
+        except (OSError, EOFError, wave.Error) as e:
+            # 🔴 그 재생만 실패로 적는다 — 종전에는 try 밖이라 wav 가 없으면(`*.wav` 는 git 밖 —
+            #    새 클론·sop-pi-2) 첫 답변에서 **데몬 전체가 죽었다**(검토 C20).
+            log(f"🔴 재생 파일을 못 읽었다 → {key} · {e}")
+            return False
         if alog:
             alog.played(key, path)
-        body, sec = wav_payload(path)
         resp = self.send(body, expect=True)
         ok = bool(resp) and any("재생 완료" in r for r in resp)
         if ok:

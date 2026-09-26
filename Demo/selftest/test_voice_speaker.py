@@ -75,6 +75,37 @@ def test_v4_audio_log_closed_at_exit():
         if atx:
             atx.register = old
 
+def test_c20_missing_wav_does_not_kill():
+    """C20 — 재생 파일이 없으면 그 재생만 실패 — 음성비서가 죽지 않는다(검토 C20)."""
+    print("\n[C20] wav 없음")
+    spk, b = _speaker_pair()
+    old = va.WAV_DIR
+    va.WAV_DIR = tempfile.mkdtemp()
+    try:
+        ok = spk.play("없는소리")
+        check(ok is False, "그 재생만 실패로 돌려준다")
+    except Exception as e:                           # noqa: BLE001
+        check(False, f"예외로 끝났다 — {type(e).__name__}")
+    finally:
+        va.WAV_DIR = old
+        b.close()
+
+
+def test_m2_timeout_drops_channel():
+    """M-2 — 한도 안에 「재생 완료」가 없으면 명령 채널을 버린다 — 늦은 응답이 다음 재생에 섞이지 않게(③ 리뷰 M-2)."""
+    print("\n[M-2] 재생 확인 한도 초과")
+    spk, b = _speaker_pair()
+    _send_later(b, ["[적재] ok\n"])
+    out = spk._drain(wait=0.5)
+    check(out == ["[적재] ok"], "한도 안에 받은 응답은 돌려준다")
+    check(spk.s is None, "명령 채널을 버린다(다음 전송이 새로 붙는다)")
+    b.close()
+    spk2, b2 = _speaker_pair()
+    _send_later(b2, ["[재생 완료]\n"])
+    spk2._drain(wait=3.0)
+    check(spk2.s is not None, "제때 끝나면 채널을 그대로 쓴다")
+    b2.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
