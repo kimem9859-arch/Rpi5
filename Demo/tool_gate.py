@@ -22,6 +22,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 
 import cv2
 
@@ -59,10 +60,18 @@ class ToolGate:
         self._seq = 0
         self._pending = {}        # seq → 그 요청을 보낼 때의 fingertip
         self._last_seq = 0        # 이미 소비한 응답의 seq
+        # 🔴 GUI 스레드(start·stop)와 카메라 스레드(request·poll)가 함께 만진다 — 상태는 잠금
+        #    안에서만(검토 C13). 없으면 stop() 의 `_pending.clear()` 가 poll() 의 검사와 pop 사이에
+        #    끼어 KeyError·RuntimeError 가 났고, 그 예외가 카메라를 다시 붙게 했다.
+        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------ 수명
     def start(self):
         """워커를 띄운다. 이미 떠 있으면 아무 일도 하지 않는다."""
+        with self._lock:
+            self._start_locked()
+
+    def _start_locked(self):
         if self._proc is not None:
             return
 
@@ -93,24 +102,34 @@ class ToolGate:
             self._log(f"[공구] ⚠️ 비활성 — 워커를 띄우지 못했습니다({e}).")
 
     def stop(self):
-        """워커를 내린다. 서브 작업이 끝나면 반드시 부른다(CPU 를 계속 먹는다)."""
-        if self._proc is None:
+        """워커를 내린다. 서브 작업이 끝나면 반드시 부른다(CPU 를 계속 먹는다).
+
+        🔑 상태는 잠금 안에서 비우고, 종료는 **잠금 밖에서** 기다린다(C13) — 기다리는 동안
+           카메라 스레드의 poll() 을 막지 않는다.
+        """
+        with self._lock:
+            proc, self._proc = self._proc, None
+            self._pending.clear()
+        if proc is None:
             return
         try:
-            self._proc.terminate()
-            self._proc.wait(timeout=2)
+            proc.terminate()
+            proc.wait(timeout=2)
         except Exception:                                    # noqa: BLE001
             try:
-                self._proc.kill()
+                proc.kill()
             except Exception:                                # noqa: BLE001
                 pass
-        self._proc = None
-        self._pending.clear()
         self._log("[공구] 추론 워커를 내렸습니다.")
 
     @property
     def available(self):
         """워커가 떠 있고 모델 로딩까지 끝났는가."""
+        with self._lock:
+            return self._ready()
+
+    def _ready(self):
+        """(잠금 안에서) 워커가 떠 있고 모델 로딩까지 끝났는가."""
         return self._proc is not None and os.path.exists(os.path.join(self._dir, "ready"))
 
     # ------------------------------------------------------------------ 요청
@@ -121,7 +140,11 @@ class ToolGate:
            걸려서, 결과가 돌아왔을 때의 손 위치는 이미 다르다. 지금 손 위치와
            1초 전 공구 박스를 섞으면 판정이 틀린다(§4.6).
         """
-        if not self.available:
+        with self._lock:
+            self._request_locked(frame, fingertip)
+
+    def _request_locked(self, frame, fingertip):
+        if not self._ready():
             return
         self._seq += 1
         seq = self._seq
@@ -145,7 +168,11 @@ class ToolGate:
         dets = [(클래스명, 점수, x1, y1, x2, y2), ...] — 워커가 이미 임계로 걸렀다.
         fingertip = **그 요청을 보낼 때**의 손끝 좌표(손이 없었으면 None).
         """
-        if not self.available:
+        with self._lock:
+            return self._poll_locked()
+
+    def _poll_locked(self):
+        if not self._ready():
             return None
         path = os.path.join(self._dir, "resp.json")
         try:

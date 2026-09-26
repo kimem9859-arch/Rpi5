@@ -186,6 +186,63 @@ def test_요청파일이_실제로_생긴다():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ------------------------------------------------------- ③ 두 스레드(C13)
+import threading
+
+
+class _Alive:
+    """살아 있는 워커 대역 — poll() 이 None(아직 안 끝남)."""
+
+    def poll(self):
+        return None
+
+    def terminate(self):
+        pass
+
+    def wait(self, timeout=None):
+        return 0
+
+    def kill(self):
+        pass
+
+
+class _RacyPending(dict):
+    """poll() 이 `seq in _pending` 을 묻는 순간 다른 스레드가 stop() 을 부른다 — 경쟁 창을 결정적으로 연다."""
+
+    def __init__(self, gate, *a):
+        super().__init__(*a)
+        self._gate = gate
+        self.stopper = None
+
+    def __contains__(self, k):
+        if self.stopper is None:
+            self.stopper = threading.Thread(target=self._gate.stop)
+            self.stopper.start()
+            self.stopper.join(timeout=0.3)      # 잠금이 있으면 stop 은 poll 이 끝날 때까지 기다린다
+        return super().__contains__(k)
+
+
+def test_c13_stop_during_poll():
+    """C13 — 카메라 스레드의 poll() 도중 GUI 스레드가 stop() 해도 결과가 깨지지 않는다(검토 C13)."""
+    print("[8] poll 도중 stop")
+    tmp = tempfile.mkdtemp()
+    try:
+        gate = _gate(tmp)
+        gate._proc = _Alive()
+        _mark_ready(tmp)
+        gate.request(FRAME, (3, 4))                    # seq=1
+        _write_resp(tmp, seq=1, dets=[])
+        gate._pending = _RacyPending(gate, gate._pending)
+        try:
+            got = gate.poll()
+            check(got is not None and got[1] == (3, 4), "poll 이 그 결과를 끝까지 돌려준다")
+        except Exception as e:                         # noqa: BLE001
+            check(False, f"poll 이 예외로 끝났다 — {type(e).__name__}: {e}")
+        gate._pending.stopper.join(timeout=3)
+        check(gate._proc is None, "stop 은 poll 이 끝난 뒤 마저 한다")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
 if __name__ == "__main__":
     t0 = time.time()
     test_워커없으면_조용히_비활성()
@@ -195,6 +252,7 @@ if __name__ == "__main__":
     test_손이_안보인_요청도_그대로()
     test_깨진응답을_견딘다()
     test_요청파일이_실제로_생긴다()
+    test_c13_stop_during_poll()
 
     elapsed = time.time() - t0
     print()
