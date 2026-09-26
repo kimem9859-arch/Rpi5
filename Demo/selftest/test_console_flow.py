@@ -1317,6 +1317,18 @@ def test_u14_console_theme_repaints_glow():
         theme.set_theme("dark")
         win.close()
 
+def test_u16_close_stops_tool_worker_and_state():
+    """U16 — 창을 닫으면 공구 워커를 내리고 음성비서용 상태 파일을 지운다(유령 상태 파일·워커가 남던 것)."""
+    print("\n[U16] 종료 정리")
+    win = make_console()
+    calls = []
+    win._state_pub.clear = lambda: calls.append("상태 파일 지움")
+    real_scan = win.camera_thread.set_tool_scan
+    win.camera_thread.set_tool_scan = lambda on: (calls.append(f"공구 스캔 {on}"), real_scan(on))
+    win.close()
+    check("상태 파일 지움" in calls, "상태 파일을 지운다")
+    check("공구 스캔 False" in calls, "공구 스캔(워커)을 내린다")
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

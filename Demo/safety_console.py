@@ -1709,6 +1709,10 @@ class SafetyConsole(QMainWindow):
     # [종료]
     # =========================================================================
     def closeEvent(self, event):
+        # 🔴 공구 워커를 내리고 상태 파일을 지운다(리뷰 U16) — 빠뜨리면 서브 작업 중 종료할 때 워커가
+        #    ppid 검사에만 기대 남고, 음성비서가 읽는 상태 파일이 유령으로 남았다.
+        self._end_tool_scan()
+        self._state_pub.clear()
         self._stop_demo_capture()
         self._stop_recording()
         self._append_log("[시스템] 카메라 스레드 종료 중...")
