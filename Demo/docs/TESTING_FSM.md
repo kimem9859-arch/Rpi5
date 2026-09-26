@@ -49,9 +49,9 @@ cat docs/TESTING_FSM.md        # 이 문서
 - Claude Code CLI는 `~/Rpi5-fsm`에서 띄우면 이 문서를 참조해 테스트를 돕는다.
 
 ## 3. 빠른 검증 — 하드웨어·카메라 없이 (약 1분)
+**전부 한 번에** = `python3 selftest/run_all.py`(`Demo/` 에서 · PyQt6·Hailo 가 있는 파이 기본 파이썬 · 약 40초) → 마지막 줄 `SELFTEST N pass / 0 fail / N skip` · 종료 코드 0 = 실패 없음. 아래는 PyQt6·카메라 없이 도는 핵심 4개만 따로 돌릴 때다.
 ```bash
 cd Demo
-python3 selftest/run_all.py                  # selftest 전부 → 마지막 줄 "SELFTEST N pass / 0 fail / N skip" · 종료 코드 0
 ../.venv/bin/python selftest/test_fsm.py     # FSM 전이 → "39/39 passed"
 ../.venv/bin/python selftest/test_recipe.py  # 레시피      → "15/15 passed"
 ../.venv/bin/python selftest/test_hoi_sim.py # 인식→판정 4종 → "4/4 passed"

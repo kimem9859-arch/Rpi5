@@ -48,6 +48,12 @@ def test_judge_fail_forms():
         check(status == "fail" and reason, f"{what} → fail (실제 {status} · {reason!r})")
     status, reason = run_all.judge(None, "✅ 통과\n", timed_out=True)
     check(status == "fail" and "시간" in reason, f"시간 초과 → fail (실제 {status} · {reason!r})")
+    # 최종 리뷰 Minor — 들여쓴 검사 줄은 요약이 아니다 · 0/0 은 모은 시험이 없는 것 · 신호 사망은 이름으로
+    for out, what in (("  ✅ 체류 임계 통과 조건\n", "들여쓴 검사 줄(요약 없이 끝남)"), ("0/0 passed\n", "0/0 passed")):
+        status, reason = run_all.judge(0, out)
+        check(status == "fail", f"{what} → fail (실제 {status} · {reason!r})")
+    status, reason = run_all.judge(-11, "✅ 통과\n")
+    check(status == "fail" and "SIGSEGV" in reason, f"신호 사망은 신호 이름으로 (실제 {reason!r})")
 
 
 def _write(d, name, body):
@@ -118,6 +124,58 @@ def _run_fake_suite(work, tests):
     counts, _, code = run_all.run_suite(tests, cwd=work, timeout=5, interpreters={}, out=lines.append)
     check(counts == {"pass": 1, "fail": 0, "skip": 0} and code == 0,
           f"전부 통과면 종료 코드 0 — {counts} · {code}")
+
+    os.remove(os.path.join(tests, "test_a_pass.py"))
+    counts, _, code = run_all.run_suite(tests, cwd=work, timeout=5, interpreters={}, out=lambda s: None)
+    check(code == 1, f"시험을 하나도 못 찾으면 종료 코드 1 — 잘못된 폴더를 「통과」로 두지 않는다 (실제 {code})")
+
+
+def test_run_suite_edge_processes():
+    """최종 리뷰 Minor — 시간 초과면 손주 프로세스까지 끝낸다 · 입력 대기로 멈추지 않는다 · ❌ 뒤 예외 원인도 보인다."""
+    print("\n[실행] 손주·입력·예외 원인")
+    import time
+    work = tempfile.mkdtemp(prefix="sop_runall_")
+    tests = os.path.join(work, "selftest")
+    os.makedirs(tests)
+    pidfile = os.path.join(work, "grandchild.pid")
+    try:
+        _write(tests, "test_g_grandchild.py", f"""
+            import subprocess, sys, time
+            p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+            open({pidfile!r}, "w").write(str(p.pid))
+            time.sleep(60)
+            """)
+        _write(tests, "test_h_input.py", """
+            input()
+            print("✅ 입력을 받았다")
+            """)
+        _write(tests, "test_i_crash_after_check.py", """
+            print("  ❌ 검사 하나 틀림")
+            raise RuntimeError("진짜 원인")
+            """)
+        t0 = time.monotonic()
+        _, results, _ = run_all.run_suite(tests, cwd=work, timeout=3, interpreters={}, out=lambda s: None)
+        by = {r["name"]: r for r in results}
+        time.sleep(0.5)                                    # 고아가 된 손주가 거둬질 시간
+        pid = int(open(pidfile).read())
+        try:
+            os.kill(pid, 0)
+            alive = True
+        except ProcessLookupError:
+            alive = False
+        if alive:
+            os.kill(pid, 9)
+        check(by["test_g_grandchild"]["status"] == "fail" and not alive,
+              f"시간 초과 → 손주 프로세스까지 끝난다 (손주 살아 있음 = {alive})")
+        h = by["test_h_input"]
+        check(h["status"] == "fail" and "시간" not in h["reason"],
+              f"입력을 기다리지 않고 곧바로 실패 — {h['reason']!r} · {h['secs']:.1f}s")
+        details = "\n".join(by["test_i_crash_after_check"]["details"])
+        check("검사 하나 틀림" in details and "RuntimeError: 진짜 원인" in details,
+              f"❌ 줄과 예외 원인을 함께 보인다 — {details!r}")
+        check(time.monotonic() - t0 < 20, "세 파일이 시간 제한 안에 끝난다")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 if __name__ == "__main__":
