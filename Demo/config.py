@@ -312,33 +312,48 @@ CONNECT_MAX_TRIES = 5
 # ⚠️ 인터록 Arduino 의 USB 신원(vid/pid)은 아직 확인하지 못했다(보드가 없어서).
 #    지금 규칙은 「ESP32 가 아닌 시리얼 장치가 정확히 하나면 그것」이다.
 #    보드를 꽂아 신원을 확인하면 그 vid/pid 로 좁힐 것.
-def resolve_interlock_port(quiet=False):
-    """인터록 Arduino 의 경로. 확신할 수 없으면 None.
+def find_interlock_port():
+    """인터록 Arduino 의 경로와 못 찾은 사유 — `(경로, None)` 또는 `(None, 사유)`.
 
     🔑 인터락 컨트롤러가 **연결할 때마다** 다시 부른다(I1·I2) — 켠 뒤에 꽂거나, 다시 꽂혀
-       번호(ttyACM0 → 1)가 바뀌어도 찾는다. quiet=True 면 안내를 찍지 않는다(재시도 루프용).
+       번호(ttyACM0 → 1)가 바뀌어도 찾는다.
+    🔴 사유를 함께 돌려준다(③ 리뷰 M-6) — 후보가 여럿인데 「못 찾았다 — 꽂히면 붙는다」로 안내하면
+       꽂아도 소용없는 상황을 가린다.
+    강제 지정(`SOP_INTERLOCK_PORT`)은 그대로 돌려준다 — 경로가 있는지는 여는 쪽(interlock)이 본다.
     """
-    say = (lambda m: None) if quiet else print
     forced = os.environ.get("SOP_INTERLOCK_PORT")
     if forced:
-        say(f"[config] 인터록 포트 강제 지정: {forced}")
-        return forced
+        return forced, None
     try:
         from serial.tools import list_ports
         from serial_ports import ESP32_S3          # 상수를 복제하지 않는다
         cands = [p.device for p in list_ports.comports()
                  if p.vid is not None and (p.vid, p.pid) != ESP32_S3]
-        if len(cands) == 1:
-            return cands[0]
-        if len(cands) > 1:
-            say(f"[config] ⚠️ 인터록 후보가 여럿이라 고를 수 없다: {cands}")
-        else:
-            say("[config] ⚠️ 인터록 장치를 못 찾았다 (ESP32 는 인터록이 아니다)")
     except Exception as e:
-        say(f"[config] ⚠️ 포트 해석 실패: {e}")
-    say("[config] → 찾을 때까지 연결하지 않는다(꽂히면 자동으로 붙는다). "
-        "강제하려면 SOP_INTERLOCK_PORT=/dev/ttyACMx")
-    return None
+        return None, f"포트 해석 실패: {e}"
+    if len(cands) == 1:
+        return cands[0], None
+    if len(cands) > 1:
+        return None, (f"인터록 후보가 여럿이라 고를 수 없다: {cands} — "
+                      f"SOP_INTERLOCK_PORT=/dev/ttyACMx 로 지정하라")
+    return None, "인터록 장치를 못 찾았다 (ESP32 는 인터록이 아니다)"
+
+
+def resolve_interlock_port(quiet=False):
+    """기동 때 한 번 — 인터록 경로(확신할 수 없으면 None)를 돌려주고 안내를 찍는다.
+
+    🔑 안내 글자는 종전과 같다 — `fsm_sim` 등 config 를 불러오는 도구의 출력이 이 줄을 담는다.
+    """
+    say = (lambda m: None) if quiet else print
+    port, why = find_interlock_port()
+    forced = os.environ.get("SOP_INTERLOCK_PORT")
+    if forced:
+        say(f"[config] 인터록 포트 강제 지정: {forced}")
+    elif port is None:
+        say(f"[config] ⚠️ {why}")
+        say("[config] → 찾을 때까지 연결하지 않는다(꽂히면 자동으로 붙는다). "
+            "강제하려면 SOP_INTERLOCK_PORT=/dev/ttyACMx")
+    return port
 
 _INTERLOCK_PORT_RESOLVED = resolve_interlock_port()
 

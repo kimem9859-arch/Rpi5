@@ -55,7 +55,7 @@ class InterlockController:
         # 🔑 port 를 주면 그것만 쓰고, 안 주면 **연결할 때마다** config 로 다시 찾는다(I1·I2)
         self._fixed_port = port
         self._port    = port if port is not None else config.INTERLOCK_PORT
-        self._absent  = False     # 장치를 못 찾은 상태 — 안내는 한 번만 · 이 동안은 포기하지 않는다(I1)
+        self._absent  = None      # 못 찾은 사유(찾았으면 None) — 안내는 사유가 바뀔 때만 · 이 동안은 포기하지 않는다(I1)
         self._baud    = baud if baud is not None else config.INTERLOCK_BAUD
         self._timeout = timeout if timeout is not None else config.INTERLOCK_TIMEOUT
         self._reconnect_delay = getattr(config, "INTERLOCK_RECONNECT_DELAY_SEC", 3.0)
@@ -108,13 +108,18 @@ class InterlockController:
         """시리얼 포트 열기 시도. 실패는 로그만 남기고 False 반환."""
         if serial is None:
             return False
-        port = self._fixed_port or config.resolve_interlock_port(quiet=True)
+        port, why = ((self._fixed_port, None) if self._fixed_port
+                     else config.find_interlock_port())
+        if port is not None and not os.path.exists(port):
+            # 🔴 지정한 경로(SOP_INTERLOCK_PORT · port=)가 없으면 「못 엶」이 아니라 「못 찾음」이다
+            #    (③ 리뷰 M-5) — 못 엶으로 세면 약 15초 뒤 포기해, 켠 뒤에 꽂아도 안 붙었다.
+            port, why = None, f"지정한 포트가 없다({port})"
         if port is None:
-            if not self._absent:
-                self._log("[인터락] 장치를 못 찾았다 — 꽂히면 자동으로 붙는다")
-                self._absent = True
+            if self._absent != why:                  # 🔑 안내는 사유가 바뀔 때만 — 쌓이지 않게(M-6)
+                self._log(f"[인터락] {why} — 계속 찾는다(꽂히거나 고르게 되면 붙는다)")
+                self._absent = why
             return False
-        self._absent = False
+        self._absent = None
         with self._lock:
             if self._ser is not None and getattr(self._ser, "is_open", False):
                 return True
@@ -131,7 +136,7 @@ class InterlockController:
                 return True
             except Exception as e:  # SerialException 외 권한/장치없음 모두 흡수
                 self._ser = None
-                self._log(f"[인터락] 연결 실패({self._port}): {e} — fallback")
+                self._log(f"[인터락] 연결 실패({port}): {e} — fallback")   # 시도한 포트(M-4)
                 return False
 
     def _sync_after_open(self):

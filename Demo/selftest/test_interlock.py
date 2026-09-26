@@ -31,6 +31,7 @@ def check(cond, msg):
 
 class _FakeSerial:
     opened = []
+    refuse = set()
     ack = True                        # False 면 ACK 를 돌려주지 않는 장치(최종 리뷰 I-3)
 
     def __init__(self, port, baud, timeout=None, write_timeout=None):
@@ -38,6 +39,8 @@ class _FakeSerial:
             raise RuntimeError(f"🔴 시험이 실제 장치를 열려고 했다: {port}")
         if not os.path.exists(port):
             raise OSError(f"no such port {port}")
+        if port in _FakeSerial.refuse:
+            raise OSError(f"permission denied {port}")     # 있지만 못 여는 장치(M-4·M-10)
         self.port = port
         self.is_open = True
         self.writes = []
@@ -85,7 +88,9 @@ def _wait(cond, sec=3.0):
 
 def _ctl(port_box):
     """port_box["p"] 를 돌려주는 가짜 포트 찾기로 인터락을 만든다."""
-    config.resolve_interlock_port = lambda quiet=False: port_box["p"]
+    config.resolve_interlock_port = lambda quiet=False: port_box["p"]      # 고치기 전 경로
+    config.find_interlock_port = lambda: ((port_box["p"], None) if port_box["p"]
+                                          else (None, "장치를 못 찾았다(시험)"))
     config.INTERLOCK_PORT = port_box["p"]
     return interlock.InterlockController(enabled=True, log=lambda m: None)
 
@@ -218,6 +223,93 @@ def test_c15_late_ack_not_taken_for_block():
         check(bool(faults), "BLOCK 차단 확인 실패를 알린다(늦은 WARN-ACK 로 속지 않는다)")
         check(not c.connected, "응답 없는 장치를 「연결됨」으로 두지 않는다")
     finally:
+        c.close()
+
+_REAL_FIND = getattr(config, "find_interlock_port", None)   # _ctl 이 바꿔 끼우기 전 원본(M-6)
+
+
+def test_m4_open_failure_logs_tried_port():
+    """M-4 — 열기 실패 로그는 **시도한** 포트를 찍는다(③ 리뷰 M-4 — 옛 값을 찍었다)."""
+    print("\n[M-4] 실패 로그의 포트")
+    tmp = tempfile.mkdtemp()
+    dev = os.path.join(tmp, "ttyACM1")
+    open(dev, "w").close()
+    _FakeSerial.refuse.add(dev)
+    config.resolve_interlock_port = lambda quiet=False: dev      # 고치기 전 경로
+    config.find_interlock_port = lambda: (dev, None)
+    config.INTERLOCK_PORT = None                                   # 기동 때는 못 찾았다
+    logs = []
+    c = interlock.InterlockController(enabled=True, log=logs.append)
+    try:
+        fails = [m for m in logs if "연결 실패" in m]
+        check(bool(fails) and f"연결 실패({dev})" in fails[0], "연결 실패 로그에 시도한 포트가 찍힌다")
+    finally:
+        _FakeSerial.refuse.discard(dev)
+        c.close()
+
+
+def test_m5_fixed_port_missing_is_absent():
+    """M-5 — 지정한 포트가 없으면 「못 찾음」 — 포기하지 않고, 나중에 생기면 붙는다(③ 리뷰 M-5)."""
+    print("\n[M-5] 지정 포트 없음")
+    tmp = tempfile.mkdtemp()
+    dev = os.path.join(tmp, "ttyACM9")
+    logs = []
+    c = interlock.InterlockController(port=dev, enabled=True, log=logs.append)
+    try:
+        time.sleep(0.4)                                    # 재시도 한도(2회)를 넘길 만큼
+        check(not c.gave_up, "지정 포트가 없는 동안에는 포기하지 않는다")
+        check(any("지정한 포트가 없다" in m for m in logs), "로그 = 「지정한 포트가 없다」")
+        open(dev, "w").close()
+        check(_wait(lambda: c.connected), "나중에 생기면 붙는다")
+    finally:
+        c.close()
+
+
+def test_m6_many_candidates_says_so():
+    """M-6 — 후보가 여럿이면 「꽂히면 붙는다」가 아니라 「여럿이라 고를 수 없다」고 안내한다(③ 리뷰 M-6)."""
+    print("\n[M-6] 후보 여럿")
+    check(_REAL_FIND is not None, "config.find_interlock_port 가 있다(사유를 함께 돌려준다)")
+    if _REAL_FIND is None:
+        return
+    import types
+    from serial.tools import list_ports
+    fake = [types.SimpleNamespace(device="/dev/시험A", vid=0x2341, pid=0x0069),
+            types.SimpleNamespace(device="/dev/시험B", vid=0x1a86, pid=0x7523)]
+    old, old_env = list_ports.comports, os.environ.pop("SOP_INTERLOCK_PORT", None)
+    try:
+        list_ports.comports = lambda: fake
+        port, why = _REAL_FIND()
+        check(port is None, "고르지 않는다")
+        check("여럿" in (why or "") and "SOP_INTERLOCK_PORT" in (why or ""),
+              "사유 = 후보가 여럿 · 직접 지정 안내")
+        list_ports.comports = lambda: fake[:1]
+        check(_REAL_FIND() == ("/dev/시험A", None), "하나면 그것")
+        list_ports.comports = lambda: []
+        port, why = _REAL_FIND()
+        check(port is None and "못 찾았다" in (why or ""), "없으면 「못 찾았다」")
+    finally:
+        list_ports.comports = old
+        if old_env is not None:
+            os.environ["SOP_INTERLOCK_PORT"] = old_env
+
+
+def test_m10_found_but_unopenable_gives_up():
+    """M-10(가드) — 찾았지만 열리지 않는 장치는 몇 번 뒤 포기하고 알린다(③ Review Focus 1 의 나머지 절반)."""
+    print("\n[M-10] 못 여는 장치 → 포기")
+    tmp = tempfile.mkdtemp()
+    dev = os.path.join(tmp, "ttyACM2")
+    open(dev, "w").close()
+    _FakeSerial.refuse.add(dev)
+    config.resolve_interlock_port = lambda quiet=False: dev
+    config.find_interlock_port = lambda: (dev, None)
+    gave = []
+    c = interlock.InterlockController(enabled=True, log=lambda m: None, on_give_up=gave.append)
+    try:
+        check(_wait(lambda: c.gave_up), "포기한다")
+        check(gave == [config.CONNECT_MAX_TRIES], "포기 알림(시도 횟수와 함께)")
+        check(not c.connected, "미연결")
+    finally:
+        _FakeSerial.refuse.discard(dev)
         c.close()
 
 if __name__ == "__main__":
