@@ -1424,7 +1424,8 @@ def test_review_i4_block_wording_true_without_ch5():
         win._on_cta()
         key(win, k)
         check(win.alert._title.text() == "버튼 입력 차단됨", f"{label} 차단 제목 = {win.alert._title.text()!r}")
-        words = [win.alert._line1.text()] + notify_titles(win)
+        words = ([win.alert._line1.text()] + notify_titles(win)
+                 + [l for l in win.log_browser.toPlainText().splitlines() if "[인터록]" in l])
         check(not any("전기" in t or "인터락이 작동" in t for t in words),
               f"{label} 차단 — 전기를 끊었다·인터락이 작동했다고 쓰지 않는다: {words}")
         win.close()

@@ -1512,7 +1512,7 @@ class SafetyConsole(QMainWindow):
         # Arduino Serial 로 릴레이 차단/복구 (트랙 A, interlock.py). BLOCK 진입 시
         # 가장 빠른 차단 경로(engaged=True → 즉시 BLOCK 송신). 해제는 뒤따르는
         # on_feedback(NONE)→RUN 이 처리한다.
-        self._append_log(f"[인터록] 전기 신호 {'차단(ON)' if engaged else '복구(OFF)'}")
+        self._append_log(f"[인터록] {'차단 요청(ON)' if engaged else '해제 요청(OFF)'}")
         self.interlock.set_interlock(engaged)
 
     def _on_feedback(self, level):
