@@ -54,7 +54,8 @@ def _validate(data):
     # 🔴 EMO 이름은 config 값과 같아야 한다 — GPIO·키보드가 그 이름으로 눌림을 보내고 버튼 모델의
     #    클래스 이름도 같다. 레시피만 다른 이름을 쓰면 물리 EMO 가 「오답 버튼」으로 처리돼 위반
     #    차단이 됐다. 없으면 채운다(P7 체류 임계와 같은 방식).
-    emo = data.setdefault("emo_button", config.FSM_EMO_BUTTON)
+    # 🔑 null 도 「없음」이다 — 콘솔의 _emo_button() 폴백과 같은 규칙(④ 사소 2)
+    emo = data["emo_button"] = data.get("emo_button") or config.FSM_EMO_BUTTON
     if emo != config.FSM_EMO_BUTTON:
         raise RecipeError(f"emo_button({emo!r})은 {config.FSM_EMO_BUTTON!r} 이어야 합니다 "
                           f"(GPIO·키보드·버튼 모델이 이 이름을 씁니다)")

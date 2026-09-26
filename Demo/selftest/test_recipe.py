@@ -239,6 +239,14 @@ def test_u17_process_name_required():
             pass
     print("  PASS  process_name 없음 → RecipeError")
 
+def test_final_minor_emo_button_null_filled():
+    """④ 미룬 사소 2 — "emo_button": null 도 「없음」으로 보고 config 값으로 채운다(레시피 전체를 거부하던 것)."""
+    import config
+    with tempfile.TemporaryDirectory() as tmp:
+        r = load_recipe(_write(tmp, {**GOOD, "emo_button": None}))
+        assert r["emo_button"] == config.FSM_EMO_BUTTON, r.get("emo_button")
+    print("  PASS  emo_button null → config 값")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
