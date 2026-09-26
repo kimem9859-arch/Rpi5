@@ -1,0 +1,18 @@
+# A-M5 추가 수정 뒤 검증 (2026-09-27 · 세션 14c83934 · 작업 트리 기준)
+## 새 시험 test_review_am5_wrong_tool_held_through_retry_counted_once
+고치기 전: ❌ 「다른 공구입니다」 알림 1건 · ❌ 결과창 오답 공구 = {'driver': 2} · ❌ 실패 2건
+고친 뒤: ✅ 글라스 UI 흐름 통과
+## 일괄 러너
+rc=0
+SELFTEST 33 pass / 0 fail / 0 skip (47.1s)
+## 홀드아웃(holdout.sha256)
+holdout_same
+## 리뷰 재현 도구(추적 파일 사본)
+g11_putdown rc=0
+RESULT scen=g11_putdown problems=0 rc=0
+오답 횟수 1 → 1 → 2 · 알림 4   (리뷰 B 당시와 같음 — 내려놓고 다시 쥐면 다시 센다)
+emo_idle_cta rc=0
+CTA 보임=False
+RESULT scen=emo_idle_cta problems=0 rc=0
+emo_states rc=0
+RESULT scen=emo_states problems=0 rc=0

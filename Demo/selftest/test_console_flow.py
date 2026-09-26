@@ -1609,6 +1609,52 @@ def test_review_am3_voice_state_file():
     check(now() is None, "작업 중 EMO 해제 — 파일을 비운다(작업이 끝났다)")
     win.close()
 
+def test_review_am5_wrong_tool_held_through_retry_counted_once():
+    """종합 리뷰 A-M5 — 오답 공구를 쥔 채 차단 → 해제 → 같은 버튼으로 다시 해도 「다른 공구」는 한 번만 알리고 센다
+    (결과창 공구 줄은 이어 쓰는데 「이미 센 오답 공구」 기억만 지워져 2회가 되던 것 · G11 × D5).
+    새 작업(작업 시작)에서는 다시 센다."""
+    print("\n[종합 A-M5] 쥔 채 재시도 — 오답 공구 한 번")
+
+    def hold_other(w):
+        want = w._sub.want_tool
+        other = "driver" if want != "driver" else "pliers"
+        w.camera_thread.tool_signal.emit([(other, 0.9, 300, 100, 400, 200)], (350, 150))
+        return other
+
+    win = make_console()                             # ① 같은 작업 안에서 재시도
+    win._on_cta()
+    key(win, "1")
+    finish_sub(win)
+    key(win, "2")                                    # 공구 서브
+    n0 = notify_titles(win).count("다른 공구입니다")
+    other = hold_other(win)                          # 오답 공구를 쥠
+    key(win, "3")                                    # 오답 버튼 → 위반 차단 → 서브 취소
+    win._on_alert_release()
+    key(win, "2")                                    # 같은 버튼으로 다시
+    hold_other(win)                                  # 여전히 쥐고 있다
+    check(notify_titles(win).count("다른 공구입니다") - n0 == 1, "「다른 공구입니다」 알림 1건")
+    out = win._stats.finish()
+    check(out["tools"][-1]["wrong"] == {other: 1}, f"결과창 오답 공구 = {out['tools'][-1]['wrong']}")
+    win.close()
+
+    win = make_console()                             # ② 새 작업에서는 다시 센다
+    win._on_cta()
+    key(win, "1")
+    finish_sub(win)
+    key(win, "2")
+    other = hold_other(win)
+    key(win, "E")                                    # EMO → 해제 → 작업 끝
+    win.gpio_input.emo_active = lambda: False
+    win._release_block()
+    win._on_cta()                                    # 새 작업
+    key(win, "1")
+    finish_sub(win)
+    key(win, "2")
+    hold_other(win)                                  # 같은 오답 공구를 쥐고 있다
+    out = win._stats.finish()
+    check(out["tools"][-1]["wrong"] == {other: 1}, f"새 작업에서 다시 센다 — {out['tools'][-1]['wrong']}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

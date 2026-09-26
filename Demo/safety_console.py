@@ -80,7 +80,7 @@ class SafetyConsole(QMainWindow):
         self._tool_override = None   # 설정 메뉴에서 바꾼 지정 공구(세션 한정)
         self._popups = {}            # 종류 → 알림 창 — 종류마다 하나만(U20 · _popup)
         self._last_result = None     # 완료 결과 — 다음 「작업 시작」·「작업 초기화」까지 음성 상태에 싣는다(A-M3)
-        self._wrong_tool_noted = None  # 이미 알리고 센 오답 공구(G11) — 같은 공구는 한 번
+        self._wrong_tool_noted = None  # 이미 알리고 센 (버튼, 오답 공구)(G11) — 같은 단계의 같은 공구는 한 번
         self._empty_hand_scans = 0     # 손이 보이는데 쥔 공구가 없는 스캔이 연달아 나온 수(G11)
         self._unread = 0             # 안 읽은 알림 수 — 배지에 표시
         self._recording_mode = "full"
@@ -969,6 +969,7 @@ class SafetyConsole(QMainWindow):
 
     def _on_start_process(self):
         self._last_result = None     # 앞 회차 완료 결과는 여기서 버린다(A-M3)
+        self._wrong_tool_noted = None  # 새 작업 = 새 공구 기록 — 쥐고 있던 오답 공구도 다시 센다(A-M5)
         self.fsm.load_recipe()
         self._append_log(f"[FSM] 작업 시작 — {self.fsm.expected_step}단계: "
                          f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
@@ -1174,7 +1175,9 @@ class SafetyConsole(QMainWindow):
     def _begin_sub(self, button, spec):
         self._sub = SubTask(spec)
         self._sub_button = button
-        self._wrong_tool_noted = None
+        # 🔑 「이미 센 오답 공구」는 여기서 지우지 않는다 — 차단 취소 뒤 같은 버튼으로 다시 하면 결과창
+        #    공구 줄을 이어 쓰는데(session_stats.sub_started) 기억만 지우면, 쥔 채 재시도할 때 같은 공구가
+        #    두 번 세어졌다(종합 리뷰 A-M5). 기억은 (버튼, 공구)라 다른 단계에서는 새로 센다.
         self._empty_hand_scans = 0
         self._sub_timer.start()
         self._append_log(f"[서브] {spec['label']} 시작 ({spec['sec']}초)")
@@ -1256,9 +1259,11 @@ class SafetyConsole(QMainWindow):
                 self._relayout()
             # 🔴 같은 오답 공구는 한 번만 알리고 센다(G11) — 손이 잠깐 안 보일 때마다
             #    배너가 다시 떠도 결과창 횟수는 「집은 횟수」여야 한다(리뷰 U12).
-            #    기억은 공구가 바뀌거나 빈손이 보일 때(_on_tool) 지운다.
-            if sub.wrong_tool != self._wrong_tool_noted:
-                self._wrong_tool_noted = sub.wrong_tool
+            #    기억은 빈손이 이어질 때(_on_tool)와 「작업 시작」에서 지우고, 공구나 단계(버튼)가 바뀌면
+            #    새로 센다 — 같은 버튼 재시도(D5)는 같은 기억이다(A-M5).
+            noted = (self._sub_button, sub.wrong_tool)
+            if noted != self._wrong_tool_noted:
+                self._wrong_tool_noted = noted
                 self._notify("warn", "다른 공구입니다",
                              f"{sub.wrong_tool_name} → {sub.want_tool_name} 필요")
                 self._stats.tool_grasped(sub.wrong_tool, False)
