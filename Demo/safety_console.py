@@ -78,6 +78,7 @@ class SafetyConsole(QMainWindow):
         self._sub_button = None      # 그 서브 작업을 시작시킨 버튼
         self._tool_state = None      # 공구 판정 상태기계(A-2) — wait_tool 동안만 존재
         self._tool_override = None   # 설정 메뉴에서 바꾼 지정 공구(세션 한정)
+        self._popups = {}            # 종류 → 알림 창 — 종류마다 하나만(U20 · _popup)
         self._wrong_tool_noted = None  # 이미 알리고 센 오답 공구(G11) — 같은 공구는 한 번
         self._empty_hand_scans = 0     # 손이 보이는데 쥔 공구가 없는 스캔이 연달아 나온 수(G11)
         self._unread = 0             # 안 읽은 알림 수 — 배지에 표시
@@ -1305,14 +1306,9 @@ class SafetyConsole(QMainWindow):
         """
         if self.gpio_input.emo_active():
             self._append_log("[FSM] 🚫 BLOCK 해제 거부 — EMO 미복귀(눌림/단선)")
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle("해제 거부")
-            box.setText("EMO가 아직 복귀되지 않았습니다.\n"
+            self._popup("release_refused", QMessageBox.Icon.Warning, "해제 거부",
+                        "EMO가 아직 복귀되지 않았습니다.\n"
                         "비상정지 버튼을 돌려 복귀(또는 EMO 배선 점검) 후 다시 시도하세요.")
-            box.setStandardButtons(QMessageBox.StandardButton.Ok)
-            box.setModal(False)
-            box.show()
             return
         was_running = self._stats.running
         self.fsm.release_block()
@@ -1338,14 +1334,9 @@ class SafetyConsole(QMainWindow):
         """
         if self.gpio_input.emo_active():
             self._append_log("[FSM] 🚫 작업 초기화 거부 — EMO 미복귀(눌림/단선)")
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle("초기화 거부")
-            box.setText("EMO가 아직 복귀되지 않았습니다.\n"
+            self._popup("reset_refused", QMessageBox.Icon.Warning, "초기화 거부",
+                        "EMO가 아직 복귀되지 않았습니다.\n"
                         "비상정지 버튼을 돌려 복귀(또는 EMO 배선 점검) 후 다시 시도하세요.")
-            box.setStandardButtons(QMessageBox.StandardButton.Ok)
-            box.setModal(False)
-            box.show()
             return
 
         # 진행 중이던 작업이 사라지는 비가역 동작 — 한 번 더 확인한다.
@@ -1523,14 +1514,28 @@ class SafetyConsole(QMainWindow):
         # BLOCK 명령이 ACK 로 확인되지 않음 — 릴레이가 실제로 안 움직였을 수 있다.
         # 화면 BLOCK 표시만 믿으면 안 되므로 비모달 경고창으로 즉시 알린다.
         self._append_log(f"[인터록] 🚨 폴트: {msg}")
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Critical)
-        box.setWindowTitle("인터락 폴트")
-        box.setText("물리 차단이 확인되지 않았습니다!\n"
+        self._popup("interlock_fault", QMessageBox.Icon.Critical, "인터락 폴트",
+                    "물리 차단이 확인되지 않았습니다!\n"
                     f"{msg}\n\n릴레이·배선·Arduino 전원을 점검하세요.")
-        box.setStandardButtons(QMessageBox.StandardButton.Ok)
-        box.setModal(False)
+
+    def _popup(self, key, icon, title, text):
+        """종류(key)마다 알림 창 하나 — 이미 있으면 글자만 바꿔 다시 띄우고 앞으로 올린다(리뷰 U20).
+
+        🔴 누를 때마다 새 비모달 창을 만들면, EMO 를 복귀하지 않은 채 「차단 해제」를 여러 번 누를 때
+           창이 겹겹이 쌓여 시연 화면을 가렸다.
+        """
+        box = self._popups.get(key)
+        if box is None:
+            box = QMessageBox(self)
+            box.setStandardButtons(QMessageBox.StandardButton.Ok)
+            box.setModal(False)
+            self._popups[key] = box
+        box.setIcon(icon)
+        box.setWindowTitle(title)
+        box.setText(text)
         box.show()
+        box.raise_()
+        return box
 
     # =========================================================================
     # [시스템 종료] — 라즈베리파이 안전 종료(SD 손상 방지). 종료 후 멀티탭 OFF.

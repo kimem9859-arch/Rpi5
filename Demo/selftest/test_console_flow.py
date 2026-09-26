@@ -1329,6 +1329,22 @@ def test_u16_close_stops_tool_worker_and_state():
     check("상태 파일 지움" in calls, "상태 파일을 지운다")
     check("공구 스캔 False" in calls, "공구 스캔(워커)을 내린다")
 
+def test_u20_refusal_popups_do_not_stack():
+    """U20 — 거부·폴트 창은 종류마다 하나 — 여러 번 눌러도 겹겹이 쌓이지 않는다(시연 화면을 가리던 것)."""
+    print("\n[U20] 알림 창 쌓임")
+    from PyQt6.QtWidgets import QMessageBox
+    win = make_console()
+    win._on_cta()
+    key(win, "E")                                    # EMO 차단
+    win.gpio_input.emo_active = lambda: True         # EMO 를 누른 채
+    for _ in range(3):
+        win._release_block()
+    for _ in range(2):
+        win._on_interlock_fault("시험 폴트")
+    shown = sorted(b.windowTitle() for b in win.findChildren(QMessageBox) if not b.isHidden())
+    check(shown == ["인터락 폴트", "해제 거부"], f"떠 있는 창 = {shown}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
