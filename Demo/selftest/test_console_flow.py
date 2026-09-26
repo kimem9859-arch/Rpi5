@@ -1489,6 +1489,24 @@ def test_review_bm2_cta_hidden_while_emo_before_start():
     check(win.btn_cta.isHidden(), "결과창이 뜬 채 EMO 를 누르고 풀어도 「작업 시작」이 결과창 뒤로 비치지 않는다")
     win.close()
 
+def test_review_am2_reset_then_emo_release_no_false_stop_notice():
+    """종합 리뷰 A-M2 — 작업 초기화 뒤 EMO → 해제해도 「비상정지로 작업 중단」이 뜨지 않는다(진행 중인 작업이 없다).
+    초기화가 판정기만 되돌리고 집계는 두어 running 이 켜진 채 남던 것."""
+    print("\n[종합 A-M2] 초기화 뒤 EMO 해제 알림")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")
+    finish_sub(win)                                  # 1단계 완료 — 진행 중
+    win._reset_work()
+    check(not win._stats.running, "초기화하면 집계가 꺼진다")
+    key(win, "E")
+    win.gpio_input.emo_active = lambda: False        # EMO 복귀
+    win._release_block()
+    check(win.fsm.state == State.IDLE, f"해제 → 대기({win.fsm.state.value})")
+    check(not any("비상정지로 작업 중단" in t for t in notify_titles(win)),
+          "진행 중인 작업이 없으니 「비상정지로 작업 중단」 알림이 없다")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

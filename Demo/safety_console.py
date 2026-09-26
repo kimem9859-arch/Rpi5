@@ -1105,10 +1105,8 @@ class SafetyConsole(QMainWindow):
            이름은 카드를 만드는 쪽에서 또 헷갈린다.
         """
         try:
-            # 🔴 「작업 시작 전」의 정본은 **FSM 이 IDLE 인가**다. `_stats.running` 을
-            #    쓰면 안 된다 — 「작업 초기화」는 `fsm.reset()` 만 부르고 `_stats` 는
-            #    그대로 두므로, 초기화 뒤에도 running 이 True 로 남아 세션이 살아 있는
-            #    것처럼 보인다. `fsm.reset()` 의 정의가 곧 「작업 시작 직전」이다.
+            # 🔴 「작업 시작 전」의 정본은 **FSM 이 IDLE 인가**다. `fsm.reset()` 의 정의가 곧
+            #    「작업 시작 직전」이다(「작업 초기화」는 집계도 비운다 — 종합 리뷰 A-M2).
             if self.fsm.state == State.IDLE and result is None:
                 self._state_pub.clear()
                 return
@@ -1372,6 +1370,10 @@ class SafetyConsole(QMainWindow):
     def _reset_work(self):
         """실제 되돌리기. 확인창 없이 부르는 경로가 생길 수 있어 따로 둔다."""
         self._append_log("[FSM] 작업 초기화 — 「작업 시작」 전 상태로 되돌립니다")
+        # 🔴 집계도 비운다 — 판정기만 되돌리면 `running` 이 켜진 채 남아, 초기화 뒤 EMO 를 풀 때
+        #    진행 중인 작업이 없는데 「비상정지로 작업 중단」이 떴다(종합 리뷰 A-M2). 완주 때
+        #    `finish()` 가 running 을 끄는 것과 같다.
+        self._stats.reset()
         self.fsm.reset()
 
         # 🔴 FSM 이 **이미 IDLE 이면** 상태 전이가 없어 _on_fsm_state 가 불리지 않는다.
