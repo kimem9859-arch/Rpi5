@@ -106,6 +106,27 @@ def test_m2_timeout_drops_channel():
     check(spk2.s is not None, "제때 끝나면 채널을 그대로 쓴다")
     b2.close()
 
+def test_final_minor_bad_wav_does_not_kill():
+    """④ 미룬 사소 4 — 16비트가 아닌 wav(8비트·홀수 길이)도 그 재생만 실패 — 음성비서가 죽지 않는다."""
+    print("\n[④ 사소 4] 16비트가 아닌 wav")
+    import wave
+    spk, b = _speaker_pair()
+    old = va.WAV_DIR
+    va.WAV_DIR = tempfile.mkdtemp()
+    try:
+        with wave.open(os.path.join(va.WAV_DIR, "8비트.wav"), "w") as w:
+            w.setnchannels(1)
+            w.setsampwidth(1)
+            w.setframerate(16000)
+            w.writeframes(bytes(range(101)))         # 홀수 바이트 — 16비트 배열로 못 읽는다
+        ok = spk.play("8비트")
+        check(ok is False, "그 재생만 실패로 돌려준다")
+    except Exception as e:                           # noqa: BLE001
+        check(False, f"예외로 끝났다 — {type(e).__name__}")
+    finally:
+        va.WAV_DIR = old
+        b.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

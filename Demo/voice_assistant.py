@@ -377,7 +377,9 @@ class Speaker:
         path = os.path.join(WAV_DIR, f"{key}.wav")
         try:
             body, sec = wav_payload(path)
-        except (OSError, EOFError, wave.Error) as e:
+        except Exception as e:                               # noqa: BLE001
+            # 🔑 읽는 단계의 모든 실패를 잡는다 — 16비트가 아닌 wav(홀수 길이 ValueError)·rate 0
+            #    (ZeroDivisionError)도 데몬을 죽이지 않는다(④ 사소 4).
             # 🔴 그 재생만 실패로 적는다 — 종전에는 try 밖이라 wav 가 없으면(`*.wav` 는 git 밖 —
             #    새 클론·sop-pi-2) 첫 답변에서 **데몬 전체가 죽었다**(검토 C20).
             log(f"🔴 재생 파일을 못 읽었다 → {key} · {e}")
