@@ -1055,6 +1055,7 @@ class SafetyConsole(QMainWindow):
             #    불리지 않는다. 그대로 두면 배너가 「순서 위반」 문구로 남고 음성비서도 위반
             #    차단이라고 말한다(② 리뷰 5 · G5·V2).
             self._show_block_banner(emo=True)
+            self._notify("danger", "비상정지", "전기 입력 차단됨")   # 일반 EMO 경로와 같게(③ 리뷰 M-9)
             self._publish_state()
         if self.fsm.expected_step != before and self.fsm.state != State.IDLE:
             self._stats.step_done(before, button, self._step_name(before))

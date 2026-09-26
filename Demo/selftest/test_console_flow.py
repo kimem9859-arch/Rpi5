@@ -1345,6 +1345,17 @@ def test_u20_refusal_popups_do_not_stack():
     check(shown == ["인터락 폴트", "해제 거부"], f"떠 있는 창 = {shown}")
     win.close()
 
+def test_m9_emo_during_violation_block_notifies():
+    """M-9 — 위반 차단 중 EMO 도 알림 목록에 「비상정지」를 남긴다(일반 EMO 경로와 같게 · ③ 리뷰 M-9)."""
+    print("\n[M-9] 차단 중 EMO 알림")
+    win = make_console()
+    win._on_cta()
+    key(win, "3")                                    # 위반 BLOCK
+    n0 = notify_titles(win).count("비상정지")
+    key(win, "E")
+    check(notify_titles(win).count("비상정지") == n0 + 1, "알림 목록에 「비상정지」가 하나 는다")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
