@@ -1415,6 +1415,20 @@ def test_review_i1_emo_during_reset_confirm_is_refused():
     check("reset_refused" in win._popups, "「초기화 거부」 창")
     win.close()
 
+def test_review_i4_block_wording_true_without_ch5():
+    """종합 리뷰 중요 4 — 차단 문구는 버튼 전기를 끊는다고 말하지 않는다. 지금 실물은 CH5 우회라
+    램프·부저만 켜지고 버튼 입력은 소프트웨어가 무시한다 — CH5 를 고친 뒤에도 참인 말을 쓴다."""
+    print("\n[종합 4] 차단 문구")
+    for k, label in (("3", "위반"), ("E", "EMO")):
+        win = make_console()
+        win._on_cta()
+        key(win, k)
+        check(win.alert._title.text() == "버튼 입력 차단됨", f"{label} 차단 제목 = {win.alert._title.text()!r}")
+        words = [win.alert._line1.text()] + notify_titles(win)
+        check(not any("전기" in t or "인터락이 작동" in t for t in words),
+              f"{label} 차단 — 전기를 끊었다·인터락이 작동했다고 쓰지 않는다: {words}")
+        win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

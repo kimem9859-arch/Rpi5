@@ -45,6 +45,8 @@ def test_v2_emo_block_card():
     check("비상정지" in card and "순서를 어겨" not in card, f"EMO 차단 카드: {card}")
     card2 = build_card(dict(LIVE, 상태="BLOCK", 비상정지=False), [], False)
     check("순서를 어겨" in card2, "위반 차단은 그대로")
+    check("전기" not in card2 and "버튼 입력" in card2,
+          f"차단 = 버튼 입력이 막힘 — 전기가 끊겼다고 쓰지 않는다(종합 리뷰 중요 4): {card2}")
 
 
 def main():

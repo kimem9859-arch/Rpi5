@@ -1057,7 +1057,7 @@ class SafetyConsole(QMainWindow):
             #    불리지 않는다. 그대로 두면 배너가 「순서 위반」 문구로 남고 음성비서도 위반
             #    차단이라고 말한다(② 리뷰 5 · G5·V2).
             self._show_block_banner(emo=True)
-            self._notify("danger", "비상정지", "전기 입력 차단됨")   # 일반 EMO 경로와 같게(③ 리뷰 M-9)
+            self._notify("danger", "비상정지", "버튼 입력 차단됨")   # 일반 EMO 경로와 같게(③ 리뷰 M-9)
             self._publish_state()
         if self.fsm.expected_step != before and self.fsm.state != State.IDLE:
             self._stats.step_done(before, button, self._step_name(before))
@@ -1467,13 +1467,13 @@ class SafetyConsole(QMainWindow):
             if self._last_button != emo:
                 self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "block")
                 self._show_block_banner(emo=False)
-                self._notify("danger", "전기 입력 차단됨",
+                self._notify("danger", "버튼 입력 차단됨",
                              f"{self.fsm.expected_step}단계 {self.fsm.correct_roi}")
             else:
                 # 🔴 EMO 차단을 「순서 위반」이라 적지 않는다(G5) — 해제하려면 EMO 부터
                 #    복귀해야 한다는 것을 문구가 알려야 한다.
                 self._show_block_banner(emo=True)
-                self._notify("danger", "비상정지", "전기 입력 차단됨")
+                self._notify("danger", "비상정지", "버튼 입력 차단됨")
             self._refresh_dim()
         elif new == State.WARNING:
             # 🔴 경고는 **버튼을 누르지 않고** 손이 오답 ROI 에 머물러 난 것이다 —

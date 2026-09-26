@@ -123,7 +123,7 @@ def build_card(state, dets, fresh):
             L.append("상태: 🔴 비상정지(EMO)로 멈춤 — 순서 위반이 아니다. "
                      "EMO 를 복귀한 뒤 「차단 해제」를 눌러야 한다")
         elif st == "BLOCK":
-            L.append("상태: 🔴 차단 중 — 순서를 어겨 전기 입력이 끊겼다")
+            L.append("상태: 🔴 차단 중 — 순서를 어겨 버튼 입력이 막혔다")
         elif st == "WARNING":
             L.append("상태: 경고 중 — 순서가 어긋났다")
         else:

@@ -588,13 +588,13 @@ class AlertBanner(_Panel):
                     f"쥔 것: {wrong_name} — {want_name}로 바꿔 주세요",
                     "", release_text=None, indent2=False)
 
-    def show_block(self, reason="순서 위반이 계속되어 인터락이 작동했습니다", hint=""):
+    def show_block(self, reason="순서 위반이 계속되어 차단했습니다", hint=""):
         """차단 — 해제 버튼 있음(EMO 미복귀 거부는 기존 _release_block 이 담당).
 
         hint = 둘째 줄(들여쓰기) — EMO 차단은 복귀 방법을 적는다.
         """
         self._mode = "block"
-        self._paint("danger", "⛔", "전기 입력 차단됨", reason, hint,
+        self._paint("danger", "⛔", "버튼 입력 차단됨", reason, hint,
                     release_text="차단 해제", indent2=bool(hint))
 
     def _paint(self, token, mark, title, line1, line2, release_text, indent2):

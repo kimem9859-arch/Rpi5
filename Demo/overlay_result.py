@@ -1,6 +1,6 @@
 """작업 완료 결과 안내창 — 정본: 상위 specs/2026-08-19-자동진행-결과창-design.md §3
 
-무엇을 보이나: 판정 · 누른 순서 · 소요시간 · 순서위반 · 인터락 · 공구 · 검출.
+무엇을 보이나: 판정 · 누른 순서 · 소요시간 · 순서위반 · 차단 · 공구 · 검출.
 
 🔴 **오탐지 건수를 보이지 않는다** — 정답 라벨 없이는 셀 수 없다(§3.4).
 🔴 **검출을 비율(%)로 보이지 않는다** — 손 없는 프레임이 분모에 섞인다.
@@ -97,8 +97,8 @@ class ResultPanel(_Sheet):
             for i, v in enumerate(vs, 1)] or ["없음"])
 
         ils = d["interlocks"]
-        self._section(f"인터락 작동 {len(ils)}건", [
-            f"{i}. {_stamp(x['at'])} 작동"
+        self._section(f"차단 {len(ils)}건", [
+            f"{i}. {_stamp(x['at'])} 차단"
             + (f" → {_stamp(x['released_at'])} 해제" if x["released_at"] else " (해제 안 됨)")
             for i, x in enumerate(ils, 1)] or ["없음"])
 

@@ -465,6 +465,8 @@ def test_result_panel_shows():
           "🔴 점수 표본이 없는 검출에는 신뢰도를 적지 않는다")
     check(any("분모가 다릅니다" in t for t in texts),
           "공구 검출은 분모가 다르다고 밝힌다")
+    check("차단 0건" in texts and not any("인터락 작동" in t for t in texts),
+          "차단 기록은 「차단 N건」 — 인터락이 작동했다고 쓰지 않는다(종합 리뷰 중요 4)")
     panel.hide()
 
 

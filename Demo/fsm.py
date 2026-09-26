@@ -24,7 +24,7 @@ class State(enum.Enum):
     PROCESS_RUN = "PROCESS RUN"   # 정상 공정 진행 중
     MONITOR     = "MONITOR"       # 손-ROI 판정 (정답/오답 분기)
     WARNING     = "WARNING"       # 시·청 경고 출력
-    BLOCK       = "BLOCK"         # 인터록으로 전기 입력 차단
+    BLOCK       = "BLOCK"         # 인터록 BLOCK · 버튼 입력 무시(버튼 전기 차단 CH5 는 실물 우회 — 통합문서 §12 🔓)
 
 
 class Feedback(enum.Enum):
