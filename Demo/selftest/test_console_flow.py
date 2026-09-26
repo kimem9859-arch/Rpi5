@@ -1443,6 +1443,8 @@ def test_camera_recording_before_first_frame_keeps_frame_size():
         win._stop_recording()
         check(not win._recording, "영상 없이 멈춰도 녹화가 꺼진다")
     finally:
+        import shutil
+        shutil.rmtree(safety_console.RECORDING_SAVE_DIR, ignore_errors=True)
         safety_console.RECORDING_SAVE_DIR = old_dir
     win.close()
 

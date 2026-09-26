@@ -51,6 +51,7 @@ cat docs/TESTING_FSM.md        # 이 문서
 ## 3. 빠른 검증 — 하드웨어·카메라 없이 (약 1분)
 ```bash
 cd Demo
+python3 selftest/run_all.py                  # selftest 전부 → 마지막 줄 "SELFTEST N pass / 0 fail / N skip" · 종료 코드 0
 ../.venv/bin/python selftest/test_fsm.py     # FSM 전이 → "39/39 passed"
 ../.venv/bin/python selftest/test_recipe.py  # 레시피      → "15/15 passed"
 ../.venv/bin/python selftest/test_hoi_sim.py # 인식→판정 4종 → "4/4 passed"
