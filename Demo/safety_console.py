@@ -1493,7 +1493,7 @@ class SafetyConsole(QMainWindow):
                 self.alert.hide_all()
                 self._refresh_dim()
 
-        # IDLE 로 돌아오면 다시 「작업 시작」을 띄운다
+        # IDLE 로 돌아오면 서브 작업을 정리하고 「작업 시작」 문구로 되돌린다
         if new == State.IDLE:
             self._sub_timer.stop()
             self._end_tool_scan()
@@ -1501,10 +1501,12 @@ class SafetyConsole(QMainWindow):
             self._sub_button = None
             self.gauge_panel.update_view(None)
             self.btn_cta.setText("▶  작업 시작")
-            # 🔴 show() 를 직접 부르지 않는다 — 결과창이 떠 있으면 그 뒤로 비친다.
-            #    "기억하지 말고 상태에서 그때그때 계산한다"(_sync_cta_visibility).
-            self._sync_cta_visibility()
 
+        # 「작업 시작」 버튼은 **모든 전이에서** 상태로 다시 계산한다 — IDLE 로 올 때만 부르면 작업 전
+        # EMO(IDLE → BLOCK)에 버튼이 남아 차단 배너 판 뒤로 비쳤다(종합 리뷰 B-M2).
+        # 🔴 show() 를 직접 부르지 않는다 — 결과창이 떠 있으면 그 뒤로 비친다.
+        #    "기억하지 말고 상태에서 그때그때 계산한다"(_sync_cta_visibility).
+        self._sync_cta_visibility()
         self._relayout()
 
     def _on_interlock(self, engaged):

@@ -1463,6 +1463,32 @@ def test_review_i4_block_wording_true_without_ch5():
               f"{label} 차단 — 전기를 끊었다·인터락이 작동했다고 쓰지 않는다: {words}")
         win.close()
 
+def test_review_bm2_cta_hidden_while_emo_before_start():
+    """종합 리뷰 B-M2 — 작업 전 EMO 로 차단되면 「작업 시작」을 감춘다(차단 배너 판 뒤로 비치던 것) · 해제하면 돌아온다.
+    결과창이 뜬 채 EMO 를 누르고 풀어도 결과창 뒤로 비치지 않는다."""
+    print("\n[종합 B-M2] 작업 전 EMO 와 「작업 시작」")
+    win = make_console()
+    check(not win.btn_cta.isHidden(), "작업 전 — 「작업 시작」 보임")
+    key(win, "E")
+    check(win.fsm.state == State.BLOCK, f"EMO 차단({win.fsm.state.value})")
+    check(win.btn_cta.isHidden(), "차단 중에는 「작업 시작」을 감춘다")
+    win.gpio_input.emo_active = lambda: False        # EMO 복귀
+    win._release_block()
+    check(win.fsm.state == State.IDLE, f"해제 → 대기({win.fsm.state.value})")
+    check(not win.btn_cta.isHidden(), "해제하면 「작업 시작」이 돌아온다")
+    win.close()
+    win = make_console()
+    win._on_cta()
+    for k in ("1", "2", "3", "4"):
+        key(win, k)
+        finish_sub(win)
+    check(not win.result_panel.isHidden(), "완주 — 결과창")
+    key(win, "E")
+    win.gpio_input.emo_active = lambda: False
+    win._release_block()
+    check(win.btn_cta.isHidden(), "결과창이 뜬 채 EMO 를 누르고 풀어도 「작업 시작」이 결과창 뒤로 비치지 않는다")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
