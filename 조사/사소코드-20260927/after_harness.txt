@@ -1,0 +1,5 @@
+emo_idle_cta rc=0
+CTA 보임=False
+RESULT scen=emo_idle_cta problems=0 rc=0
+emo_states rc=0
+RESULT scen=emo_states problems=0 rc=0
