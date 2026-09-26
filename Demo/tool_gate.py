@@ -92,10 +92,12 @@ class ToolGate:
         self._pending.clear()
 
         try:
-            self._proc = subprocess.Popen(
-                [self._python, _WORKER, self._dir, self._model, str(self._conf)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
+            # 🔑 오류 출력은 공유 폴더의 파일로 받는다 — 버리면 워커가 죽은 이유를 볼 수 없었다(C14)
+            with open(os.path.join(self._dir, "worker.err"), "wb") as err:
+                self._proc = subprocess.Popen(
+                    [self._python, _WORKER, self._dir, self._model, str(self._conf)],
+                    stdout=subprocess.DEVNULL, stderr=err,
+                )
             self._log("[공구] 추론 워커를 띄웠습니다 — 모델 로딩에 몇 초 걸립니다.")
         except OSError as e:
             self._proc = None
@@ -129,8 +131,31 @@ class ToolGate:
             return self._ready()
 
     def _ready(self):
-        """(잠금 안에서) 워커가 떠 있고 모델 로딩까지 끝났는가."""
-        return self._proc is not None and os.path.exists(os.path.join(self._dir, "ready"))
+        """(잠금 안에서) 워커가 **살아 있고** 모델 로딩까지 끝났는가.
+
+        🔴 워커가 끝나 있으면(OOM 등) 한 번 로그를 남기고 내린 것으로 본다(검토 C14) — 종전에는
+           `ready` 파일만 봐서 죽은 워커가 「사용 가능」으로 남았고, 요청 JPEG 만 쌓인 채 공구
+           게이트가 로그 없이 영영 안 열렸다. 다음 서브 작업의 start() 가 다시 띄운다.
+        """
+        if self._proc is None:
+            return False
+        rc = self._proc.poll()
+        if rc is not None:
+            self._proc = None
+            self._pending.clear()
+            self._log(f"[공구] 🔴 추론 워커가 끝났습니다(종료 코드 {rc}) — 공구 지참 단계가 "
+                      f"자동으로 넘어가지 않습니다.{self._err_tail()}")
+            return False
+        return os.path.exists(os.path.join(self._dir, "ready"))
+
+    def _err_tail(self, n=5):
+        """워커 오류 출력(worker.err)의 끝 n 줄 — 없으면 빈 문자열."""
+        try:
+            with open(os.path.join(self._dir, "worker.err"), encoding="utf-8", errors="replace") as f:
+                lines = [ln.rstrip() for ln in f if ln.strip()]
+        except OSError:
+            return ""
+        return "".join("\n    " + ln for ln in lines[-n:])
 
     # ------------------------------------------------------------------ 요청
     def request(self, frame, fingertip):

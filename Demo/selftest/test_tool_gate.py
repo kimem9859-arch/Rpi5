@@ -80,7 +80,7 @@ def test_ready없으면_비활성():
     tmp = tempfile.mkdtemp()
     try:
         gate = _gate(tmp)
-        gate._proc = object()          # spawn 이 된 것처럼 꾸민다
+        gate._proc = _Alive()          # spawn 이 된 것처럼 꾸민다
         check(gate.available is False, "ready 파일이 없으면 아직 비활성")
         _mark_ready(tmp)
         check(gate.available is True, "ready 가 생기면 활성")
@@ -95,7 +95,7 @@ def test_요청시점_손좌표와_짝지어_돌아온다():
     tmp = tempfile.mkdtemp()
     try:
         gate = _gate(tmp)
-        gate._proc = object()
+        gate._proc = _Alive()
         _mark_ready(tmp)
 
         gate.request(FRAME, (10, 20))                  # seq=1
@@ -127,7 +127,7 @@ def test_같은응답을_두번_주지않는다():
     tmp = tempfile.mkdtemp()
     try:
         gate = _gate(tmp)
-        gate._proc = object()
+        gate._proc = _Alive()
         _mark_ready(tmp)
         gate.request(FRAME, (5, 5))
         _write_resp(tmp, seq=1, dets=[])
@@ -143,7 +143,7 @@ def test_손이_안보인_요청도_그대로():
     tmp = tempfile.mkdtemp()
     try:
         gate = _gate(tmp)
-        gate._proc = object()
+        gate._proc = _Alive()
         _mark_ready(tmp)
         gate.request(FRAME, None)
         _write_resp(tmp, seq=1, dets=[["wrench", 0.7, 0, 0, 9, 9]])
@@ -160,7 +160,7 @@ def test_깨진응답을_견딘다():
     tmp = tempfile.mkdtemp()
     try:
         gate = _gate(tmp)
-        gate._proc = object()
+        gate._proc = _Alive()
         _mark_ready(tmp)
         gate.request(FRAME, (1, 1))
         with open(os.path.join(tmp, "resp.json"), "w") as f:
@@ -175,7 +175,7 @@ def test_요청파일이_실제로_생긴다():
     tmp = tempfile.mkdtemp()
     try:
         gate = _gate(tmp)
-        gate._proc = object()
+        gate._proc = _Alive()
         _mark_ready(tmp)
         gate.request(FRAME, (1, 1))
         reqs = [f for f in os.listdir(tmp) if f.startswith("req_")]
@@ -243,6 +243,39 @@ def test_c13_stop_during_poll():
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
+# ------------------------------------------------------- ④ 죽은 워커(C14)
+def test_c14_dead_worker_not_available():
+    """C14 — 워커가 죽으면 「사용 가능」에서 빠지고, 종료 코드와 오류 출력이 로그에 남는다(검토 C14)."""
+    print("[9] 죽은 워커")
+    import tool_gate
+    tmp = tempfile.mkdtemp()
+    script = os.path.join(tempfile.mkdtemp(), "fake_worker.py")
+    with open(script, "w", encoding="utf-8") as f:
+        f.write("import os, sys\n"
+                "open(os.path.join(sys.argv[1], 'ready'), 'w').close()\n"
+                "sys.stderr.write('MemoryError: 시험용 워커 사망\\n')\n"
+                "sys.exit(3)\n")
+    old = tool_gate._WORKER
+    tool_gate._WORKER = script
+    logs = []
+    try:
+        gate = ToolGate(shm_dir=tmp, python=sys.executable, model=script, conf=0.65,
+                        log=logs.append)
+        gate.start()
+        end = time.time() + 5
+        while gate._proc is not None and gate._proc.poll() is None and time.time() < end:
+            time.sleep(0.02)
+        check(os.path.exists(os.path.join(tmp, "ready")), "워커가 ready 를 남기고 죽었다(시험 조건)")
+        check(gate.available is False, "죽은 워커는 「사용 가능」이 아니다")
+        check(any("종료 코드 3" in m for m in logs), "로그에 종료 코드")
+        check(any("시험용 워커 사망" in m for m in logs), "로그에 워커 오류 출력")
+        gate.request(FRAME, (1, 1))
+        check(not any(n.startswith("req_") for n in os.listdir(tmp)), "죽은 워커에게 요청을 쌓지 않는다")
+        gate.stop()
+    finally:
+        tool_gate._WORKER = old
+        shutil.rmtree(tmp, ignore_errors=True)
+
 if __name__ == "__main__":
     t0 = time.time()
     test_워커없으면_조용히_비활성()
@@ -253,6 +286,7 @@ if __name__ == "__main__":
     test_깨진응답을_견딘다()
     test_요청파일이_실제로_생긴다()
     test_c13_stop_during_poll()
+    test_c14_dead_worker_not_available()
 
     elapsed = time.time() - t0
     print()
