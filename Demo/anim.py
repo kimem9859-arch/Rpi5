@@ -95,6 +95,7 @@ class Pulse:
 
     🔴 반드시 stop() 으로 멈춘다 — 살아남으면 QSS 를 계속 재적용해 CPU 를 태운다.
     base_qss_fn: 맥박이 덧씌울 바탕 QSS 를 그때그때 만들어 주는 함수(테마 전환 대응).
+    color_hex: 색(#RRGGBB) 또는 그때그때 색을 주는 함수 — 시작할 때 읽는다(테마 전환 대응 · 리뷰 U14 ③).
     """
 
     def __init__(self, widget, base_qss_fn, color_hex, selector=None):
@@ -108,7 +109,7 @@ class Pulse:
         if self._anim is not None:
             return                      # 이미 뛰고 있으면 재시작하지 않는다
         base = self._base()
-        c = QColor(self._c)
+        c = QColor(self._c() if callable(self._c) else self._c)
 
         def step(t):
             a = 0.30 + 0.70 * float(t)

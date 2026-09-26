@@ -480,6 +480,10 @@ class GlowFrame(QWidget):
         self.raise_()
         self.show()
 
+    def apply_theme(self):
+        """테마가 바뀌면 지금 단계를 새 색으로 다시 그린다(리뷰 U14 ④ — 켜 둔 테두리가 옛 색으로 남던 것)."""
+        self.set_level(self._level)
+
     @property
     def level(self):
         return self._level
@@ -510,7 +514,7 @@ class AlertBanner(_Panel):
         # 차단 맥박 — 🔴 mode 를 벗어나거나 숨길 때 반드시 stop() 한다.
         self._pulse = anim.Pulse(
             self, lambda: theme.panel_qss("sheet", padding="0"),
-            theme.C("danger"), selector=_ALERT_SEL)
+            lambda: theme.C("danger"), selector=_ALERT_SEL)   # 색도 그때그때(U14 ③)
         self._shown_mode = None         # 화면에 그려져 있는 mode (등장 트리거 비교용)
         self._last_paint = None         # 마지막 _paint 인자 — 테마를 다시 칠할 때 쓴다(G8)
         self._needs_entrance = False    # 다음 relayout 에서 미끄러져 들어올 것
@@ -634,6 +638,11 @@ class AlertBanner(_Panel):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         if self._mode is not None and self._last_paint is not None:
             self._paint(*self._last_paint)
+            if self._pulse.active():
+                # 🔴 뛰는 맥박은 시작할 때의 바탕·색을 쥐고 매 틱 덮어쓴다 — 새 색으로 다시
+                #    시작한다(리뷰 U14 ③ — 테마를 바꿔도 다크 빨강 맥박이 남았다).
+                self._pulse.stop()
+                self._pulse.start()
 
     def hide_all(self):
         self._mode = None

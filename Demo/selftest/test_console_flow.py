@@ -1301,6 +1301,22 @@ def test_u13_dim_follows_state():
     check(not win.scrim.isHidden(), "차단 중 메뉴를 열었다 닫아도 배너 뒤 어둡게 하기가 남는다")
     win.close()
 
+def test_u14_console_theme_repaints_glow():
+    """U14 ④ — 콘솔의 테마 전환이 발광 테두리까지 다시 칠한다."""
+    print("\n[U14] 콘솔 테마 → 발광")
+    old = theme.GLOW_BORDER
+    theme.GLOW_BORDER = True
+    win = make_console()
+    try:
+        win._on_cta()
+        key(win, "3")                                    # 위반 BLOCK → 발광
+        win._on_theme_changed("light")
+        check(theme.C("danger") in win.glow.styleSheet(), "발광 테두리가 화이트 테마 빨강")
+    finally:
+        theme.GLOW_BORDER = old
+        theme.set_theme("dark")
+        win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

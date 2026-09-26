@@ -589,6 +589,50 @@ def test_u14_status_rows_follow_theme():
     finally:
         theme.set_theme("dark")
 
+def test_u14_block_pulse_follows_theme():
+    """U14 ③ — 차단 맥박 색도 테마를 따른다(생성 때 다크 빨강으로 굳던 것)."""
+    print("\n[U14] 차단 맥박 테마")
+    from PyQt6.QtGui import QColor
+    from PyQt6.QtTest import QTest
+    config.UI_ANIMATION = True
+    theme.set_theme("dark")
+    try:
+        host = QWidget()
+        b = AlertBanner(host)
+        b.show_block()
+        theme.set_theme("light")
+        b.apply_theme()
+        QTest.qWait(150)                                  # 맥박이 몇 번 칠할 시간
+        c = QColor(theme.C("danger"))
+        check(f"rgba({c.red()},{c.green()},{c.blue()}," in b.styleSheet(),
+              "맥박 테두리가 화이트 테마 빨강")
+        b.hide_all()
+    finally:
+        config.UI_ANIMATION = False
+        theme.set_theme("dark")
+
+
+def test_u14_glow_follows_theme():
+    """U14 ④ — 켜 둔 발광 테두리도 테마를 바꾸면 새 색으로."""
+    print("\n[U14] 발광 테마")
+    old = theme.GLOW_BORDER
+    theme.GLOW_BORDER = True
+    theme.set_theme("dark")
+    try:
+        host = QWidget()                                  # 🔴 부모를 붙들어 둔다 — 임시 부모는 곧바로 지워진다
+        g = GlowFrame(host)
+        g.set_level("block")
+        theme.set_theme("light")
+        try:
+            g.apply_theme()
+        except AttributeError as e:
+            check(False, f"발광이 테마를 받지 못한다 — {e}")
+            return
+        check(theme.C("danger") in g.styleSheet(), "테두리가 화이트 테마 빨강")
+    finally:
+        theme.GLOW_BORDER = old
+        theme.set_theme("dark")
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

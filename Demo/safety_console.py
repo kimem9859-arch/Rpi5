@@ -416,7 +416,7 @@ class SafetyConsole(QMainWindow):
 
     def _apply_theme(self):
         """테마가 바뀌면 모든 오버레이에 다시 적용한다."""
-        for w in (self.status_panel, self.gauge_panel, self.alert,
+        for w in (self.status_panel, self.gauge_panel, self.alert, self.glow,
                   self.menu_panel, self.notify_panel, self.settings_panel,
                   self.check_panel, self.record_panel, self.result_panel,
                   self.conn_bar):
