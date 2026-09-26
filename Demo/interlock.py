@@ -271,6 +271,10 @@ class InterlockController:
             attempts = 1 + (self._block_retries if cmd == "BLOCK" else 0)
             for i in range(attempts):
                 try:
+                    # 🔴 보내기 직전마다 받은 것을 비운다(검토 C15) — ACK 에 순번이 없어, 한도(1초)를
+                    #    넘겨 늦게 온 ACK 가 남아 있으면 **다음 명령의 ACK 로 읽혔다**(릴레이가 안
+                    #    움직였어도 BLOCK 「(ACK)」). 늦은 ACK 는 버리고 이번 명령의 응답만 본다.
+                    ser.reset_input_buffer()
                     ser.write((cmd + "\n").encode("ascii"))
                     ser.flush()
                 except Exception as e:

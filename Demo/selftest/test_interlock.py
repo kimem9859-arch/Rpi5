@@ -174,6 +174,52 @@ def test_i2_no_ack_device_not_green():
         c.close()
         _FakeSerial.ack = True
 
+class _LateAckSerial(_FakeSerial):
+    """WARN 의 ACK 가 한도(1초)를 넘겨 늦게 오고, BLOCK 에는 응답이 없는 장치(릴레이 고장)."""
+
+    def __init__(self, port):
+        super().__init__(port, 115200)
+        self._buf = []
+        self._late = 0
+
+    def write(self, b):
+        self.writes.append(b.decode().strip())
+        if self.writes[-1] == "WARN":
+            self._late += 1                              # 한도 안에는 안 온다
+
+    def readline(self):
+        if self._buf:
+            return self._buf.pop(0)
+        if self._late:                                   # 기다림이 끝난 **뒤에** 도착
+            self._buf += [b"ACK\n"] * self._late
+            self._late = 0
+        return b""
+
+    def reset_input_buffer(self):
+        self._buf.clear()
+
+
+def test_c15_late_ack_not_taken_for_block():
+    """C15 — 늦게 온 WARN 의 ACK 를 BLOCK 의 ACK 로 읽지 않는다(검토 C15 — 차단 확인이 거짓이 됐다)."""
+    print("\n[C15] 늦은 ACK")
+    tmp = tempfile.mkdtemp()
+    dev = os.path.join(tmp, "ttyACM0")
+    open(dev, "w").close()
+    box = {"p": dev}
+    c = _ctl(box)
+    faults = []
+    try:
+        check(_wait(lambda: c.connected), "처음 붙음")
+        with c._lock:
+            c._ser = _LateAckSerial(dev)
+        c._on_fault = faults.append
+        c._write_now("WARN")
+        c._write_now("BLOCK")
+        check(bool(faults), "BLOCK 차단 확인 실패를 알린다(늦은 WARN-ACK 로 속지 않는다)")
+        check(not c.connected, "응답 없는 장치를 「연결됨」으로 두지 않는다")
+    finally:
+        c.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
