@@ -1415,6 +1415,37 @@ def test_review_i1_emo_during_reset_confirm_is_refused():
     check("reset_refused" in win._popups, "「초기화 거부」 창")
     win.close()
 
+def test_camera_recording_before_first_frame_keeps_frame_size():
+    """09-23 XGA 리뷰 미룬 사소 — 첫 영상이 오기 전에 「카메라 영역」 녹화를 시작해도 파일은 영상 크기로 만든다.
+    크기를 (640, 480) 으로 정해 두면 XGA 세로 영상(768×1024)이 전부 가로로 늘려져 찌그러졌다."""
+    print("\n[녹화] 첫 영상 전 카메라 영역 녹화")
+    import tempfile
+    import cv2
+    import numpy as np
+    import safety_console
+    win = make_console()
+    old_dir = safety_console.RECORDING_SAVE_DIR
+    safety_console.RECORDING_SAVE_DIR = tempfile.mkdtemp(prefix="sop_rec_test_")
+    try:
+        check(win._last_frame_size is None, "시험 조건 — 아직 영상이 오지 않았다")
+        win._start_recording("camera")
+        for _ in range(5):                                   # 첫 영상들이 들어온다 — XGA 회전 뒤 세로
+            win._record_camera_frame(np.zeros((1024, 768, 3), np.uint8))
+        path = win._recording_path
+        win._stop_recording()
+        cap = cv2.VideoCapture(path)
+        size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        cap.release()
+        check(size == (768, 1024), f"파일 크기 = 영상 크기 768×1024 (실제 {size[0]}×{size[1]})")
+        check(not win._recording, "녹화가 꺼졌다")
+
+        win._start_recording("camera")                       # 영상이 끝내 안 오고 멈춤
+        win._stop_recording()
+        check(not win._recording, "영상 없이 멈춰도 녹화가 꺼진다")
+    finally:
+        safety_console.RECORDING_SAVE_DIR = old_dir
+    win.close()
+
 def test_review_i4_block_wording_true_without_ch5():
     """종합 리뷰 중요 4 — 차단 문구는 버튼 전기를 끊는다고 말하지 않는다. 지금 실물은 CH5 우회라
     램프·부저만 켜지고 버튼 입력은 소프트웨어가 무시한다 — CH5 를 고친 뒤에도 참인 말을 쓴다."""

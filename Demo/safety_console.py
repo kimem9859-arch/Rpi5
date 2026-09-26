@@ -1650,19 +1650,12 @@ class SafetyConsole(QMainWindow):
                 RECORDING_SAVE_DIR, f"{timestamp}_{mode}.{ext}")
             self._recording_mode = mode
 
-            if mode == "camera":
-                size = self._last_frame_size or (640, 480)
-            else:
-                size = (self.width(), self.height())
-            self._recording_size = size
-
-            fourcc = cv2.VideoWriter_fourcc(*RECORDING_CODEC)
-            self._video_writer = cv2.VideoWriter(
-                self._recording_path, fourcc, RECORDING_FPS, size)
-            if not self._video_writer.isOpened():
-                self._append_log(f"[녹화] VideoWriter 생성 실패 (코덱 {RECORDING_CODEC})")
-                self._video_writer = None
-                self._notify("warn", "녹화 시작 실패", f"코덱 {RECORDING_CODEC} 사용 불가")
+            # 🔑 카메라 영역인데 아직 영상이 없으면 파일은 **첫 영상이 올 때 그 크기로** 연다
+            #    (_record_camera_frame). 크기를 미리 (640, 480) 으로 정해 두면 XGA 세로 영상
+            #    (768×1024)이 전부 가로로 늘려져 찌그러졌다(09-23 XGA 리뷰 미룬 사소).
+            size = (self._last_frame_size if mode == "camera"
+                    else (self.width(), self.height()))
+            if size is not None and not self._open_video_writer(size):
                 return
             self._recording = True
             self._recording_started = time.time()
@@ -1674,6 +1667,19 @@ class SafetyConsole(QMainWindow):
             self.record_panel.set_state(True, self._recording_path, 0)
         except Exception as e:
             self._append_log(f"[녹화] 시작 오류: {e}")
+
+    def _open_video_writer(self, size):
+        """녹화 파일을 그 크기로 연다. 열리지 않으면 알리고 False."""
+        self._recording_size = size
+        fourcc = cv2.VideoWriter_fourcc(*RECORDING_CODEC)
+        self._video_writer = cv2.VideoWriter(
+            self._recording_path, fourcc, RECORDING_FPS, size)
+        if self._video_writer.isOpened():
+            return True
+        self._append_log(f"[녹화] VideoWriter 생성 실패 (코덱 {RECORDING_CODEC})")
+        self._video_writer = None
+        self._notify("warn", "녹화 시작 실패", f"코덱 {RECORDING_CODEC} 사용 불가")
+        return False
 
     def _capture_window_frame(self):
         """Full 모드 전용 — 창 전체를 캡처한다. GUI 스레드에서 돈다."""
@@ -1698,11 +1704,15 @@ class SafetyConsole(QMainWindow):
 
     def _record_camera_frame(self, frame_bgr):
         """카메라 영역 모드 — 이미 받아 둔 프레임을 그대로 쓴다(창 캡처 없음)."""
-        if not self._recording or self._video_writer is None:
-            return
-        if self._recording_mode != "camera":
+        if not self._recording or self._recording_mode != "camera":
             return
         try:
+            if self._video_writer is None:
+                # 영상 전에 시작한 녹화의 첫 영상 — 이 크기로 파일을 연다(_start_recording)
+                if not self._open_video_writer((frame_bgr.shape[1], frame_bgr.shape[0])):
+                    self._recording = False
+                    self.record_panel.set_state(False)
+                    return
             tw, th = self._recording_size
             if frame_bgr.shape[1] != tw or frame_bgr.shape[0] != th:
                 frame_bgr = cv2.resize(frame_bgr, (tw, th))
@@ -1712,15 +1722,20 @@ class SafetyConsole(QMainWindow):
 
     def _stop_recording(self):
         self._recording_timer.stop()
+        was_recording = self._recording
+        self._recording = False
         if self._video_writer is not None:
             self._video_writer.release()
             self._video_writer = None
-            self._recording    = False
             size_mb = (os.path.getsize(self._recording_path) / 1024 / 1024
                        if os.path.exists(self._recording_path) else 0)
             self._append_log(f"[녹화] 종료 — {self._recording_path} ({size_mb:.1f} MB)")
             self._notify("work", "녹화 종료",
                          f"{os.path.basename(self._recording_path)} · {size_mb:.1f} MB")
+        elif was_recording:
+            # 카메라 영역 녹화를 켰는데 영상이 한 장도 오지 않았다 — 파일을 만들지 않았다
+            self._append_log("[녹화] 종료 — 영상이 오지 않아 파일을 만들지 않았다")
+            self._notify("work", "녹화 종료", "영상이 오지 않아 파일 없음")
         if hasattr(self, "record_panel"):
             self.record_panel.set_state(False)
 
