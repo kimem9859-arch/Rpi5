@@ -1283,6 +1283,24 @@ def test_final_banner_follows_interlock_link():
     check("화면에서만" in win.alert._line2.text(), f"끊기면 다시 알린다 — {win.alert._line2.text()!r}")
     win.close()
 
+def test_u13_dim_follows_state():
+    """U13 — 어둡게 하기는 상태에서 계산한다 — 메뉴를 연 채 손이 들락거려도, 차단 중 메뉴를 열었다 닫아도 유지된다(리뷰 U13)."""
+    print("\n[U13] 어둡게 하기")
+    win = make_console()
+    win._on_cta()
+    win._toggle_menu(True)
+    t0 = time.time()
+    win.fsm.update_vision("B1", t0)                  # 손 진입 → MONITOR
+    win.fsm.update_vision(None, t0 + 5)              # 이탈 → PROCESS_RUN
+    check(not win.scrim.isHidden(), "메뉴가 열린 동안 손이 들락거려도 어둡게 한다")
+    win._toggle_menu(False)
+    check(win.scrim.isHidden(), "메뉴를 닫으면 걷힌다")
+    key(win, "3")                                    # 위반 BLOCK
+    win._toggle_menu(True)
+    win._toggle_menu(False)
+    check(not win.scrim.isHidden(), "차단 중 메뉴를 열었다 닫아도 배너 뒤 어둡게 하기가 남는다")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

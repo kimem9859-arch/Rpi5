@@ -520,7 +520,7 @@ class SafetyConsole(QMainWindow):
         self.menu_panel.setVisible(want)
         if want:
             self.menu_panel.raise_()
-        self._dim_others(self._any_sheet_open())
+        self._refresh_dim()
         self._sync_cta_visibility()
 
     def _toggle_notify(self, show=None):
@@ -532,7 +532,7 @@ class SafetyConsole(QMainWindow):
             self.notify_panel.raise_()
             self._unread = 0                 # 열면 읽음 — 배지가 사라진다
             self.btn_notify.set_count(0)
-        self._dim_others(self._any_sheet_open())
+        self._refresh_dim()
         self._sync_cta_visibility()
 
     def _toggle_settings(self, show=None):
@@ -550,7 +550,7 @@ class SafetyConsole(QMainWindow):
             self.settings_panel.layout().activate()
             self.settings_panel.relayout(self._root.rect())
             self.settings_panel.raise_()
-        self._dim_others(self._any_sheet_open())
+        self._refresh_dim()
         self._sync_cta_visibility()
 
     def _sheets(self):
@@ -711,7 +711,7 @@ class SafetyConsole(QMainWindow):
             panel.layout().activate()
             panel.relayout(self._root.rect())
             panel.raise_()
-        self._dim_others(self._any_sheet_open())
+        self._refresh_dim()
         self._sync_cta_visibility()
 
     def _open_settings(self):
@@ -730,6 +730,16 @@ class SafetyConsole(QMainWindow):
     def _show_log(self):
         self._toggle_menu(False)
         self._set_log_visible(self.log_browser.isHidden())
+
+    def _refresh_dim(self):
+        """스크림을 **지금 상태에서 계산**해 켜고 끈다 — 열린 창이 있거나 배너(경고·공구 경고·차단)가
+        떠 있으면 어둡게(리뷰 U13).
+
+        🔴 호출부가 켜짐·꺼짐을 넘기지 않는다 — 종전에는 메뉴를 연 채 손이 들락거리면
+           (MONITOR↔PROCESS_RUN) 상태 분기가 스크림을 껐고, 차단 중 메뉴를 열었다 닫으면 배너 뒤
+           어둡게 하기가 사라졌다. `_sync_cta_visibility` 와 같은 원칙(기억하지 말고 계산).
+        """
+        self._dim_others(self._any_sheet_open() or self.alert.mode is not None)
 
     def _dim_others(self, dimmed):
         """열린 패널·경고가 주인공이 되도록 뒤를 어둡게 한다 (design §4.7·§4.5).
@@ -1063,14 +1073,14 @@ class SafetyConsole(QMainWindow):
         self._close_sheets()
         self.result_panel.relayout(self._root.rect())
         self.result_panel.show_result(data)
-        self._dim_others(True)
+        self._refresh_dim()
         self._sync_cta_visibility()
         self._append_log(f"[결과] 작업 완료 — {'위반 없음' if data['ok'] else '위반 있음'}"
                          f" · 총 {data['total_sec']:.0f}초")
 
     def _close_result(self):
         self.result_panel.hide()
-        self._dim_others(self._any_sheet_open())
+        self._refresh_dim()
         self._sync_cta_visibility()
 
     def _sub_spec_for(self, button):
@@ -1231,7 +1241,7 @@ class SafetyConsole(QMainWindow):
             if self.alert.mode is None:
                 self.alert.show_wrong_tool(sub.wrong_tool_name, sub.want_tool_name)
                 self.glow.set_level("warn")
-                self._dim_others(True)
+                self._refresh_dim()
                 self._relayout()
             # 🔴 같은 오답 공구는 한 번만 알리고 센다(G11) — 손이 잠깐 안 보일 때마다
             #    배너가 다시 떠도 결과창 횟수는 「집은 횟수」여야 한다(리뷰 U12).
@@ -1244,7 +1254,7 @@ class SafetyConsole(QMainWindow):
         elif self.alert.mode == "tool":
             self.alert.hide_all()
             self.glow.set_level(None)
-            self._dim_others(False)
+            self._refresh_dim()
 
         # 조건(시간 AND 공구)을 다 채우면 **버튼 없이 스스로** 진행한다.
         # 🔑 _finish_sub() 가 self._sub = None 을 먼저 하므로 _tick_sub() 의
@@ -1368,7 +1378,7 @@ class SafetyConsole(QMainWindow):
         self.gauge_panel.update_view(None)
         self.alert.hide_all()
         self.glow.set_level(None)
-        self._dim_others(False)
+        self._refresh_dim()
         self.btn_cta.setText("▶  작업 시작")
         self._toggle_menu(False)
         self._sync_cta_visibility()
@@ -1459,7 +1469,7 @@ class SafetyConsole(QMainWindow):
                 #    복귀해야 한다는 것을 문구가 알려야 한다.
                 self._show_block_banner(emo=True)
                 self._notify("danger", "비상정지", "전기 입력 차단됨")
-            self._dim_others(True)
+            self._refresh_dim()
         elif new == State.WARNING:
             # 🔴 경고는 **버튼을 누르지 않고** 손이 오답 ROI 에 머물러 난 것이다 —
             #    「실제」에 마지막 물리 눌림(_last_button)을 적으면 방금 정상
@@ -1468,7 +1478,7 @@ class SafetyConsole(QMainWindow):
             self._stats.violation(self.fsm.correct_roi, self.fsm.last_roi or "?", "warn")
             self.glow.set_level("warn")
             self.alert.show_order_violation(self.fsm.correct_roi, self.fsm.current_step_name)
-            self._dim_others(True)
+            self._refresh_dim()
             self._notify("warn", "순서가 다릅니다",
                          f"지금은 {self.fsm.correct_roi} {self.fsm.current_step_name}")
         else:
@@ -1476,7 +1486,7 @@ class SafetyConsole(QMainWindow):
             if self.alert.mode != "tool":
                 self.glow.set_level(None)
                 self.alert.hide_all()
-                self._dim_others(False)
+                self._refresh_dim()
 
         # IDLE 로 돌아오면 다시 「작업 시작」을 띄운다
         if new == State.IDLE:
