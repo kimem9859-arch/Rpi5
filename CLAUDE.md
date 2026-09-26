@@ -10,7 +10,7 @@
 비전(버튼 검출 + 손) → 손-버튼 ROI 접촉 → §7.0 → **FSM 순서판정** → 물리 인터락(트랙 A)·안돈 피드백.
 
 ## 핵심 — FSM & 레시피 (fsm-interlock 작업으로 추가)
-- **`fsm.py` `SafetyFSM`** — 6상태 `State`(IDLE/READY/PROCESS_RUN/MONITOR/WARNING/BLOCK). 콜백 `on_state_change`·**`on_interlock(bool)`**(→트랙 A 차단)·`on_feedback`. 주요 메서드: `load_recipe()`·`update_vision(roi, now)`·`press_button()`·EMO 처리·`release_warning()`/`release_block()`. 오답 ROI→타이머→WARNING/BLOCK(방금 완료한 버튼·EMO 는 체류 판정 제외), **EMO→즉시 BLOCK**(해제 시 「작업 시작」 전 대기 IDLE · 기대단계 1, 위반 BLOCK 해제는 기대 유지). WARNING 중 정답 버튼 = 해제 + 단계 완료(규칙 = 상위 §7.3). 단위테스트 `Demo/selftest/test_fsm.py`.
+- **`fsm.py` `SafetyFSM`** — 6상태 `State`(IDLE/READY/PROCESS_RUN/MONITOR/WARNING/BLOCK). 콜백 `on_state_change`·**`on_interlock(bool)`**(→트랙 A 차단)·`on_feedback`. 주요 메서드: `load_recipe()`·`update_vision(roi, now)`·`press_button()`·EMO 처리·`release_warning()`/`release_block()`. 오답 ROI→타이머→WARNING/BLOCK(방금 완료한 버튼·EMO 는 체류 판정 제외), **EMO→즉시 BLOCK**(해제 시 「작업 시작」 전 대기 IDLE · 기대단계 1, 위반 BLOCK 해제는 기대 유지). WARNING 중 정답 버튼 = 해제 + 단계 완료(판정기 규칙 · 서브 작업이 있는 단계는 화면이 먼저 받아 서브를 잇거나 시작 — 상위 §7.3-6·§8.2). 단위테스트 `Demo/selftest/test_fsm.py`.
 - **`recipe.py`/`recipe.json`** — 정답 순서 단일 출처. **PM 정비 4단계**: B1 클린·가스차단 → B2 펌프/퍼지 → B3 전극 냉각 → B4 챔버 벤트 (+EMO). `current_step_name`이 여기서 옴. (정본 §5.1과 동기화됨)
 - 테스트 절차 전체: **`Demo/docs/TESTING_FSM.md`**. 실HW 테스트는 **라즈베리파이에서** 수행.
 
