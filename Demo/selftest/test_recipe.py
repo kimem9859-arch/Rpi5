@@ -213,6 +213,32 @@ def test_real_recipe_dwell_matches_config():
     print("  PASS  recipe.json 체류 임계 == config")
 
 
+def test_u17_emo_button_filled_and_fixed():
+    """U17 — emo_button 은 없으면 config 값으로 채우고, 다른 이름이면 거부한다(물리 EMO 가 오답 버튼이 되던 것)."""
+    import config
+    data = {k: v for k, v in GOOD.items() if k != "emo_button"}
+    with tempfile.TemporaryDirectory() as tmp:
+        r = load_recipe(_write(tmp, data))
+        assert r["emo_button"] == config.FSM_EMO_BUTTON, r.get("emo_button")
+        try:
+            load_recipe(_write(tmp, {**GOOD, "emo_button": "STOP"}))
+            assert False, "EMO 이름이 다른 레시피가 통과했다"
+        except RecipeError:
+            pass
+    print("  PASS  emo_button 없음 → config 값 · 다른 이름 → RecipeError")
+
+
+def test_u17_process_name_required():
+    """U17 — 공정 이름이 없으면 검사에서 거부한다(통과한 뒤 GUI 가 KeyError 로 죽던 것)."""
+    data = {k: v for k, v in GOOD.items() if k != "process_name"}
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            load_recipe(_write(tmp, data))
+            assert False, "process_name 없는 레시피가 통과했다"
+        except RecipeError:
+            pass
+    print("  PASS  process_name 없음 → RecipeError")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

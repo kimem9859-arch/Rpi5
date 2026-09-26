@@ -47,8 +47,19 @@ def _validate(data):
         raise RecipeError(f"order는 1..N 연속이어야 합니다: {orders}")
     if len(set(buttons)) != len(buttons):
         raise RecipeError(f"button이 중복됩니다: {buttons}")
-    if data.get("emo_button") in buttons:
-        raise RecipeError(f"emo_button({data.get('emo_button')})이 공정 버튼과 겹칩니다.")
+    # 🔑 쓰는 쪽(GUI)이 직접 읽는 키는 여기서 보장한다(리뷰 U17) — 검사를 통과했는데 기동 중
+    #    KeyError 가 나면 안 된다.
+    if not data.get("process_name"):
+        raise RecipeError("process_name 이 비어 있습니다 (화면·기록에 쓰는 공정 이름)")
+    # 🔴 EMO 이름은 config 값과 같아야 한다 — GPIO·키보드가 그 이름으로 눌림을 보내고 버튼 모델의
+    #    클래스 이름도 같다. 레시피만 다른 이름을 쓰면 물리 EMO 가 「오답 버튼」으로 처리돼 위반
+    #    차단이 됐다. 없으면 채운다(P7 체류 임계와 같은 방식).
+    emo = data.setdefault("emo_button", config.FSM_EMO_BUTTON)
+    if emo != config.FSM_EMO_BUTTON:
+        raise RecipeError(f"emo_button({emo!r})은 {config.FSM_EMO_BUTTON!r} 이어야 합니다 "
+                          f"(GPIO·키보드·버튼 모델이 이 이름을 씁니다)")
+    if emo in buttons:
+        raise RecipeError(f"emo_button({emo})이 공정 버튼과 겹칩니다.")
 
     # 🔑 없으면 config 값을 **채워 넣는다**(P7 · 2026-09-25) — 호출부(GUI)가 키를 직접 읽어도
     #    KeyError 가 나지 않고, 종전의 숨은 기본 1.0(폐기값)이 사라진다. 측정 도구는 config 를
