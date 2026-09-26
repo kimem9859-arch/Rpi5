@@ -58,6 +58,22 @@ def close_detector():
     if _detector is not None:
         _detector.close()
 
+
+def _close_sock(sock):
+    """소켓을 닫는다 — 🔴 **먼저 shutdown** 해 다른 스레드의 막힌 recv 를 깨운다(검토 C19).
+
+    close 만으로는 이미 recv 에 들어가 있는 스레드가 깨지 않는다 — 연결은 살아 있고 데이터만 없으면
+    수신 스레드가 타임아웃(10초)까지 남아, join(3초) 뒤에도 살아남았다.
+    """
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    try:
+        sock.close()
+    except OSError:
+        pass
+
 # =============================================================================
 # [YOLO 트래킹 헬퍼]
 # =============================================================================
@@ -222,6 +238,7 @@ class CameraThread(QThread):
         self._raw_lock     = threading.Lock()
         self._raw_event    = threading.Event()
         self._recv_error   = False
+        self._conn_gen     = 0       # 연결 번호 — 수신 스레드는 자기 연결일 때만 알린다(C19)
 
         # 재연결 제한 — 무한 재시도로 로그가 쌓이는 것을 막는다.
         self._fail_count   = 0
@@ -384,16 +401,25 @@ class CameraThread(QThread):
     # =========================================================================
     # [수신 전용 스레드 — 최신 프레임을 _latest_raw에 계속 덮어씀]
     # =========================================================================
-    def _recv_worker(self):
+    def _recv_worker(self, sock, gen):
+        """수신 전용 — 최신 프레임을 _latest_raw 에 덮어쓴다.
+
+        🔴 **그 연결의 소켓만** 읽고, 연결 번호가 지금 것일 때만 알린다(검토 C19) — 종전에는
+           `self.sock` 을 매번 다시 읽고 플래그를 연결끼리 나눠 써서, join(3초) 뒤에도 살아남은
+           옛 수신 스레드가 새 소켓을 같이 읽거나 `_recv_error` 로 **새 연결을 끊었다.**
+        """
         while self._running:
-            data = self._recv_latest_frame()
-            if data is None:
-                self._recv_error = True
-                self._raw_event.set()
-                break
+            data = self._recv_latest_frame(sock)
             with self._raw_lock:
-                self._latest_raw = data
-            self._raw_event.set()
+                if gen != self._conn_gen:
+                    return                   # 이미 끝난 연결 — 새 연결을 건드리지 않는다
+                if data is None:
+                    self._recv_error = True
+                else:
+                    self._latest_raw = data
+                self._raw_event.set()
+            if data is None:
+                return
 
     # =========================================================================
     # [스레드 메인 루프]
@@ -438,9 +464,13 @@ class CameraThread(QThread):
             self._fail_count = 0          # 붙었으면 카운터를 되돌린다
             self._on_connected()
 
-            self._recv_error = False
-            self._raw_event.clear()
-            recv_thread = threading.Thread(target=self._recv_worker, daemon=True)
+            with self._raw_lock:
+                self._conn_gen += 1
+                self._recv_error = False
+                self._latest_raw = None          # 끊기기 전 프레임을 새 연결에서 쓰지 않는다
+                self._raw_event.clear()
+            recv_thread = threading.Thread(target=self._recv_worker,
+                                           args=(self.sock, self._conn_gen), daemon=True)
             recv_thread.start()
 
             try:
@@ -479,10 +509,7 @@ class CameraThread(QThread):
                     self.log_signal.emit(f"[카메라] 수신 오류: {e}")
             finally:
                 if self.sock is not None:
-                    try:
-                        self.sock.close()
-                    except Exception:
-                        pass
+                    _close_sock(self.sock)       # shutdown 으로 막힌 수신을 깨운다(C19)
                     self.sock = None
                 recv_thread.join(timeout=3)
 
@@ -602,33 +629,33 @@ class CameraThread(QThread):
             self.log_signal.emit(f"[카메라] TCP 연결 실패: {e}")
             return None
 
-    def _recv_latest_frame(self):
+    def _recv_latest_frame(self, sock):
         while True:
-            header = self._recv_exact(4)
+            header = self._recv_exact(sock, 4)
             if header is None:
                 return None
             length = struct.unpack('<I', header)[0]
             if length == 0 or length > TCP_MAX_FRAME_BYTES:
                 self.log_signal.emit(f"[카메라] 비정상 프레임 크기({length}). 재연결합니다.")
                 return None
-            data = self._recv_exact(length)
+            data = self._recv_exact(sock, length)
             if data is None:
                 return None
             try:
-                readable, _, _ = select.select([self.sock], [], [], 0)
+                readable, _, _ = select.select([sock], [], [], 0)
             except OSError:
                 # Socket closed by stop() during shutdown.
                 return None
             if not readable:
                 return data
 
-    def _recv_exact(self, length):
+    def _recv_exact(self, sock, length):
         data = b''
         while len(data) < length:
             if not self._running:
                 return None
             try:
-                chunk = self.sock.recv(length - len(data))
+                chunk = sock.recv(length - len(data))
             except socket.timeout:
                 self.log_signal.emit("[카메라] 수신 타임아웃")
                 return None
@@ -643,9 +670,7 @@ class CameraThread(QThread):
     def stop(self):
         self._running = False
         self._raw_event.set()
-        if self.sock is not None:
-            try:
-                self.sock.close()
-            except Exception:
-                pass
+        sock = self.sock
+        if sock is not None:
+            _close_sock(sock)
         self.wait()

@@ -1,0 +1,125 @@
+"""카메라 수신 연결 검증(C12·C16·C19) — ESP32·Hailo 없이.
+
+실행: python3 Demo/selftest/test_camera_link.py
+🔴 버튼 검출기를 가짜로 바꿔 끼운다 — `camera_thread` 는 import 할 때 검출기(Hailo)를 연다.
+   카메라는 127.0.0.1 의 가짜 TCP 서버(4바이트 길이 + JPEG — ESP32 와 같은 모양)로 흉내 낸다.
+정본 = 상위 docs/superpowers/specs/2026-09-25-런타임-문제수정-design.md §9.2
+"""
+import os
+import socket
+import struct
+import sys
+import threading
+import time
+import types
+
+_DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _DEMO_DIR)
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import cv2
+import numpy as np
+
+
+class _FakeDetector:
+    backend_name = "시험용"
+    NAMES = {0: "B1", 1: "B2", 2: "B3", 3: "B4", 4: "EMO"}
+
+    def __init__(self):
+        self.dets = []
+        self.fail_next = 0            # 다음 N번 detect 는 예외(Hailo 일시 오류 흉내 · C12)
+
+    def class_name(self, i):
+        return self.NAMES[i]
+
+    def detect(self, frame):
+        if self.fail_next:
+            self.fail_next -= 1
+            raise RuntimeError("HAILO_TIMEOUT(시험)")
+        return list(self.dets)
+
+    def close(self):
+        pass
+
+
+_FAKE_DET = _FakeDetector()
+_fake_mod = types.ModuleType("detector")
+_fake_mod.create_detector = lambda: _FAKE_DET
+sys.modules["detector"] = _fake_mod
+
+import config
+config.HAND_ENABLED = False
+config.TOOL_ENABLED = False
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication
+_app = QApplication.instance() or QApplication([])
+
+import camera_thread as ct
+
+_fails = []
+
+
+def check(cond, msg):
+    print(("  ✅ " if cond else "  ❌ ") + msg)
+    if not cond:
+        _fails.append(msg)
+
+
+# ---------------------------------------------------------------- C19 연결별 수신
+def test_c19_old_receiver_leaves_new_connection_alone():
+    """C19 — 끝난 연결의 수신 스레드는 새 연결의 플래그를 건드리지 않는다(검토 C19 — 새 연결을 끊었다)."""
+    print("\n[C19] 옛 수신 스레드")
+    th = ct.CameraThread()
+    a, b = socket.socketpair()
+    b.close()                                        # 옛 연결 — 곧바로 끊김(recv 가 빈 값)
+    th._conn_gen = 2                                 # 그 사이 새 연결(2번)이 붙었다
+    th._recv_error = False
+    th._raw_event.clear()
+    try:
+        th._recv_worker(a, 1)                        # 1번 연결의 수신 스레드가 뒤늦게 끝난다
+    except TypeError as e:
+        check(False, f"수신 스레드가 자기 연결(소켓·번호)을 받지 않는다 — {e}")
+        return
+    finally:
+        a.close()
+    check(th._recv_error is False, "새 연결에 「수신 오류」를 세우지 않는다")
+    check(not th._raw_event.is_set(), "새 연결의 처리 루프를 깨우지 않는다")
+
+
+def test_c19_close_wakes_blocked_receiver():
+    """C19 — 연결을 끝내면 막혀 있던 수신이 곧바로 깬다(close 만으로는 안 깨 join 3초 뒤에도 살아남았다)."""
+    print("\n[C19] 막힌 수신 깨우기")
+    close = getattr(ct, "_close_sock", None)
+    check(close is not None, "camera_thread._close_sock 이 있다")
+    if close is None:
+        return
+    a, b = socket.socketpair()
+    a.settimeout(5)
+    woke = threading.Event()
+
+    def rx():
+        try:
+            a.recv(4)
+        except OSError:
+            pass
+        woke.set()
+
+    threading.Thread(target=rx, daemon=True).start()
+    time.sleep(0.1)                                  # recv 에 들어갈 시간
+    close(a)
+    check(woke.wait(1.0), "1초 안에 깬다")
+    b.close()
+
+
+if __name__ == "__main__":
+    for _name, _fn in sorted(globals().items()):
+        if _name.startswith("test_"):
+            _fn()
+    print()
+    if _fails:
+        print(f"❌ 실패 {len(_fails)}건")
+        for m in _fails:
+            print(f"   - {m}")
+        sys.exit(1)
+    print("✅ 카메라 연결 검증 통과")
