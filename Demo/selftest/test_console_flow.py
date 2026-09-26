@@ -1551,6 +1551,64 @@ def test_review_am8_refusal_popups_close_when_block_ends():
     check(shown(win) == [], f"초기화 뒤 남은 창 = {shown(win)}")
     win.close()
 
+def test_review_am3_voice_state_file():
+    """종합 리뷰 A-M3 — 음성 상태 파일: 작업 전 EMO 는 「진행 중」으로 공개하지 않는다(파일을 비운다) · 완료 결과는
+    EMO·해제 뒤에도 다음 「작업 시작」 전까지 남는다 — 「1단계 진행 중 · 비상정지」로 덮이고 해제하면 지워지던 것."""
+    print("\n[종합 A-M3] 음성 상태 파일")
+
+    def watch(w):
+        ev = []
+        w._state_pub.publish = lambda d: ev.append(d)
+        w._state_pub.clear = lambda: ev.append(None)
+        return lambda: ev[-1] if ev else None        # 지금 파일 내용(None = 없음)
+
+    win = make_console()                             # ① 작업 전 EMO
+    now = watch(win)
+    key(win, "E")
+    check(win.fsm.state == State.BLOCK, f"작업 전 EMO 차단({win.fsm.state.value})")
+    check(now() is None, "작업 전 EMO 는 공개하지 않는다(파일 없음 = 「작업 시작 전」)")
+    win.close()
+
+    win = make_console()                             # ② 완주 → EMO → 해제 → 다음 회차
+    now = watch(win)
+    win._on_cta()
+    for k in ("1", "2", "3", "4"):
+        key(win, k)
+        finish_sub(win)
+    check(bool(now() and now().get("결과")), "완주 — 결과 공개")
+    key(win, "E")
+    check(bool(now() and now().get("결과")), "완료 뒤 EMO — 결과가 남는다")
+    check(bool(now()) and now().get("비상정지") is True, "완료 뒤 EMO — 비상정지를 싣는다")
+    win.gpio_input.emo_active = lambda: False        # EMO 복귀
+    win._release_block()
+    check(bool(now() and now().get("결과")), "완료 뒤 EMO 해제 — 결과가 남는다")
+    win._on_cta()
+    check(bool(now()) and now().get("결과") is None and now().get("세션") is True,
+          "다음 「작업 시작」 — 결과를 버리고 진행 중으로 공개")
+    win.close()
+
+    win = make_console()                             # ③ 완주 → 작업 초기화
+    now = watch(win)
+    win._on_cta()
+    for k in ("1", "2", "3", "4"):
+        key(win, k)
+        finish_sub(win)
+    win._reset_work()
+    check(now() is None, "완주 뒤 작업 초기화 — 결과도 버리고 파일을 비운다")
+    win.close()
+
+    win = make_console()                             # ④ 작업 중 EMO → 해제
+    now = watch(win)
+    win._on_cta()
+    key(win, "1")
+    finish_sub(win)
+    key(win, "E")
+    check(bool(now()) and now().get("비상정지") is True, "작업 중 EMO — 진행 중 · 비상정지 공개")
+    win.gpio_input.emo_active = lambda: False
+    win._release_block()
+    check(now() is None, "작업 중 EMO 해제 — 파일을 비운다(작업이 끝났다)")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

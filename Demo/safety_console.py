@@ -79,6 +79,7 @@ class SafetyConsole(QMainWindow):
         self._tool_state = None      # 공구 판정 상태기계(A-2) — wait_tool 동안만 존재
         self._tool_override = None   # 설정 메뉴에서 바꾼 지정 공구(세션 한정)
         self._popups = {}            # 종류 → 알림 창 — 종류마다 하나만(U20 · _popup)
+        self._last_result = None     # 완료 결과 — 다음 「작업 시작」·「작업 초기화」까지 음성 상태에 싣는다(A-M3)
         self._wrong_tool_noted = None  # 이미 알리고 센 오답 공구(G11) — 같은 공구는 한 번
         self._empty_hand_scans = 0     # 손이 보이는데 쥔 공구가 없는 스캔이 연달아 나온 수(G11)
         self._unread = 0             # 안 읽은 알림 수 — 배지에 표시
@@ -967,6 +968,7 @@ class SafetyConsole(QMainWindow):
         self._update_sub_view()
 
     def _on_start_process(self):
+        self._last_result = None     # 앞 회차 완료 결과는 여기서 버린다(A-M3)
         self.fsm.load_recipe()
         self._append_log(f"[FSM] 작업 시작 — {self.fsm.expected_step}단계: "
                          f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
@@ -1073,7 +1075,8 @@ class SafetyConsole(QMainWindow):
 
     def _show_result(self):
         data = self._stats.finish()
-        self._publish_state(result=data)
+        self._last_result = data
+        self._publish_state()
         self._close_sheets()
         self.result_panel.relayout(self._root.rect())
         self.result_panel.show_result(data)
@@ -1097,7 +1100,7 @@ class SafetyConsole(QMainWindow):
                 return spec
         return None
 
-    def _publish_state(self, result=None):
+    def _publish_state(self):
         """음성비서가 읽을 상태 한 벌 — 🔴 GUI 흐름을 막지 않는다.
 
         🔴 카드 라벨을 축약하지 않는 것과 같은 이유로 **키 이름을 풀어 쓴다**
@@ -1105,9 +1108,15 @@ class SafetyConsole(QMainWindow):
            이름은 카드를 만드는 쪽에서 또 헷갈린다.
         """
         try:
-            # 🔴 「작업 시작 전」의 정본은 **FSM 이 IDLE 인가**다. `fsm.reset()` 의 정의가 곧
-            #    「작업 시작 직전」이다(「작업 초기화」는 집계도 비운다 — 종합 리뷰 A-M2).
-            if self.fsm.state == State.IDLE and result is None:
+            # 🔴 「작업 전」 = 완료 결과가 없고, 판정기가 IDLE 이거나 작업 중이 아니다(`_stats.running`
+            #    꺼짐). 판정기 IDLE 만 보면 작업 전 EMO(IDLE → BLOCK)가 「진행 중 · 1단계」로 공개됐다
+            #    (종합 리뷰 A-M3). running 만 보면 EMO 해제 순간을 놓친다 — 판정기 전이(→ 이 공개)가
+            #    집계 비우기보다 먼저라 그때 running 이 아직 켜져 있다. running 은 「작업 시작」부터
+            #    완주·초기화·EMO 해제까지다.
+            # 🔑 완료 결과는 다음 「작업 시작」·「작업 초기화」까지 싣는다 — 완료 뒤 EMO·해제에도
+            #    「작업 결과 어때?」에 답해야 한다.
+            result = self._last_result
+            if result is None and (self.fsm.state == State.IDLE or not self._stats.running):
                 self._state_pub.clear()
                 return
             cur = self.fsm.expected_step
@@ -1374,6 +1383,7 @@ class SafetyConsole(QMainWindow):
         #    진행 중인 작업이 없는데 「비상정지로 작업 중단」이 떴다(종합 리뷰 A-M2). 완주 때
         #    `finish()` 가 running 을 끄는 것과 같다.
         self._stats.reset()
+        self._last_result = None     # 완료 결과도 버린다 — 「작업 시작」 전 상태(A-M3)
         self.fsm.reset()
 
         # 🔴 FSM 이 **이미 IDLE 이면** 상태 전이가 없어 _on_fsm_state 가 불리지 않는다.
