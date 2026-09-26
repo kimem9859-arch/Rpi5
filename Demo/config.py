@@ -351,8 +351,11 @@ def resolve_interlock_port(quiet=False):
         say(f"[config] 인터록 포트 강제 지정: {forced}")
     elif port is None:
         say(f"[config] ⚠️ {why}")
-        say("[config] → 찾을 때까지 연결하지 않는다(꽂히면 자동으로 붙는다). "
-            "강제하려면 SOP_INTERLOCK_PORT=/dev/ttyACMx")
+        # 🔑 후보가 여럿이면 사유가 이미 「직접 지정하라」를 담는다 — 「꽂히면 붙는다」는 틀린 말이라
+        #    찍지 않는다(④ 사소 5). 장치 없음 문구는 글자 그대로 둔다(fsm_sim 출력이 담아 관문이 비교한다).
+        if "SOP_INTERLOCK_PORT" not in why:
+            say("[config] → 찾을 때까지 연결하지 않는다(꽂히면 자동으로 붙는다). "
+                "강제하려면 SOP_INTERLOCK_PORT=/dev/ttyACMx")
     return port
 
 _INTERLOCK_PORT_RESOLVED = resolve_interlock_port()

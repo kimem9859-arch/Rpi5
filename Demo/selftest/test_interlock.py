@@ -312,6 +312,43 @@ def test_m10_found_but_unopenable_gives_up():
         _FakeSerial.refuse.discard(dev)
         c.close()
 
+_REAL_RESOLVE = config.resolve_interlock_port          # _ctl 이 바꿔 끼우기 전 원본(④ 사소 5)
+
+
+def test_final_minor_startup_message_many_candidates():
+    """④ 미룬 사소 5 — 후보가 여럿이면 기동 안내가 「꽂히면 붙는다」가 아니라 지정하라고 한다 · 장치 없음 문구는 그대로."""
+    print("\n[④ 사소 5] 기동 안내")
+    import contextlib
+    import io
+    import types
+    from serial.tools import list_ports
+    fake = [types.SimpleNamespace(device="/dev/시험A", vid=0x2341, pid=0x0069),
+            types.SimpleNamespace(device="/dev/시험B", vid=0x1a86, pid=0x7523)]
+    old, old_env = list_ports.comports, os.environ.pop("SOP_INTERLOCK_PORT", None)
+    patched = config.find_interlock_port
+    config.find_interlock_port = _REAL_FIND             # 앞 시험의 _ctl 이 바꿔 끼운 것을 원본으로(감싸개가 부른다)
+
+    def said(cands):
+        list_ports.comports = lambda: cands
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            _REAL_RESOLVE()
+        return buf.getvalue().splitlines()
+
+    try:
+        many = said(fake)
+        check(not any("꽂히면 자동으로 붙는다" in ln for ln in many), "여럿이면 「꽂히면 붙는다」라고 하지 않는다")
+        check(any("SOP_INTERLOCK_PORT" in ln and "지정" in ln for ln in many), "직접 지정하라고 안내한다")
+        check(said([]) == ["[config] ⚠️ 인터록 장치를 못 찾았다 (ESP32 는 인터록이 아니다)",
+                           "[config] → 찾을 때까지 연결하지 않는다(꽂히면 자동으로 붙는다). "
+                           "강제하려면 SOP_INTERLOCK_PORT=/dev/ttyACMx"],
+              "장치 없음 문구는 글자 그대로(관문 출력이 담는다)")
+    finally:
+        list_ports.comports = old
+        config.find_interlock_port = patched
+        if old_env is not None:
+            os.environ["SOP_INTERLOCK_PORT"] = old_env
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
