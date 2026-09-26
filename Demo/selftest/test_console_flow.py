@@ -1374,6 +1374,19 @@ def test_final_paused_sub_cancelled_after_wait():
         check(False, f"서브 취소에서 예외 — {e}")
     win.close()
 
+def test_final_minor_emo_repeat_notifies_once():
+    """④ 미룬 사소 1 — 이미 EMO 로 차단된 상태에서 EMO 가 다시 들어와도(접점 흔들림) 「비상정지」 알림은 한 번."""
+    print("\n[④ 사소 1] EMO 반복")
+    win = make_console()
+    win._on_cta()
+    key(win, "3")                                    # 위반 BLOCK
+    key(win, "E")                                    # → EMO 차단(알림 1)
+    n = notify_titles(win).count("비상정지")
+    key(win, "E")                                    # 흔들림 — 이미 EMO 차단
+    key(win, "E")
+    check(notify_titles(win).count("비상정지") == n, "이미 EMO 차단이면 알림이 더 쌓이지 않는다")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

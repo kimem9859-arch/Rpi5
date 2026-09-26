@@ -1049,8 +1049,10 @@ class SafetyConsole(QMainWindow):
         """FSM 에 실제로 눌림을 전달한다."""
         before = self.fsm.expected_step
         was_block = self.fsm.state == State.BLOCK
+        was_emo = self.fsm.emo_active     # 🔑 이미 EMO 차단이면 다시 알리지 않는다(접점 흔들림 · ④ 사소 1)
         self.fsm.press_button(button, time.time())
-        if was_block and self.fsm.state == State.BLOCK and button == self._emo_button():
+        if (was_block and not was_emo and self.fsm.state == State.BLOCK
+                and button == self._emo_button()):
             # 🔴 위반 차단 중 EMO — 판정기가 이미 BLOCK 이라 상태가 바뀌지 않아 _on_fsm_state 가
             #    불리지 않는다. 그대로 두면 배너가 「순서 위반」 문구로 남고 음성비서도 위반
             #    차단이라고 말한다(② 리뷰 5 · G5·V2).
