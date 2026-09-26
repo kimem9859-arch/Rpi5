@@ -209,7 +209,8 @@ class CameraThread(QThread):
     change_pixmap_signal      = pyqtSignal(QImage)
     log_signal                = pyqtSignal(str)
     yolo_detections_signal    = pyqtSignal(list)
-    roi_signal                = pyqtSignal(str, int)  # (버튼 ROI 라벨, 단계) — ""·0 = 없음
+    roi_signal                = pyqtSignal(str, int, float)  # (버튼 ROI 라벨, 단계, 프레임을 받은 시각) — ""·0 = 없음
+                                                 # 🔴 @pyqtSlot(str, int, float) 와 짝을 맞출 것(C16)
                                                      # 단계 2=박스 안(위험) / 1=링(접근). roi_zones 참조
     connect_failed_signal     = pyqtSignal(int)   # 연속 실패 횟수 — 알림용
     tool_signal               = pyqtSignal(list, object)  # (dets, fingertip) — A-2 공구 판정 입력
@@ -416,7 +417,7 @@ class CameraThread(QThread):
                 if data is None:
                     self._recv_error = True
                 else:
-                    self._latest_raw = data
+                    self._latest_raw = (data, time.monotonic())   # C16 — 프레임을 다 받은 시각
                 self._raw_event.set()
             if data is None:
                 return
@@ -484,10 +485,11 @@ class CameraThread(QThread):
                         break
 
                     with self._raw_lock:
-                        data = self._latest_raw
+                        got = self._latest_raw
 
-                    if data is None:
+                    if got is None:
                         continue
+                    data, t_frame = got
 
                     frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
                     if frame is None:
@@ -496,7 +498,7 @@ class CameraThread(QThread):
                     h, w = frame.shape[:2]
                     self._ensure_calibration(w, h)
 
-                    frame = self._process_frame(frame)
+                    frame = self._process_frame(frame, t_frame)
 
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = rgb.shape
@@ -522,7 +524,14 @@ class CameraThread(QThread):
     # =========================================================================
     # [프레임 처리]
     # =========================================================================
-    def _process_frame(self, frame):
+    def _process_frame(self, frame, t=None):
+        """프레임 하나를 처리한다. t = 그 프레임을 다 받은 시각(`time.monotonic()` · 없으면 지금).
+
+        🔑 체류 시각은 이 t 다(C16) — GUI 가 신호를 처리한 시각으로 재면 GUI 가 멈췄다 풀릴 때
+           밀린 신호가 몰려 체류가 흔들렸고(검토 C16·U18), 벽시계라 시각 보정에도 튀었다.
+        """
+        if t is None:
+            t = time.monotonic()
         # 🔴 방향 보정은 **반전 → 왜곡보정 → 회전** 순서다(frame_orient 참조).
         #    회전을 앞에 두면 세로(480×640 · 768×1024)가 되어 센서 원본 크기(가로)로
         #    만든 왜곡보정 맵이 'mismatch' 로 조용히 꺼진다.
@@ -602,7 +611,7 @@ class CameraThread(QThread):
 
         # HOI → FSM: 손끝이 든 버튼 ROI 라벨을 통지 (없으면 "")
         roi, level = zone_at_point(*fingertip, self._tracks, ring=self._ring_px) if fingertip else (None, None)
-        self.roi_signal.emit(roi or "", level or 0)
+        self.roi_signal.emit(roi or "", level or 0, t)
 
         if sink is not None:
             sink(frame, clean_frame)

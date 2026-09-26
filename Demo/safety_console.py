@@ -873,13 +873,15 @@ class SafetyConsole(QMainWindow):
     # =========================================================================
     # [판정부 FSM — 인식 입력 / 상태 출력]  통합문서 §8·§9
     # =========================================================================
-    @pyqtSlot(str, int)   # 🔴 시그널(str, int)과 반드시 일치해야 한다 — 어긋나면 기동 즉시 TypeError
-    def _on_roi(self, roi, level):
+    @pyqtSlot(str, int, float)   # 🔴 시그널(str, int, float)과 반드시 일치해야 한다 — 어긋나면 기동 즉시 TypeError
+    def _on_roi(self, roi, level, t):
         """HOI 결과(손끝이 든 버튼 ROI + 구역 단계)를 FSM 비전 틱으로 전달.
 
         level: 2=박스 안(위험) / 1=링(접근) / 0=밖. 상세 = roi_zones.py
+        t: 카메라가 그 프레임을 다 받은 시각(`time.monotonic()`) — 🔴 여기서 `time.time()` 으로 바꾸지
+           않는다. GUI 가 신호를 처리한 시각은 GUI 가 멈췄다 풀리면 몰려 체류가 흔들렸다(검토 C16·U18).
         """
-        self.fsm.update_vision(roi or None, time.time(), level or ZONE_INSIDE)
+        self.fsm.update_vision(roi or None, t, level or ZONE_INSIDE)
         if (roi, level) != self._last_roi:
             if roi:
                 # 단계를 남긴다 — 안 보이면 시연 중 "왜 안 잡히지"를 진단할 수 없다.

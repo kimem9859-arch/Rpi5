@@ -112,6 +112,36 @@ def test_c19_close_wakes_blocked_receiver():
     b.close()
 
 
+# ---------------------------------------------------------------- C16 프레임 시각
+def test_c16_roi_carries_frame_time():
+    """C16 — 체류 시각은 GUI 가 신호를 받은 때가 아니라 **카메라가 프레임을 받은 때**다(검토 C16·U18)."""
+    print("\n[C16] 프레임 시각")
+    th = ct.CameraThread()
+    got = []
+    th.roi_signal.connect(lambda *a: got.append(a))
+    try:
+        th._process_frame(np.zeros((48, 64, 3), np.uint8), 123.5)
+    except TypeError as e:
+        check(False, f"프레임 시각을 받지 못한다 — {e}")
+        return
+    check(got == [("", 0, 123.5)], f"roi_signal = {got} — 받은 시각이 실려야 한다")
+
+
+def test_c16_console_passes_frame_time():
+    """C16 — 콘솔은 받은 시각을 그대로 판정기에 넘긴다(time.time() 으로 바꾸지 않는다)."""
+    print("\n[C16] 콘솔 → 판정기")
+    import safety_console as sc
+    calls = []
+    fake = types.SimpleNamespace(
+        fsm=types.SimpleNamespace(update_vision=lambda roi, now, level: calls.append((roi, now, level))),
+        _last_roi=None, _append_log=lambda m: None)
+    try:
+        sc.SafetyConsole._on_roi(fake, "B2", 2, 77.25)
+    except TypeError as e:
+        check(False, f"슬롯이 시각을 받지 못한다 — {e}")
+        return
+    check(calls == [("B2", 77.25, 2)], f"update_vision 인자 = {calls}")
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
