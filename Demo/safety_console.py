@@ -1178,6 +1178,7 @@ class SafetyConsole(QMainWindow):
         # 🔑 「이미 센 오답 공구」는 여기서 지우지 않는다 — 차단 취소 뒤 같은 버튼으로 다시 하면 결과창
         #    공구 줄을 이어 쓰는데(session_stats.sub_started) 기억만 지우면, 쥔 채 재시도할 때 같은 공구가
         #    두 번 세어졌다(종합 리뷰 A-M5). 기억은 (버튼, 공구)라 다른 단계에서는 새로 센다.
+        #    ⚠️ sub_started 의 「마지막 기록과 같은 버튼 = 같은 줄」 조건과 같이 움직인다 — 그쪽을 바꾸면 여기도.
         self._empty_hand_scans = 0
         self._sub_timer.start()
         self._append_log(f"[서브] {spec['label']} 시작 ({spec['sec']}초)")
