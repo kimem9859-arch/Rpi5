@@ -1495,6 +1495,15 @@ class SafetyConsole(QMainWindow):
                 self.alert.hide_all()
                 self._refresh_dim()
 
+        # 차단이 풀리면(해제·초기화 성공) 「EMO 미복귀」 거부 창은 옛 말이 된다 — 닫는다(종합 리뷰 A-M8).
+        # 🔴 인터락 폴트 창은 닫지 않는다 — 「차단 미확인」은 지난 사실이고 릴레이·배선·Arduino 점검
+        #    안내는 여전히 유효하다. 안전 경보는 사람이 보고 OK 로 닫는다(설계 §10.3).
+        if old == State.BLOCK:
+            for k in ("release_refused", "reset_refused"):
+                box = self._popups.get(k)
+                if box is not None:
+                    box.hide()
+
         # IDLE 로 돌아오면 서브 작업을 정리하고 「작업 시작」 문구로 되돌린다
         if new == State.IDLE:
             self._sub_timer.stop()

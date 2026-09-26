@@ -1507,6 +1507,50 @@ def test_review_am2_reset_then_emo_release_no_false_stop_notice():
           "진행 중인 작업이 없으니 「비상정지로 작업 중단」 알림이 없다")
     win.close()
 
+def test_review_am8_refusal_popups_close_when_block_ends():
+    """종합 리뷰 A-M8 — 차단이 풀리면(해제·초기화 성공) 「해제 거부」·「초기화 거부」 창을 닫는다 — 「EMO가 아직 복귀되지
+    않았습니다」가 남아 옛 말을 하던 것. 인터락 폴트 창은 닫지 않는다(설계 §10.3). 닫힌 창은 다시 거부되면 다시 뜬다."""
+    print("\n[종합 A-M8] 거부 창 닫기")
+    import safety_console
+    from PyQt6.QtWidgets import QMessageBox
+
+    def shown(w):
+        return sorted(b.windowTitle() for b in w.findChildren(QMessageBox) if not b.isHidden())
+
+    win = make_console()                             # ① 차단 해제로 풀림
+    win._on_cta()
+    key(win, "E")
+    win.gpio_input.emo_active = lambda: True         # EMO 를 누른 채
+    win._release_block()
+    win._on_reset_clicked()
+    win._on_interlock_fault("시험 폴트")
+    check(shown(win) == ["인터락 폴트", "초기화 거부", "해제 거부"], f"거부 창 = {shown(win)}")
+    win.gpio_input.emo_active = lambda: False        # EMO 복귀
+    win._release_block()
+    check(win.fsm.state == State.IDLE, f"해제 → 대기({win.fsm.state.value})")
+    check(shown(win) == ["인터락 폴트"], f"해제 뒤 남은 창 = {shown(win)}")
+    key(win, "E")
+    win.gpio_input.emo_active = lambda: True
+    win._release_block()
+    check("해제 거부" in shown(win), "다시 거부되면 「해제 거부」 창이 다시 뜬다")
+    win.close()
+
+    win = make_console()                             # ② 작업 초기화로 풀림
+    win._on_cta()
+    key(win, "E")
+    win.gpio_input.emo_active = lambda: True
+    win._on_reset_clicked()
+    win.gpio_input.emo_active = lambda: False
+    old = safety_console.QMessageBox.question
+    safety_console.QMessageBox.question = lambda *a, **k: QMessageBox.StandardButton.Yes
+    try:
+        win._on_reset_clicked()
+    finally:
+        safety_console.QMessageBox.question = old
+    check(win.fsm.state == State.IDLE, f"초기화 → 대기({win.fsm.state.value})")
+    check(shown(win) == [], f"초기화 뒤 남은 창 = {shown(win)}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
