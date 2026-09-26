@@ -633,6 +633,18 @@ def test_u14_glow_follows_theme():
         theme.GLOW_BORDER = old
         theme.set_theme("dark")
 
+def test_u15_gauge_starts_empty_next_time():
+    """U15 — 서브 작업이 끝나면 게이지 진행률을 비운다(다음 게이지가 가득 찼다 줄어드는 번쩍임)."""
+    print("\n[U15] 게이지 진행률")
+    host = QWidget()
+    g = GaugePanel(host)
+    s = SubTask(WAIT, now=0.0)
+    s.tick(now=999.0)                                     # 다 찼다
+    g.update_view(s)
+    check(g._shown_progress == 1.0, "끝난 서브는 가득 찬 게이지(시험 조건)")
+    g.update_view(None)                                   # 서브 종료
+    check(g._shown_progress == 0.0 and g._target_progress == 0.0, "숨길 때 진행률을 0으로")
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

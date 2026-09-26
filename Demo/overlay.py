@@ -324,6 +324,13 @@ class GaugePanel(_Panel):
         """sub = SubTask 또는 None. None 이면 패널을 숨긴다."""
         if sub is None or not sub.is_active:
             self._stop_pulse()
+            # 🔴 진행률도 비운다(리뷰 U15) — 남기면 다음 서브 게이지가 가득 찬 채 시작해 0으로
+            #    줄어드는 보간이 번쩍였다.
+            if self._gauge_anim is not None:
+                self._gauge_anim.stop()
+                self._gauge_anim = None
+            self._shown_progress = self._target_progress = 0.0
+            self._fill.setGeometry(0, 0, 0, 8)
             self.hide()
             return
 
