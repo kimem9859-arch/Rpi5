@@ -207,6 +207,20 @@ def test_가로_사진은_한_번():
     check(k[0] == 1 and got == [("B1", 0.9, [10, 10, 40, 40])], f"호출 {k[0]} · 결과 {got}")
 
 
+def test_결과는_JSON_으로_쓸_수_있다():
+    print("[13] 🔴 검토 결과(박스 좌표)를 묶음 기록(JSON)에 그대로 쓸 수 있다 — numpy 정수가 섞이면 안 된다")
+    import json
+    T, th = ready()
+    out = R.review(panel(), FakeRun(TRUTH), T, th)
+    try:
+        json.dumps({"boxes": [{k: b[k] for k in ("name", "score", "pre", "box", "why", "layout")} for b in out["boxes"]],
+                    "missing": out["missing"]})
+        ok = True
+    except TypeError as e:
+        ok = False; print("   ", e)
+    check(ok, "json.dumps 성공")
+
+
 if __name__ == "__main__":
     test_박스_맞추기()
     test_색_계열()
@@ -220,6 +234,7 @@ if __name__ == "__main__":
     test_흐리면_사람()
     test_조각_경계_합치기()
     test_가로_사진은_한_번()
+    test_결과는_JSON_으로_쓸_수_있다()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

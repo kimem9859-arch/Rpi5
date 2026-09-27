@@ -86,7 +86,7 @@ def snap(img, box, edge_frac=EDGE_FRAC):
             bo, best = ov, k
     if best is None:
         return None
-    bx, by, bw, bh, area = st[best]
+    bx, by, bw, bh, area = (int(v) for v in st[best])      # numpy 정수 → 파이썬 정수(묶음 기록 JSON 에 쓴다)
     leak = bx == 0 or by == 0 or bx + bw >= crop.shape[1] or by + bh >= crop.shape[0]
     fill = area / (math.pi * bw * bh / 4 + 1e-6)
     return {"box": [X1 + bx, Y1 + by, X1 + bx + bw, Y1 + by + bh], "fill": fill, "leak": leak,
