@@ -1,5 +1,7 @@
 # console_v2 데이터셋 파이프라인 (촬영 → 라벨 → Roboflow)
 
+> ⚠️ **현행 흐름은 반자동 라벨링이다** — 초벌(조각 방식) → 기계 검토 → X-AnyLabeling 검토 → 회수(`test/review_batch.py` · `collect_batch.py` · `audit_batch.py`). 설계 = 상위 sop-project `docs/superpowers/specs/2026-09-28-반자동라벨링-design.md`. 아래는 7월 Roboflow 흐름 기록이다.
+
 > 다음에 데이터를 다시 만들 때(실콘솔 이관, test 세션 촬영, 데이터 보강) **이 문서만 따라가면** 된다.
 > 배경·근거는 통합문서 §12.12(파랑 스티커)·§12.13(촬영 설계) 참조.
 
