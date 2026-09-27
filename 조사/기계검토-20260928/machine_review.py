@@ -12,7 +12,7 @@
                버튼 영역의 외접 사각형을 새 박스로.
 확정 조건 — 초벌 이름 = 배치 틀 이름(여유 있게 1등) · 색 계열 일치 · (빨강 계열) 무늬 일치 · 박스 맞추기 성공
            (배경으로 새지 않음 · 예상 크기와 비슷 · 속이 찬 타원) · 흐리지 않음.
-B4 는 검정 몸통이 판과 구분되지 않아 박스를 맞추지 않고(초벌 박스 유지) 이름만 확인한다.
+B4 = 실콘솔에서는 윗면 전체가 파랗게 보여(2026-09-28 확대 확인) 다른 버튼과 같이 맞춘다.
 """
 import argparse, glob, itertools, json, math, os, sys
 from collections import Counter, defaultdict
@@ -225,11 +225,10 @@ def build_template():
             continue
         img = cv2.imread(p)
         for n, s, b in ds:
-            if n != 'B4':
-                sn = snap(img, b)
-                if sn is None or sn['leak']:
-                    continue
-                b = sn['box']
+            sn = snap(img, b)
+            if sn is None or sn['leak']:
+                continue
+            b = sn['box']
             acc[n].append(((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, ((b[2] - b[0]) + (b[3] - b[1])) / 2))
     return {n: tuple(np.median(np.array(v), axis=0)) for n, v in acc.items()}, len(acc['B1'])
 
@@ -238,7 +237,7 @@ def build_template():
 def review(img, T, th):
     ds = tile(img); boxes = []
     for n, s, b in ds:
-        sn = None if n == 'B4' else snap(img, b)
+        sn = snap(img, b)
         fam = rim = None
         if sn is not None:
             fam = color_family(sn['crop'], sn['mask'])
@@ -265,7 +264,7 @@ def review(img, T, th):
             why.append('배치상 버튼 아님')
         elif L != x['name']:
             why.append('배치≠초벌')
-        if x['name'] != 'B4':
+        if True:
             sn = x['snap']
             if sn is None or sn['leak']:
                 why.append('박스 맞추기 실패')
@@ -325,10 +324,9 @@ def main():
                 sn = snap(img, b)
                 if sn is not None and color_family(sn['crop'], sn['mask']) == 'red':
                     rims[n].append(rim_score(sn['crop'], sn['mask']))
-            if n != 'B4':
-                sn = snap(img, b)
-                if sn is not None and not sn['leak']:
-                    fills.append(sn['fill'])
+            sn = snap(img, b)
+            if sn is not None and not sn['leak']:
+                fills.append(sn['fill'])
     th = {'rim_lo': float(np.median(rims['B3'])), 'rim_hi': float(np.percentile(rims['EMO'], 5)),
           'sharp': float(np.percentile(sharp, 5)) * 0.5, 'fill': float(np.percentile(fills, 2)) * 0.9,
           'margin': 0.15, 'cost': 0.5}
