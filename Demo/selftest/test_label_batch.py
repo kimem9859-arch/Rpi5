@@ -84,6 +84,61 @@ def test_검토_순서_표시():
     check(RB.compose_shapes(rev0, [])[2] == "auto", "박스 0개 사진도 종류가 있다(auto)")
 
 
+import collect_batch as CB
+import xany_io as X
+
+
+def _man(files):
+    return {"batch": "t", "images": [{"file": f, "original": f"/orig/{f}", "session": "S", "frame": i, "w": 768,
+                                     "h": 1024, "kind": "auto", "blur": False,
+                                     "drafts": [{"label": "B1", "box": [10, 10, 60, 60], "kind": "auto", "why": []}]}
+                                    for i, f in enumerate(files)]}
+
+
+def test_빈_사진과_미검토():
+    print("[8] 🔴 박스 0개로 저장한 사진은 받고 · 초벌 표시 그대로(안 본 사진)면 미검토 · 라벨 파일이 없으면 문제")
+    with tempfile.TemporaryDirectory() as d:
+        man = _man(["c_auto__S__f00000.png", "c_auto__S__f00001.png", "c_auto__S__f00002.png"])
+        X.write_json(os.path.join(d, "c_auto__S__f00000.json"), "x.png", 768, 1024, [])
+        doc = json.load(open(os.path.join(d, "c_auto__S__f00000.json")))
+        doc["version"] = "4.0.6"; json.dump(doc, open(os.path.join(d, "c_auto__S__f00000.json"), "w"))
+        X.write_json(os.path.join(d, "c_auto__S__f00001.json"), "y.png", 768, 1024, [])     # 초벌 표시 그대로
+        p = CB.check_returned(man, d)
+        check(not any("f00000" in m for m in p), "박스 0개 + 다시 저장 = 통과")
+        check(any("f00001" in m and "미검토" in m for m in p), "초벌 표시 그대로 = 미검토")
+        check(any("f00002" in m and "라벨 파일 없음" in m for m in p), "파일 없음")
+
+
+def test_제안_남음과_모르는_이름():
+    print("[9] 제안_ 이 남거나 모르는 이름이면 회수 거부")
+    with tempfile.TemporaryDirectory() as d:
+        man = _man(["a_check__S__f00000.png"])
+        pth = os.path.join(d, "a_check__S__f00000.json")
+        X.write_json(pth, "x.png", 768, 1024, [X.shape("제안_B4", [1, 1, 9, 9]), X.shape("b3", [20, 20, 40, 40])])
+        doc = json.load(open(pth)); doc["version"] = "4.0.6"; json.dump(doc, open(pth, "w"))
+        p = CB.check_returned(man, d)
+        check(any("제안" in m for m in p) and any("'b3'" in m for m in p), f"{p}")
+
+
+def test_수정_집계():
+    print("[10] 수정 집계 — 그대로 · 박스 조정 · 이름 바뀜 · 지움 · 채택 · 추가")
+    drafts = [{"label": "B1", "box": [0, 0, 100, 100], "kind": "auto"},
+              {"label": "B2", "box": [200, 0, 300, 100], "kind": "auto"},
+              {"label": "EMO", "box": [400, 0, 500, 100], "kind": "check"},
+              {"label": "B4", "box": [600, 0, 700, 100], "kind": "check"},
+              {"label": "제안_B3", "box": [0, 300, 100, 400], "kind": "propose"}]
+    finals = [{"label": "B1", "box": [0, 0, 100, 100]},
+              {"label": "B2", "box": [220, 0, 300, 100]},
+              {"label": "B3", "box": [400, 0, 500, 100]},
+              {"label": "B3", "box": [0, 300, 100, 400]},
+              {"label": "driver", "box": [300, 500, 400, 700]}]
+    s = CB.edit_stats(drafts, finals)
+    check(s["auto"]["그대로"] == 1 and s["auto"]["박스 조정"] == 1, f"auto {s['auto']}")
+    check(s["check"]["이름 바뀜"] == 1 and s["check"]["지움"] == 1, f"check {s['check']}")
+    check(s["propose"]["채택"] == 1, f"propose {s['propose']}")
+    check(s["추가"] == {"driver": 1}, f"추가 {s['추가']}")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -92,6 +147,9 @@ if __name__ == "__main__":
     test_세션_비율로_뽑기()
     test_초벌_모양_만들기()
     test_검토_순서_표시()
+    test_빈_사진과_미검토()
+    test_제안_남음과_모르는_이름()
+    test_수정_집계()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
