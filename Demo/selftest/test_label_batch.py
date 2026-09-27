@@ -139,6 +139,22 @@ def test_수정_집계():
     check(s["추가"] == {"driver": 1}, f"추가 {s['추가']}")
 
 
+import audit_batch as AB
+
+
+def test_표본은_기계_확정만():
+    print("[11] 표본은 기계 확정 박스만 · 같은 시드면 같은 표본 · 개수는 있는 만큼")
+    man = {"images": [{"file": "a.png", "original": "/o/a.png",
+                       "drafts": [{"label": "B1", "box": [0, 0, 5, 5], "kind": "auto"},
+                                  {"label": "B3", "box": [9, 9, 20, 20], "kind": "check"},
+                                  {"label": "driver", "box": [9, 9, 20, 20], "kind": "tool"}]},
+                      {"file": "b.png", "original": "/o/b.png",
+                       "drafts": [{"label": "EMO", "box": [0, 0, 5, 5], "kind": "auto"}]}]}
+    s1 = AB.sample_auto(man, 10, 3); s2 = AB.sample_auto(man, 10, 3)
+    check(len(s1) == 2 and all(d["kind"] == "auto" for _, d in s1), f"{[(r['file'], d['label']) for r, d in s1]}")
+    check(s1 == s2, "재현")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -150,6 +166,7 @@ if __name__ == "__main__":
     test_빈_사진과_미검토()
     test_제안_남음과_모르는_이름()
     test_수정_집계()
+    test_표본은_기계_확정만()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
