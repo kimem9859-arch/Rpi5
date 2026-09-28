@@ -306,6 +306,14 @@ def test_공구_초벌이_잡아_준_비율():
     check(CB.tool_catch({"tool": {}, "추가": {}}) == {"caught": 0, "total": 0, "renamed": 0, "fake": 0}, "빈 집계")
 
 
+def test_공구_초벌_모델_기록():
+    print("[23] 묶음 기록의 공구 모델 = 인자로 준 파일(경로·해시·점수 기준) — 라운드마다 무엇으로 만든 초벌인지 가르려고")
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "tool_r1.pt"); open(p, "wb").write(b"weights")
+        m = RB.tool_model_record(p)
+        check(m["path"] == p and m["sha256_16"] == RB._sha(p) and m["conf"] == 0.25, f"{m}")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -329,6 +337,7 @@ if __name__ == "__main__":
     test_쓴_사진과_닮은_후보는_뺀다()
     test_묶음_기록의_모델은_실제_설정()
     test_공구_초벌이_잡아_준_비율()
+    test_공구_초벌_모델_기록()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

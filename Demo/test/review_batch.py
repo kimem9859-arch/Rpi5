@@ -2,7 +2,7 @@
 
 실행(Demo/ 에서):
   python3 test/review_batch.py --sessions test/raw/<세션> [...] --template test/raw/<정지 세션> \\
-      --used ~/data/label_batches/used.txt [--seal <봉인 목록.json>] \\
+      --used ~/data/label_batches/used.txt [--seal <봉인 목록.json>] [--tool-model ~/data/label_models/tool_rN.pt] \\
       --out ~/data/label_batches/b001 --size 200 [--seed 1]
 출력: <out>/images/(순서 표시가 붙은 사진 + 같은 이름 .json) · classes.txt · manifest.json · 안내.txt · xanylabelingrc_단축키.yaml
 정본 설계 = 상위 docs/superpowers/specs/2026-09-28-반자동라벨링-design.md §3 · §4 · §5 · §6
@@ -71,6 +71,14 @@ def button_model_record():
     path = config.HEF_MODEL_PATH if config.INFERENCE_BACKEND == "hailo" else config.PT_MODEL_PATH
     return {"backend": config.INFERENCE_BACKEND, "path": os.path.relpath(path, DEMO), "sha256_16": _sha(path),
             "conf": config.YOLO_CONF_LOW, "method": "tile2 — 세로 사진을 가로 두 조각(768×576)으로"}
+
+
+TOOL_CONF = 0.25                   # 설계 §5.2 — 공구 초벌 점수 기준
+
+
+def tool_model_record(path):
+    """묶음 기록용 — 공구 초벌 모델(tool_v3 또는 반복 학습 tool_rN · spec 2026-09-28-공구초벌-반복학습 §6)."""
+    return {"path": str(path), "sha256_16": _sha(path), "conf": TOOL_CONF}
 
 
 def pick_frames(cands, size, seed):
@@ -157,6 +165,7 @@ def main():
     ap.add_argument("--template", required=True, help="배치 틀·문턱을 만들 정지 장면 세션(같은 장소)")
     ap.add_argument("--seal", help="봉인 목록(selection.json) — 주면 그 사진과 주변을 뺀다")
     ap.add_argument("--used", required=True)
+    ap.add_argument("--tool-model", default=str(TOOL_MODEL), help="공구 초벌 모델(기본 tool_v3 · 반복 학습 모델은 ~/data/label_models/)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--size", type=int, default=200)
     ap.add_argument("--seed", type=int, default=1)
@@ -211,7 +220,7 @@ def main():
     lst = out / "_tools_list.txt"; tj = out / "_tools.json"
     lst.write_text("\n".join(c[2] for c in pick), encoding="utf-8")
     subprocess.run([str(RFENV), str(HERE / "prelabel_tools.py"), "--list", str(lst), "--out", str(tj),
-                    "--model", str(TOOL_MODEL)], check=True, cwd=str(DEMO))
+                    "--model", str(Path(a.tool_model).expanduser()), "--conf", str(TOOL_CONF)], check=True, cwd=str(DEMO))
     tools = json.loads(tj.read_text(encoding="utf-8"))
 
     recs = []
@@ -229,7 +238,7 @@ def main():
     created = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     man = {"batch": out.name, "created": created,
            "models": {"buttons": button_model_record(),
-                      "tools": {"path": "models/tool_v3.pt", "sha256_16": _sha(TOOL_MODEL), "conf": 0.25}},
+                      "tools": tool_model_record(Path(a.tool_model).expanduser())},
            "template": str(a.template), "thresholds": th, "edge_frac": LR.EDGE_FRAC, "frame_sharp_thr": sharp_thr,
            "images": recs}
     (out / "manifest.json").write_text(json.dumps(man, ensure_ascii=False, indent=1), encoding="utf-8")
