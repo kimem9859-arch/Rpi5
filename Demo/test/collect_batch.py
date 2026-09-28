@@ -1,7 +1,7 @@
 """검토 묶음 회수 — 사용자가 고친 X-AnyLabeling 라벨 → 점검 → YOLO 라벨 + 수정 집계 + label_audit.
 
 실행(Demo/ 에서): python3 test/collect_batch.py <돌려받은 images 폴더> --manifest <묶음>/manifest.json --out ~/data/label_dataset/<장소>
-받는 조건(설계 §8): ①묶음의 모든 사진에 .json ②검토 흔적 — 다시 저장됨(version ≠ 초벌 표시) 또는 「검토함」 플래그·검토 완료(checked) ③이름 = 8종·exclude ④「제안_」 없음 ⑤사각형만
+받는 조건(설계 §8): ①묶음의 모든 사진에 .json ②검토 흔적 — 다시 저장됨(version ≠ 초벌 표시) · 「검토함」 플래그·검토 완료(checked) · 또는 사용자가 「다 봤다」(--viewed-all) ③이름 = 8종·exclude ④「제안_」 없음 ⑤사각형만
 하나라도 어긋나면 아무것도 쓰지 않고 종료 코드 1 과 목록을 낸다.
 출력: <out>/labels/<짧은 세션>__fNNNNN.txt · <out>/images.txt(라벨 이름 → 원본 경로) · <out>/data.yaml · <out>/stats/<묶음>.json
 🔴 사진은 파이의 원본과 짝짓는다 — 돌려받은 사진은 쓰지 않는다.
@@ -23,7 +23,9 @@ import xany_io as X            # noqa: E402
 KEYS = ("그대로", "박스 조정", "이름 바뀜", "지움", "채택")
 
 
-def check_returned(man, returned_dir):
+def check_returned(man, returned_dir, viewed_all=False):
+    """viewed_all = 사용자가 「묶음을 다 봤다」고 확인함 — X-AnyLabeling 은 고치지 않은 사진을 저장하지 않으므로
+    (3.3.5 · 사용자 확인 2026-09-28) 저장 흔적이 없는 사진도 「봤고 고칠 게 없음」으로 받는다. 이름 점검은 그대로 한다."""
     out = []
     for r in man["images"]:
         p = Path(returned_dir) / (Path(r["file"]).stem + ".json")
@@ -33,9 +35,19 @@ def check_returned(man, returned_dir):
         doc = X.read_json(p)
         # 검토한 사진 = 다시 저장됨(version 이 바뀜) 또는 「검토함」 플래그·검토 완료(checked) — 고칠 게 없으면
         # X-AnyLabeling 은 Ctrl+S 를 눌러도 저장하지 않는다(xany_io.REVIEW_FLAG 설명).
-        if doc["version"] == X.DRAFT_VERSION and not doc["reviewed"]:
-            out.append(f"{r['file']}: 미검토(저장도 「검토함」 표시도 없다)")
+        if doc["version"] == X.DRAFT_VERSION and not doc["reviewed"] and not viewed_all:
+            out.append(f"{r['file']}: 미검토(저장 흔적 없음 — 다 봤다면 --viewed-all)")
         out += [f"{r['file']}: {m}" for m in X.problems(doc["shapes"])]
+    return out
+
+
+def unchanged(man, returned_dir):
+    """저장 흔적이 없는(고치지 않은) 사진을 묶음 종류별로 — 「사람 확인」 사진을 하나도 안 고쳤다면 눈여겨본다."""
+    out = {}
+    for r in man["images"]:
+        p = Path(returned_dir) / (Path(r["file"]).stem + ".json")
+        if p.exists() and X.read_json(p)["version"] == X.DRAFT_VERSION:
+            out.setdefault(r["kind"], []).append(r["file"])
     return out
 
 
@@ -70,15 +82,23 @@ def main():
     ap.add_argument("returned")
     ap.add_argument("--manifest", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--viewed-all", action="store_true", help="사용자가 묶음을 다 봤다고 확인함 — 저장 흔적 없는 사진도 받는다")
     a = ap.parse_args()
     man = json.loads(Path(a.manifest).expanduser().read_text(encoding="utf-8"))
     ret = Path(a.returned).expanduser()
-    probs = check_returned(man, ret)
+    probs = check_returned(man, ret, viewed_all=a.viewed_all)
     if probs:
         print(f"❌ 회수 거부 — 문제 {len(probs)}건(아무것도 쓰지 않았다)")
         for m in probs:
             print("  -", m)
         sys.exit(1)
+    un = unchanged(man, ret)
+    if un:
+        print("고치지 않은 사진(종류별):", {k: len(v) for k, v in un.items()})
+        if un.get("check"):
+            print("  ⚠️ 사람 확인 박스가 있는데 하나도 고치지 않은 사진 — 확인 박스를 모두 맞다고 본 것인지 눈여겨볼 것:")
+            for f in un["check"]:
+                print("   -", f)
     out = Path(a.out).expanduser()
     (out / "labels").mkdir(parents=True, exist_ok=True); (out / "stats").mkdir(exist_ok=True)
     total = {k: Counter() for k in ("auto", "check", "propose", "tool")}; added = Counter()

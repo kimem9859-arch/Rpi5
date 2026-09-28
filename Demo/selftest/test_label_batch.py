@@ -185,6 +185,22 @@ def test_검토함_플래그로_받기():
         check(CB.check_returned(man, d) == [], "초벌 표시 + 검토함 = 통과")
 
 
+def test_다_봤다고_하면_받기():
+    print("[15] 사용자가 「묶음을 다 봤다」고 하면 저장 흔적 없는 사진도 받고, 고치지 않은 사진을 종류별로 알려 준다")
+    with tempfile.TemporaryDirectory() as d:
+        man = _man(["a_check__S__f00000.png", "c_auto__S__f00001.png"])
+        man["images"][0]["kind"] = "check"
+        for r in man["images"]:
+            X.write_json(os.path.join(d, r["file"].replace(".png", ".json")), "x.png", 768, 1024,
+                         [X.shape("B1", [10, 10, 60, 60])])
+        check(len(CB.check_returned(man, d)) == 2, "기본은 둘 다 미검토")
+        check(CB.check_returned(man, d, viewed_all=True) == [], "다 봤다 = 통과")
+        u = CB.unchanged(man, d)
+        check(u == {"check": ["a_check__S__f00000.png"], "auto": ["c_auto__S__f00001.png"]}, f"{u}")
+        X.write_json(os.path.join(d, "c_auto__S__f00001.json"), "x.png", 768, 1024, [X.shape("b1", [10, 10, 60, 60])])
+        check(any("'b1'" in m for m in CB.check_returned(man, d, viewed_all=True)), "다 봤다고 해도 이름 점검은 한다")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -200,6 +216,7 @@ if __name__ == "__main__":
     test_검토_완료_표시()
     test_작은_이동도_조정()
     test_검토함_플래그로_받기()
+    test_다_봤다고_하면_받기()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
