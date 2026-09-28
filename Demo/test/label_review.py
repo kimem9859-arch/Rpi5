@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import itertools
 import math
 from collections import Counter, defaultdict
@@ -38,12 +39,13 @@ def inside(a, b):
     return ix * iy / max(1, (a[2] - a[0]) * (a[3] - a[1]))
 
 
-def tile_detect(img, run):
+def tile_detect(img, run, tile=True):
     """세로 사진을 가로 모양 두 조각(폭 × 폭·3/4, 위·아래)으로 잘라 각각 검출해 합친다(설계 §5.1).
-    합치기 = 같은 클래스가 IoU 0.3 초과면 하나(잘리지 않은 것 → 점수 순) · 잘린 박스가 온전한 박스에 50% 이상 들면 버림."""
+    합치기 = 같은 클래스가 IoU 0.3 초과면 하나(잘리지 않은 것 → 점수 순) · 잘린 박스가 온전한 박스에 50% 이상 들면 버림.
+    tile=False = 사진 통째로 한 번 — 비율 유지 여백 채우기로 배운 새 버튼 모델(spec 2026-09-29-버튼초벌-반복학습 §6)."""
     H, W = img.shape[:2]
     th = W * 3 // 4
-    if H <= th:                                   # 조각을 낼 만큼 세로가 길지 않다 → 통째로 한 번
+    if not tile or H <= th:                       # 통째로 한 번(새 모델) · 조각을 낼 만큼 세로가 길지 않다
         return [(n, s, list(b)) for n, s, b in run(img)]
     out = []
     for t in (0, H - th):
@@ -193,11 +195,11 @@ def _diam(b):
     return ((b[2] - b[0]) + (b[3] - b[1])) / 2
 
 
-def build_template(imgs, run):
+def build_template(imgs, run, tile=True):
     """버튼 5개가 한 번씩만 잡힌 사진들에서 맞춘 박스의 중심·지름 중앙값 = 배치 틀(설계 §6 ⑦)."""
     acc = defaultdict(list)
     for img in imgs:
-        ds = tile_detect(img, run)
+        ds = tile_detect(img, run, tile)
         c = Counter(n for n, _, _ in ds)
         if sorted(c) != SLOTS or max(c.values()) > 1:
             continue
@@ -213,11 +215,11 @@ def build_template(imgs, run):
     return {n: tuple(float(v) for v in np.median(np.array(acc[n]), axis=0)) for n in SLOTS}
 
 
-def make_thresholds(imgs, run):
+def make_thresholds(imgs, run, tile=True):
     """무늬·흐림·속 찬 정도 문턱 — 배치 틀과 같은 정지 장면 사진에서 정한다(설계 §6 ⑦)."""
     rims = defaultdict(list); sharp, fills = [], []
     for img in imgs:
-        for n, s, b in tile_detect(img, run):
+        for n, s, b in tile_detect(img, run, tile):
             sharp.append(sharpness(img, b))
             if n in ("B3", "EMO"):
                 sn = snap(img, b)
@@ -233,10 +235,10 @@ def make_thresholds(imgs, run):
             "margin": MARGIN_MIN, "cost": COST_MAX}
 
 
-def review(img, run, T, th):
+def review(img, run, T, th, tile=True):
     """한 장 검토. 박스마다 이유(why)가 비면 기계 확정, 있으면 사람에게(설계 §6 ③)."""
     boxes = []
-    for n, s, b in tile_detect(img, run):
+    for n, s, b in tile_detect(img, run, tile):
         sn = snap(img, b)
         fam = rim = None
         if sn is not None:
@@ -292,3 +294,21 @@ def review(img, run, T, th):
     for x in boxes:          # 큰 배열은 넘기지 않는다
         x.pop("snap", None)
     return {"boxes": boxes, "missing": missing, "nvis": nvis}
+
+
+def _img_key(img):
+    return hashlib.sha1(np.ascontiguousarray(img).tobytes()).hexdigest() + str(img.shape)
+
+
+def lookup_run(pairs):
+    """미리 그린 초벌(rfenv prelabel_tools 의 JSON 모양)을 run 으로 — pairs = (사진, [[이름, 점수, x1, y1, x2, y2], ...]) 반복자.
+    사진 바이트로 찾는다(같은 파일을 다시 읽어도 찾는다 · 사진을 붙잡아 두지 않는다).
+    🔴 모르는 사진(조각 등)이면 KeyError — tile=True 와 섞어 쓰는 실수를 조용히 넘기지 않는다."""
+    table = {_img_key(img): [(r[0], float(r[1]), list(r[2:6])) for r in rows] for img, rows in pairs}
+
+    def run(img):
+        k = _img_key(img)
+        if k not in table:
+            raise KeyError("미리 그린 초벌이 없는 사진 — 조각을 넘겼거나(tile=False 로 불러야 한다) 목록에 없는 사진")
+        return [(n, s, list(b)) for n, s, b in table[k]]
+    return run

@@ -234,6 +234,44 @@ def test_샌_박스는_검출기_박스로():
     check(b["box"] == b["pre"], f"박스 {b['box']} = 검출기 박스 {b['pre']}")
 
 
+class WholeRun:
+    """tile=False — 사진 통째로 한 번 부른다. 참 박스를 그대로 돌려준다."""
+
+    def __init__(self, truth):
+        self.truth, self.k = truth, 0
+
+    def __call__(self, img):
+        self.k += 1
+        return [(n, s, list(b)) for n, s, b in self.truth]
+
+
+def test_통째로_한_번():
+    print("[15] tile=False — 사진 통째로 한 번만 검출(새 버튼 모델 · spec 2026-09-29 §6) · 기계 확정은 조각 방식과 같다")
+    r = WholeRun(TRUTH)
+    got = R.tile_detect(panel(), r, tile=False)
+    check(r.k == 1 and got == [(n, s, b) for n, s, b in TRUTH], f"호출 {r.k} · 결과 {got}")
+    imgs = [panel() for _ in range(3)]
+    T = R.build_template(imgs, WholeRun(TRUTH), tile=False)
+    th = R.make_thresholds(imgs, WholeRun(TRUTH), tile=False)
+    out = R.review(panel(), WholeRun(TRUTH), T, th, tile=False)
+    check(out["nvis"] == 5 and all(not b["why"] for b in out["boxes"]), f"이유 {[b['why'] for b in out['boxes']]}")
+
+
+def test_미리_그린_초벌_찾기():
+    print("[16] 🔴 미리 그린 초벌(JSON)을 사진 바이트로 찾는다 — 다시 읽은 같은 사진은 찾고, 조각·모르는 사진은 KeyError")
+    a, b = panel(), panel(names=("B1", "B2"))
+    rows = [[n, 0.9, *loose(n)] for n in POS]
+    run = R.lookup_run(iter([(a, rows), (b, rows[:2])]))
+    check(run(a.copy()) == [(n, 0.9, loose(n)) for n in POS], "같은 사진(다시 읽음) = 그 초벌")
+    check(len(run(b)) == 2, "사진마다 따로")
+    for bad, why in ((a[0:576], "조각"), (panel(names=("B3",)), "모르는 사진")):
+        try:
+            run(bad); raised = False
+        except KeyError:
+            raised = True
+        check(raised, f"{why} = KeyError")
+
+
 if __name__ == "__main__":
     test_박스_맞추기()
     test_색_계열()
@@ -249,6 +287,8 @@ if __name__ == "__main__":
     test_가로_사진은_한_번()
     test_결과는_JSON_으로_쓸_수_있다()
     test_샌_박스는_검출기_박스로()
+    test_통째로_한_번()
+    test_미리_그린_초벌_찾기()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
