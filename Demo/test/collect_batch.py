@@ -107,13 +107,13 @@ def main():
         doc = X.read_json(ret / (Path(r["file"]).stem + ".json"))
         name = r["file"].split("__", 1)[1].rsplit(".", 1)[0]          # <짧은 세션>__fNNNNN
         lines = X.to_yolo_lines(doc["shapes"], r["w"], r["h"])
-        s = edit_stats(r["drafts"], [x for x in doc["shapes"] if x["label"] != X.EXCLUDE])
+        if lines is None:          # exclude 사진은 수정 집계에서도 뺀다 — 박스를 남기든 지우든 기계 정확도와 무관하다
+            excluded += 1
+            continue
+        s = edit_stats(r["drafts"], doc["shapes"])
         for k in total:
             total[k].update(s[k])
         added.update(s["추가"])
-        if lines is None:
-            excluded += 1
-            continue
         (out / "labels" / f"{name}.txt").write_text("".join(l + "\n" for l in lines), encoding="utf-8")
         rows.append(f"{name}\t{r['original']}")
     with open(out / "images.txt", "a", encoding="utf-8") as f:

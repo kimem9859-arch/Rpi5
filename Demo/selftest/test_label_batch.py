@@ -201,6 +201,30 @@ def test_다_봤다고_하면_받기():
         check(any("'b1'" in m for m in CB.check_returned(man, d, viewed_all=True)), "다 봤다고 해도 이름 점검은 한다")
 
 
+def test_exclude_사진은_수정_집계에서_뺀다():
+    print("[16] 🔴 exclude 사진은 수정 집계에서 뺀다 — 남긴 박스가 「그대로」, 지운 박스가 「지움」으로 세어지면 기계 정확도가 틀어진다")
+    import subprocess
+    with tempfile.TemporaryDirectory() as d:
+        man = _man(["c_auto__S__f00000.png", "c_auto__S__f00001.png", "c_auto__S__f00002.png"])
+        ret = os.path.join(d, "ret"); os.mkdir(ret)
+        finals = {"f00000": [X.shape("B1", [10, 10, 60, 60])],                                # 보통 사진 — 그대로
+                  "f00001": [X.shape("B1", [10, 10, 60, 60]), X.shape(X.EXCLUDE, [0, 0, 768, 1024])],  # 박스 남김
+                  "f00002": [X.shape(X.EXCLUDE, [0, 0, 768, 1024])]}                            # 박스 지움
+        for k, shapes in finals.items():
+            pth = os.path.join(ret, f"c_auto__S__{k}.json")
+            X.write_json(pth, "x.png", 768, 1024, shapes)
+            doc = json.load(open(pth)); doc["version"] = "3.3.5"; json.dump(doc, open(pth, "w"))
+        mp = os.path.join(d, "manifest.json"); json.dump(man, open(mp, "w"))
+        out = os.path.join(d, "out")
+        r = subprocess.run([sys.executable, os.path.join(_DEMO_DIR, "test", "collect_batch.py"), ret,
+                            "--manifest", mp, "--out", out], capture_output=True, text=True)
+        check(r.returncode == 0, f"회수 성공 {r.stdout[-300:]}{r.stderr[-300:]}")
+        s = json.load(open(os.path.join(out, "stats", "t.json")))
+        check(s["exclude"] == 2, f"exclude 2 — {s['exclude']}")
+        check(s["auto"]["그대로"] == 1 and s["auto"]["지움"] == 0, f"auto 는 보통 사진 1장만 — {s['auto']}")
+        check(s["추가"] == {}, f"exclude 박스는 「추가」가 아니다 — {s['추가']}")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -217,6 +241,7 @@ if __name__ == "__main__":
     test_작은_이동도_조정()
     test_검토함_플래그로_받기()
     test_다_봤다고_하면_받기()
+    test_exclude_사진은_수정_집계에서_뺀다()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
