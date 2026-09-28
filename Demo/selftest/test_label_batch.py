@@ -298,6 +298,14 @@ def test_묶음_기록의_모델은_실제_설정():
           and m["conf"] == config.YOLO_CONF_LOW and m["method"].startswith("tile2"), f"{m}")
 
 
+def test_공구_초벌이_잡아_준_비율():
+    print("[22] 공구 초벌이 잡아 준 비율 = 최종 공구 박스 중 초벌과 짝지어진 것(이름 바뀜 포함) — b001 집계로")
+    stats = {"tool": {"그대로": 0, "박스 조정": 51, "크게 조정": 9, "이름 바뀜": 4, "지움": 33, "채택": 0},
+             "추가": {"B4": 1, "pliers": 39, "wrench": 57, "driver": 19}}
+    check(CB.tool_catch(stats) == {"caught": 64, "total": 179, "renamed": 4, "fake": 33}, f"{CB.tool_catch(stats)}")
+    check(CB.tool_catch({"tool": {}, "추가": {}}) == {"caught": 0, "total": 0, "renamed": 0, "fake": 0}, "빈 집계")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -320,6 +328,7 @@ if __name__ == "__main__":
     test_두_번_보낸_폴더는_거부()
     test_쓴_사진과_닮은_후보는_뺀다()
     test_묶음_기록의_모델은_실제_설정()
+    test_공구_초벌이_잡아_준_비율()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

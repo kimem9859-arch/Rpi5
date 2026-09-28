@@ -72,6 +72,15 @@ def write_index(path, rows, gone):
     path.write_text("".join(f"{k}\t{v}\n" for k, v in idx.items()), encoding="utf-8")
 
 
+def tool_catch(stats):
+    """공구 초벌이 잡아 준 비율(spec 2026-09-28-공구초벌-반복학습 §1) — 최종 공구 박스 중 초벌과 짝지어진 것.
+    이름이 바뀐 박스도 새로 그리는 수고는 덜었으므로 넣고 따로 센다. 가짜 = 사람이 지운 공구 초벌."""
+    t = stats.get("tool", {})
+    caught = sum(t.get(k, 0) for k in ("그대로", "박스 조정", "크게 조정", "이름 바뀜"))
+    total = caught + sum(stats.get("추가", {}).get(n, 0) for n in X.CLASSES[5:])
+    return {"caught": caught, "total": total, "renamed": t.get("이름 바뀜", 0), "fake": t.get("지움", 0)}
+
+
 def edit_stats(drafts, finals):
     stats = {k: Counter({x: 0 for x in KEYS}) for k in ("auto", "check", "propose", "tool")}
     pairs = sorted(((LR.iou(d["box"], f["box"]), i, j) for i, d in enumerate(drafts) for j, f in enumerate(finals)),
@@ -157,11 +166,16 @@ def main():
     (out / "data.yaml").write_text("names: [" + ", ".join(X.CLASSES) + "]\n", encoding="utf-8")
     stats = {"batch": man["batch"], "images": len(man["images"]), "exclude": excluded,
              **{k: dict(v) for k, v in total.items()}, "추가": dict(added)}
+    stats["공구 초벌"] = tool_catch(stats)
     (out / "stats" / f"{man['batch']}.json").write_text(json.dumps(stats, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"✅ 회수 {len(rows)}장 · exclude {excluded}")
     for k in ("auto", "check", "propose", "tool"):
         print(f"  {k:8}", dict(total[k]))
     print("  추가    ", dict(added))
+    tc = stats["공구 초벌"]
+    print(f"  공구 초벌이 잡아 준 비율 {tc['caught']}/{tc['total']}"
+          + (f" = {tc['caught'] / tc['total']:.0%}" if tc["total"] else "")
+          + f" (이름 바뀜 {tc['renamed']} 포함) · 가짜(지움) {tc['fake']}")
     import label_audit
     rep = label_audit.audit(out)
     print("label_audit — 모르는 클래스", rep["unknown_classes"], "· 조각 의심", len(rep["suspects"]),
