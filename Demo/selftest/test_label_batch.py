@@ -175,6 +175,16 @@ def test_작은_이동도_조정():
     check(s2["check"]["그대로"] == 1, "0.5 px 미만 차이는 그대로(저장 때 반올림)")
 
 
+def test_검토함_플래그로_받기():
+    print("[14] 3.3.5 판 — 고칠 게 없는 사진은 「검토함」 플래그를 켜고 저장하면 받는다")
+    with tempfile.TemporaryDirectory() as d:
+        man = _man(["c_auto__S__f00000.png"])
+        pth = os.path.join(d, "c_auto__S__f00000.json")
+        X.write_json(pth, "x.png", 768, 1024, [X.shape("B1", [10, 10, 60, 60])])
+        doc = json.load(open(pth)); doc["flags"][X.REVIEW_FLAG] = True; json.dump(doc, open(pth, "w"))
+        check(CB.check_returned(man, d) == [], "초벌 표시 + 검토함 = 통과")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -189,6 +199,7 @@ if __name__ == "__main__":
     test_표본은_기계_확정만()
     test_검토_완료_표시()
     test_작은_이동도_조정()
+    test_검토함_플래그로_받기()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

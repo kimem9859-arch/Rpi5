@@ -85,6 +85,20 @@ def test_클래스_순서():
     check(X.CLASSES == ["B1", "B2", "B3", "B4", "EMO", "driver", "wrench", "pliers"], f"{X.CLASSES}")
 
 
+def test_검토함_플래그():
+    print("[8] 초벌 파일에는 사진 단위 플래그 「검토함」 이 꺼진 채로 들어가고, 켜지면 검토한 사진으로 읽는다")
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "c.json")
+        X.write_json(p, "c.png", 768, 1024, [])
+        doc = json.load(open(p, encoding="utf-8"))
+        check(doc["flags"] == {X.REVIEW_FLAG: False}, f"flags {doc['flags']}")
+        check(X.read_json(p)["reviewed"] is False, "꺼져 있으면 검토 안 함")
+        doc["flags"][X.REVIEW_FLAG] = True; json.dump(doc, open(p, "w"))
+        check(X.read_json(p)["reviewed"] is True, "켜지면 검토함")
+        doc["flags"] = {}; doc["checked"] = True; json.dump(doc, open(p, "w"))
+        check(X.read_json(p)["reviewed"] is True, "새 판의 checked 도 검토함")
+
+
 if __name__ == "__main__":
     test_쓰고_읽기()
     test_점_두_개도_읽기()
@@ -93,6 +107,7 @@ if __name__ == "__main__":
     test_크기가_다른_사진()
     test_exclude_사진()
     test_클래스_순서()
+    test_검토함_플래그()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

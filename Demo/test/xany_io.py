@@ -13,7 +13,10 @@ from pathlib import Path
 CLASSES = ["B1", "B2", "B3", "B4", "EMO", "driver", "wrench", "pliers"]
 EXCLUDE = "exclude"
 PROPOSAL_PREFIX = "제안_"
-DRAFT_VERSION = "sop-draft-1"      # 우리가 쓴 초벌 표시 — X-AnyLabeling 이 다시 저장하면 바뀐다(Task 8 에서 확인)
+DRAFT_VERSION = "sop-draft-1"      # 우리가 쓴 초벌 표시 — X-AnyLabeling 이 다시 저장하면 바뀐다
+REVIEW_FLAG = "검토함"             # 사진 단위 플래그 — 고칠 게 없는 사진은 이것을 켜고 저장한다.
+                                  # 🔑 X-AnyLabeling 은 고친 것이 없으면 Ctrl+S 로도 저장하지 않고(3.3.5), 3.3.5 에는
+                                  #    검토 완료(checked) 항목이 없다 — 플래그를 켜는 것이 「고친 것」이 되어 저장된다.
 
 
 def shape(label, box, score=None, description=None, difficult=False):
@@ -30,7 +33,7 @@ def clip_box(box, w, h):
 
 
 def write_json(path, image_name, w, h, shapes, description=None):
-    doc = {"version": DRAFT_VERSION, "flags": {}, "shapes": shapes, "imagePath": image_name,
+    doc = {"version": DRAFT_VERSION, "flags": {REVIEW_FLAG: False}, "shapes": shapes, "imagePath": image_name,
            "imageData": None, "imageHeight": int(h), "imageWidth": int(w), "description": description}
     Path(path).write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -47,7 +50,9 @@ def read_json(path):
                        "description": s.get("description"), "score": s.get("score"),
                        "shape_type": s.get("shape_type")})
     return {"version": doc.get("version"), "w": doc.get("imageWidth"), "h": doc.get("imageHeight"),
-            "image": doc.get("imagePath"), "checked": bool(doc.get("checked")), "shapes": shapes}
+            "image": doc.get("imagePath"), "checked": bool(doc.get("checked")),
+            "reviewed": (doc.get("flags") or {}).get(REVIEW_FLAG) is True or bool(doc.get("checked")),
+            "shapes": shapes}
 
 
 def problems(shapes):

@@ -116,7 +116,7 @@ GUIDE = """검토 묶음 {batch} — 사진 {n}장 (만든 날 {created})
 3. 목록 순서 = a_check(사람 확인 박스·공구 초벌이 있음) → b_propose(빠진 자리 제안) → c_auto(기계 확정만 — 공구·빠진 물체만 훑기) → d_blur(흐림 후보)
    · 박스 설명 「기계 확정」 = 기계가 확정 / 「확인: 이유」 = 사람이 봐야 함 / 「공구 초벌 — 확인」
    · 이름이 「제안_B4」 같은 박스 = 빠진 자리 제안 → 맞으면 이름을 B4 로, 아니면 지우기 (남아 있으면 회수가 거부한다)
-   · 고친 사진은 저장(Ctrl+S) · 고칠 게 없는 사진은 파일 목록에서 「검토 완료(checked)」 표시 — 고치지 않으면 Ctrl+S 가 저장하지 않는다
+   · 고친 사진은 저장(Ctrl+S) · 고칠 게 없는 사진은 플래그 칸의 「검토함」 을 켜고 Ctrl+S — 고치지 않으면 Ctrl+S 가 저장하지 않는다
    · 규칙 = Rpi5/Demo/docs/labeling_guide.md (여백 0 · 가린 버튼은 동그라미 전체 · 알아볼 수 없으면 사진 전체에 exclude)
 4. 끝나면 파이로 돌려보내기
    scp -r "$HOME\\Desktop\\{batch}\\images" pi@pi1.tailf090b8.ts.net:~/data/label_batches/{batch}/returned
