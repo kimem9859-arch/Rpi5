@@ -110,6 +110,65 @@ def test_시연_모델_폴더_거부():
     check(not TR.is_demo_models(Path.home() / "data" / "label_models", dm), "~/data/label_models 는 허용")
 
 
+def _tiny(d, n=5):
+    src = Path(d) / "src"; (src / "labels").mkdir(parents=True)
+    rows = []
+    for i in range(1, n + 1):
+        img = Path(d) / f"o{i}.png"; img.write_bytes(bytes([i]) * 10)
+        rows.append(f"A__f{i:05d}\t{img}")
+        (src / "labels" / f"A__f{i:05d}.txt").write_text("6 0.2 0.2 0.1 0.1\n", encoding="utf-8")
+    (src / "images.txt").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    return src
+
+
+def test_묶기():
+    print("[8] Colab 에 올릴 묶음 — tar 안의 data.yaml 은 원격 경로 · 사진·라벨 모두 · 원본 내용 그대로")
+    import tarfile
+    with tempfile.TemporaryDirectory() as d:
+        ds = Path(d) / "tool_r1"
+        TR.build_dataset(_tiny(d), ds)
+        tar = Path(d) / "tool_r1.tar"
+        n = TR.pack_dataset(ds, tar, "/content")
+        with tarfile.open(tar) as t:
+            names = t.getnames()
+            y = t.extractfile("tool_r1/data.yaml").read().decode()
+            img = t.extractfile("tool_r1/images/val/A__f00005.png").read()
+        check(n == 11 and "tool_r1/labels/train/A__f00001.txt" in names, f"파일 {n} · {sorted(names)[:3]}")
+        check("path: /content/tool_r1" in y and "2: pliers" in y, y)
+        check(img == bytes([5]) * 10, "사진 내용 그대로(하드링크도 실제 바이트로)")
+
+
+def test_원격_스크립트():
+    print("[9] 원격 학습 스크립트 — 문법 OK · 학습 중 성적 재기 끔 · GPU · 버전 고정 · 표지 3종")
+    src = TR.remote_script("tool_r1", [("yolov8n", "/content/yolov8n.pt"), ("tool_v3", "/content/tool_v3.pt")], 50, None, "8.4.117")
+    compile(src, "remote", "exec")
+    for k in ("val=False", "device=0", "epochs=50", "time=None", "ultralytics==8.4.117", "/content/tool_r1/data.yaml",
+              "/content/tool_r1.tar", "'yolov8n'", "'/content/tool_v3.pt'", "@@SETUP ok", "@@DONE", "@@FAIL"):
+        check(k in src, k)
+
+
+def test_표지_읽기():
+    print("[10] 🔴 성패는 종료 코드가 아니라 표지로 — colab exec 는 예외에도 0 을 낸다(§12.41-(6))")
+    log = ("[colab] noise\n@@SETUP start\n@@SETUP ok\nEpoch 1/50 ...\n"
+           "@@DONE yolov8n 6.2 /content/runs/detect/yolov8n\n"
+           "@@FAIL tool_v3 RuntimeError: CUDA out of memory\nTraceback (most recent call last):\n")
+    m = TR.parse_markers(log)
+    check(m == {"setup_ok": True, "done": {"yolov8n": {"minutes": 6.2, "dir": "/content/runs/detect/yolov8n"}},
+                "fail": {"tool_v3": "RuntimeError: CUDA out of memory"}}, f"{m}")
+    check(TR.parse_markers("@@SETUP start\nERROR pip\n")["setup_ok"] is False, "설치·풀기 표지가 없으면 실패")
+    echo = 'print("@@SETUP ok", flush=True)\n        print(f"@@DONE {stem} 1.0 /x", flush=True)\n'
+    check(TR.parse_markers(echo) == {"setup_ok": False, "done": {}, "fail": {}}, "스크립트 원문이 되비쳐도 표지로 세지 않는다(줄 첫머리만)")
+
+
+def test_개인정보_제외():
+    print("[11] 개인정보 관문에서 뺀 사진은 학습 묶음(학습·떼어 둔 양쪽)에 넣지 않는다")
+    with tempfile.TemporaryDirectory() as d:
+        info = TR.build_dataset(_tiny(d), Path(d) / "dst", exclude={"A__f00002", "A__f00005"})
+        check(info["train"] + info["val"] == ["A__f00001", "A__f00003", "A__f00004"] or
+              sorted(info["train"] + info["val"]) == ["A__f00001", "A__f00003", "A__f00004"], f"{info['train']} / {info['val']}")
+        check(not (Path(d) / "dst" / "images" / "val" / "A__f00005.png").exists(), "뺀 사진 파일 없음")
+
+
 if __name__ == "__main__":
     test_공구만_번호_바꾸기()
     test_세션별_마지막_20퍼센트()
@@ -119,6 +178,10 @@ if __name__ == "__main__":
     test_학습_폴더()
     test_이름으로_번호()
     test_시연_모델_폴더_거부()
+    test_묶기()
+    test_원격_스크립트()
+    test_표지_읽기()
+    test_개인정보_제외()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

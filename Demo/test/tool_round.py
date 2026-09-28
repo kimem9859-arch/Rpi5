@@ -6,9 +6,12 @@
 """
 from __future__ import annotations
 
+import io
 import math
 import os
+import re
 import shutil
+import tarfile
 from pathlib import Path
 
 TOOL_FIRST = 5                                    # 8종 번호(B1 B2 B3 B4 EMO driver wrench pliers)에서 공구 시작
@@ -97,16 +100,24 @@ def is_demo_models(path, demo_models):
     return p == d or d in p.parents
 
 
-def build_dataset(src, dst, frac=0.2):
+def data_yaml(root):
+    names = "".join(f"  {i}: {n}\n" for i, n in enumerate(TOOL_NAMES))
+    return f"path: {root}\ntrain: images/train\nval: images/val\nnames:\n{names}"
+
+
+def build_dataset(src, dst, frac=0.2, exclude=()):
     """회수 결과(src = ~/data/label_dataset/<장소> — labels/ · images.txt) → ultralytics 폴더(dst).
-    공구 없는 사진도 빈 라벨로 넣는다(설계 §4). 라벨 파일이 없으면 FileNotFoundError 로 멈춘다."""
+    공구 없는 사진도 빈 라벨로 넣는다(설계 §4). 라벨 파일이 없으면 FileNotFoundError 로 멈춘다.
+    exclude = 개인정보 관문에서 뺀 사진 이름 — 학습·떼어 둔 양쪽에서 뺀다(설계 §5)."""
     src, dst = Path(src).expanduser(), Path(dst).expanduser()
     if dst.exists():
         raise FileExistsError(f"이미 있다: {dst} — 덮어쓰지 않는다")
     idx = {}
     for line in (src / "images.txt").read_text(encoding="utf-8").splitlines():
         if "\t" in line:
-            k, v = line.split("\t", 1); idx[k] = v
+            k, v = line.split("\t", 1)
+            if k not in exclude:
+                idx[k] = v
     train, val = split_holdout(sorted(idx), frac)
     for name in idx:                                     # 쓰기 전에 전부 확인 — 반쯤 만든 폴더를 남기지 않게
         if not (src / "labels" / f"{name}.txt").exists():
@@ -126,6 +137,53 @@ def build_dataset(src, dst, frac=0.2):
             (dst / "labels" / part / f"{name}.txt").write_text("".join(x + "\n" for x in lines), encoding="utf-8")
             n += len(lines)
         boxes[part] = n
-    names = "".join(f"  {i}: {n}\n" for i, n in enumerate(TOOL_NAMES))
-    (dst / "data.yaml").write_text(f"path: {dst}\ntrain: images/train\nval: images/val\nnames:\n{names}", encoding="utf-8")
+    (dst / "data.yaml").write_text(data_yaml(dst), encoding="utf-8")
     return {"train": train, "val": val, "boxes": boxes}
+
+
+def pack_dataset(ds, tar_path, remote_root):
+    """Colab 에 올릴 묶음 — <ds 이름>/images · labels 전부 + 원격 경로로 고친 data.yaml. 하드링크 사진도 실제 바이트로 들어간다.
+    반환 = 넣은 파일 수."""
+    ds = Path(ds)
+    n = 0
+    with tarfile.open(tar_path, "w") as t:
+        for f in sorted(ds.rglob("*")):
+            rel = f.relative_to(ds)
+            if f.is_file() and rel.parts[0] in ("images", "labels") and f.suffix != ".cache":
+                t.add(f, arcname=f"{ds.name}/{rel}"); n += 1
+        y = data_yaml(f"{remote_root}/{ds.name}").encode("utf-8")
+        info = tarfile.TarInfo(f"{ds.name}/data.yaml"); info.size = len(y)
+        t.addfile(info, io.BytesIO(y)); n += 1
+    return n
+
+
+def remote_script(ds_name, starts, epochs, hours, ul_version):
+    """Colab VM 에서 돌릴 학습 스크립트. starts = [(이름, 원격 가중치 경로)].
+    🔴 성패는 표지(@@SETUP ok · @@DONE · @@FAIL)로만 판단한다 — colab exec 는 예외에도 종료 코드 0(저널 §12.41-(6)).
+    저장 경로는 문서와 다를 수 있어(같은 곳) 실제 save_dir 을 표지에 싣는다."""
+    return f"""import subprocess, sys, tarfile, time, traceback
+print("@@SETUP start", flush=True)
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "ultralytics=={ul_version}"], check=True)
+tarfile.open("/content/{ds_name}.tar").extractall("/content")
+print("@@SETUP ok", flush=True)
+from ultralytics import YOLO
+for stem, w in {starts!r}:
+    t0 = time.time()
+    try:
+        m = YOLO(w)
+        m.train(data="/content/{ds_name}/data.yaml", imgsz=640, epochs={epochs}, time={hours}, val=False, device=0,
+                workers=2, batch=16, project="/content/runs", name=stem, exist_ok=True, plots=False, verbose=False)
+        print(f"@@DONE {{stem}} {{(time.time() - t0) / 60:.1f}} {{m.trainer.save_dir}}", flush=True)
+    except Exception as e:
+        print(f"@@FAIL {{stem}} {{type(e).__name__}}: {{e}}", flush=True)
+        traceback.print_exc()
+"""
+
+
+def parse_markers(text):
+    out = {"setup_ok": re.search(r"^@@SETUP ok\s*$", text, re.M) is not None, "done": {}, "fail": {}}   # 줄 첫머리만 — 원문 되비침 제외
+    for m in re.finditer(r"^@@DONE (\S+) ([\d.]+) (\S+)\s*$", text, re.M):
+        out["done"][m.group(1)] = {"minutes": float(m.group(2)), "dir": m.group(3)}
+    for m in re.finditer(r"^@@FAIL (\S+) (.*)$", text, re.M):
+        out["fail"][m.group(1)] = m.group(2).strip()
+    return out

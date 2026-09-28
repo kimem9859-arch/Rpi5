@@ -1,7 +1,10 @@
 """공구 초벌 반복 학습 한 라운드 — 학습 데이터 만들기 → 출발 가중치마다 학습 → 떼어 둔 사진 관문 → 고르기 → 저장.
 
 실행(Demo/ 에서, rfenv): ~/env/rfenv/bin/python test/train_tool_round.py --data ~/data/label_dataset/place1 --round 1 \\
-    --start models/yolov8n.pt models/tool_v3.pt --current models/tool_v3.pt [--epochs 50] [--probe]
+    --start models/yolov8n.pt models/tool_v3.pt --current models/tool_v3.pt [--backend colab|cpu] [--exclude 뺄이름.txt] [--epochs 50] [--probe]
+--backend colab(기본) = 학습만 Colab T4 — 파이가 colab CLI 로 빌리기·올리기·학습·받기·반납(설계 §5 개정). 관문·고르기는 파이.
+  🔴 Colab CLI 함정(저널 §12.41-(6)) — 토큰 1시간 · exec 는 예외에도 종료 코드 0(표지로 판단) · 저장 경로는 표지에서 · stop 필수.
+  🔴 올리기 전에 개인정보 관문을 거친다 — 뺄 사진 이름은 --exclude 파일로(설계 §5).
 출력: <work>/tool_r<N>/(학습 폴더 · runs/) · <models>/tool_r<N>.pt(채택했을 때만) · <models>/tool_r<N>.json(항상)
 --probe = 첫 출발 가중치로 1 에폭만 돌려 시간을 잰다(<work>/tool_r<N>_probe · 저장·채택 없음) — 설계 §5
 정본 설계 = 상위 docs/superpowers/specs/2026-09-28-공구초벌-반복학습-design.md
@@ -11,6 +14,7 @@ import argparse
 import datetime
 import json
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -20,7 +24,56 @@ sys.path.insert(0, str(HERE))
 import tool_round as TR          # noqa: E402
 
 CONF = 0.25                      # 초벌과 같은 점수 기준(설계 §6)
-HOURS_PER_START = 1.4            # 출발점마다 시간 상한 — 두 출발점이 한 라운드 3시간 안(설계 §1)
+HOURS_PER_START = 1.4            # 파이 CPU — 출발점마다 시간 상한(두 출발점이 한 라운드 3시간 안 · 설계 §1)
+COLAB_EXEC_MIN = 40              # Colab — 원격 실행 전체 상한(올리기~받기가 프록시 토큰 1시간 안 · 설계 §5).
+#   ultralytics 의 time 인자는 에폭 수를 덮어써 그 시간을 다 채우므로 Colab 에서는 쓰지 않고 에폭 수로만 멈춘다.
+UL_VERSION = "8.4.117"           # 원격 ultralytics — 파이 rfenv 와 같게(받은 가중치를 파이에서 읽는다)
+COLAB = shutil.which("colab") or str(Path.home() / ".local/bin/colab")
+
+
+def colab(*args, timeout):
+    return subprocess.run([COLAB, *args], capture_output=True, text=True, timeout=timeout)
+
+
+def train_colab(starts, ds, epochs, session):
+    """Colab T4 에서 출발점마다 학습하고 last.pt 를 받는다. 반환 = ({이름: (파이 경로, 분)}, 표지, 로그 경로).
+    GPU 를 못 빌리면 종료(중단 규칙 — 묻는다). 무엇이 실패해도 finally 에서 반납한다."""
+    tar = ds.parent / f"{ds.name}.tar"
+    print(f"묶음 {TR.pack_dataset(ds, tar, '/content')}개 파일 · {tar.stat().st_size / 1e6:.0f}MB")
+    rstarts = [(Path(s).stem, f"/content/{Path(s).name}") for s in starts]
+    script = ds.parent / f"{ds.name}_remote.py"
+    script.write_text(TR.remote_script(ds.name, rstarts, epochs, None, UL_VERSION), encoding="utf-8")
+    t0 = time.time()
+    r = colab("new", "-s", session, "--gpu", "T4", timeout=900)
+    if r.returncode != 0:
+        sys.exit(f"🔴 T4 를 못 빌렸다 — 멈추고 묻는다(설계 §5)\n{(r.stdout + r.stderr)[-500:]}")
+    log_path = ds / "colab_log.txt"
+    out = {}
+    try:
+        for local, remote in [(tar, f"/content/{tar.name}")] + [(Path(s), rp) for s, (_, rp) in zip(starts, rstarts)]:
+            r = colab("upload", "-s", session, str(local), remote, timeout=1800)
+            if r.returncode != 0:
+                raise RuntimeError(f"올리기 실패 {local.name}: {(r.stdout + r.stderr)[-300:]}")
+        print(f"올리기 끝 {(time.time() - t0) / 60:.1f}분")
+        limit = COLAB_EXEC_MIN * 60
+        r = colab("exec", "-s", session, "-f", str(script), "--timeout", str(limit), timeout=limit + 300)
+        log = r.stdout + r.stderr
+        log_path.write_text(log, encoding="utf-8")
+        mk = TR.parse_markers(log)
+        print(f"원격 학습 끝 {(time.time() - t0) / 60:.1f}분 · 설치 {'OK' if mk['setup_ok'] else '실패'} · 끝남 {list(mk['done'])} · 실패 {mk['fail']}")
+        for stem, _ in rstarts:
+            if stem not in mk["done"]:
+                continue
+            local = ds / "runs" / stem / "last.pt"; local.parent.mkdir(parents=True, exist_ok=True)
+            r = colab("download", "-s", session, f"{mk['done'][stem]['dir']}/weights/last.pt", str(local), timeout=900)
+            if r.returncode == 0 and local.exists():
+                out[stem] = (local, mk["done"][stem]["minutes"])
+            else:
+                print(f"받기 실패 {stem}: {(r.stdout + r.stderr)[-300:]}")
+        print(f"받기 끝 {(time.time() - t0) / 60:.1f}분(토큰 1시간 안이어야 한다)")
+        return out, mk, log_path
+    finally:
+        colab("stop", "-s", session, timeout=300)
 
 
 def train(start, ds, name, epochs, hours):
@@ -57,6 +110,8 @@ def main():
     ap.add_argument("--current", required=True)
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--probe", action="store_true")
+    ap.add_argument("--backend", choices=("colab", "cpu"), default="colab")
+    ap.add_argument("--exclude", help="개인정보 관문에서 뺀 사진 이름(한 줄에 하나)")
     ap.add_argument("--work", default="~/data/label_train")
     ap.add_argument("--models", default="~/data/label_models")
     a = ap.parse_args()
@@ -64,20 +119,31 @@ def main():
     if TR.is_demo_models(models, HERE.parent / "models"):
         sys.exit("🔴 결과 모델을 Demo/models 에 두지 않는다(설계 §7)")
     ds = Path(a.work).expanduser() / (f"tool_r{a.round}" + ("_probe" if a.probe else ""))
-    info = TR.build_dataset(a.data, ds)
+    excl = set(Path(a.exclude).read_text(encoding="utf-8").split()) if a.exclude else set()
+    info = TR.build_dataset(a.data, ds, exclude=excl)
     print(f"학습 {len(info['train'])}장(공구 {info['boxes']['train']}) · 떼어 둔 {len(info['val'])}장(공구 {info['boxes']['val']})")
-    if a.probe:
+    if a.probe and a.backend == "cpu":
         _, minutes = train(a.start[0], ds, "probe", 1, None)
         print(f"1 에폭 {minutes:.1f}분 → 예상 {minutes * a.epochs * len(a.start):.0f}분"
               f"(출발 {len(a.start)} × {a.epochs} 에폭 · 시간 상한 전 · 1 에폭 값은 학습 중 성적 재기 포함)")
         return
     rec = {"round": a.round, "data": str(Path(a.data).expanduser()), "created": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
            "train": info["train"], "val": info["val"], "boxes": info["boxes"], "epochs": a.epochs, "val_during_train": False,
-           "hours_per_start": HOURS_PER_START, "conf": CONF, "starts": {}}
+           "backend": a.backend, "excluded": sorted(excl), "conf": CONF, "starts": {},
+           "hours_per_start": None if a.backend == "colab" else HOURS_PER_START,
+           "colab_exec_min": COLAB_EXEC_MIN if a.backend == "colab" else None}
+    if a.backend == "colab":
+        got, mk, log_path = train_colab(a.start, ds, a.epochs, f"tool-r{a.round}")
+        rec["colab"] = {"log": str(log_path), **mk}
     cands = {}
     for s in a.start:
         name = Path(s).stem
-        best, minutes = train(s, ds, name, a.epochs, HOURS_PER_START)
+        if a.backend == "colab":
+            if name not in got:
+                print(f"[{name}] ❌ 학습·받기 실패 — 후보에서 뺀다"); continue
+            best, minutes = got[name]
+        else:
+            best, minutes = train(s, ds, name, a.epochs, HOURS_PER_START)
         c = gate(best, ds); cands[name] = c
         rec["starts"][name] = {"weights": s, "best": str(best), "minutes": round(minutes, 1), **c, "net": TR.net(c)}
         print(f"[{name}] {minutes:.0f}분 · 떼어 둔 사진: 잡음 {c['caught']} · 가짜 {c['fake']} · 놓침 {c['missed']} · 순이익 {TR.net(c)}")
