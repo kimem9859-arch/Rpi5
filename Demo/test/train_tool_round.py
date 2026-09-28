@@ -20,17 +20,18 @@ sys.path.insert(0, str(HERE))
 import tool_round as TR          # noqa: E402
 
 CONF = 0.25                      # 초벌과 같은 점수 기준(설계 §6)
-PATIENCE = 15                    # 조기 종료
 HOURS_PER_START = 1.4            # 출발점마다 시간 상한 — 두 출발점이 한 라운드 3시간 안(설계 §1)
 
 
 def train(start, ds, name, epochs, hours):
     from ultralytics import YOLO
     t = time.time()
-    YOLO(str(start)).train(data=str(ds / "data.yaml"), imgsz=640, epochs=epochs, patience=PATIENCE, time=hours,
+    # val=False — 학습 중 성적 재기(가장 좋은 에폭 고르기·일찍 멈추기)에 떼어 둔 사진을 쓰지 않는다. 그 사진은 관문 채점에만 쓴다(설계 §4).
+    # 그래서 마지막 에폭 모델(last.pt)을 쓰고, 시간은 time 상한이 지킨다.
+    YOLO(str(start)).train(data=str(ds / "data.yaml"), imgsz=640, epochs=epochs, time=hours, val=False,
                            device="cpu", workers=2, batch=8, project=str(ds / "runs"), name=name, exist_ok=False,
                            plots=False, verbose=False)
-    return ds / "runs" / name / "weights" / "best.pt", (time.time() - t) / 60
+    return ds / "runs" / name / "weights" / "last.pt", (time.time() - t) / 60
 
 
 def gate(model_path, ds):
@@ -68,10 +69,10 @@ def main():
     if a.probe:
         _, minutes = train(a.start[0], ds, "probe", 1, None)
         print(f"1 에폭 {minutes:.1f}분 → 예상 {minutes * a.epochs * len(a.start):.0f}분"
-              f"(출발 {len(a.start)} × {a.epochs} 에폭 · 조기 종료·시간 상한 전)")
+              f"(출발 {len(a.start)} × {a.epochs} 에폭 · 시간 상한 전 · 1 에폭 값은 학습 중 성적 재기 포함)")
         return
     rec = {"round": a.round, "data": str(Path(a.data).expanduser()), "created": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-           "train": info["train"], "val": info["val"], "boxes": info["boxes"], "epochs": a.epochs, "patience": PATIENCE,
+           "train": info["train"], "val": info["val"], "boxes": info["boxes"], "epochs": a.epochs, "val_during_train": False,
            "hours_per_start": HOURS_PER_START, "conf": CONF, "starts": {}}
     cands = {}
     for s in a.start:
