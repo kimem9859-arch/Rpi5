@@ -242,6 +242,31 @@ def test_반납_보장():
             TTR.colab = orig
 
 
+def test_조각_묶기():
+    print("[16] 🔴 큰 묶음은 조각으로 — Colab 올리기가 104MB 한 파일을 거부했다(HTTP 400 · 52MB 는 통과) · 조각을 합치면 전부 · data.yaml 한 번")
+    import tarfile
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "src"; (src / "labels").mkdir(parents=True)
+        rows = []
+        for i in range(1, 11):
+            img = Path(d) / f"o{i}.png"; img.write_bytes(bytes([i]) * 3000)
+            rows.append(f"A__f{i:05d}\t{img}")
+            (src / "labels" / f"A__f{i:05d}.txt").write_text("6 0.2 0.2 0.1 0.1\n", encoding="utf-8")
+        (src / "images.txt").write_text("\n".join(rows) + "\n", encoding="utf-8")
+        ds = Path(d) / "tool_r2"; TR.build_dataset(src, ds)
+        parts = TR.pack_parts(ds, Path(d) / "up", "/content", max_bytes=8000)
+        names, yamls = [], 0
+        for p in parts:
+            with tarfile.open(p) as t:
+                names += t.getnames(); yamls += sum(n.endswith("data.yaml") for n in t.getnames())
+        check(len(parts) >= 3 and all(p.stat().st_size <= 8000 + 20000 for p in parts), f"조각 {len(parts)}개")
+        check(len(names) == 21 and len(set(names)) == 21 and yamls == 1, f"합치면 {len(names)}개 · data.yaml {yamls}")
+        check(len(TR.pack_parts(ds, Path(d) / "up1", "/content", max_bytes=10**9)) == 1, "작으면 한 조각")
+        src_s = TR.remote_script("tool_r2", [("yolov8n", "/content/yolov8n.pt")], 50, None, "8.4.117", [p.name for p in parts])
+        compile(src_s, "remote", "exec")
+        check(all(f"/content/{p.name}" in src_s for p in parts), "원격 스크립트가 조각을 전부 푼다")
+
+
 if __name__ == "__main__":
     test_공구만_번호_바꾸기()
     test_세션별_마지막_20퍼센트()
@@ -259,6 +284,7 @@ if __name__ == "__main__":
     test_결말_가르기()
     test_개인정보_관문_결속()
     test_반납_보장()
+    test_조각_묶기()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

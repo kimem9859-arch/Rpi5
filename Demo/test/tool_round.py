@@ -175,14 +175,43 @@ def pack_dataset(ds, tar_path, remote_root):
     return n
 
 
-def remote_script(ds_name, starts, epochs, hours, ul_version):
+def pack_parts(ds, out_dir, remote_root, max_bytes=40_000_000):
+    """pack_dataset 을 조각으로 — Colab 올리기(Jupyter contents PUT)가 104MB 한 파일을 HTTP 400 으로 거부했다(52MB 는 통과 ·
+    2026-09-28). 파일 크기로 채워 조각마다 max_bytes 안팎. data.yaml 은 첫 조각에만. 반환 = 조각 경로 목록."""
+    ds, out_dir = Path(ds), Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    files = [f for f in sorted(ds.rglob("*")) if f.is_file() and f.relative_to(ds).parts[0] in ("images", "labels")
+             and f.suffix != ".cache"]
+    groups, cur, size = [], [], 0
+    for f in files:
+        n = 512 + math.ceil(f.stat().st_size / 512) * 512          # tar 안 크기 = 머리 512 + 512 단위로 채운 내용
+        if cur and size + n > max_bytes:
+            groups.append(cur); cur, size = [], 0
+        cur.append(f); size += n
+    groups.append(cur)
+    parts = []
+    for k, g in enumerate(groups):
+        p = out_dir / f"{ds.name}.part{k}.tar"
+        with tarfile.open(p, "w") as t:
+            if k == 0:
+                y = data_yaml(f"{remote_root}/{ds.name}").encode("utf-8")
+                info = tarfile.TarInfo(f"{ds.name}/data.yaml"); info.size = len(y)
+                t.addfile(info, io.BytesIO(y))
+            for f in g:
+                t.add(f, arcname=f"{ds.name}/{f.relative_to(ds)}")
+        parts.append(p)
+    return parts
+
+
+def remote_script(ds_name, starts, epochs, hours, ul_version, parts=None):
     """Colab VM 에서 돌릴 학습 스크립트. starts = [(이름, 원격 가중치 경로)].
     🔴 성패는 표지(@@SETUP ok · @@DONE · @@FAIL)로만 판단한다 — colab exec 는 예외에도 종료 코드 0(저널 §12.41-(6)).
     저장 경로는 문서와 다를 수 있어(같은 곳) 실제 save_dir 을 표지에 싣는다."""
     return f"""import subprocess, sys, tarfile, time, traceback
 print("@@SETUP start", flush=True)
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "ultralytics=={ul_version}"], check=True)
-tarfile.open("/content/{ds_name}.tar").extractall("/content")
+for part in {[f"/content/{p}" for p in (parts or [f"{ds_name}.tar"])]!r}:
+    tarfile.open(part).extractall("/content")
 print("@@SETUP ok", flush=True)
 from ultralytics import YOLO
 for stem, w in {starts!r}:

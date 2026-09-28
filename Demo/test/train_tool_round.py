@@ -63,11 +63,11 @@ def _release(session):
 def train_colab(starts, ds, epochs, session):
     """Colab T4 에서 출발점마다 학습하고 last.pt 를 받는다. 반환 = ({이름: (파이 경로, 분)}, 표지, 로그 경로).
     GPU 를 못 빌리면 종료(중단 규칙 — 묻는다). 빌리기부터 무엇이 실패해도(시간 초과 포함) finally 에서 반납한다."""
-    tar = ds.parent / f"{ds.name}.tar"
-    print(f"묶음 {TR.pack_dataset(ds, tar, '/content')}개 파일 · {tar.stat().st_size / 1e6:.0f}MB")
+    parts = TR.pack_parts(ds, ds.parent / f"{ds.name}_up", "/content")
+    print(f"묶음 조각 {len(parts)}개 · {sum(p.stat().st_size for p in parts) / 1e6:.0f}MB")
     rstarts = [(Path(s).stem, f"/content/{Path(s).name}") for s in starts]
     script = ds.parent / f"{ds.name}_remote.py"
-    script.write_text(TR.remote_script(ds.name, rstarts, epochs, None, UL_VERSION), encoding="utf-8")
+    script.write_text(TR.remote_script(ds.name, rstarts, epochs, None, UL_VERSION, [p.name for p in parts]), encoding="utf-8")
     t0 = time.time()
     log_path = ds / "colab_log.txt"
     out = {}
@@ -75,7 +75,7 @@ def train_colab(starts, ds, epochs, session):
         r = colab("new", "-s", session, "--gpu", "T4", timeout=900)
         if r.returncode != 0:
             sys.exit(f"🔴 T4 를 못 빌렸다 — 멈추고 묻는다(설계 §5)\n{(r.stdout + r.stderr)[-500:]}")
-        for local, remote in [(tar, f"/content/{tar.name}")] + [(Path(s), rp) for s, (_, rp) in zip(starts, rstarts)]:
+        for local, remote in [(p, f"/content/{p.name}") for p in parts] + [(Path(s), rp) for s, (_, rp) in zip(starts, rstarts)]:
             r = colab("upload", "-s", session, str(local), remote, timeout=1800)
             if r.returncode != 0:
                 raise RuntimeError(f"올리기 실패 {local.name}: {(r.stdout + r.stderr)[-300:]}")
