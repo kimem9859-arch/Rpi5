@@ -2,6 +2,7 @@
 
 시스템 python3 와 rfenv 둘 다에서 import 한다 — 표준 라이브러리만 쓴다(ultralytics·numpy 없이 시험하려고).
 정본 설계 = 상위 docs/superpowers/specs/2026-09-28-공구초벌-반복학습-design.md §4 · §6 · §7
+버튼 무리(spec 2026-09-29-버튼초벌-반복학습)도 같은 함수를 group="button" 으로 쓴다 — 8종 번호 0~4 그대로.
 🔴 원본 사진은 하드링크로 가리킨다(디스크 여유가 적다) — 원본을 옮기거나 고쳐 쓰지 않는다. 다른 파일 시스템이면 복사한다.
 """
 from __future__ import annotations
@@ -16,15 +17,23 @@ from pathlib import Path
 
 TOOL_FIRST = 5                                    # 8종 번호(B1 B2 B3 B4 EMO driver wrench pliers)에서 공구 시작
 TOOL_NAMES = ["driver", "wrench", "pliers"]       # tool_v3 순서와 같다
+BUTTON_NAMES = ["B1", "B2", "B3", "B4", "EMO"]    # 8종 번호 0~4 그대로(spec 2026-09-29 §4)
+GROUPS = {"tool": (TOOL_FIRST, TOOL_NAMES), "button": (0, BUTTON_NAMES)}
 
 
-def tool_lines(lines):
+def group_lines(lines, group):
+    """8종 라벨 줄에서 한 무리만 남기고 그 무리의 번호(0부터)로 바꾼다."""
+    first, names = GROUPS[group]
     out = []
     for l in lines:
         p = l.split()
-        if p and TOOL_FIRST <= int(p[0]) < TOOL_FIRST + len(TOOL_NAMES):
-            out.append(" ".join([str(int(p[0]) - TOOL_FIRST)] + p[1:]))
+        if p and first <= int(p[0]) < first + len(names):
+            out.append(" ".join([str(int(p[0]) - first)] + p[1:]))
     return out
+
+
+def tool_lines(lines):
+    return group_lines(lines, "tool")
 
 
 def split_holdout(names, frac=0.2):
@@ -79,12 +88,21 @@ def pick(cands, current):
     return best if net(cands[best]) > net(current) else None
 
 
-def decide(cands, current):
-    """라운드 결말 — 후보가 하나도 없으면 「학습 실패」(관문 패배와 구분 — 다음 판단을 그르치지 않게), 아니면 고르기."""
+def decide(cands, current, chooser=None):
+    """라운드 결말 — 후보가 하나도 없으면 「학습 실패」(관문 패배와 구분 — 다음 판단을 그르치지 않게), 아니면 고르기.
+    chooser = 고르기 함수(기본 pick — 공구 순이익 · 버튼은 pick_button)."""
     if not cands:
         return "학습 실패", None
-    chosen = pick(cands, current)
+    chosen = (chooser or pick)(cands, current)
     return ("채택", chosen) if chosen else ("관문 패배", None)
+
+
+def pick_button(cands, current):
+    """버튼 관문 고르기(spec 2026-09-29 §7) — 기계 확정 틀림이 지금 이하이고 사람 몫(work)이 지금 미만인 후보 중
+    사람 몫이 가장 적은 것 · 같으면 먼저 넣은 것(출발점은 작은 모델부터 준다) · 없으면 None(지금 방식 유지).
+    🔴 기계 확정 틀림이 늘면 거부 — 기계 확정은 사람이 훑기만 해서 틀림이 그대로 학습 라벨이 된다."""
+    ok = [k for k in cands if cands[k]["auto_wrong"] <= current["auto_wrong"] and cands[k]["work"] < current["work"]]
+    return min(ok, key=lambda k: cands[k]["work"]) if ok else None
 
 
 def privacy_problems(names, exclude, cleared):
@@ -118,15 +136,15 @@ def is_demo_models(path, demo_models):
     return p == d or d in p.parents
 
 
-def data_yaml(root):
-    names = "".join(f"  {i}: {n}\n" for i, n in enumerate(TOOL_NAMES))
+def data_yaml(root, group="tool"):
+    names = "".join(f"  {i}: {n}\n" for i, n in enumerate(GROUPS[group][1]))
     return f"path: {root}\ntrain: images/train\nval: images/val\nnames:\n{names}"
 
 
-def build_dataset(src, dst, frac=0.2, exclude=()):
+def build_dataset(src, dst, frac=0.2, exclude=(), group="tool"):
     """회수 결과(src = ~/data/label_dataset/<장소> — labels/ · images.txt) → ultralytics 폴더(dst).
-    공구 없는 사진도 빈 라벨로 넣는다(설계 §4). 라벨 파일이 없으면 FileNotFoundError 로 멈춘다.
-    exclude = 개인정보 관문에서 뺀 사진 이름 — 학습·떼어 둔 양쪽에서 뺀다(설계 §5)."""
+    그 무리가 없는 사진도 빈 라벨로 넣는다(설계 §4). 라벨 파일이 없으면 FileNotFoundError 로 멈춘다.
+    exclude = 개인정보 관문에서 뺀 사진 이름 — 학습·떼어 둔 양쪽에서 뺀다(설계 §5). group = "tool" | "button"."""
     src, dst = Path(src).expanduser(), Path(dst).expanduser()
     if dst.exists():
         raise FileExistsError(f"이미 있다: {dst} — 덮어쓰지 않는다")
@@ -151,15 +169,15 @@ def build_dataset(src, dst, frac=0.2, exclude=()):
                 os.link(orig, img)
             except OSError:
                 shutil.copy2(orig, img)
-            lines = tool_lines((src / "labels" / f"{name}.txt").read_text(encoding="utf-8").splitlines())
+            lines = group_lines((src / "labels" / f"{name}.txt").read_text(encoding="utf-8").splitlines(), group)
             (dst / "labels" / part / f"{name}.txt").write_text("".join(x + "\n" for x in lines), encoding="utf-8")
             n += len(lines)
         boxes[part] = n
-    (dst / "data.yaml").write_text(data_yaml(dst), encoding="utf-8")
+    (dst / "data.yaml").write_text(data_yaml(dst, group), encoding="utf-8")
     return {"train": train, "val": val, "boxes": boxes}
 
 
-def pack_dataset(ds, tar_path, remote_root):
+def pack_dataset(ds, tar_path, remote_root, group="tool"):
     """Colab 에 올릴 묶음 — <ds 이름>/images · labels 전부 + 원격 경로로 고친 data.yaml. 하드링크 사진도 실제 바이트로 들어간다.
     반환 = 넣은 파일 수."""
     ds = Path(ds)
@@ -169,13 +187,13 @@ def pack_dataset(ds, tar_path, remote_root):
             rel = f.relative_to(ds)
             if f.is_file() and rel.parts[0] in ("images", "labels") and f.suffix != ".cache":
                 t.add(f, arcname=f"{ds.name}/{rel}"); n += 1
-        y = data_yaml(f"{remote_root}/{ds.name}").encode("utf-8")
+        y = data_yaml(f"{remote_root}/{ds.name}", group).encode("utf-8")
         info = tarfile.TarInfo(f"{ds.name}/data.yaml"); info.size = len(y)
         t.addfile(info, io.BytesIO(y)); n += 1
     return n
 
 
-def pack_parts(ds, out_dir, remote_root, max_bytes=40_000_000):
+def pack_parts(ds, out_dir, remote_root, max_bytes=40_000_000, group="tool"):
     """pack_dataset 을 조각으로 — Colab 올리기(Jupyter contents PUT)가 104MB 한 파일을 HTTP 400 으로 거부했다(52MB 는 통과 ·
     2026-09-28). 파일 크기로 채워 조각마다 max_bytes 안팎. data.yaml 은 첫 조각에만. 반환 = 조각 경로 목록."""
     ds, out_dir = Path(ds), Path(out_dir)
@@ -194,7 +212,7 @@ def pack_parts(ds, out_dir, remote_root, max_bytes=40_000_000):
         p = out_dir / f"{ds.name}.part{k}.tar"
         with tarfile.open(p, "w") as t:
             if k == 0:
-                y = data_yaml(f"{remote_root}/{ds.name}").encode("utf-8")
+                y = data_yaml(f"{remote_root}/{ds.name}", group).encode("utf-8")
                 info = tarfile.TarInfo(f"{ds.name}/data.yaml"); info.size = len(y)
                 t.addfile(info, io.BytesIO(y))
             for f in g:
@@ -234,3 +252,11 @@ def parse_markers(text):
     for m in re.finditer(r"^@@FAIL (\S+) (.*)$", text, re.M):
         out["fail"][m.group(1)] = m.group(2).strip()
     return out
+
+
+def gate_paths(ds, template):
+    """버튼 관문의 사진 경로(spec 2026-09-29 §7) — (떼어 둔 사진, 배치 틀 정지 장면 사진). 초벌 JSON 을 만드는 rfenv 쪽과
+    읽는 시스템 python3 쪽이 같은 열쇠를 쓰도록 절대 경로 문자열 · 정렬."""
+    ds, template = Path(ds).expanduser().resolve(), Path(template).expanduser().resolve()
+    return ([str(p) for p in sorted((ds / "images" / "val").iterdir()) if p.suffix == ".png"],
+            [str(p) for p in sorted(template.glob("f*.png"))])

@@ -267,6 +267,58 @@ def test_조각_묶기():
         check(all(f"/content/{p.name}" in src_s for p in parts), "원격 스크립트가 조각을 전부 푼다")
 
 
+def test_버튼_무리():
+    print("[17] 버튼 무리 — 8종 번호 0~4 를 그대로 두고 공구 줄은 버린다 · data.yaml 이름 5종 · 버튼 없는 사진은 빈 라벨(spec 2026-09-29 §4)")
+    import tarfile
+    got = TR.group_lines(["0 0.5 0.5 0.1 0.1", "4 0.1 0.1 0.1 0.1", "6 0.3 0.3 0.1 0.2", ""], "button")
+    check(got == ["0 0.5 0.5 0.1 0.1", "4 0.1 0.1 0.1 0.1"], f"{got}")
+    check(TR.tool_lines(["6 0.3 0.3 0.1 0.2"]) == ["1 0.3 0.3 0.1 0.2"], "공구는 그대로")
+    with tempfile.TemporaryDirectory() as d:
+        dst = Path(d) / "dst"
+        info = TR.build_dataset(_tiny(d), dst, group="button")           # _tiny 라벨 = 공구(6) 한 줄뿐
+        check(info["boxes"] == {"train": 0, "val": 0}, f"버튼 박스 {info['boxes']}")
+        check((dst / "labels" / "train" / "A__f00001.txt").read_text() == "", "버튼 없는 사진 = 빈 라벨")
+        y = (dst / "data.yaml").read_text(encoding="utf-8")
+        check("0: B1" in y and "4: EMO" in y and "driver" not in y, y)
+        parts = TR.pack_parts(dst, Path(d) / "up", "/content", group="button")
+        with tarfile.open(parts[0]) as t:
+            yy = t.extractfile("dst/data.yaml").read().decode()
+        check("4: EMO" in yy and "path: /content/dst" in yy, f"올릴 묶음의 data.yaml 도 버튼 이름 — {yy}")
+
+
+def test_버튼_고르기():
+    print("[18] 🔴 버튼 관문 고르기 — 기계 확정 틀림이 지금 이하 · 사람 몫이 지금 미만일 때만 · 여럿이면 사람 몫 최소 · 같으면 먼저 넣은 것(작은 모델)")
+    cur = {"auto_wrong": 1, "work": 100}
+    check(TR.pick_button({"yolov8n": {"auto_wrong": 0, "work": 80}, "yolo26s": {"auto_wrong": 1, "work": 70}}, cur) == "yolo26s", "사람 몫이 적은 쪽")
+    check(TR.pick_button({"yolov8n": {"auto_wrong": 0, "work": 70}, "yolo26s": {"auto_wrong": 0, "work": 70}}, cur) == "yolov8n", "같으면 먼저 넣은 것")
+    check(TR.pick_button({"a": {"auto_wrong": 2, "work": 10}}, cur) is None, "기계 확정 틀림이 늘면 거부 — 사람 몫이 아무리 적어도")
+    check(TR.pick_button({"a": {"auto_wrong": 0, "work": 100}}, cur) is None, "사람 몫이 같으면 거부(미만이어야)")
+    check(TR.decide({}, cur, chooser=TR.pick_button) == ("학습 실패", None), "후보 없음 = 학습 실패")
+    check(TR.decide({"a": {"auto_wrong": 0, "work": 99}}, cur, chooser=TR.pick_button) == ("채택", "a"), "이기면 채택")
+    check(TR.decide({"a": {"auto_wrong": 0, "work": 101}}, cur, chooser=TR.pick_button) == ("관문 패배", None), "지면 관문 패배")
+    check(TR.decide({"a": {"caught": 9, "fake": 5, "missed": 6}}, {"caught": 2, "fake": 5, "missed": 13}) == ("채택", "a"), "chooser 없으면 공구 고르기 그대로")
+
+
+def test_관문_사진_경로():
+    print("[19] 🔴 관문 사진 경로 — 초벌 JSON 을 만드는 쪽(rfenv)과 읽는 쪽(시스템 python3)이 같은 문자열(절대 · 정렬 · .png · 배치 틀은 f*.png)")
+    with tempfile.TemporaryDirectory() as d:
+        ds = Path(d) / "ds"; (ds / "images" / "val").mkdir(parents=True)
+        for n in ("b.png", "a.png"):
+            (ds / "images" / "val" / n).write_bytes(b"x")
+        tpl = Path(d) / "tpl"; tpl.mkdir()
+        for n in ("f00002.png", "f00001.png", "note.txt"):
+            (tpl / n).write_bytes(b"x")
+        cwd = os.getcwd(); os.chdir(d)
+        try:
+            v, t = TR.gate_paths("ds", "tpl")                          # 상대 경로로 줘도
+        finally:
+            os.chdir(cwd)
+        v2, t2 = TR.gate_paths(ds, tpl)
+        check(v == v2 and t == t2, "상대·절대 같은 결과")
+        check(v == [str((ds / "images" / "val" / n).resolve()) for n in ("a.png", "b.png")], f"{v}")
+        check(t == [str((tpl / n).resolve()) for n in ("f00001.png", "f00002.png")], f"{t}")
+
+
 if __name__ == "__main__":
     test_공구만_번호_바꾸기()
     test_세션별_마지막_20퍼센트()
@@ -285,6 +337,9 @@ if __name__ == "__main__":
     test_개인정보_관문_결속()
     test_반납_보장()
     test_조각_묶기()
+    test_버튼_무리()
+    test_버튼_고르기()
+    test_관문_사진_경로()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
