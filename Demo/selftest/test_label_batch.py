@@ -225,6 +225,79 @@ def test_exclude_사진은_수정_집계에서_뺀다():
         check(s["추가"] == {}, f"exclude 박스는 「추가」가 아니다 — {s['추가']}")
 
 
+def test_크게_고친_박스는_지움이_아니다():
+    print("[17] 🔴 IoU 0.5 에 못 미쳐도 같은 이름으로 겹치면(IoU > 0.1 또는 중심 포함) 「크게 조정」 — 「지움 + 추가」로 세지 않는다")
+    drafts = [{"label": "B3", "box": [0, 0, 100, 100], "kind": "check"},
+              {"label": "제안_B4", "box": [0, 300, 100, 400], "kind": "propose"},
+              {"label": "B1", "box": [500, 0, 550, 50], "kind": "auto"}]
+    finals = [{"label": "B3", "box": [0, 0, 100, 250]},            # IoU 0.4 — 아래로 크게 늘림
+              {"label": "B4", "box": [30, 330, 160, 460]},         # 제안을 옮겨 채택 — IoU 0.22
+              {"label": "EMO", "box": [700, 700, 750, 750]}]       # 다른 이름·먼 곳 — 진짜 지움 + 추가
+    s = CB.edit_stats(drafts, finals)
+    check(s["check"]["크게 조정"] == 1 and s["check"]["지움"] == 0, f"check {s['check']}")
+    check(s["propose"]["크게 조정"] == 1 and s["propose"]["지움"] == 0, f"propose {s['propose']}")
+    check(s["auto"]["지움"] == 1 and s["추가"] == {"EMO": 1}, f"auto {s['auto']} · 추가 {s['추가']}")
+
+
+def _run_collect(ret, mp, out, *extra):
+    import subprocess
+    return subprocess.run([sys.executable, os.path.join(_DEMO_DIR, "test", "collect_batch.py"), ret,
+                           "--manifest", mp, "--out", out, *extra], capture_output=True, text=True)
+
+
+def test_다시_회수해도_어긋나지_않는다():
+    print("[18] 🔴 같은 묶음을 다시 회수하면 images.txt 가 겹치지 않고, exclude 로 바뀐 사진의 옛 라벨·목록 줄이 지워진다")
+    with tempfile.TemporaryDirectory() as d:
+        man = _man(["c_auto__S__f00000.png", "c_auto__S__f00001.png"])
+        ret = os.path.join(d, "ret"); os.mkdir(ret)
+
+        def put(k, shapes):
+            pth = os.path.join(ret, f"c_auto__S__{k}.json")
+            X.write_json(pth, "x.png", 768, 1024, shapes)
+            doc = json.load(open(pth)); doc["version"] = "3.3.5"; json.dump(doc, open(pth, "w"))
+        put("f00000", [X.shape("B1", [10, 10, 60, 60])]); put("f00001", [X.shape("B1", [10, 10, 60, 60])])
+        mp = os.path.join(d, "manifest.json"); json.dump(man, open(mp, "w"))
+        out = os.path.join(d, "out")
+        r1 = _run_collect(ret, mp, out); r2 = _run_collect(ret, mp, out)
+        lines = open(os.path.join(out, "images.txt"), encoding="utf-8").read().split()
+        check(r1.returncode == 0 and r2.returncode == 0, "두 번 다 회수")
+        check(len([x for x in open(os.path.join(out, "images.txt"), encoding="utf-8") if x.strip()]) == 2, f"images.txt 2줄 — {lines}")
+        put("f00001", [X.shape(X.EXCLUDE, [0, 0, 768, 1024])])
+        _run_collect(ret, mp, out)
+        txt = open(os.path.join(out, "images.txt"), encoding="utf-8").read()
+        check("S__f00001" not in txt and "S__f00000" in txt, f"exclude 로 바뀐 사진은 목록에서 빠짐 — {txt!r}")
+        check(not os.path.exists(os.path.join(out, "labels", "S__f00001.txt")), "옛 라벨 파일 지움")
+
+
+def test_두_번_보낸_폴더는_거부():
+    print("[19] 🔴 returned 안에 images 폴더가 있으면(폴더째 두 번 보냄) 거부 — 옛 파일을 읽고 고친 것을 조용히 놓친다")
+    with tempfile.TemporaryDirectory() as d:
+        man = _man(["c_auto__S__f00000.png"])
+        pth = os.path.join(d, "c_auto__S__f00000.json")
+        X.write_json(pth, "x.png", 768, 1024, [X.shape("B1", [10, 10, 60, 60])])
+        doc = json.load(open(pth)); doc["version"] = "3.3.5"; json.dump(doc, open(pth, "w"))
+        os.mkdir(os.path.join(d, "images"))
+        check(any("images 폴더" in m for m in CB.check_returned(man, d)), f"{CB.check_returned(man, d)}")
+
+
+def test_쓴_사진과_닮은_후보는_뺀다():
+    print("[20] 🔴 이전 묶음에 쓴 사진과 pHash 가 가까운 후보는 뺀다 — 묶음마다 중복 제거가 새로 시작되지 않게")
+    import numpy as np
+    a = np.zeros(64, bool); b = a.copy(); b[:3] = True          # a 와 거리 3
+    c = np.ones(64, bool)                                        # a 와 거리 64
+    check(RB.drop_near([a, b, c], [a], 6) == [2], f"{RB.drop_near([a, b, c], [a], 6)}")
+    check(RB.drop_near([a, c], [], 6) == [0, 1], "쓴 사진이 없으면 그대로")
+
+
+def test_묶음_기록의_모델은_실제_설정():
+    print("[21] 🔴 묶음 기록의 버튼 모델은 실제로 불러온 설정(백엔드·경로·점수 기준·방식) — 고정 문자열이 아니다")
+    import config
+    m = RB.button_model_record()
+    exp = config.HEF_MODEL_PATH if config.INFERENCE_BACKEND == "hailo" else config.PT_MODEL_PATH
+    check(m["backend"] == config.INFERENCE_BACKEND and m["path"] == os.path.relpath(exp, _DEMO_DIR)
+          and m["conf"] == config.YOLO_CONF_LOW and m["method"].startswith("tile2"), f"{m}")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -242,6 +315,11 @@ if __name__ == "__main__":
     test_검토함_플래그로_받기()
     test_다_봤다고_하면_받기()
     test_exclude_사진은_수정_집계에서_뺀다()
+    test_크게_고친_박스는_지움이_아니다()
+    test_다시_회수해도_어긋나지_않는다()
+    test_두_번_보낸_폴더는_거부()
+    test_쓴_사진과_닮은_후보는_뺀다()
+    test_묶음_기록의_모델은_실제_설정()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

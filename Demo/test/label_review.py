@@ -5,7 +5,8 @@
 
 🔴 검출은 인자로 받는다 — run(frame) → [(이름, 점수, [x1, y1, x2, y2])]. Hailo 없이 시험하려고.
    실제 초벌은 review_batch.py 가 detector.create_detector() 로 run 을 만든다.
-🔴 EDGE_FRAC 는 잠정값이다 — 기준은 사람 박스이고 실험 1 로 맞춘다(설계 §6 ①). 여백을 더하는 쪽으로 바꾸지 않는다.
+🔴 EDGE_FRAC 는 그대로 쓴다 — 사람 끝선에 맞추는 보정은 하지 않는다(사용자 결정 2026-09-28 · 설계 §6 ①). 알려진 치우침 =
+   아래 끝선이 짧다(B1 제외) · B4 위 끝선이 넘친다. 여백을 더하는 쪽으로 바꾸지 않는다.
 """
 from __future__ import annotations
 
@@ -263,6 +264,7 @@ def review(img, run, T, th):
         sn = x["snap"]
         if sn is None or sn["leak"]:
             why.append("박스 맞추기 실패")
+            x["box"] = list(x["pre"])      # 샌 사각형은 잘라낸 영역 끝까지 번진다 — 사람에게는 검출기 박스를 보인다(배치 틀 입력 dets 는 그대로)
         else:
             if sn["fill"] < th["fill"]:
                 why.append("가림·모양 이상")

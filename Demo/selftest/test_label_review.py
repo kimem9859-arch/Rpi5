@@ -221,6 +221,19 @@ def test_결과는_JSON_으로_쓸_수_있다():
     check(ok, "json.dumps 성공")
 
 
+def test_샌_박스는_검출기_박스로():
+    print("[14] 🔴 박스 맞추기가 배경으로 새면 사람에게 넘기는 박스는 검출기 박스 — 샌 사각형(잘라낸 영역 끝까지)을 보여 주지 않는다")
+    T, th = ready()
+    img = panel()
+    cx, cy = POS["B2"]
+    cv2.rectangle(img, (cx, cy - 10), (cx + 200, cy + 10), COL["B2"], -1)     # 버튼에 붙은 같은 색 띠 → 배경으로 샌다
+    check(R.snap(img, loose("B2"))["leak"], "준비: B2 맞추기가 샌다")
+    out = R.review(img, FakeRun(TRUTH), T, th)
+    b = [x for x in out["boxes"] if x["name"] == "B2"][0]
+    check("박스 맞추기 실패" in b["why"], f"사람에게 {b['why']}")
+    check(b["box"] == b["pre"], f"박스 {b['box']} = 검출기 박스 {b['pre']}")
+
+
 if __name__ == "__main__":
     test_박스_맞추기()
     test_색_계열()
@@ -235,6 +248,7 @@ if __name__ == "__main__":
     test_조각_경계_합치기()
     test_가로_사진은_한_번()
     test_결과는_JSON_으로_쓸_수_있다()
+    test_샌_박스는_검출기_박스로()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

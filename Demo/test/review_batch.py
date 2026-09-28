@@ -2,12 +2,13 @@
 
 실행(Demo/ 에서):
   python3 test/review_batch.py --sessions test/raw/<세션> [...] --template test/raw/<정지 세션> \\
-      --seal ~/data/label_exp1/selection.json --used ~/data/label_batches/used.txt \\
+      --used ~/data/label_batches/used.txt [--seal <봉인 목록.json>] \\
       --out ~/data/label_batches/b001 --size 200 [--seed 1]
 출력: <out>/images/(순서 표시가 붙은 사진 + 같은 이름 .json) · classes.txt · manifest.json · 안내.txt · xanylabelingrc_단축키.yaml
 정본 설계 = 상위 docs/superpowers/specs/2026-09-28-반자동라벨링-design.md §3 · §4 · §5 · §6
-🔴 원본을 옮기거나 지우지 않는다 — 사진은 복사한다. 🔴 봉인 사진(실험 1 과 그 주변)은 넣지 않는다.
-🔴 한 번 묶음에 넣은 원본은 --used 목록에 적어 다음 묶음에 다시 넣지 않는다.
+🔴 원본을 옮기거나 지우지 않는다 — 사진은 복사한다. 🔴 --seal 을 주면 봉인 사진과 그 주변은 넣지 않는다
+   (실험 1 의 50장 봉인은 실험 1 취소로 풀었다 — 설계 §4 · §13. 장소3 세션은 --sessions 에 넣지 않는다).
+🔴 한 번 묶음에 넣은 원본은 --used 목록에 적어 다음 묶음에 다시 넣지 않고, 그것과 pHash 가 가까운 후보도 뺀다.
 """
 from __future__ import annotations
 
@@ -54,6 +55,22 @@ def load_seal(path):
 
 def is_sealed(session, frame, seal, gap):
     return any(abs(frame - q) < gap.get(session, 0) for q in seal.get(session, []))
+
+
+def drop_near(hashes, ref, thr):
+    """이미 쓴 사진(ref)과 pHash 해밍거리 thr 이하인 후보를 뺀 번호 — 묶음마다 중복 제거가 새로 시작되지 않게(설계 §4)."""
+    if not len(ref):
+        return list(range(len(hashes)))
+    R = np.stack(ref)
+    return [i for i, h in enumerate(hashes) if np.count_nonzero(R != h, axis=1).min() > thr]
+
+
+def button_model_record():
+    """묶음 기록용 — 실제로 불러오는 버튼 모델(config 를 따른다). 시험 세트 순환 금지(설계 §11)를 기록으로 확인하려고."""
+    import config
+    path = config.HEF_MODEL_PATH if config.INFERENCE_BACKEND == "hailo" else config.PT_MODEL_PATH
+    return {"backend": config.INFERENCE_BACKEND, "path": os.path.relpath(path, DEMO), "sha256_16": _sha(path),
+            "conf": config.YOLO_CONF_LOW, "method": "tile2 — 세로 사진을 가로 두 조각(768×576)으로"}
 
 
 def pick_frames(cands, size, seed):
@@ -123,8 +140,11 @@ GUIDE = """검토 묶음 {batch} — 사진 {n}장 (만든 날 {created})
    · 체크 없이 넘겼다면 끝나고 「다 봤다」고 알려 준다 — 저장 흔적 없는 사진은 「봤고 고칠 게 없음」으로 받는다
    · F = 사진 속 박스를 차례로 확대(설정 loop_thru_labels) · D = 다음 사진
    · 규칙 = Rpi5/Demo/docs/labeling_guide.md (여백 0 · 가린 버튼은 동그라미 전체 · 알아볼 수 없으면 사진 전체에 exclude)
-4. 끝나면 파이로 돌려보내기
+   · 기계 박스의 아래 끝선이 조금 짧거나 B4 위 끝선이 조금 넘친 것은 고치지 않는다(알려진 치우침 — 설계 §6 ①)
+4. 끝나면 파이로 돌려보내기 (한 번만)
    scp -r "$HOME\\Desktop\\{batch}\\images" pi@pi1.tailf090b8.ts.net:~/data/label_batches/{batch}/returned
+   · 다시 보낼 때는 고친 .json 만: scp "$HOME\\Desktop\\{batch}\\images\\<파일>.json" pi@pi1.tailf090b8.ts.net:~/data/label_batches/{batch}/returned/
+     (폴더째 다시 보내면 returned\\images\\ 로 한 겹 더 들어가 회수가 거부한다)
 """
 
 SHORTCUTS = "digit_shortcuts:\n" + "".join(
@@ -135,7 +155,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sessions", nargs="+", required=True)
     ap.add_argument("--template", required=True, help="배치 틀·문턱을 만들 정지 장면 세션(같은 장소)")
-    ap.add_argument("--seal", required=True)
+    ap.add_argument("--seal", help="봉인 목록(selection.json) — 주면 그 사진과 주변을 뺀다")
     ap.add_argument("--used", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--size", type=int, default=200)
@@ -145,7 +165,7 @@ def main():
     if out.exists() and any(out.iterdir()):
         sys.exit(f"이미 있다: {out} — 덮어쓰지 않는다")
     (out / "images").mkdir(parents=True)
-    seal, gap = load_seal(Path(a.seal).expanduser())
+    seal, gap = load_seal(Path(a.seal).expanduser()) if a.seal else ({}, {})
     used_p = Path(a.used).expanduser(); used_p.parent.mkdir(parents=True, exist_ok=True)
     used = set(used_p.read_text(encoding="utf-8").split()) if used_p.exists() else set()
 
@@ -169,9 +189,13 @@ def main():
         if img is None or float(img.mean()) < BLACK_MEAN:
             continue
         keep_c.append(c); hashes.append(dedupe_raw.phash(img))
+    used_h = [dedupe_raw.phash(im) for im in (cv2.imread(q) for q in sorted(used)) if im is not None]
+    n_ok = len(keep_c)
+    far = drop_near(hashes, used_h, PHASH_THR)
+    keep_c = [keep_c[i] for i in far]; hashes = [hashes[i] for i in far]
     uniq = [keep_c[i] for i in dedupe_raw.dedupe(hashes, PHASH_THR)]
     pick = pick_frames(uniq, a.size, a.seed)
-    print(f"후보 {len(cands)} → 검은·깨짐 뺀 {len(keep_c)} → 중복 뺀 {len(uniq)} → 묶음 {len(pick)}")
+    print(f"후보 {len(cands)} → 검은·깨짐 뺀 {n_ok} → 쓴 사진과 닮은 것 뺀 {len(keep_c)} → 중복 뺀 {len(uniq)} → 묶음 {len(pick)}")
 
     from detector import create_detector
     det = create_detector()
@@ -204,7 +228,7 @@ def main():
                      "kind": kind, "blur": blur, "drafts": drafts})
     created = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     man = {"batch": out.name, "created": created,
-           "models": {"buttons": {"path": "models/console_v2.hef", "sha256_16": _sha(DEMO / "models/console_v2.hef")},
+           "models": {"buttons": button_model_record(),
                       "tools": {"path": "models/tool_v3.pt", "sha256_16": _sha(TOOL_MODEL), "conf": 0.25}},
            "template": str(a.template), "thresholds": th, "edge_frac": LR.EDGE_FRAC, "frame_sharp_thr": sharp_thr,
            "images": recs}
