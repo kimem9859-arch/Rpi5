@@ -17,7 +17,7 @@
 
 <img src="labeling_guide_img/05_driver.jpg" width="32%"> <img src="labeling_guide_img/05_wrench.jpg" width="32%"> <img src="labeling_guide_img/05_pliers.jpg" width="32%">
 
-이 8가지 말고는 그리지 않는다(다른 공구·손·장갑 포함).
+이 8가지 말고는 그리지 않는다(다른 공구·손·장갑 포함). 8가지는 **손에 든 것뿐 아니라 책상 위·배경에 보이는 것도 모두** 그린다.
 
 ## 규칙 5개
 
@@ -35,7 +35,7 @@
 
 <img src="labeling_guide_img/03_ok.jpg" width="48%"> <img src="labeling_guide_img/03_ng.jpg" width="48%">
 
-**④ 공구를 쥐어 두 조각으로 보여도 → 박스 하나로 두 조각을 모두 감싼다.** 가려진 끝은 늘려 그리지 않는다.
+**④ 공구를 쥐어 두 조각으로 보여도 → 박스 하나로 두 조각을 모두 감싼다.** 가려진 끝은 늘려 그리지 않는다. **한 부분(손잡이나 머리)만 보이면 보이는 그 부분만** 그린다(거의 안 보이거나 무엇인지 확신이 없으면 ③).
 
 <img src="labeling_guide_img/04_ok.jpg" width="48%"> <img src="labeling_guide_img/04_ng.jpg" width="48%">
 
