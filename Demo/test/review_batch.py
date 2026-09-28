@@ -117,8 +117,11 @@ GUIDE = """검토 묶음 {batch} — 사진 {n}장 (만든 날 {created})
    · 박스 설명 「기계 확정」 = 기계가 확정 / 「확인: 이유」 = 사람이 봐야 함 / 「공구 초벌 — 확인」
    · 이름이 「제안_B4」 같은 박스 = 빠진 자리 제안 → 맞으면 이름을 B4 로, 아니면 지우기 (남아 있으면 회수가 거부한다)
    · File → Save Automatically 를 켠다 — 박스를 고치는 순간 저장된다(고치지 않은 사진은 저장되지 않는다)
-   · D 키로 끝까지 넘기며 검토한다. 고칠 게 없으면 그냥 넘어간다
-   · 다 보면 「다 봤다」고 알려 준다 — 저장 흔적 없는 사진은 「봤고 고칠 게 없음」으로 받는다
+   · Flags 칸의 「검토함」: 고칠 게 없는 사진은 체크하고 D (체크하는 순간 저장된다). 박스를 고친 사진은 그냥 D
+     (Flags 칸이 안 보이면 X-AnyLabeling 을 닫고 설정 파일(PowerShell: notepad "$HOME\.xanylabelingrc")의
+      `flags: null` 을 `flags:` 와 `- 검토함` 두 줄로 바꾼다 — 3.3.5 는 flags 가 비면 Flags 칸을 숨긴다)
+   · 체크 없이 넘겼다면 끝나고 「다 봤다」고 알려 준다 — 저장 흔적 없는 사진은 「봤고 고칠 게 없음」으로 받는다
+   · F = 사진 속 박스를 차례로 확대(설정 loop_thru_labels) · D = 다음 사진
    · 규칙 = Rpi5/Demo/docs/labeling_guide.md (여백 0 · 가린 버튼은 동그라미 전체 · 알아볼 수 없으면 사진 전체에 exclude)
 4. 끝나면 파이로 돌려보내기
    scp -r "$HOME\\Desktop\\{batch}\\images" pi@pi1.tailf090b8.ts.net:~/data/label_batches/{batch}/returned
