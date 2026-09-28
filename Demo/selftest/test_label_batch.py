@@ -314,6 +314,19 @@ def test_공구_초벌_모델_기록():
         check(m["path"] == p and m["sha256_16"] == RB._sha(p) and m["conf"] == 0.25, f"{m}")
 
 
+def test_exclude_사진의_남은_제안은_문제_아님():
+    print("[24] exclude 사진은 통째로 빠지므로 남은 제안_ 박스로 회수를 거부하지 않는다 — exclude 없는 사진은 그대로 거부")
+    with tempfile.TemporaryDirectory() as d:
+        man = _man(["a_check__S__f00000.png", "a_check__S__f00001.png"])
+        for k, extra in (("f00000", [X.shape(X.EXCLUDE, [0, 0, 768, 1024])]), ("f00001", [])):
+            pth = os.path.join(d, f"a_check__S__{k}.json")
+            X.write_json(pth, "x.png", 768, 1024, [X.shape("B1", [10, 10, 60, 60]), X.shape("제안_B3", [100, 100, 150, 150])] + extra)
+            doc = json.load(open(pth)); doc["version"] = "3.3.5"; json.dump(doc, open(pth, "w"))
+        p = CB.check_returned(man, d)
+        check(not any("f00000" in m for m in p), f"exclude 사진 통과 — {p}")
+        check(any("f00001" in m and "제안" in m for m in p), "exclude 없는 사진은 거부")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -338,6 +351,7 @@ if __name__ == "__main__":
     test_묶음_기록의_모델은_실제_설정()
     test_공구_초벌이_잡아_준_비율()
     test_공구_초벌_모델_기록()
+    test_exclude_사진의_남은_제안은_문제_아님()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
