@@ -1,7 +1,7 @@
 """검토 묶음 회수 — 사용자가 고친 X-AnyLabeling 라벨 → 점검 → YOLO 라벨 + 수정 집계 + label_audit.
 
 실행(Demo/ 에서): python3 test/collect_batch.py <돌려받은 images 폴더> --manifest <묶음>/manifest.json --out ~/data/label_dataset/<장소>
-받는 조건(설계 §8): ①묶음의 모든 사진에 .json ②다시 저장된 흔적(version ≠ 초벌 표시) ③이름 = 8종·exclude ④「제안_」 없음 ⑤사각형만
+받는 조건(설계 §8): ①묶음의 모든 사진에 .json ②검토 흔적 — 다시 저장됨(version ≠ 초벌 표시) 또는 검토 완료(checked) ③이름 = 8종·exclude ④「제안_」 없음 ⑤사각형만
 하나라도 어긋나면 아무것도 쓰지 않고 종료 코드 1 과 목록을 낸다.
 출력: <out>/labels/<짧은 세션>__fNNNNN.txt · <out>/images.txt(라벨 이름 → 원본 경로) · <out>/data.yaml · <out>/stats/<묶음>.json
 🔴 사진은 파이의 원본과 짝짓는다 — 돌려받은 사진은 쓰지 않는다.
@@ -31,8 +31,10 @@ def check_returned(man, returned_dir):
             out.append(f"{r['file']}: 라벨 파일 없음")
             continue
         doc = X.read_json(p)
-        if doc["version"] == X.DRAFT_VERSION:
-            out.append(f"{r['file']}: 미검토(초벌 표시 그대로 — X-AnyLabeling 에서 저장하지 않았다)")
+        # 검토한 사진 = 다시 저장됨(version 이 바뀜) 또는 「검토 완료(checked)」 표시 — 고칠 게 없으면
+        # X-AnyLabeling 은 Ctrl+S 를 눌러도 저장하지 않는다(왕복 관문 2026-09-28 · 3.3.5).
+        if doc["version"] == X.DRAFT_VERSION and not doc["checked"]:
+            out.append(f"{r['file']}: 미검토(저장도 검토 완료 표시도 없다)")
         out += [f"{r['file']}: {m}" for m in X.problems(doc["shapes"])]
     return out
 
@@ -52,8 +54,9 @@ def edit_stats(drafts, finals):
                 stats["propose"]["채택" if f["label"] == d["label"][len(X.PROPOSAL_PREFIX):] else "이름 바뀜"] += 1
             elif f["label"] != d["label"]:
                 stats[d["kind"]]["이름 바뀜"] += 1
-            else:
-                stats[d["kind"]]["그대로" if v >= 0.9 else "박스 조정"] += 1
+            else:                  # 0.5 px 넘게 움직인 변이 하나라도 있으면 조정 — 작은 버튼에서는 1 px 도 뜻이 있다
+                same = max(abs(a - b) for a, b in zip(d["box"], f["box"])) < 0.5
+                stats[d["kind"]]["그대로" if same else "박스 조정"] += 1
     for i in ud:
         stats[drafts[i]["kind"]]["지움"] += 1
     added = Counter(finals[j]["label"] for j in uf)

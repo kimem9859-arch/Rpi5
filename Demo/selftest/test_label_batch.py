@@ -155,6 +155,26 @@ def test_표본은_기계_확정만():
     check(s1 == s2, "재현")
 
 
+def test_검토_완료_표시():
+    print("[12] 🔴 고칠 게 없어 저장되지 않은 사진도 X-AnyLabeling 「검토 완료(checked)」 표시가 있으면 검토한 것으로 받는다")
+    with tempfile.TemporaryDirectory() as d:
+        man = _man(["c_auto__S__f00000.png"])
+        pth = os.path.join(d, "c_auto__S__f00000.json")
+        X.write_json(pth, "x.png", 768, 1024, [X.shape("B1", [10, 10, 60, 60])])
+        doc = json.load(open(pth)); doc["checked"] = True; json.dump(doc, open(pth, "w"))   # version 은 초벌 표시 그대로
+        check(CB.check_returned(man, d) == [], "초벌 표시 + checked = 통과")
+
+
+def test_작은_이동도_조정():
+    print("[13] 1 px 만 옮겨도 「박스 조정」 — 작은 버튼에서는 1 px 도 뜻이 있다")
+    s = CB.edit_stats([{"label": "B3", "box": [737, 303, 768, 358], "kind": "check"}],
+                      [{"label": "B3", "box": [736, 303, 767, 359]}])
+    check(s["check"]["박스 조정"] == 1 and s["check"]["그대로"] == 0, f"{s['check']}")
+    s2 = CB.edit_stats([{"label": "B3", "box": [737, 303, 768, 358], "kind": "check"}],
+                       [{"label": "B3", "box": [737.2, 303, 768, 358]}])
+    check(s2["check"]["그대로"] == 1, "0.5 px 미만 차이는 그대로(저장 때 반올림)")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -167,6 +187,8 @@ if __name__ == "__main__":
     test_제안_남음과_모르는_이름()
     test_수정_집계()
     test_표본은_기계_확정만()
+    test_검토_완료_표시()
+    test_작은_이동도_조정()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

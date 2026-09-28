@@ -47,7 +47,7 @@ def read_json(path):
                        "description": s.get("description"), "score": s.get("score"),
                        "shape_type": s.get("shape_type")})
     return {"version": doc.get("version"), "w": doc.get("imageWidth"), "h": doc.get("imageHeight"),
-            "image": doc.get("imagePath"), "shapes": shapes}
+            "image": doc.get("imagePath"), "checked": bool(doc.get("checked")), "shapes": shapes}
 
 
 def problems(shapes):
