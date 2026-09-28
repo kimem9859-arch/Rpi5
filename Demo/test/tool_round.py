@@ -79,6 +79,24 @@ def pick(cands, current):
     return best if net(cands[best]) > net(current) else None
 
 
+def decide(cands, current):
+    """라운드 결말 — 후보가 하나도 없으면 「학습 실패」(관문 패배와 구분 — 다음 판단을 그르치지 않게), 아니면 고르기."""
+    if not cands:
+        return "학습 실패", None
+    chosen = pick(cands, current)
+    return ("채택", chosen) if chosen else ("관문 패배", None)
+
+
+def privacy_problems(names, exclude, cleared):
+    """올리기 전 개인정보 관문 결속(설계 §5) — --exclude 이름이 목록에 없으면(오타) 문제 ·
+    올릴 사진(names − exclude) 중 관문 통과 목록(cleared)에 없는 것이 있으면 문제."""
+    out = [f"--exclude 의 이름이 images.txt 에 없다: {n}" for n in sorted(set(exclude) - set(names))]
+    miss = sorted(set(names) - set(exclude) - set(cleared))
+    if miss:
+        out.append(f"개인정보 관문을 거치지 않은 사진 {len(miss)}장(예: {miss[:3]}) — 올리지 않는다")
+    return out
+
+
 def tool_index(name):
     n = name.replace("-in-hand", "")
     return TOOL_NAMES.index(n) if n in TOOL_NAMES else None

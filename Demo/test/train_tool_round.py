@@ -4,7 +4,7 @@
     --start models/yolov8n.pt models/tool_v3.pt --current models/tool_v3.pt [--backend colab|cpu] [--exclude 뺄이름.txt] [--epochs 50] [--probe]
 --backend colab(기본) = 학습만 Colab T4 — 파이가 colab CLI 로 빌리기·올리기·학습·받기·반납(설계 §5 개정). 관문·고르기는 파이.
   🔴 Colab CLI 함정(저널 §12.41-(6)) — 토큰 1시간 · exec 는 예외에도 종료 코드 0(표지로 판단) · 저장 경로는 표지에서 · stop 필수.
-  🔴 올리기 전에 개인정보 관문을 거친다 — 뺄 사진 이름은 --exclude 파일로(설계 §5).
+  🔴 올리기 전에 개인정보 관문을 거친다 — 뺄 사진은 --exclude · 통과한 사진은 --cleared(누적 목록)에 있어야 올린다(설계 §5).
 출력: <work>/tool_r<N>/(학습 폴더 · runs/) · <models>/tool_r<N>.pt(채택했을 때만) · <models>/tool_r<N>.json(항상)
 --probe = 첫 출발 가중치로 1 에폭만 돌려 시간을 잰다(<work>/tool_r<N>_probe · 저장·채택 없음) — 설계 §5
 정본 설계 = 상위 docs/superpowers/specs/2026-09-28-공구초벌-반복학습-design.md
@@ -35,21 +35,46 @@ def colab(*args, timeout):
     return subprocess.run([COLAB, *args], capture_output=True, text=True, timeout=timeout)
 
 
+def preflight(a, models):
+    """데이터를 만들기 전에 멈출 것(비면 통과)."""
+    out = []
+    if a.probe and a.backend != "cpu":
+        out.append("--probe 는 cpu 에서만 — colab 에서는 그대로 전체 학습·채택으로 흘러간다")
+    if not a.probe:
+        for f in (models / f"tool_r{a.round}.pt", models / f"tool_r{a.round}.json"):
+            if f.exists():
+                out.append(f"이미 있다: {f} — 라운드 모델·기록을 덮어쓰지 않는다")
+    return out
+
+
+def _release(session):
+    """반납 — 실패해도 예외를 올리지 않고 크게 알린다(받은 결과를 잃지 않게). 서버에 남았는지도 확인한다."""
+    try:
+        r = colab("stop", "-s", session, timeout=300)
+        if r.returncode != 0:
+            print(f"⚠️ 반납 실패 — `colab stop -s {session}` 을 직접: {(r.stdout + r.stderr)[-200:]}")
+        left = colab("sessions", timeout=120)
+        if session in (left.stdout or ""):
+            print(f"🔴 세션 {session} 이 아직 서버에 있다 — `colab stop -s {session}` 을 직접(중단 규칙)")
+    except Exception as e:
+        print(f"🔴 반납 확인 못 함({type(e).__name__}) — `colab sessions` 로 확인하고 `colab stop -s {session}`(중단 규칙)")
+
+
 def train_colab(starts, ds, epochs, session):
     """Colab T4 에서 출발점마다 학습하고 last.pt 를 받는다. 반환 = ({이름: (파이 경로, 분)}, 표지, 로그 경로).
-    GPU 를 못 빌리면 종료(중단 규칙 — 묻는다). 무엇이 실패해도 finally 에서 반납한다."""
+    GPU 를 못 빌리면 종료(중단 규칙 — 묻는다). 빌리기부터 무엇이 실패해도(시간 초과 포함) finally 에서 반납한다."""
     tar = ds.parent / f"{ds.name}.tar"
     print(f"묶음 {TR.pack_dataset(ds, tar, '/content')}개 파일 · {tar.stat().st_size / 1e6:.0f}MB")
     rstarts = [(Path(s).stem, f"/content/{Path(s).name}") for s in starts]
     script = ds.parent / f"{ds.name}_remote.py"
     script.write_text(TR.remote_script(ds.name, rstarts, epochs, None, UL_VERSION), encoding="utf-8")
     t0 = time.time()
-    r = colab("new", "-s", session, "--gpu", "T4", timeout=900)
-    if r.returncode != 0:
-        sys.exit(f"🔴 T4 를 못 빌렸다 — 멈추고 묻는다(설계 §5)\n{(r.stdout + r.stderr)[-500:]}")
     log_path = ds / "colab_log.txt"
     out = {}
     try:
+        r = colab("new", "-s", session, "--gpu", "T4", timeout=900)
+        if r.returncode != 0:
+            sys.exit(f"🔴 T4 를 못 빌렸다 — 멈추고 묻는다(설계 §5)\n{(r.stdout + r.stderr)[-500:]}")
         for local, remote in [(tar, f"/content/{tar.name}")] + [(Path(s), rp) for s, (_, rp) in zip(starts, rstarts)]:
             r = colab("upload", "-s", session, str(local), remote, timeout=1800)
             if r.returncode != 0:
@@ -73,7 +98,7 @@ def train_colab(starts, ds, epochs, session):
         print(f"받기 끝 {(time.time() - t0) / 60:.1f}분(토큰 1시간 안이어야 한다)")
         return out, mk, log_path
     finally:
-        colab("stop", "-s", session, timeout=300)
+        _release(session)
 
 
 def train(start, ds, name, epochs, hours):
@@ -112,14 +137,24 @@ def main():
     ap.add_argument("--probe", action="store_true")
     ap.add_argument("--backend", choices=("colab", "cpu"), default="colab")
     ap.add_argument("--exclude", help="개인정보 관문에서 뺀 사진 이름(한 줄에 하나)")
+    ap.add_argument("--cleared", default="~/data/label_train/privacy_cleared.txt",
+                    help="개인정보 관문을 통과한 사진 이름(누적 · 한 줄에 하나) — colab 에 올릴 사진은 전부 여기 있어야 한다")
     ap.add_argument("--work", default="~/data/label_train")
     ap.add_argument("--models", default="~/data/label_models")
     a = ap.parse_args()
     models = Path(a.models).expanduser()
     if TR.is_demo_models(models, HERE.parent / "models"):
         sys.exit("🔴 결과 모델을 Demo/models 에 두지 않는다(설계 §7)")
-    ds = Path(a.work).expanduser() / (f"tool_r{a.round}" + ("_probe" if a.probe else ""))
+    probs = preflight(a, models)
     excl = set(Path(a.exclude).read_text(encoding="utf-8").split()) if a.exclude else set()
+    if a.backend == "colab":
+        names = [l.split("\t", 1)[0] for l in (Path(a.data).expanduser() / "images.txt").read_text(encoding="utf-8").splitlines() if "\t" in l]
+        cp = Path(a.cleared).expanduser()
+        cleared = set(cp.read_text(encoding="utf-8").split()) if cp.exists() else set()
+        probs += TR.privacy_problems(names, excl, cleared)
+    if probs:
+        sys.exit("🔴 시작 전 확인에서 멈춘다(데이터를 만들지 않았다)\n" + "\n".join(f"  - {m}" for m in probs))
+    ds = Path(a.work).expanduser() / (f"tool_r{a.round}" + ("_probe" if a.probe else ""))
     info = TR.build_dataset(a.data, ds, exclude=excl)
     print(f"학습 {len(info['train'])}장(공구 {info['boxes']['train']}) · 떼어 둔 {len(info['val'])}장(공구 {info['boxes']['val']})")
     if a.probe and a.backend == "cpu":
@@ -140,19 +175,25 @@ def main():
         name = Path(s).stem
         if a.backend == "colab":
             if name not in got:
-                print(f"[{name}] ❌ 학습·받기 실패 — 후보에서 뺀다"); continue
+                why = mk["fail"].get(name) or ("설치·풀기 실패" if not mk["setup_ok"] else "표지 없음(시간 초과 등) 또는 받기 실패")
+                rec["starts"][name] = {"weights": s, "failed": why}
+                print(f"[{name}] ❌ 학습·받기 실패 — {why}"); continue
             best, minutes = got[name]
         else:
             best, minutes = train(s, ds, name, a.epochs, HOURS_PER_START)
         c = gate(best, ds); cands[name] = c
         rec["starts"][name] = {"weights": s, "best": str(best), "minutes": round(minutes, 1), **c, "net": TR.net(c)}
         print(f"[{name}] {minutes:.0f}분 · 떼어 둔 사진: 잡음 {c['caught']} · 가짜 {c['fake']} · 놓침 {c['missed']} · 순이익 {TR.net(c)}")
+    models.mkdir(parents=True, exist_ok=True)
+    if not cands:
+        rec.update(status="학습 실패", chosen=None, model=None)
+        (models / f"tool_r{a.round}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+        sys.exit("🔴 학습 실패 — 후보가 하나도 없다(관문 패배가 아니다) · 기록 JSON 참조")
     cur = gate(a.current, ds)
     rec["current"] = {"weights": a.current, **cur, "net": TR.net(cur)}
     print(f"[지금 {Path(a.current).stem}] 잡음 {cur['caught']} · 가짜 {cur['fake']} · 놓침 {cur['missed']} · 순이익 {TR.net(cur)}")
-    chosen = TR.pick(cands, cur)
-    rec["chosen"] = chosen
-    models.mkdir(parents=True, exist_ok=True)
+    status, chosen = TR.decide(cands, cur)
+    rec["status"], rec["chosen"] = status, chosen
     if chosen:
         dst = models / f"tool_r{a.round}.pt"
         shutil.copy2(rec["starts"][chosen]["best"], dst)
@@ -160,7 +201,7 @@ def main():
         print(f"✅ 채택 {chosen} → {dst}")
     else:
         rec["model"] = None
-        print("❌ 채택 없음 — 지금 모델을 계속 쓴다")
+        print("❌ 관문 패배 — 지금 모델을 계속 쓴다")
     (models / f"tool_r{a.round}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
 
 

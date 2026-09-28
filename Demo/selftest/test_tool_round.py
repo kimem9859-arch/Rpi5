@@ -169,6 +169,79 @@ def test_개인정보_제외():
         check(not (Path(d) / "dst" / "images" / "val" / "A__f00005.png").exists(), "뺀 사진 파일 없음")
 
 
+import argparse
+import subprocess
+import train_tool_round as TTR
+
+
+def test_시작_전_확인():
+    print("[12] 🔴 --probe 는 cpu 에서만 · 이미 있는 라운드 모델·기록은 덮어쓰지 않는다 — 데이터를 만들기 전에 멈춘다")
+    with tempfile.TemporaryDirectory() as d:
+        models = Path(d)
+        a = argparse.Namespace(probe=True, backend="colab", round=1)
+        check(any("--probe" in m for m in TTR.preflight(a, models)), "colab + probe = 멈춤")
+        (models / "tool_r1.pt").write_bytes(b"x")
+        a = argparse.Namespace(probe=False, backend="colab", round=1)
+        check(any("tool_r1.pt" in m for m in TTR.preflight(a, models)), "기존 tool_r1.pt = 멈춤")
+        a = argparse.Namespace(probe=False, backend="colab", round=2)
+        check(TTR.preflight(a, models) == [], "새 라운드는 통과")
+
+
+def test_결말_가르기():
+    print("[13] 🔴 학습이 전부 실패하면 「관문 패배」가 아니라 「학습 실패」 — 다음 판단을 그르치지 않게")
+    cur = {"caught": 2, "fake": 5, "missed": 13}
+    check(TR.decide({}, cur) == ("학습 실패", None), "후보 없음 = 학습 실패")
+    check(TR.decide({"a": {"caught": 1, "fake": 5, "missed": 14}}, cur) == ("관문 패배", None), "지면 관문 패배")
+    check(TR.decide({"a": {"caught": 9, "fake": 5, "missed": 6}}, cur) == ("채택", "a"), "이기면 채택")
+
+
+def test_개인정보_관문_결속():
+    print("[14] 🔴 관문을 거치지 않은 사진은 올리지 않는다 · --exclude 의 이름이 목록에 없으면(오타) 멈춘다")
+    names = ["A__f00001", "A__f00002", "B__f00001"]
+    check(TR.privacy_problems(names, {"A__f00002"}, {"A__f00001", "B__f00001"}) == [], "뺀 것 빼고 전부 통과 = 문제 없음")
+    p = TR.privacy_problems(names, {"A__f0002.png"}, set(names))
+    check(any("A__f0002.png" in m for m in p), f"오타 exclude — {p}")
+    p = TR.privacy_problems(names, set(), {"A__f00001"})
+    check(any("2장" in m for m in p), f"관문 안 거친 2장 — {p}")
+
+
+def test_반납_보장():
+    print("[15] 🔴 GPU 빌리기가 시간 초과로 끊겨도 반납을 시도한다 · 반납이 실패해도 받은 결과는 잃지 않는다")
+    with tempfile.TemporaryDirectory() as d:
+        ds = Path(d) / "tool_r1"; TR.build_dataset(_tiny(d), ds)
+        calls = []
+
+        def fake_timeout(*args, timeout):
+            calls.append(args[0])
+            if args[0] == "new":
+                raise subprocess.TimeoutExpired("colab new", timeout)
+            return subprocess.CompletedProcess(args, 0, "", "")
+        TTR.colab, orig = fake_timeout, TTR.colab
+        try:
+            try:
+                TTR.train_colab([str(Path(d) / "yolov8n.pt")], ds, 50, "s")
+                raised = False
+            except subprocess.TimeoutExpired:
+                raised = True
+            check(raised and "stop" in calls, f"시간 초과가 올라오고 반납 시도 — {calls}")
+
+            def fake_ok(*args, timeout):
+                calls.append(args[0])
+                if args[0] == "exec":
+                    return subprocess.CompletedProcess(args, 0, "@@SETUP ok\n@@DONE yolov8n 3.0 /content/runs/yolov8n\n", "")
+                if args[0] == "download":
+                    Path(args[4]).write_bytes(b"w")
+                if args[0] == "stop":
+                    raise subprocess.TimeoutExpired("colab stop", timeout)
+                return subprocess.CompletedProcess(args, 0, "", "")
+            TTR.colab = fake_ok
+            ds2 = Path(d) / "tool_r2"; TR.build_dataset(Path(d) / "src", ds2)
+            out, mk, _ = TTR.train_colab([str(Path(d) / "yolov8n.pt")], ds2, 50, "s")
+            check("yolov8n" in out and out["yolov8n"][0].exists(), f"반납이 실패해도 결과 유지 — {out}")
+        finally:
+            TTR.colab = orig
+
+
 if __name__ == "__main__":
     test_공구만_번호_바꾸기()
     test_세션별_마지막_20퍼센트()
@@ -182,6 +255,10 @@ if __name__ == "__main__":
     test_원격_스크립트()
     test_표지_읽기()
     test_개인정보_제외()
+    test_시작_전_확인()
+    test_결말_가르기()
+    test_개인정보_관문_결속()
+    test_반납_보장()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
