@@ -42,7 +42,20 @@ def check_returned(man, returned_dir, viewed_all=False):
         probs = X.problems(doc["shapes"])
         if any(sh["label"] == X.EXCLUDE for sh in doc["shapes"]):     # exclude 사진은 통째로 빠진다 — 남은 제안은 상관없다
             probs = [m for m in probs if not m.startswith("제안이 남음")]
+        else:
+            probs += same_spot(doc["shapes"])
         out += [f"{r['file']}: {m}" for m in probs]
+    return out
+
+
+def same_spot(shapes, thr=0.9):
+    """같은 자리(IoU ≥ thr)에 이름이 다른 박스 둘 — 한 물체에 이름 둘은 가장 해로운 라벨 오류(b003 f00205 B3·EMO · 사용자 승인 2026-09-29)."""
+    out = []
+    for i in range(len(shapes)):
+        for j in range(i + 1, len(shapes)):
+            a, b = shapes[i], shapes[j]
+            if a["label"] != b["label"] and LR.iou(a["box"], b["box"]) >= thr:
+                out.append(f"같은 자리에 이름 둘: {a['label']} · {b['label']} — 맞는 하나만 남긴다")
     return out
 
 

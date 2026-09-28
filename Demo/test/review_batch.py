@@ -81,6 +81,27 @@ def tool_model_record(path):
     return {"path": str(path), "sha256_16": _sha(path), "conf": TOOL_CONF}
 
 
+def drop_nested(dets, thr=0.8):
+    """같은 이름 공구 초벌이 다른 박스 안에 대부분(thr) 들어가 있으면 작은 것을 뺀다 — 손에 가려 조각과 전체를 따로 그린 것
+    (b003 에서 29장 · 사용자 승인 2026-09-29). 라벨 규칙 ④(두 조각이면 박스 하나)와 같은 방향. 떨어진 같은 공구 둘·다른 이름은 그대로.
+    dets = [[이름, 점수, x1, y1, x2, y2], ...]"""
+    def area(b):
+        return max(0, b[2] - b[0]) * max(0, b[3] - b[1])
+    keep = []
+    for i in sorted(range(len(dets)), key=lambda k: -area(dets[k][2:6])):
+        b = dets[i][2:6]
+        nested = False
+        for j in keep:
+            B = dets[j][2:6]
+            if dets[j][0] == dets[i][0] and area(b):
+                ix = max(0, min(b[2], B[2]) - max(b[0], B[0])); iy = max(0, min(b[3], B[3]) - max(b[1], B[1]))
+                if ix * iy / area(b) >= thr:
+                    nested = True; break
+        if not nested:
+            keep.append(i)
+    return [dets[i] for i in sorted(keep)]
+
+
 def pick_frames(cands, size, seed):
     by = {}
     for c in cands:
@@ -224,10 +245,12 @@ def main():
     tools = json.loads(tj.read_text(encoding="utf-8"))
 
     recs = []
+    nested_dropped = 0
     for sess, fr, p in pick:
         img = cv2.imread(p); h, w = img.shape[:2]
         rev = LR.review(img, run, T, th)
-        shapes, drafts, kind = compose_shapes(rev, tools.get(p, []))
+        tl = tools.get(p, []); tk = drop_nested(tl); nested_dropped += len(tl) - len(tk)
+        shapes, drafts, kind = compose_shapes(rev, tk)
         blur = _frame_sharp(img) < sharp_thr
         name = batch_name(kind, blur, short_name(sess), fr)
         shutil.copy2(p, out / "images" / name)
@@ -249,6 +272,7 @@ def main():
         f.write("".join(r["original"] + "\n" for r in recs))
     lst.unlink(); tj.unlink()
     from collections import Counter
+    print("겹친 공구 초벌 뺀 수", nested_dropped)
     print("종류:", dict(Counter(r["kind"] for r in recs)), "· 흐림 후보", sum(r["blur"] for r in recs),
           "· 초벌:", dict(Counter(d["kind"] for r in recs for d in r["drafts"])))
 

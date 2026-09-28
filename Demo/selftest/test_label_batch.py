@@ -327,6 +327,32 @@ def test_exclude_사진의_남은_제안은_문제_아님():
         check(any("f00001" in m and "제안" in m for m in p), "exclude 없는 사진은 거부")
 
 
+def test_겹친_공구_초벌_거르기():
+    print("[25] 같은 이름 공구 초벌이 다른 박스 안에 대부분(80%) 들어가 있으면 작은 것을 뺀다 — 떨어진 공구·다른 이름·조금 겹침은 그대로")
+    whole = ["wrench", 0.8, 0, 0, 100, 300]; head = ["wrench", 0.6, 10, 10, 90, 100]
+    other = ["wrench", 0.7, 200, 0, 250, 100]; drv = ["driver", 0.5, 20, 20, 60, 90]
+    side = ["wrench", 0.5, 80, 250, 180, 350]                       # whole 과 조금만 겹침(작은 쪽의 20%)
+    got = RB.drop_nested([head, whole, other, drv, side])
+    check(got == [whole, other, drv, side], f"{[g[2:] for g in got]}")
+    check(RB.drop_nested([]) == [], "빈 목록")
+
+
+def test_같은_자리_두_이름():
+    print("[26] 🔴 같은 자리(IoU 0.9 이상)에 이름이 둘이면 회수 거부 — b003 f00205 B3·EMO · exclude 사진은 예외 · 떨어진 박스는 통과")
+    with tempfile.TemporaryDirectory() as d:
+        man = _man(["a_check__S__f00000.png", "a_check__S__f00001.png", "a_check__S__f00002.png"])
+        cases = {"f00000": [X.shape("B3", [10, 10, 60, 60]), X.shape("EMO", [10, 10, 60, 61])],
+                 "f00001": [X.shape("B3", [10, 10, 60, 60]), X.shape("EMO", [200, 200, 250, 250])],
+                 "f00002": [X.shape("B3", [10, 10, 60, 60]), X.shape("EMO", [10, 10, 60, 60]), X.shape(X.EXCLUDE, [0, 0, 768, 1024])]}
+        for k, shapes in cases.items():
+            pth = os.path.join(d, f"a_check__S__{k}.json")
+            X.write_json(pth, "x.png", 768, 1024, shapes)
+            doc = json.load(open(pth)); doc["version"] = "3.3.5"; json.dump(doc, open(pth, "w"))
+        p = CB.check_returned(man, d)
+        check(any("f00000" in m and "같은 자리" in m for m in p), f"같은 자리 두 이름 = 거부 — {p}")
+        check(not any("f00001" in m or "f00002" in m for m in p), "떨어진 박스 · exclude 사진 = 통과")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -352,6 +378,8 @@ if __name__ == "__main__":
     test_공구_초벌이_잡아_준_비율()
     test_공구_초벌_모델_기록()
     test_exclude_사진의_남은_제안은_문제_아님()
+    test_겹친_공구_초벌_거르기()
+    test_같은_자리_두_이름()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
