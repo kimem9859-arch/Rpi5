@@ -353,6 +353,19 @@ def test_같은_자리_두_이름():
         check(not any("f00001" in m or "f00002" in m for m in p), "떨어진 박스 · exclude 사진 = 통과")
 
 
+def test_버튼_수고():
+    print("[27] 버튼 수고 = 사람 확인 + 빠진 자리 제안 + 새로 그린 버튼 · 가짜 = 사람 확인 중 지움 · 기계 확정 틀림 — b003 집계로(spec 2026-09-29 §1)")
+    stats = {"auto": {"그대로": 344, "박스 조정": 5, "크게 조정": 0, "이름 바뀜": 0, "지움": 0, "채택": 0},
+             "check": {"그대로": 109, "박스 조정": 72, "크게 조정": 2, "이름 바뀜": 1, "지움": 36, "채택": 0},
+             "propose": {"그대로": 0, "박스 조정": 0, "크게 조정": 6, "이름 바뀜": 0, "지움": 37, "채택": 2},
+             "추가": {"wrench": 13, "B1": 3, "B4": 1, "driver": 1, "pliers": 1}}
+    got = CB.button_work(stats)
+    check(got == {"work": 269, "check": 220, "propose": 45, "added": 4, "fake": 36, "auto_wrong": 0}, f"{got}")
+    stats["auto"].update({"이름 바뀜": 1, "크게 조정": 2, "지움": 3})
+    check(CB.button_work(stats)["auto_wrong"] == 6, "기계 확정 중 이름 바뀜·크게 조정·지움")
+    check(CB.button_work({"추가": {}})["work"] == 0, "빈 집계")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -380,6 +393,7 @@ if __name__ == "__main__":
     test_exclude_사진의_남은_제안은_문제_아님()
     test_겹친_공구_초벌_거르기()
     test_같은_자리_두_이름()
+    test_버튼_수고()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

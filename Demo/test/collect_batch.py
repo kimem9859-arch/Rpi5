@@ -97,6 +97,17 @@ def tool_catch(stats):
     return {"caught": caught, "total": total, "renamed": t.get("이름 바뀜", 0), "fake": t.get("지움", 0)}
 
 
+def button_work(stats):
+    """버튼 수고(spec 2026-09-29-버튼초벌-반복학습 §1 · §7 — 묶음 집계와 버튼 관문이 같은 잣대).
+    사람이 손댈 버튼 박스 = 사람 확인 초벌 + 빠진 자리 제안 + 새로 그린 버튼 · 가짜 = 사람 확인 초벌 중 지운 것 ·
+    기계 확정 틀림 = 기계 확정 초벌 중 같은 이름 IoU 0.5 짝이 없는 것(이름 바뀜 · 크게 조정 · 지움)."""
+    ch, pr, au = stats.get("check", {}), stats.get("propose", {}), stats.get("auto", {})
+    added = sum(stats.get("추가", {}).get(n, 0) for n in X.CLASSES[:5])
+    c, p = sum(ch.values()), sum(pr.values())
+    return {"work": c + p + added, "check": c, "propose": p, "added": added, "fake": ch.get("지움", 0),
+            "auto_wrong": sum(au.get(k, 0) for k in ("이름 바뀜", "크게 조정", "지움"))}
+
+
 def edit_stats(drafts, finals):
     stats = {k: Counter({x: 0 for x in KEYS}) for k in ("auto", "check", "propose", "tool")}
     pairs = sorted(((LR.iou(d["box"], f["box"]), i, j) for i, d in enumerate(drafts) for j, f in enumerate(finals)),
@@ -183,6 +194,7 @@ def main():
     stats = {"batch": man["batch"], "images": len(man["images"]), "exclude": excluded,
              **{k: dict(v) for k, v in total.items()}, "추가": dict(added)}
     stats["공구 초벌"] = tool_catch(stats)
+    stats["버튼 수고"] = button_work(stats)
     (out / "stats" / f"{man['batch']}.json").write_text(json.dumps(stats, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"✅ 회수 {len(rows)}장 · exclude {excluded}")
     for k in ("auto", "check", "propose", "tool"):
@@ -192,6 +204,9 @@ def main():
     print(f"  공구 초벌이 잡아 준 비율 {tc['caught']}/{tc['total']}"
           + (f" = {tc['caught'] / tc['total']:.0%}" if tc["total"] else "")
           + f" (이름 바뀜 {tc['renamed']} 포함) · 가짜(지움) {tc['fake']}")
+    bw = stats["버튼 수고"]
+    print(f"  버튼 — 사람이 손댈 박스 {bw['work']}(사람 확인 {bw['check']} · 제안 {bw['propose']} · 새로 그림 {bw['added']})"
+          f" · 가짜(사람 확인 중 지움) {bw['fake']} · 기계 확정 틀림 {bw['auto_wrong']}")
     import label_audit
     rep = label_audit.audit(out)
     print("label_audit — 모르는 클래스", rep["unknown_classes"], "· 조각 의심", len(rep["suspects"]),
