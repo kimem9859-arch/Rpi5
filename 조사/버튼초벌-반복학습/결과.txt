@@ -1,0 +1,5 @@
+# 버튼 초벌 반복 학습 1라운드 — 583장 → button_r1 · tool_r3 후보 → b004
+## 준비(2026-09-29 09:06)
+646f8bc3fe0a656803d95c294f7852321748cb29d13466a1af8862e2db384a1b  /home/pi/data/label_train/base/yolo26s.pt
+f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36  Demo/models/yolov8n.pt
+개인정보 관문 — 촬영자 확인(장소1 2026-09-23 세션 · 사용자 「사람 얼굴과 개인정보를 촬영하진 않았었어」)으로 192장 더함 · 목록 391 → 583
