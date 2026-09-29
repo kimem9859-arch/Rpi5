@@ -3,3 +3,19 @@
 646f8bc3fe0a656803d95c294f7852321748cb29d13466a1af8862e2db384a1b  /home/pi/data/label_train/base/yolo26s.pt
 f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36  Demo/models/yolov8n.pt
 개인정보 관문 — 촬영자 확인(장소1 2026-09-23 세션 · 사용자 「사람 얼굴과 개인정보를 촬영하진 않았었어」)으로 192장 더함 · 목록 391 → 583
+관문 — 떼어 둔 119장 · 최종 버튼 212 · 배치 틀 30장
+  yolov8n: {'work': 48, 'check': 41, 'propose': 7, 'added': 0, 'fake': 2, 'auto_wrong': 0}
+  yolo26s: {'work': 45, 'check': 39, 'propose': 5, 'added': 1, 'fake': 1, 'auto_wrong': 0}
+  지금 {'name': 'console_v2', 'work': 53, 'check': 48, 'propose': 5, 'added': 0, 'fake': 11, 'auto_wrong': 0}
+학습 464장(버튼 1409) · 떼어 둔 119장(버튼 212)
+묶음 조각 4개 · 157MB
+올리기 끝 1.3분
+원격 학습 끝 23.7분 · 설치 OK · 끝남 ['yolov8n', 'yolo26s'] · 실패 {}
+받기 끝 24.2분(토큰 1시간 안이어야 한다)
+[yolov8n] 10분 · 떼어 둔 사진: 사람 몫 48(확인 41 · 제안 7 · 새로 0) · 가짜 2 · 기계 확정 틀림 0
+[yolo26s] 12분 · 떼어 둔 사진: 사람 몫 45(확인 39 · 제안 5 · 새로 1) · 가짜 1 · 기계 확정 틀림 0
+[지금 console_v2] 사람 몫 53(확인 48 · 제안 5 · 새로 0) · 가짜 11 · 기계 확정 틀림 0
+✅ 채택 yolo26s → /home/pi/data/label_models/button_r1.pt
+판정(버튼 1라운드 · 2026-09-29): ✅ 채택 yolo26s → button_r1 — 떼어 둔 119장(최종 버튼 212) 사람 몫 console_v2 53 → yolov8n 48 · yolo26s 45 · 가짜 11 → 2 · 1 · 기계 확정 틀림 0 · 0 · 0
+  · 큰 모델(yolo26s)은 yolov8n 보다 사람 몫 3 · 가짜 1 적다(119장이라 차이는 작다) · Colab 원격 23.7분(yolov8n 9.8 · yolo26s 12분) · 받기까지 24.2분
+  · ⚠️ 떼어 둔 사진 정답은 console_v2 초벌을 보며 고친 것 — 지금 방식 쪽으로 기운 관문인데 새 모델이 이겼다 · 🔴 같은 장소 값 — 성능 아님
