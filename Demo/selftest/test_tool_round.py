@@ -323,7 +323,7 @@ def test_무리별_시작_전_확인():
     print("[20] 🔴 무리마다 라운드 파일이 따로 — 공구 tool_r1 이 있어도 버튼 button_r1 은 막지 않는다 · 버튼은 배치 틀(--template) 폴더가 있어야")
     with tempfile.TemporaryDirectory() as d:
         models = Path(d)
-        (models / "tool_r1.pt").write_bytes(b"x")
+        (models / "tool_r1.pt").write_bytes(b"x"); (models / "f00001.png").write_bytes(b"x")
         a = argparse.Namespace(probe=False, backend="colab", round=1, group="button", template=d)
         check(TTR.preflight(a, models) == [], "tool_r1 이 있어도 button_r1 은 통과")
         (models / "button_r1.json").write_text("{}")
@@ -338,6 +338,61 @@ def test_버튼_점수_기준은_시연과_같다():
     sys.path.insert(0, _DEMO_DIR)
     import config
     check(TTR.BUTTON_CONF == config.YOLO_CONF_LOW, f"{TTR.BUTTON_CONF} vs {config.YOLO_CONF_LOW}")
+
+
+def test_관문_입력_미리_확인():
+    print("[22] 🔴 학습 전에 관문 입력을 확인한다 — --current 오타 · 사진 없는 배치 틀은 Colab 을 빌리기 전에 멈춘다(최종 리뷰 중요 1)")
+    with tempfile.TemporaryDirectory() as d:
+        models = Path(d) / "m"; models.mkdir()
+        tpl = Path(d) / "tpl"; tpl.mkdir(); (tpl / "f00001.png").write_bytes(b"x")
+        w = Path(d) / "w.pt"; w.write_bytes(b"x")
+        ok = lambda **k: argparse.Namespace(probe=False, backend="colab", round=1, **k)
+        check(TTR.preflight(ok(group="button", template=str(tpl), current="console_v2"), models) == [], "버튼 · console_v2 = 통과")
+        check(TTR.preflight(ok(group="button", template=str(tpl), current=str(w)), models) == [], "버튼 · 가중치 파일 = 통과")
+        check(any("--current" in m for m in TTR.preflight(ok(group="button", template=str(tpl), current="console_V2"), models)), "버튼 · 오타 = 멈춤")
+        check(any("--current" in m for m in TTR.preflight(ok(group="tool", current="console_v2"), models)), "공구 · console_v2 는 파일이 아니라 멈춤")
+        empty = Path(d) / "empty"; empty.mkdir()
+        check(any("--template" in m for m in TTR.preflight(ok(group="button", template=str(empty), current="console_v2"), models)), "사진 없는 배치 틀 = 멈춤")
+
+
+def test_배치_틀_없으면_멈춤():
+    print("[23] 🔴 관문 사진 경로 — 배치 틀 폴더가 없거나 f*.png 가 0장이면 빈 목록이 아니라 FileNotFoundError(모델 탓처럼 보이는 오류 대신)")
+    with tempfile.TemporaryDirectory() as d:
+        ds = Path(d) / "ds"; (ds / "images" / "val").mkdir(parents=True)
+        (Path(d) / "empty").mkdir()
+        for t in (Path(d) / "없음", Path(d) / "empty"):
+            try:
+                TR.gate_paths(ds, t); raised = False
+            except FileNotFoundError:
+                raised = True
+            check(raised, f"{t.name} = FileNotFoundError")
+
+
+def test_버튼_관문_호출():
+    print("[24] 🔴 버튼 관문 호출 — 시스템 python3 에 넘기는 학습 폴더·배치 틀은 절대 경로 · 관문 도구가 실패하면 GateFailed(기록을 남기려고)")
+    import prelabel_tools as PT
+    with tempfile.TemporaryDirectory() as d:
+        ds = Path(d) / "ds"; (ds / "images" / "val").mkdir(parents=True); (ds / "images" / "val" / "a.png").write_bytes(b"x")
+        tpl = Path(d) / "tpl"; tpl.mkdir(); (tpl / "f00001.png").write_bytes(b"x")
+        calls = []
+
+        def fake_run(args, **kw):
+            calls.append(args)
+            raise subprocess.CalledProcessError(1, args)
+        orig_run, orig_pb = TTR.subprocess.run, PT.predict_boxes
+        TTR.subprocess.run = fake_run
+        PT.predict_boxes = lambda m, ps, c: {p: [] for p in ps}
+        cwd = os.getcwd(); os.chdir(d)
+        try:
+            try:
+                TTR.gate_button({"m": "w.pt"}, Path("ds"), "tpl", "console_v2"); raised = None
+            except TTR.GateFailed as e:
+                raised = e
+        finally:
+            os.chdir(cwd); TTR.subprocess.run = orig_run; PT.predict_boxes = orig_pb
+        a = calls[0] if calls else []
+        check(bool(a) and a[a.index("--template") + 1] == str(tpl.resolve()) and a[a.index("--ds") + 1] == str(ds.resolve()), f"{a}")
+        check(raised is not None, "관문 도구 실패 = GateFailed")
 
 
 if __name__ == "__main__":
@@ -363,6 +418,9 @@ if __name__ == "__main__":
     test_관문_사진_경로()
     test_무리별_시작_전_확인()
     test_버튼_점수_기준은_시연과_같다()
+    test_관문_입력_미리_확인()
+    test_배치_틀_없으면_멈춤()
+    test_버튼_관문_호출()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

@@ -50,10 +50,13 @@ def preflight(a, models):
         for f in (models / f"{group}_r{a.round}.pt", models / f"{group}_r{a.round}.json"):
             if f.exists():
                 out.append(f"이미 있다: {f} — 라운드 모델·기록을 덮어쓰지 않는다")
+    cur = getattr(a, "current", None)          # 관문 입력은 학습(Colab 수십 분) 전에 확인한다(최종 리뷰 중요 1)
+    if cur is not None and not (group == "button" and cur == "console_v2") and not Path(cur).expanduser().is_file():
+        out.append(f"--current 가 없다: {cur} — 공구 = 가중치 파일 · 버튼 = console_v2 또는 가중치 파일")
     if group == "button":
         t = getattr(a, "template", None)
-        if not t or not Path(t).expanduser().is_dir():
-            out.append(f"--group button 은 --template(배치 틀 정지 세션 폴더)이 필요하다 — 없거나 폴더가 아니다: {t}")
+        if not t or not Path(t).expanduser().is_dir() or not any(Path(t).expanduser().glob("f*.png")):
+            out.append(f"--group button 은 --template(배치 틀 정지 세션 폴더 · f*.png)이 필요하다 — 없거나 사진이 없다: {t}")
     return out
 
 
@@ -137,6 +140,10 @@ def gate(model_path, ds):
     return tot
 
 
+class GateFailed(RuntimeError):
+    """버튼 관문 도구(시스템 python3)가 실패했다 — 학습한 가중치·초벌 JSON 은 남아 있다(기록을 남기고 멈추려고)."""
+
+
 def gate_button(weights, ds, template, current):
     """버튼 관문(spec 2026-09-29 §7) — 후보마다 떼어 둔 사진·배치 틀 사진의 초벌을 여기(rfenv)서 JSON 으로 만들고,
     기계 검토·대조는 시스템 python3 의 gate_button.py 가 한다(지금 방식 console_v2 는 Hailo).
@@ -155,8 +162,13 @@ def gate_button(weights, ds, template, current):
         j.write_text(json.dumps(PT.predict_boxes(str(current), vp + tp, BUTTON_CONF), ensure_ascii=False), encoding="utf-8")
         args += ["--current", f"current={j}"]
     out = ds / "gate_button.json"
-    subprocess.run([SYS_PYTHON, str(HERE / "gate_button.py"), "--ds", str(ds), "--template", str(template), *args,
-                    "--out", str(out)], check=True, cwd=str(HERE.parent))
+    ds_abs, tpl_abs = str(Path(ds).expanduser().resolve()), str(Path(template).expanduser().resolve())   # 하위 프로세스 cwd 는 Demo — 상대 경로가 다른 곳을 가리키지 않게
+    try:
+        subprocess.run([SYS_PYTHON, str(HERE / "gate_button.py"), "--ds", ds_abs, "--template", tpl_abs, *args,
+                        "--out", str(out)], check=True, cwd=str(HERE.parent))
+    except subprocess.CalledProcessError as e:
+        raise GateFailed(f"버튼 관문 도구 실패(종료 코드 {e.returncode} · Hailo 사용 중 등) — 초벌 JSON 은 {ds} 에 남아 있어 "
+                         f"gate_button.py 를 손으로 다시 돌릴 수 있다") from e
     g = json.loads(out.read_text(encoding="utf-8"))
     return g["cands"], g["current"]
 
@@ -234,7 +246,13 @@ def main():
             print(f"[{name}] {minutes:.0f}분 · 떼어 둔 사진: 잡음 {c['caught']} · 가짜 {c['fake']} · 놓침 {c['missed']} · 순이익 {TR.net(c)}")
     cur = None
     if a.group == "button" and bests:
-        bc, cur = gate_button(bests, ds, a.template, a.current)
+        try:
+            bc, cur = gate_button(bests, ds, a.template, a.current)
+        except GateFailed as e:
+            models.mkdir(parents=True, exist_ok=True)
+            rec.update(status="관문 실패", chosen=None, model=None, error=str(e))
+            (models / f"{a.group}_r{a.round}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+            sys.exit(f"🔴 {e} · 학습한 가중치 = 기록 JSON 의 starts[*].best")
         for name, c in bc.items():
             if "error" in c:
                 rec["starts"][name]["failed"] = c["error"]

@@ -258,5 +258,7 @@ def gate_paths(ds, template):
     """버튼 관문의 사진 경로(spec 2026-09-29 §7) — (떼어 둔 사진, 배치 틀 정지 장면 사진). 초벌 JSON 을 만드는 rfenv 쪽과
     읽는 시스템 python3 쪽이 같은 열쇠를 쓰도록 절대 경로 문자열 · 정렬."""
     ds, template = Path(ds).expanduser().resolve(), Path(template).expanduser().resolve()
-    return ([str(p) for p in sorted((ds / "images" / "val").iterdir()) if p.suffix == ".png"],
-            [str(p) for p in sorted(template.glob("f*.png"))])
+    tp = [str(p) for p in sorted(template.glob("f*.png"))] if template.is_dir() else []
+    if not tp:                        # 빈 목록이면 「배치 틀을 만들 수 없다」가 모델 탓처럼 보인다 — 입력 탓임을 바로 알린다
+        raise FileNotFoundError(f"배치 틀 사진(f*.png)이 없다: {template}")
+    return [str(p) for p in sorted((ds / "images" / "val").iterdir()) if p.suffix == ".png"], tp
