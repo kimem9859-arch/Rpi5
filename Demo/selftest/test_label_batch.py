@@ -62,12 +62,12 @@ def test_세션_비율로_뽑기():
 
 
 def test_초벌_모양_만들기():
-    print("[6] 기계 확정·사람·제안·공구가 라벨 파일에서 구별된다")
+    print("[6] 기계 확정·사람·제안·공구가 라벨 파일에서 구별된다(제안을 켰을 때 · --propose)")
     rev = {"boxes": [{"name": "B1", "score": 0.9, "box": [1, 2, 30, 40], "pre": [0, 0, 32, 44], "why": []},
                      {"name": "B3", "score": 0.8, "box": [50, 2, 80, 40], "pre": [48, 0, 82, 44], "why": ["흐림"]}],
            "missing": [("B4", [100, 100, 150, 150])], "nvis": 2}
     tools = [["driver", 0.31, 200, 200, 260, 300]]
-    shapes, drafts, kind = RB.compose_shapes(rev, tools)
+    shapes, drafts, kind = RB.compose_shapes(rev, tools, propose=True)
     check([s["label"] for s in shapes] == ["B1", "B3", "제안_B4", "driver"], f"{[s['label'] for s in shapes]}")
     check([d["kind"] for d in drafts] == ["auto", "check", "propose", "tool"], f"{[d['kind'] for d in drafts]}")
     check(shapes[0]["description"] == "기계 확정" and shapes[1]["description"].startswith("확인:"), "설명")
@@ -377,6 +377,16 @@ def test_버튼_모델_기록():
     check(RB.button_model_record()["method"].startswith("tile2"), "모델을 안 주면 지금 방식(console_v2 조각)")
 
 
+def test_제안은_기본으로_끔():
+    print("[29] 빠진 자리 제안은 기본으로 넣지 않는다(사용자 결정 2026-09-29 · b001~b004 제안 45개 중 쓸모 0~8) · 제안만 있던 사진은 auto")
+    rev = {"boxes": [{"name": "B1", "score": 0.9, "box": [1, 2, 30, 40], "pre": [0, 0, 32, 44], "why": []}],
+           "missing": [("B4", [100, 100, 150, 150])], "nvis": 1}
+    shapes, drafts, kind = RB.compose_shapes(rev, [])
+    check([s["label"] for s in shapes] == ["B1"] and [d["kind"] for d in drafts] == ["auto"], f"{[s['label'] for s in shapes]}")
+    check(kind == "auto", f"종류 {kind}")
+    check(RB.compose_shapes(rev, [], propose=True)[2] == "propose", "켜면 예전대로 propose")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -406,6 +416,7 @@ if __name__ == "__main__":
     test_같은_자리_두_이름()
     test_버튼_수고()
     test_버튼_모델_기록()
+    test_제안은_기본으로_끔()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

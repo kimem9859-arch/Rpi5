@@ -125,7 +125,9 @@ def pick_frames(cands, size, seed):
     return sorted(out)
 
 
-def compose_shapes(rev, tools):
+def compose_shapes(rev, tools, propose=False):
+    """propose = 빠진 자리 제안을 넣을지 — 기본 끔(사용자 결정 2026-09-29 · b001~b004 제안 45개 안팎 중 쓸모 있던 것 0~8 ·
+    설계 §6 ④ 개정). 버튼 관문(gate_button)도 이 기본을 따라 실제 작업과 같은 잣대로 센다."""
     shapes, drafts = [], []
     for b in rev["boxes"]:
         if b["why"]:
@@ -134,7 +136,7 @@ def compose_shapes(rev, tools):
         else:
             shapes.append(X.shape(b["name"], b["box"], b["score"], "기계 확정"))
             drafts.append({"label": b["name"], "box": b["box"], "kind": "auto", "why": []})
-    for slot, box in rev["missing"]:
+    for slot, box in (rev["missing"] if propose else []):
         lab = X.PROPOSAL_PREFIX + slot
         shapes.append(X.shape(lab, box, None, f"제안: 빠진 자리 — 맞으면 이름을 {slot} 로, 아니면 지우기"))
         drafts.append({"label": lab, "box": box, "kind": "propose", "why": []})
@@ -192,6 +194,7 @@ def main():
     ap.add_argument("--seal", help="봉인 목록(selection.json) — 주면 그 사진과 주변을 뺀다")
     ap.add_argument("--used", required=True)
     ap.add_argument("--tool-model", default=str(TOOL_MODEL), help="공구 초벌 모델(기본 tool_v3 · 반복 학습 모델은 ~/data/label_models/)")
+    ap.add_argument("--propose", action="store_true", help="빠진 자리 제안을 다시 켠다(기본 끔 · 사용자 결정 2026-09-29)")
     ap.add_argument("--button-model", help="버튼 초벌 모델(.pt · 반복 학습 button_rN · spec 2026-09-29) — 주면 사진 통째로(조각 안 함). 없으면 console_v2 조각")
     ap.add_argument("--out", required=True)
     ap.add_argument("--size", type=int, default=200)
@@ -270,7 +273,7 @@ def main():
         img = cv2.imread(p); h, w = img.shape[:2]
         rev = LR.review(img, run, T, th, tile)
         tl = tools.get(p, []); tk = drop_nested(tl); nested_dropped += len(tl) - len(tk)
-        shapes, drafts, kind = compose_shapes(rev, tk)
+        shapes, drafts, kind = compose_shapes(rev, tk, propose=a.propose)
         blur = _frame_sharp(img) < sharp_thr
         name = batch_name(kind, blur, short_name(sess), fr)
         shutil.copy2(p, out / "images" / name)
@@ -282,7 +285,7 @@ def main():
     man = {"batch": out.name, "created": created,
            "models": {"buttons": button_model_record(bmodel),
                       "tools": tool_model_record(Path(a.tool_model).expanduser())},
-           "template": str(a.template), "thresholds": th, "edge_frac": LR.EDGE_FRAC, "frame_sharp_thr": sharp_thr,
+           "template": str(a.template), "propose": a.propose, "thresholds": th, "edge_frac": LR.EDGE_FRAC, "frame_sharp_thr": sharp_thr,
            "images": recs}
     (out / "manifest.json").write_text(json.dumps(man, ensure_ascii=False, indent=1), encoding="utf-8")
     (out / "classes.txt").write_text("\n".join(X.CLASSES + [X.EXCLUDE]) + "\n", encoding="utf-8")
