@@ -319,6 +319,27 @@ def test_관문_사진_경로():
         check(t == [str((tpl / n).resolve()) for n in ("f00001.png", "f00002.png")], f"{t}")
 
 
+def test_무리별_시작_전_확인():
+    print("[20] 🔴 무리마다 라운드 파일이 따로 — 공구 tool_r1 이 있어도 버튼 button_r1 은 막지 않는다 · 버튼은 배치 틀(--template) 폴더가 있어야")
+    with tempfile.TemporaryDirectory() as d:
+        models = Path(d)
+        (models / "tool_r1.pt").write_bytes(b"x")
+        a = argparse.Namespace(probe=False, backend="colab", round=1, group="button", template=d)
+        check(TTR.preflight(a, models) == [], "tool_r1 이 있어도 button_r1 은 통과")
+        (models / "button_r1.json").write_text("{}")
+        check(any("button_r1.json" in m for m in TTR.preflight(a, models)), "button_r1 이 있으면 멈춤")
+        for t in (None, str(Path(d) / "없음")):
+            a = argparse.Namespace(probe=False, backend="colab", round=2, group="button", template=t)
+            check(any("--template" in m for m in TTR.preflight(a, models)), f"배치 틀 {t} = 멈춤")
+
+
+def test_버튼_점수_기준은_시연과_같다():
+    print("[21] 🔴 버튼 초벌 점수 기준 = config.YOLO_CONF_LOW(지금 버튼 초벌과 같은 값 · spec 2026-09-29 §6) — rfenv 는 config 를 못 읽어 값을 따로 둔다")
+    sys.path.insert(0, _DEMO_DIR)
+    import config
+    check(TTR.BUTTON_CONF == config.YOLO_CONF_LOW, f"{TTR.BUTTON_CONF} vs {config.YOLO_CONF_LOW}")
+
+
 if __name__ == "__main__":
     test_공구만_번호_바꾸기()
     test_세션별_마지막_20퍼센트()
@@ -340,6 +361,8 @@ if __name__ == "__main__":
     test_버튼_무리()
     test_버튼_고르기()
     test_관문_사진_경로()
+    test_무리별_시작_전_확인()
+    test_버튼_점수_기준은_시연과_같다()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

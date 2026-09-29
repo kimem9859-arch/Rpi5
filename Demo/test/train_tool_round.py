@@ -1,12 +1,14 @@
 """공구 초벌 반복 학습 한 라운드 — 학습 데이터 만들기 → 출발 가중치마다 학습 → 떼어 둔 사진 관문 → 고르기 → 저장.
 
-실행(Demo/ 에서, rfenv): ~/env/rfenv/bin/python test/train_tool_round.py --data ~/data/label_dataset/place1 --round 1 \\
-    --start models/yolov8n.pt models/tool_v3.pt --current models/tool_v3.pt [--backend colab|cpu] [--exclude 뺄이름.txt] [--epochs 50] [--probe]
+실행(Demo/ 에서, rfenv): ~/env/rfenv/bin/python test/train_tool_round.py [--group tool|button] --data ~/data/label_dataset/place1 --round N \\
+    --start <작은 모델부터 · 가중치 …> --current <공구 = 가중치 · 버튼 = console_v2 또는 가중치> [--template <정지 세션>(버튼)] \\
+    [--backend colab|cpu] [--exclude 뺄이름.txt] [--epochs 50] [--probe]
+--group button(spec 2026-09-29-버튼초벌-반복학습) = 버튼 5종 · 관문은 초벌 + 기계 검토(gate_button.py · 시스템 python3 · 지금 방식은 Hailo).
 --backend colab(기본) = 학습만 Colab T4 — 파이가 colab CLI 로 빌리기·올리기·학습·받기·반납(설계 §5 개정). 관문·고르기는 파이.
   🔴 Colab CLI 함정(저널 §12.41-(6)) — 토큰 1시간 · exec 는 예외에도 종료 코드 0(표지로 판단) · 저장 경로는 표지에서 · stop 필수.
   🔴 올리기 전에 개인정보 관문을 거친다 — 뺄 사진은 --exclude · 통과한 사진은 --cleared(누적 목록)에 있어야 올린다(설계 §5).
-출력: <work>/tool_r<N>/(학습 폴더 · runs/) · <models>/tool_r<N>.pt(채택했을 때만) · <models>/tool_r<N>.json(항상)
---probe = 첫 출발 가중치로 1 에폭만 돌려 시간을 잰다(<work>/tool_r<N>_probe · 저장·채택 없음) — 설계 §5
+출력: <work>/<group>_r<N>/(학습 폴더 · runs/ · 버튼 관문 초벌 JSON) · <models>/<group>_r<N>.pt(채택했을 때만) · <models>/<group>_r<N>.json(항상)
+--probe = 첫 출발 가중치로 1 에폭만 돌려 시간을 잰다(<work>/<group>_r<N>_probe · 저장·채택 없음) — 설계 §5
 정본 설계 = 상위 docs/superpowers/specs/2026-09-28-공구초벌-반복학습-design.md
 🔴 config 를 import 하지 않는다(prelabel_tools 와 같은 이유). 🔴 결과 모델을 Demo/models/ 에 두지 않는다(설계 §7).
 """
@@ -23,10 +25,13 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import tool_round as TR          # noqa: E402
 
-CONF = 0.25                      # 초벌과 같은 점수 기준(설계 §6)
+CONF = 0.25                      # 공구 — 초벌과 같은 점수 기준(설계 §6)
+BUTTON_CONF = 0.50               # 버튼 — config.YOLO_CONF_LOW 와 같아야 한다(시험 [21] · spec 2026-09-29 §6). rfenv 는 config 를 못 읽는다
 HOURS_PER_START = 1.4            # 파이 CPU — 출발점마다 시간 상한(두 출발점이 한 라운드 3시간 안 · 설계 §1)
-COLAB_EXEC_MIN = 40              # Colab — 원격 실행 전체 상한(올리기~받기가 프록시 토큰 1시간 안 · 설계 §5).
-#   ultralytics 의 time 인자는 에폭 수를 덮어써 그 시간을 다 채우므로 Colab 에서는 쓰지 않고 에폭 수로만 멈춘다.
+COLAB_EXEC_MIN = 48              # Colab — 원격 실행 전체 상한. 빌리기·올리기 약 3분 + 받기 약 1분을 더해 프록시 토큰 1시간 안
+#   (spec 2026-09-29 §5 — 큰 출발점 yolo26s 여유로 40 → 48). ultralytics 의 time 인자는 에폭 수를 덮어써 그 시간을 다 채우므로
+#   Colab 에서는 쓰지 않고 에폭 수로만 멈춘다.
+SYS_PYTHON = "/usr/bin/python3"  # 버튼 관문의 기계 검토 — 시스템 python3(Hailo · cv2). rfenv 에는 Hailo 가 없다
 UL_VERSION = "8.4.117"           # 원격 ultralytics — 파이 rfenv 와 같게(받은 가중치를 파이에서 읽는다)
 COLAB = shutil.which("colab") or str(Path.home() / ".local/bin/colab")
 
@@ -36,14 +41,19 @@ def colab(*args, timeout):
 
 
 def preflight(a, models):
-    """데이터를 만들기 전에 멈출 것(비면 통과)."""
+    """데이터를 만들기 전에 멈출 것(비면 통과). 라운드 파일 이름에 무리를 붙인다 — 공구·버튼이 서로 막거나 덮어쓰지 않게."""
     out = []
+    group = getattr(a, "group", "tool")
     if a.probe and a.backend != "cpu":
         out.append("--probe 는 cpu 에서만 — colab 에서는 그대로 전체 학습·채택으로 흘러간다")
     if not a.probe:
-        for f in (models / f"tool_r{a.round}.pt", models / f"tool_r{a.round}.json"):
+        for f in (models / f"{group}_r{a.round}.pt", models / f"{group}_r{a.round}.json"):
             if f.exists():
                 out.append(f"이미 있다: {f} — 라운드 모델·기록을 덮어쓰지 않는다")
+    if group == "button":
+        t = getattr(a, "template", None)
+        if not t or not Path(t).expanduser().is_dir():
+            out.append(f"--group button 은 --template(배치 틀 정지 세션 폴더)이 필요하다 — 없거나 폴더가 아니다: {t}")
     return out
 
 
@@ -60,10 +70,10 @@ def _release(session):
         print(f"🔴 반납 확인 못 함({type(e).__name__}) — `colab sessions` 로 확인하고 `colab stop -s {session}`(중단 규칙)")
 
 
-def train_colab(starts, ds, epochs, session):
+def train_colab(starts, ds, epochs, session, group="tool"):
     """Colab T4 에서 출발점마다 학습하고 last.pt 를 받는다. 반환 = ({이름: (파이 경로, 분)}, 표지, 로그 경로).
     GPU 를 못 빌리면 종료(중단 규칙 — 묻는다). 빌리기부터 무엇이 실패해도(시간 초과 포함) finally 에서 반납한다."""
-    parts = TR.pack_parts(ds, ds.parent / f"{ds.name}_up", "/content")
+    parts = TR.pack_parts(ds, ds.parent / f"{ds.name}_up", "/content", group=group)
     print(f"묶음 조각 {len(parts)}개 · {sum(p.stat().st_size for p in parts) / 1e6:.0f}MB")
     rstarts = [(Path(s).stem, f"/content/{Path(s).name}") for s in starts]
     script = ds.parent / f"{ds.name}_remote.py"
@@ -127,6 +137,35 @@ def gate(model_path, ds):
     return tot
 
 
+def gate_button(weights, ds, template, current):
+    """버튼 관문(spec 2026-09-29 §7) — 후보마다 떼어 둔 사진·배치 틀 사진의 초벌을 여기(rfenv)서 JSON 으로 만들고,
+    기계 검토·대조는 시스템 python3 의 gate_button.py 가 한다(지금 방식 console_v2 는 Hailo).
+    weights = {이름: 가중치} · current = "console_v2" 또는 가중치. 반환 = (후보 셈, 지금 셈)."""
+    import prelabel_tools as PT
+    vp, tp = TR.gate_paths(ds, template)
+    args = []
+    for name, w in weights.items():
+        j = ds / f"dets_{name}.json"
+        j.write_text(json.dumps(PT.predict_boxes(str(w), vp + tp, BUTTON_CONF), ensure_ascii=False), encoding="utf-8")
+        args += ["--cand", f"{name}={j}"]
+    if current == "console_v2":
+        args += ["--current", "console_v2"]
+    else:
+        j = ds / "dets_current.json"
+        j.write_text(json.dumps(PT.predict_boxes(str(current), vp + tp, BUTTON_CONF), ensure_ascii=False), encoding="utf-8")
+        args += ["--current", f"current={j}"]
+    out = ds / "gate_button.json"
+    subprocess.run([SYS_PYTHON, str(HERE / "gate_button.py"), "--ds", str(ds), "--template", str(template), *args,
+                    "--out", str(out)], check=True, cwd=str(HERE.parent))
+    g = json.loads(out.read_text(encoding="utf-8"))
+    return g["cands"], g["current"]
+
+
+def _sha16(p):
+    import hashlib
+    return hashlib.sha256(Path(p).expanduser().read_bytes()).hexdigest()[:16]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
@@ -141,6 +180,9 @@ def main():
                     help="개인정보 관문을 통과한 사진 이름(누적 · 한 줄에 하나) — colab 에 올릴 사진은 전부 여기 있어야 한다")
     ap.add_argument("--work", default="~/data/label_train")
     ap.add_argument("--models", default="~/data/label_models")
+    ap.add_argument("--group", choices=("tool", "button"), default="tool",
+                    help="tool = 공구 3종(tool_rN) · button = 버튼 5종(button_rN · spec 2026-09-29) — --start 는 작은 모델부터")
+    ap.add_argument("--template", help="버튼 관문의 배치 틀 정지 세션 폴더(--group button 에 필요)")
     a = ap.parse_args()
     models = Path(a.models).expanduser()
     if TR.is_demo_models(models, HERE.parent / "models"):
@@ -154,23 +196,26 @@ def main():
         probs += TR.privacy_problems(names, excl, cleared)
     if probs:
         sys.exit("🔴 시작 전 확인에서 멈춘다(데이터를 만들지 않았다)\n" + "\n".join(f"  - {m}" for m in probs))
-    ds = Path(a.work).expanduser() / (f"tool_r{a.round}" + ("_probe" if a.probe else ""))
-    info = TR.build_dataset(a.data, ds, exclude=excl)
-    print(f"학습 {len(info['train'])}장(공구 {info['boxes']['train']}) · 떼어 둔 {len(info['val'])}장(공구 {info['boxes']['val']})")
+    kind = "공구" if a.group == "tool" else "버튼"
+    ds = Path(a.work).expanduser() / (f"{a.group}_r{a.round}" + ("_probe" if a.probe else ""))
+    info = TR.build_dataset(a.data, ds, exclude=excl, group=a.group)
+    print(f"학습 {len(info['train'])}장({kind} {info['boxes']['train']}) · 떼어 둔 {len(info['val'])}장({kind} {info['boxes']['val']})")
     if a.probe and a.backend == "cpu":
         _, minutes = train(a.start[0], ds, "probe", 1, None)
         print(f"1 에폭 {minutes:.1f}분 → 예상 {minutes * a.epochs * len(a.start):.0f}분"
               f"(출발 {len(a.start)} × {a.epochs} 에폭 · 시간 상한 전 · 1 에폭 값은 학습 중 성적 재기 포함)")
         return
-    rec = {"round": a.round, "data": str(Path(a.data).expanduser()), "created": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+    rec = {"group": a.group, "round": a.round, "data": str(Path(a.data).expanduser()),
+           "created": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
            "train": info["train"], "val": info["val"], "boxes": info["boxes"], "epochs": a.epochs, "val_during_train": False,
-           "backend": a.backend, "excluded": sorted(excl), "conf": CONF, "starts": {},
+           "backend": a.backend, "excluded": sorted(excl), "conf": CONF if a.group == "tool" else BUTTON_CONF,
+           "template": a.template, "starts": {},
            "hours_per_start": None if a.backend == "colab" else HOURS_PER_START,
            "colab_exec_min": COLAB_EXEC_MIN if a.backend == "colab" else None}
     if a.backend == "colab":
-        got, mk, log_path = train_colab(a.start, ds, a.epochs, f"tool-r{a.round}")
+        got, mk, log_path = train_colab(a.start, ds, a.epochs, f"{a.group}-r{a.round}", group=a.group)
         rec["colab"] = {"log": str(log_path), **mk}
-    cands = {}
+    cands, bests = {}, {}
     for s in a.start:
         name = Path(s).stem
         if a.backend == "colab":
@@ -181,28 +226,48 @@ def main():
             best, minutes = got[name]
         else:
             best, minutes = train(s, ds, name, a.epochs, HOURS_PER_START)
-        c = gate(best, ds); cands[name] = c
-        rec["starts"][name] = {"weights": s, "best": str(best), "minutes": round(minutes, 1), **c, "net": TR.net(c)}
-        print(f"[{name}] {minutes:.0f}분 · 떼어 둔 사진: 잡음 {c['caught']} · 가짜 {c['fake']} · 놓침 {c['missed']} · 순이익 {TR.net(c)}")
+        rec["starts"][name] = {"weights": s, "sha256_16": _sha16(s), "best": str(best), "minutes": round(minutes, 1)}
+        bests[name] = best
+        if a.group == "tool":
+            c = gate(best, ds); cands[name] = c
+            rec["starts"][name].update(c, net=TR.net(c))
+            print(f"[{name}] {minutes:.0f}분 · 떼어 둔 사진: 잡음 {c['caught']} · 가짜 {c['fake']} · 놓침 {c['missed']} · 순이익 {TR.net(c)}")
+    cur = None
+    if a.group == "button" and bests:
+        bc, cur = gate_button(bests, ds, a.template, a.current)
+        for name, c in bc.items():
+            if "error" in c:
+                rec["starts"][name]["failed"] = c["error"]
+                print(f"[{name}] ❌ 관문 못 함 — {c['error']}"); continue
+            cands[name] = c; rec["starts"][name].update(c)
+            print(f"[{name}] {rec['starts'][name]['minutes']:.0f}분 · 떼어 둔 사진: 사람 몫 {c['work']}"
+                  f"(확인 {c['check']} · 제안 {c['propose']} · 새로 {c['added']}) · 가짜 {c['fake']} · 기계 확정 틀림 {c['auto_wrong']}")
     models.mkdir(parents=True, exist_ok=True)
+    rec_path = models / f"{a.group}_r{a.round}.json"
     if not cands:
         rec.update(status="학습 실패", chosen=None, model=None)
-        (models / f"tool_r{a.round}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+        rec_path.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
         sys.exit("🔴 학습 실패 — 후보가 하나도 없다(관문 패배가 아니다) · 기록 JSON 참조")
-    cur = gate(a.current, ds)
-    rec["current"] = {"weights": a.current, **cur, "net": TR.net(cur)}
-    print(f"[지금 {Path(a.current).stem}] 잡음 {cur['caught']} · 가짜 {cur['fake']} · 놓침 {cur['missed']} · 순이익 {TR.net(cur)}")
-    status, chosen = TR.decide(cands, cur)
+    if a.group == "tool":
+        cur = gate(a.current, ds)
+        rec["current"] = {"weights": a.current, **cur, "net": TR.net(cur)}
+        print(f"[지금 {Path(a.current).stem}] 잡음 {cur['caught']} · 가짜 {cur['fake']} · 놓침 {cur['missed']} · 순이익 {TR.net(cur)}")
+        status, chosen = TR.decide(cands, cur)
+    else:
+        rec["current"] = {"weights": a.current, **cur}
+        print(f"[지금 {a.current}] 사람 몫 {cur['work']}(확인 {cur['check']} · 제안 {cur['propose']} · 새로 {cur['added']})"
+              f" · 가짜 {cur['fake']} · 기계 확정 틀림 {cur['auto_wrong']}")
+        status, chosen = TR.decide(cands, cur, chooser=TR.pick_button)
     rec["status"], rec["chosen"] = status, chosen
     if chosen:
-        dst = models / f"tool_r{a.round}.pt"
+        dst = models / f"{a.group}_r{a.round}.pt"
         shutil.copy2(rec["starts"][chosen]["best"], dst)
         rec["model"] = str(dst)
         print(f"✅ 채택 {chosen} → {dst}")
     else:
         rec["model"] = None
         print("❌ 관문 패배 — 지금 모델을 계속 쓴다")
-    (models / f"tool_r{a.round}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+    rec_path.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":
