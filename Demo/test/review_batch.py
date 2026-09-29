@@ -161,26 +161,20 @@ def _sha(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()[:16]
 
 
+GUIDE_URL = "https://claude.ai/artifact/9opbyZ6CTBGGFE3cku1md1"   # 라벨링 검토 안내서(원본 = Demo/docs/labeling_guide.md · 같은 주소로 다시 올린다)
+
 GUIDE = """검토 묶음 {batch} — 사진 {n}장 (만든 날 {created})
 
-1. 데스크톱 PowerShell 로 가져오기
-   scp -r pi@pi1.tailf090b8.ts.net:~/data/label_batches/{batch} "$HOME\\Desktop\\"
-2. X-AnyLabeling-CPU.exe → Desktop\\{batch}\\images 폴더 열기 (AI 자동 라벨은 쓰지 않는다)
-3. 목록 순서 = a_check(사람 확인 박스·공구 초벌이 있음) → b_propose(빠진 자리 제안) → c_auto(기계 확정만 — 공구·빠진 물체만 훑기) → d_blur(흐림 후보)
-   · 박스 설명 「기계 확정」 = 기계가 확정 / 「확인: 이유」 = 사람이 봐야 함 / 「공구 초벌 — 확인」
-   · 이름이 「제안_B4」 같은 박스 = 빠진 자리 제안 → 맞으면 이름을 B4 로, 아니면 지우기 (남아 있으면 회수가 거부한다)
-   · File → Save Automatically 를 켠다 — 박스를 고치는 순간 저장된다(고치지 않은 사진은 저장되지 않는다)
-   · Flags 칸의 「검토함」: 고칠 게 없는 사진은 체크하고 D (체크하는 순간 저장된다). 박스를 고친 사진은 그냥 D
-     (Flags 칸이 안 보이면 X-AnyLabeling 을 닫고 설정 파일(PowerShell: notepad "$HOME\.xanylabelingrc")의
-      `flags: null` 을 `flags:` 와 `- 검토함` 두 줄로 바꾼다 — 3.3.5 는 flags 가 비면 Flags 칸을 숨긴다)
-   · 체크 없이 넘겼다면 끝나고 「다 봤다」고 알려 준다 — 저장 흔적 없는 사진은 「봤고 고칠 게 없음」으로 받는다
-   · F = 사진 속 박스를 차례로 확대(설정 loop_thru_labels) · D = 다음 사진
-   · 규칙 = Rpi5/Demo/docs/labeling_guide.md (여백 0 · 가린 버튼은 동그라미 전체 · 알아볼 수 없으면 사진 전체에 exclude)
-   · 기계 박스의 아래 끝선이 조금 짧거나 B4 위 끝선이 조금 넘친 것은 고치지 않는다(알려진 치우침 — 설계 §6 ①)
-4. 끝나면 파이로 돌려보내기 (한 번만)
-   scp -r "$HOME\\Desktop\\{batch}\\images" pi@pi1.tailf090b8.ts.net:~/data/label_batches/{batch}/returned
-   · 다시 보낼 때는 고친 .json 만: scp "$HOME\\Desktop\\{batch}\\images\\<파일>.json" pi@pi1.tailf090b8.ts.net:~/data/label_batches/{batch}/returned/
-     (폴더째 다시 보내면 returned\\images\\ 로 한 겹 더 들어가 회수가 거부한다)
+설치, 설정, 검토 방법, 규칙은 안내서에 있습니다. 처음이라면 안내서를 먼저 읽어 주세요.
+안내서 """ + GUIDE_URL + """
+
+1. 공유 드라이브에서 이 묶음 폴더({batch})를 통째로 내려받습니다.
+2. X-AnyLabeling에서 Ctrl+U로 폴더 안의 images 폴더를 엽니다.
+3. 파일 목록 위에서부터 봅니다. a_check(확인 박스와 공구 초벌이 있는 사진)를 가장 꼼꼼히 보고, c_auto(기계 확정만 있는 사진)는 훑어봅니다. d_blur는 흐림 후보일 뿐 지울 사진이 아닙니다.
+   박스 위 글자가 「기계 확정」이면 훑어보고, 「확인: 이유」이면 꼼꼼히 보고, 「공구 초벌 — 확인」이면 모두 꼼꼼히 봅니다.
+4. 사진마다 오른쪽 플래그의 「검토함」을 체크합니다. 체크하지 않은 사진은 담당자가 결과를 받을 때 걸러집니다.
+5. 다 끝나면 images 폴더의 .json 파일 {n}개를 공유 드라이브의 {batch}/returned 폴더에 올리고 담당자에게 보고합니다. 사진(.png)은 올리지 않습니다.
+   처음 맡았다면 앞 10장만 먼저 {batch}/첫10장 폴더에 올리고 담당자에게 확인받습니다.
 """
 
 SHORTCUTS = "digit_shortcuts:\n" + "".join(

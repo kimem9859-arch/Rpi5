@@ -387,6 +387,22 @@ def test_제안은_기본으로_끔():
     check(RB.compose_shapes(rev, [], propose=True)[2] == "propose", "켜면 예전대로 propose")
 
 
+def test_묶음_안내문():
+    print("[30] 묶음 안내문 — 안내서 주소 · 공유 드라이브 · 사진마다 검토함 · .json 만 올림 · 컴파일 경고 없음(Windows 경로 역슬래시)")
+    import warnings
+    g = RB.GUIDE.format(batch="b005", n=200, created="2026-09-29 12:00")
+    for k in (RB.GUIDE_URL, "공유 드라이브", "검토함", ".json", "returned", "b005"):
+        check(k in g, k)
+    src = open(RB.__file__, encoding="utf-8").read()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        try:
+            compile(src, RB.__file__, "exec"); ok = True
+        except SyntaxError as e:
+            ok = False; print("   ", e)
+    check(ok, "review_batch.py 컴파일 경고 없음")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -417,6 +433,7 @@ if __name__ == "__main__":
     test_버튼_수고()
     test_버튼_모델_기록()
     test_제안은_기본으로_끔()
+    test_묶음_안내문()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
