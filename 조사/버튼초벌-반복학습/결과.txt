@@ -35,3 +35,10 @@ f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36  Demo/models/yo
 - 형식: 읽는 항목(shapes[].label/points/shape_type · imageWidth/Height · version · flags) 그대로 · version 4.0.6 · 「검토함」 플래그 저장 · 새 항목 checked·kie_linking(읽지 않음)
 - 안 고친 사진 박스 5/5 좌표 완전 같음 · 모르는 이름 B5·123 회수 거부 · 임시 사본(이름만 고침) 집계 = 그대로 5 / 박스 조정 1(B3 아래 +6) / 제안 지움 1 / 추가 1 = 사용자가 고친 대로
 - 사용자 「B3를 B2로 잘 못 말한거야」(화면 이름 이상 없음) · 숫자 단축키는 미시험 → b004 첫 박스에서 확인 · 데스크톱도 v4.0.6 으로 올림(사용자 · 설정 파일 백업 뒤)
+/home/pi/sop-project/Rpi5/Demo/test/review_batch.py:172: SyntaxWarning: invalid escape sequence '\.'
+  (Flags 칸이 안 보이면 X-AnyLabeling 을 닫고 설정 파일(PowerShell: notepad "$HOME\.xanylabelingrc")의
+초벌 230장 · 박스 739 · 모델 button_r1.pt
+초벌 200장 · 박스 212 · 모델 tool_r2.pt
+후보 8470 → 검은·깨짐 뺀 8470 → 쓴 사진과 닮은 것 뺀 7605 → 중복 뺀 4016 → 묶음 200
+겹친 공구 초벌 뺀 수 30
+종류: {'check': 131, 'auto': 67, 'propose': 2} · 흐림 후보 15 · 초벌: {'auto': 415, 'check': 177, 'propose': 46, 'tool': 182}
