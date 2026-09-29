@@ -2,10 +2,11 @@
 
 실행(Demo/ 에서):
   python3 test/review_batch.py --sessions test/raw/<세션> [...] --template test/raw/<정지 세션> \\
-      --used ~/data/label_batches/used.txt [--seal <봉인 목록.json>] [--tool-model ~/data/label_models/tool_rN.pt] \\
+      --used ~/data/label_batches/used.txt [--seal <봉인 목록.json>] [--tool-model ~/data/label_models/tool_rN.pt] [--button-model ~/data/label_models/button_rN.pt] \\
       --out ~/data/label_batches/b001 --size 200 [--seed 1]
 출력: <out>/images/(순서 표시가 붙은 사진 + 같은 이름 .json) · classes.txt · manifest.json · 안내.txt · xanylabelingrc_단축키.yaml
 정본 설계 = 상위 docs/superpowers/specs/2026-09-28-반자동라벨링-design.md §3 · §4 · §5 · §6
+--button-model = 반복 학습 버튼 모델(spec 2026-09-29) — rfenv 에서 사진 통째로 초벌(조각 안 함) · 배치 틀·문턱도 그 모델로. 없으면 console_v2 조각.
 🔴 원본을 옮기거나 지우지 않는다 — 사진은 복사한다. 🔴 --seal 을 주면 봉인 사진과 그 주변은 넣지 않는다
    (실험 1 의 50장 봉인은 실험 1 취소로 풀었다 — 설계 §4 · §13. 장소3 세션은 --sessions 에 넣지 않는다).
 🔴 한 번 묶음에 넣은 원본은 --used 목록에 적어 다음 묶음에 다시 넣지 않고, 그것과 pHash 가 가까운 후보도 뺀다.
@@ -65,9 +66,13 @@ def drop_near(hashes, ref, thr):
     return [i for i, h in enumerate(hashes) if np.count_nonzero(R != h, axis=1).min() > thr]
 
 
-def button_model_record():
-    """묶음 기록용 — 실제로 불러오는 버튼 모델(config 를 따른다). 시험 세트 순환 금지(설계 §11)를 기록으로 확인하려고."""
+def button_model_record(path=None):
+    """묶음 기록용 — 실제로 쓴 버튼 모델. 시험 세트 순환 금지(설계 §11)를 기록으로 확인하려고.
+    path = 반복 학습 버튼 모델(spec 2026-09-29) — 없으면 config 의 지금 모델(console_v2 조각)."""
     import config
+    if path is not None:
+        return {"backend": "pt-rfenv", "path": str(path), "sha256_16": _sha(path), "conf": config.YOLO_CONF_LOW,
+                "method": "whole — 사진 통째로 · 비율 유지 여백 채우기 640(조각 안 함)"}
     path = config.HEF_MODEL_PATH if config.INFERENCE_BACKEND == "hailo" else config.PT_MODEL_PATH
     return {"backend": config.INFERENCE_BACKEND, "path": os.path.relpath(path, DEMO), "sha256_16": _sha(path),
             "conf": config.YOLO_CONF_LOW, "method": "tile2 — 세로 사진을 가로 두 조각(768×576)으로"}
@@ -187,6 +192,7 @@ def main():
     ap.add_argument("--seal", help="봉인 목록(selection.json) — 주면 그 사진과 주변을 뺀다")
     ap.add_argument("--used", required=True)
     ap.add_argument("--tool-model", default=str(TOOL_MODEL), help="공구 초벌 모델(기본 tool_v3 · 반복 학습 모델은 ~/data/label_models/)")
+    ap.add_argument("--button-model", help="버튼 초벌 모델(.pt · 반복 학습 button_rN · spec 2026-09-29) — 주면 사진 통째로(조각 안 함). 없으면 console_v2 조각")
     ap.add_argument("--out", required=True)
     ap.add_argument("--size", type=int, default=200)
     ap.add_argument("--seed", type=int, default=1)
@@ -227,15 +233,29 @@ def main():
     pick = pick_frames(uniq, a.size, a.seed)
     print(f"후보 {len(cands)} → 검은·깨짐 뺀 {n_ok} → 쓴 사진과 닮은 것 뺀 {len(keep_c)} → 중복 뺀 {len(uniq)} → 묶음 {len(pick)}")
 
-    from detector import create_detector
-    det = create_detector()
+    tpl_paths = sorted(Path(a.template).glob("f*.png"))
+    tpl_imgs = [cv2.imread(str(p)) for p in tpl_paths]
+    bmodel = Path(a.button_model).expanduser() if a.button_model else None
+    if bmodel:                       # 새 버튼 모델 — rfenv 에서 묶음 사진·배치 틀 사진을 통째로 초벌(spec 2026-09-29 §6)
+        import config
+        bl, bj = out / "_buttons_list.txt", out / "_buttons.json"
+        bl.write_text("\n".join([c[2] for c in pick] + [str(p) for p in tpl_paths]), encoding="utf-8")
+        subprocess.run([str(RFENV), str(HERE / "prelabel_tools.py"), "--list", str(bl), "--out", str(bj),
+                        "--model", str(bmodel), "--conf", str(config.YOLO_CONF_LOW)], check=True, cwd=str(DEMO))
+        bdets = json.loads(bj.read_text(encoding="utf-8"))
+        run = LR.lookup_run((cv2.imread(p), bdets[p]) for p in [c[2] for c in pick] + [str(q) for q in tpl_paths])
+        tile = False
+        bl.unlink(); bj.unlink()
+    else:
+        from detector import create_detector
+        det = create_detector()
 
-    def run(crop):
-        return [(det.class_name(c), s, [x1, y1, x2, y2]) for c, s, x1, y1, x2, y2 in det.detect(crop)]
+        def run(crop):
+            return [(det.class_name(c), s, [x1, y1, x2, y2]) for c, s, x1, y1, x2, y2 in det.detect(crop)]
+        tile = True
 
-    tpl_imgs = [cv2.imread(str(p)) for p in sorted(Path(a.template).glob("f*.png"))]
-    T = LR.build_template(tpl_imgs, run)
-    th = LR.make_thresholds(tpl_imgs, run)
+    T = LR.build_template(tpl_imgs, run, tile)
+    th = LR.make_thresholds(tpl_imgs, run, tile)
     sharp_thr = float(np.percentile([_frame_sharp(i) for i in tpl_imgs], 5)) * 0.5
 
     lst = out / "_tools_list.txt"; tj = out / "_tools.json"
@@ -248,7 +268,7 @@ def main():
     nested_dropped = 0
     for sess, fr, p in pick:
         img = cv2.imread(p); h, w = img.shape[:2]
-        rev = LR.review(img, run, T, th)
+        rev = LR.review(img, run, T, th, tile)
         tl = tools.get(p, []); tk = drop_nested(tl); nested_dropped += len(tl) - len(tk)
         shapes, drafts, kind = compose_shapes(rev, tk)
         blur = _frame_sharp(img) < sharp_thr
@@ -260,7 +280,7 @@ def main():
                      "kind": kind, "blur": blur, "drafts": drafts})
     created = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     man = {"batch": out.name, "created": created,
-           "models": {"buttons": button_model_record(),
+           "models": {"buttons": button_model_record(bmodel),
                       "tools": tool_model_record(Path(a.tool_model).expanduser())},
            "template": str(a.template), "thresholds": th, "edge_frac": LR.EDGE_FRAC, "frame_sharp_thr": sharp_thr,
            "images": recs}

@@ -366,6 +366,17 @@ def test_버튼_수고():
     check(CB.button_work({"추가": {}})["work"] == 0, "빈 집계")
 
 
+def test_버튼_모델_기록():
+    print("[28] 새 버튼 모델을 주면 묶음 기록 = 그 파일(경로·해시) · 점수 기준 config.YOLO_CONF_LOW · 방식 whole(조각 안 함) · 안 주면 지금 방식 그대로")
+    import config
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "button_r1.pt"); open(p, "wb").write(b"weights")
+        m = RB.button_model_record(p)
+        check(m["path"] == p and m["sha256_16"] == RB._sha(p) and m["conf"] == config.YOLO_CONF_LOW
+              and m["method"].startswith("whole") and m["backend"] == "pt-rfenv", f"{m}")
+    check(RB.button_model_record()["method"].startswith("tile2"), "모델을 안 주면 지금 방식(console_v2 조각)")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -394,6 +405,7 @@ if __name__ == "__main__":
     test_겹친_공구_초벌_거르기()
     test_같은_자리_두_이름()
     test_버튼_수고()
+    test_버튼_모델_기록()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
