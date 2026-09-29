@@ -1,4 +1,4 @@
-<!-- 원본 = Rpi5 Demo/docs/labeling_guide.md(이 파일 하나) · 검토자가 보는 곳 = 아티팩트 페이지(주소: 올린 뒤 적음) · 페이지 만들기 = python3 docs/build_guide_page.py docs/labeling_guide.md <출력 html> · 옛 PDF(~/lab/labeling-guide/, 2026-09-16 판)는 쓰지 않는다 · 설계 = sop-project docs/superpowers/specs/2026-09-29-라벨링안내서-design.md -->
+<!-- 원본 = Rpi5 Demo/docs/labeling_guide.md(이 파일 하나) · 검토자가 보는 곳 = 아티팩트 페이지 https://claude.ai/artifact/9opbyZ6CTBGGFE3cku1md1 (다시 올리기 = 같은 주소로 publish · url 인자) · 페이지 만들기 = python3 docs/build_guide_page.py docs/labeling_guide.md <출력 html> · 옛 PDF(~/lab/labeling-guide/, 2026-09-16 판)는 쓰지 않는다 · 설계 = sop-project docs/superpowers/specs/2026-09-29-라벨링안내서-design.md -->
 
 # 라벨링 검토 안내서
 
