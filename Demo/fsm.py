@@ -86,6 +86,8 @@ class SafetyFSM:
         self.window_n = window_n if window_n is not None else getattr(config, "HAND_WINDOW_N", 0)
         self.window_m = window_m if window_m is not None else getattr(config, "HAND_WINDOW_M", 3)
         self._win = collections.deque(maxlen=max(self.window_n, 1))
+        # 누름 카메라 확인(2026-09-30) — 버튼 구역별 **실제** 관측 시각. 판정에는 쓰지 않는다.
+        self._seen_log = {}
 
     # ------------------------------------------------------------------ 헬퍼
     @property
@@ -167,6 +169,11 @@ class SafetyFSM:
             self._win.append(roi)          # None 도 기록해야 '끊김'이 세어진다
         if roi is not None:
             self._last_roi, self._last_level, self._last_seen = roi, level, now
+            # 🔴 ②의 갭메우기 유지로 바뀌기 **전** 값만 — 「본 것」만 확인으로 인정한다.
+            self._seen_log.setdefault(roi, collections.deque()).append(now)
+        for q in self._seen_log.values():
+            while q and now - q[0] > self.SEEN_KEEP_SEC:
+                q.popleft()
 
         # --- ② 관측 공백 처리 — 창(우선) 또는 갭메우기(§9.4). 상태와 무관하게 판정한다 —
         # 유지/무효화는 '무엇을 보고 있는가'라는 사실이지, 상태 전이가 아니다. 여기서
@@ -229,6 +236,15 @@ class SafetyFSM:
             self._goto(State.WARNING)
             self._reset_dwell()
 
+    def seen_between(self, roi, t0, t1):
+        """[t0, t1] 안에서 손이 `roi` 구역(링·박스 안)에 **실제로** 관측된 가장 늦은 시각 · 없으면 None.
+
+        누름 카메라 확인(설계 2026-09-30) 전용 조회다 — 🔴 판정(전이·체류)에는 쓰지 않는다.
+        갭메우기로 유지한 값은 기록하지 않는다.
+        """
+        hits = [t for t in self._seen_log.get(roi, ()) if t0 <= t <= t1]
+        return max(hits) if hits else None
+
     # ------------------------------------------------------ 버튼 눌림 (§9.3 4·5·6)
     def press_button(self, button, now=None):
         """물리 버튼이 실제로 눌렸을 때 호출."""
@@ -272,6 +288,7 @@ class SafetyFSM:
         self._goto(State.BLOCK)
 
     _emo_active = False
+    SEEN_KEEP_SEC = 30.0   # 관측 기록 보관 — 서브 작업(10초)보다 넉넉히(누름 카메라 확인)
 
     @property
     def emo_active(self):

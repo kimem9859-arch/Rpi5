@@ -577,6 +577,28 @@ def test_reset_clears_just_done():
     fsm.reset()
     assert fsm._just_done is None
 
+def test_seen_between_records_real_observations():
+    """누름 카메라 확인(2026-09-30) — 버튼 구역별 실제 관측 시각을 찾는다. 전이는 안 바뀐다."""
+    fsm, log = make_fsm(threshold=1.0, gap_fill=0.3)
+    run(fsm)
+    fsm.update_vision("B1", 10.0, 1)          # 링(접근)도 관측이다
+    fsm.update_vision("B1", 10.2)             # 박스 안
+    fsm.update_vision(None, 10.3)             # 갭메우기로 B1 유지 — 관측 기록은 아니다
+    assert fsm.seen_between("B1", 9.0, 11.0) == 10.2
+    assert fsm.seen_between("B1", 10.25, 11.0) is None, "갭메우기 유지값은 관측으로 치지 않는다"
+    assert fsm.seen_between("B2", 9.0, 11.0) is None, "다른 버튼"
+    assert fsm.seen_between("B1", 10.21, 12.0) is None, "범위 밖"
+    fsm.update_vision("B3", 50.0)             # 30초 넘게 지남 → 옛 기록 버림
+    assert fsm.seen_between("B1", 0.0, 60.0) is None, "30초 지난 기록은 버린다"
+
+def test_seen_between_keeps_transitions():
+    """관측 기록을 넣어도 상태 전이 순서는 종전과 같다 — 🔑 회귀 방지(종전에도 통과한다)."""
+    fsm, log = make_fsm(threshold=1.0, gap_fill=0.3)
+    run(fsm)
+    fsm.update_vision("B1", 1.0)
+    fsm.update_vision(None, 2.0)
+    assert [n for _, n in log["states"]][-2:] == [State.MONITOR, State.PROCESS_RUN]
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

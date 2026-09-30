@@ -178,6 +178,12 @@ FSM_DWELL_THRESHOLD_SEC = 0.3
 # 없으면 한 프레임만 놓쳐도 체류가 리셋된다. §10.22 실측: 0.3초만 넣어도
 # 선행시간 median 0.38s → 0.55s, 개입 감지 85% → 92%.
 FSM_GAP_FILL_SEC        = 0.3
+# 누름 카메라 확인(설계 docs/superpowers/specs/2026-09-30-누름-카메라확인-design.md) — 잠정값.
+# GPIO 로 누른 맞는 버튼을 누른 시각 −WINDOW ~ +GRACE 안에 손이 그 버튼 구역에서 관측됐나.
+# 못 봤으면 단계는 진행하고 다음 단계 시작 때 안내(NOTICE 초) · 결과창 집계. WINDOW 0 = 끔.
+PRESS_CONFIRM_WINDOW_SEC = 2.0
+PRESS_CONFIRM_GRACE_SEC  = 0.5
+PRESS_CONFIRM_NOTICE_SEC = 4.0
 # 비상정지 버튼 ID (즉시 BLOCK, 해제 시 기대단계=1 리셋)
 FSM_EMO_BUTTON = "EMO"
 
