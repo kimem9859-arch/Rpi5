@@ -1078,19 +1078,40 @@ class SafetyConsole(QMainWindow):
             self._append_log(f"[시험] 키보드 {button} — 카메라 확인 생략")
             self._press_pending = None
             return
-        self._press_pending = {"button": button, "t": t,
-                               "order": self.fsm.expected_step, "source": source}
+        p = {"button": button, "t": t, "order": self.fsm.expected_step, "source": source}
+        p["seen"] = self._press_seen(p)
+        self._press_pending = p
+        # 🔴 누른 직후(뒤쪽 여유가 지난 때) 한 번 더 찍어 둔다 — 단계가 30초를 넘기면(공구를 늦게 쥠·
+        #    경고로 멈춤) 판정기 관측 기록이 정리돼, 단계 끝에 다시 물으면 보면서 누른 것도
+        #    「미확인」이 됐다(최종 리뷰 I-1). 누른 순간에 처리 중이던 프레임도 이때 들어온다.
+        QTimer.singleShot(int(config.PRESS_CONFIRM_GRACE_SEC * 1000) + 50,
+                          lambda p=p: self._snap_press(p))
+
+    def _press_seen(self, p):
+        """(누르기 전 마지막 관측, 누른 뒤 관측) — 범위 = 누른 시각 −WINDOW ~ +GRACE."""
+        w, g = config.PRESS_CONFIRM_WINDOW_SEC, config.PRESS_CONFIRM_GRACE_SEC
+        return (self.fsm.seen_between(p["button"], p["t"] - w, p["t"]),
+                self.fsm.seen_between(p["button"], p["t"], p["t"] + g))
+
+    def _snap_press(self, p):
+        """누른 뒤 여유가 지난 때의 확인 결과를 기억에 찍는다(아직 그 누름을 기억하고 있을 때만)."""
+        if p is self._press_pending:
+            p["seen"] = self._press_seen(p)
 
     def _check_press(self, order, button, last_step):
         """단계가 끝나는 순간 — 기억한 누름을 카메라 관측과 대조해 로그·집계·안내(설계 §2·§4)."""
         p, self._press_pending = self._press_pending, None
         if p is None or p["button"] != button or p["order"] != order:
             return
-        w, g = config.PRESS_CONFIRM_WINDOW_SEC, config.PRESS_CONFIRM_GRACE_SEC
-        seen = self.fsm.seen_between(button, p["t"] - w, p["t"] + g)
-        if seen is not None:
-            dt = p["t"] - seen
-            when = f"누르기 {dt:.1f}초 전 관측" if dt >= 0 else f"누른 {-dt:.1f}초 뒤 관측"
+        w = config.PRESS_CONFIRM_WINDOW_SEC
+        # 지금 물은 값(아직 정리 전이면 가장 완전하다)이 없으면 찍어 둔 값을 쓴다(I-1).
+        now_seen = self._press_seen(p)
+        before, after = (now_seen[i] if now_seen[i] is not None else p["seen"][i] for i in (0, 1))
+        if before is not None or after is not None:
+            # 🔑 누르기 전 관측을 먼저 적는다 — 손은 누른 뒤에도 버튼 위라 「뒤」가 늘 있어,
+            #    그것만 적으면 2.0초 잠정값을 조정할 근거가 안 나왔다(최종 리뷰 M-1).
+            when = (f"누르기 {p['t'] - before:.1f}초 전 관측" if before is not None
+                    else f"누른 {after - p['t']:.1f}초 뒤 관측")
             self._append_log(f"[확인] {button} 누름 — 카메라 확인({when})")
             return
         self._append_log(f"[확인] {button} 누름 — 카메라 미확인(누르기 전 {w:.1f}초 손 관측 없음)")
@@ -1607,6 +1628,11 @@ class SafetyConsole(QMainWindow):
 
         # IDLE 로 돌아오면 서브 작업을 정리하고 「작업 시작」 문구로 되돌린다
         if new == State.IDLE:
+            # 다음 버튼이 없다 — 떠 있는 안내(「다음 버튼은 보면서…」)를 닫는다. 완주 결과창을
+            #    가리지 않게(최종 리뷰 I-2).
+            self._notice_timer.stop()
+            if self.alert.mode == "notice":
+                self.alert.hide_all()
             self._sub_timer.stop()
             self._end_tool_scan()
             self._sub = None

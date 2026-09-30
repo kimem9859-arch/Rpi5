@@ -1910,6 +1910,48 @@ def test_confirm_off_when_window_zero():
     finally:
         config.PRESS_CONFIRM_WINDOW_SEC = old
 
+def test_confirm_long_step_keeps_press_evidence():
+    """최종 리뷰 I-1 — 단계가 30초를 넘겨도(공구 늦게 쥠·경고로 멈춤) 보면서 누른 것은 「카메라 확인」."""
+    print("\n[확인] 30초 넘는 단계")
+    win = make_console()
+    win._on_cta()
+    t0 = time.monotonic() - 40.0
+    win.fsm.update_vision("B1", t0 - 0.5)            # 누르기 0.5초 전 관측
+    win._press_button("B1", source="gpio", now=t0)
+    win.fsm.update_vision(None, time.monotonic())    # 40초 뒤 프레임 — 옛 관측 기록이 정리된다
+    finish_sub(win)
+    check(bool(_logs(win, "[확인] B1 누름 — 카메라 확인")), f"확인 로그 {_logs(win, '[확인]')}")
+    check(win.alert.mode is None and win._stats._unconfirmed == [], f"안내·집계 없음 ({win.alert.mode})")
+    win.close()
+
+def test_confirm_notice_closes_on_finish():
+    """최종 리뷰 I-2 — 안내가 떠 있는 채로 완주하면 안내를 닫는다(다음 버튼이 없다 · 결과창을 가리지 않게)."""
+    print("\n[확인] 완주하면 안내 닫힘")
+    win = make_console()
+    win._on_cta()
+    for k in ("1", "2"):
+        key(win, k)
+        finish_sub(win)
+    _gpio(win, "B3")                                 # 관측 없음
+    finish_sub(win)                                  # 4단계 시작 → 안내
+    check(win.alert.mode == "notice", f"안내가 떴다 ({win.alert.mode})")
+    key(win, "4")                                    # 곧바로 완주
+    check(win.alert.mode is None, f"완주하면 안내 닫힘 ({win.alert.mode})")
+    win.close()
+
+def test_confirm_log_prefers_before_press():
+    """최종 리뷰 M-1(중요로 올림) — 누르기 전·뒤 둘 다 관측이면 로그는 「누르기 n초 전」(2.0초 조정 근거)."""
+    print("\n[확인] 로그는 누르기 전 관측")
+    win = make_console()
+    win._on_cta()
+    t = time.monotonic()
+    win.fsm.update_vision("B1", t - 0.7)
+    win.fsm.update_vision("B1", t + 0.4)             # 누른 뒤에도 손이 버튼 위
+    win._press_button("B1", source="gpio", now=t)
+    finish_sub(win)
+    check(bool(_logs(win, "카메라 확인(누르기 0.7초 전 관측)")), f"로그 {_logs(win, '[확인]')}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
