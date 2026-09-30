@@ -1751,6 +1751,165 @@ def test_hw0930_violation_block_names_buttons():
           f"오답 로그는 그대로 = {lines[-1:]}")
     win.close()
 
+def _gpio(win, button, dt_seen=None, level=2):
+    """GPIO 누름 흉내 — dt_seen 이 있으면 누르기 dt_seen 초 전에 손이 그 버튼에서 관측됐다."""
+    t = time.monotonic()
+    if dt_seen is not None:
+        win.fsm.update_vision(button, t + dt_seen, level)   # dt_seen < 0 = 누르기 전 · > 0 = 누른 뒤
+    win._press_button(button, source="gpio", now=t)
+
+def _hold_other_tool(w):
+    """오답 공구를 쥔 것처럼 공구 신호를 흉내 낸다(test_a_m5 안의 hold_other 와 같은 방식)."""
+    want = w._sub.want_tool
+    other = "driver" if want != "driver" else "pliers"
+    w.camera_thread.tool_signal.emit([(other, 0.9, 300, 100, 400, 200)], (350, 150))
+    return other
+
+def _logs(win, needle):
+    return [l for l in win.log_browser.toPlainText().splitlines() if needle in l]
+
+def test_confirm_unseen_gpio_press_notices_at_next_step():
+    """①② 관측 없음 → 단계는 진행 · 다음 단계 시작 때 안내 박스·알림·로그·집계."""
+    print("\n[확인] 못 본 GPIO 누름")
+    win = make_console()
+    win._on_cta()
+    _gpio(win, "B1")                                 # 관측 없음
+    check(win.alert.mode is None, "누른 순간에는 안내 없음(서브 작업 중)")
+    finish_sub(win)                                  # 1단계 끝 → 2단계 시작
+    check(win.fsm.expected_step == 2, "단계는 진행된다")
+    check(win.alert.mode == "notice", f"다음 단계 시작 때 안내 박스 — mode {win.alert.mode}")
+    check(win.alert._line1.text() == "카메라가 B1 누름을 확인하지 못했습니다", f"둘째 줄 {win.alert._line1.text()!r}")
+    check("카메라가 B1 누름을 확인하지 못했습니다" in notify_titles(win), "알림 목록에도")
+    check(bool(_logs(win, "[확인] B1 누름 — 카메라 미확인")), "로그")
+    check(len(win._stats._unconfirmed) == 1, "집계 1건")
+    win.close()
+
+def test_confirm_seen_press_no_notice():
+    """③ 관측 있음(박스 안·링 각각 · 누른 뒤 0.3초 관측 포함) → 안내 없음 · 「카메라 확인」 로그."""
+    print("\n[확인] 본 GPIO 누름")
+    for dt, level in ((-0.6, 2), (-1.5, 1), (0.3, 2)):
+        win = make_console()
+        win._on_cta()
+        _gpio(win, "B1", dt_seen=dt, level=level)
+        finish_sub(win)
+        check(win.alert.mode is None, f"관측 {dt:+}초 · 단계 {level} → 안내 없음 ({win.alert.mode})")
+        check(bool(_logs(win, "[확인] B1 누름 — 카메라 확인")), "확인 로그")
+        check(win._stats._unconfirmed == [], "집계 없음")
+        win.close()
+
+def test_confirm_too_old_observation_is_unseen():
+    """④ 누르기 2.5초 전 관측은 범위 밖 → 미확인."""
+    print("\n[확인] 범위 밖 관측")
+    win = make_console()
+    win._on_cta()
+    _gpio(win, "B1", dt_seen=-2.5)
+    finish_sub(win)
+    check(win.alert.mode == "notice", f"범위 밖 → 안내 ({win.alert.mode})")
+    win.close()
+
+def test_confirm_keyboard_skips():
+    """⑤ 키보드 → 확인 생략 · 안내 없음 · 「[시험] 키보드」 로그."""
+    print("\n[확인] 키보드 강행")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")
+    finish_sub(win)
+    check(win.alert.mode is None, "안내 없음")
+    check(bool(_logs(win, "[시험] 키보드 B1 — 카메라 확인 생략")), "로그")
+    check(win._stats._unconfirmed == [], "집계 없음")
+    win.close()
+
+def test_confirm_last_step_result_only():
+    """⑥ 마지막 단계(B4 · 서브 없음) 미확인 → 안내 박스 없이 결과창 「카메라 미확인 1건」."""
+    print("\n[확인] 마지막 단계")
+    win = make_console()
+    win._on_cta()
+    for k in ("1", "2", "3"):
+        key(win, k)
+        finish_sub(win)
+    _gpio(win, "B4")
+    check(win.alert.mode is None, f"다음 단계가 없어 안내 박스 없음 ({win.alert.mode})")
+    check(win._last_result is not None and len(win._last_result["unconfirmed"]) == 1,
+          f"결과 집계 {win._last_result and win._last_result['unconfirmed']}")
+    win.close()
+
+def test_confirm_block_discards_pending():
+    """⑦ 누른 단계가 차단으로 취소 → 기억을 버린다(해제 뒤 키보드로 다시 하면 안내 없음)."""
+    print("\n[확인] 차단 취소")
+    win = make_console()
+    win._on_cta()
+    _gpio(win, "B1")                                 # 관측 없음 · 서브 시작
+    key(win, "3")                                    # 오답 → 차단 → 서브 취소
+    check(win._press_pending is None, "기억 버림")
+    win.gpio_input.emo_active = lambda: False
+    win._release_block()
+    key(win, "1")
+    finish_sub(win)
+    check(win.alert.mode is None, f"다시 한 누름(키보드)에는 안내 없음 ({win.alert.mode})")
+    win.close()
+
+def test_confirm_notice_priority_and_timeout():
+    """⑧⑨ 안내 중 손이 들락거려도 유지 · 차단이 이기고 타이머가 차단을 닫지 않는다 · 시간 뒤 닫힘."""
+    print("\n[확인] 안내 우선순위·시간")
+    from PyQt6.QtTest import QTest
+    import config
+    old = config.PRESS_CONFIRM_NOTICE_SEC
+    config.PRESS_CONFIRM_NOTICE_SEC = 0.2
+    try:
+        win = make_console()
+        win._on_cta()
+        _gpio(win, "B1")
+        finish_sub(win)
+        t = time.monotonic()
+        win.fsm.update_vision("B2", t)               # 손 진입 → MONITOR
+        win.fsm.update_vision(None, t + 1.0)         # 이탈 → PROCESS_RUN
+        check(win.alert.mode == "notice", f"⑨ 상태가 바뀌어도 안내 유지 ({win.alert.mode})")
+        check(win.scrim.isHidden(), "안내는 뒤를 어둡게 하지 않는다")   # 🔑 isVisible 은 창을 안 띄운 시험에서 늘 False
+        QTest.qWait(400)
+        check(win.alert.mode is None, f"시간 뒤 닫힘 ({win.alert.mode})")
+        win.close()
+
+        win = make_console()
+        win._on_cta()
+        _gpio(win, "B1")
+        finish_sub(win)
+        key(win, "4")                                # 안내 중 오답 → 차단
+        check(win.alert.mode == "block", "⑧ 차단이 이긴다")
+        QTest.qWait(400)
+        check(win.alert.mode == "block", "⑧ 타이머가 차단 배너를 닫지 않는다")
+        win.close()
+    finally:
+        config.PRESS_CONFIRM_NOTICE_SEC = old
+
+def test_confirm_notice_yields_to_wrong_tool():
+    """⑩ 안내 중 오답 공구 → 공구 경고가 뜬다(우선순위 공구 경고 > 안내)."""
+    print("\n[확인] 안내 < 공구 경고")
+    win = make_console()
+    win._on_cta()
+    _gpio(win, "B1")
+    finish_sub(win)                                  # 2단계(B2 · 공구 단계) 시작 + 안내
+    key(win, "2")                                    # 공구 서브 시작
+    other = _hold_other_tool(win)                    # 오답 공구를 쥔다
+    check(win.alert.mode == "tool", f"공구 경고가 안내를 덮는다 ({win.alert.mode} · {other})")
+    win.close()
+
+def test_confirm_off_when_window_zero():
+    """⑪ 창 0 = 확인 끔 — GPIO 누름도 안내·집계·로그 없음."""
+    print("\n[확인] 끔")
+    import config
+    old = config.PRESS_CONFIRM_WINDOW_SEC
+    config.PRESS_CONFIRM_WINDOW_SEC = 0
+    try:
+        win = make_console()
+        win._on_cta()
+        _gpio(win, "B1")
+        finish_sub(win)
+        check(win.alert.mode is None and win._stats._unconfirmed == [] and not _logs(win, "[확인]"),
+              "끔 → 지금과 같다")
+        win.close()
+    finally:
+        config.PRESS_CONFIRM_WINDOW_SEC = old
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

@@ -95,6 +95,10 @@ class SafetyConsole(QMainWindow):
         self._last_button = None         # 마지막으로 눌린 버튼 — 결과 집계(위반 시 actual)용
         self._block_reason = None        # 위반 차단 배너 둘째 줄 — 차단 순간에 정한다(연결이 바뀌어 다시 그려도 같게)
         self._emo_no_signal = False      # 켤 때부터 EMO HIGH — 누름·배선 끊김 구별 불가(해제되면 끝)
+        self._press_pending = None       # 단계를 인정받은 누름 {button,t,order,source} — 단계가 끝날 때 카메라 확인
+        self._notice_timer = QTimer()
+        self._notice_timer.setSingleShot(True)
+        self._notice_timer.timeout.connect(self._hide_notice)
         self._hand_seen = False          # 결과 집계 — 이번 프레임에 손이 보였는가
         self._tool_dets_for_stats = []   # 결과 집계 — 이번 프레임의 공구 검출
         self._sub_timer = QTimer()
@@ -153,7 +157,7 @@ class SafetyConsole(QMainWindow):
         # 트랙 A 물리 입력 — 버튼 B1~B4·EMO(GPIO) → FSM. gpiozero 콜백은 별도 스레드라
         # 시그널로 GUI 스레드의 _press_button 에 마샬링(직접 GUI 접근 금지). 미연결·비-Pi
         # 환경에선 fallback(로그만) → 키보드 시뮬(1~4·E)로 동일 동작.
-        self.gpio_button_signal.connect(self._press_button)
+        self.gpio_button_signal.connect(self._press_gpio_button)
         self.gpio_input = GpioInputController(
             on_button=self.gpio_button_signal.emit, log=self.bg_log_signal.emit,
             on_emo_at_start=self._mark_emo_no_signal)
@@ -744,7 +748,8 @@ class SafetyConsole(QMainWindow):
            (MONITOR↔PROCESS_RUN) 상태 분기가 스크림을 껐고, 차단 중 메뉴를 열었다 닫으면 배너 뒤
            어둡게 하기가 사라졌다. `_sync_cta_visibility` 와 같은 원칙(기억하지 말고 계산).
         """
-        self._dim_others(self._any_sheet_open() or self.alert.mode is not None)
+        # 안내(notice)는 가벼운 알림이라 뒤를 어둡게 하지 않는다(누름 카메라 확인)
+        self._dim_others(self._any_sheet_open() or self.alert.mode not in (None, "notice"))
 
     def _dim_others(self, dimmed):
         """열린 패널·경고가 주인공이 되도록 뒤를 어둡게 한다 (design §4.7·§4.5).
@@ -971,6 +976,7 @@ class SafetyConsole(QMainWindow):
         self._update_sub_view()
 
     def _on_start_process(self):
+        self._press_pending = None   # 새 작업 — 앞 누름 기억은 버린다(누름 카메라 확인)
         self._last_result = None     # 앞 회차 완료 결과는 여기서 버린다(A-M3)
         self._wrong_tool_noted = None  # 새 작업 = 새 공구 기록 — 쥐고 있던 오답 공구도 다시 센다(A-M5)
         self.fsm.load_recipe()
@@ -985,8 +991,15 @@ class SafetyConsole(QMainWindow):
     # =========================================================================
     # [서브 작업] design §5 — 메인 버튼과 다음 버튼 사이에 끼는 작업
     # =========================================================================
-    def _press_button(self, button):
+    def _press_gpio_button(self, button):
+        """GPIO 누름 — 키보드와 구별해 카메라 확인 대상이 된다(누름 카메라 확인 2026-09-30)."""
+        self._press_button(button, source="gpio")
+
+    def _press_button(self, button, source="keyboard", now=None):
         """물리 버튼 눌림(시연: 키보드 1~4·E). 실제로는 GPIO 입력.
+
+        source — "gpio" 면 누름 카메라 확인 대상 · "keyboard" 는 확인 생략(강행 · 사용자 결정).
+        now — 누른 시각(`time.monotonic()` · 카메라 관측과 같은 시계). 시험이 넣는다.
 
         🔑 **정답 버튼이고 서브 작업이 있으면 FSM 에 바로 알리지 않는다.**
            서브 작업을 시작하고, **진행 조건이 충족되는 순간** 비로소 fsm.press_button()
@@ -997,6 +1010,7 @@ class SafetyConsole(QMainWindow):
         # 🔴 차단 중에는 판정기처럼 화면도 버튼을 받지 않는다 — EMO 만 통과한다(G3).
         #    받으면 차단 중에 서브 작업이 시작돼, 해제가 먼저 끝나면 그 눌림이 단계
         #    완료로 인정됐다(리뷰 U4 · 인터락이 GND 를 못 끊는 fallback·키보드에서).
+        t_press = time.monotonic() if now is None else now
         if self.fsm.state == State.BLOCK and button != self._emo_button():
             self._append_log(f"[버튼] {button} 눌림 — 차단 중이라 무시")
             return
@@ -1046,10 +1060,52 @@ class SafetyConsole(QMainWindow):
                 # 경고 중 정답 = 경고 해제 + 평소처럼 서브 작업 시작(설계 §2.2 · D3)
                 self._append_log(f"[FSM] 경고 중 정답 {button} — 경고 해제")
                 self.fsm.release_warning()
+            self._remember_press(button, source, t_press)
             self._begin_sub(button, spec)
             return
 
+        if button == self.fsm.correct_roi and self.fsm.state in (
+                State.PROCESS_RUN, State.MONITOR, State.WARNING):
+            self._remember_press(button, source, t_press)
         self._commit_button(button)
+
+    def _remember_press(self, button, source, t):
+        """그 단계를 인정받는 누름을 기억한다 — 판정은 단계가 끝날 때(_check_press · 설계 §2)."""
+        if config.PRESS_CONFIRM_WINDOW_SEC <= 0:
+            self._press_pending = None
+            return
+        if source != "gpio":
+            self._append_log(f"[시험] 키보드 {button} — 카메라 확인 생략")
+            self._press_pending = None
+            return
+        self._press_pending = {"button": button, "t": t,
+                               "order": self.fsm.expected_step, "source": source}
+
+    def _check_press(self, order, button, last_step):
+        """단계가 끝나는 순간 — 기억한 누름을 카메라 관측과 대조해 로그·집계·안내(설계 §2·§4)."""
+        p, self._press_pending = self._press_pending, None
+        if p is None or p["button"] != button or p["order"] != order:
+            return
+        w, g = config.PRESS_CONFIRM_WINDOW_SEC, config.PRESS_CONFIRM_GRACE_SEC
+        seen = self.fsm.seen_between(button, p["t"] - w, p["t"] + g)
+        if seen is not None:
+            dt = p["t"] - seen
+            when = f"누르기 {dt:.1f}초 전 관측" if dt >= 0 else f"누른 {-dt:.1f}초 뒤 관측"
+            self._append_log(f"[확인] {button} 누름 — 카메라 확인({when})")
+            return
+        self._append_log(f"[확인] {button} 누름 — 카메라 미확인(누르기 전 {w:.1f}초 손 관측 없음)")
+        self._stats.unconfirmed(order, button)
+        self._notify("warn", f"카메라가 {button} 누름을 확인하지 못했습니다", "다음 버튼은 보면서 누르세요")
+        if not last_step and self.alert.mode is None:
+            self.alert.show_notice("카메라 미확인", f"카메라가 {button} 누름을 확인하지 못했습니다",
+                                   "— 다음 버튼은 보면서 누르세요")
+            self._relayout()
+            self._notice_timer.start(int(config.PRESS_CONFIRM_NOTICE_SEC * 1000))
+
+    def _hide_notice(self):
+        """안내 시간이 끝남 — 🔴 안내일 때만 닫는다(그사이 경고·차단으로 바뀌었으면 그대로)."""
+        if self.alert.mode == "notice":
+            self.alert.hide_all()
 
     def _commit_button(self, button):
         """FSM 에 실제로 눌림을 전달한다."""
@@ -1067,6 +1123,7 @@ class SafetyConsole(QMainWindow):
             self._publish_state()
         if self.fsm.expected_step != before and self.fsm.state != State.IDLE:
             self._stats.step_done(before, button, self._step_name(before))
+            self._check_press(before, button, last_step=False)
             self._append_log(f"[FSM] 단계 진행 → {self.fsm.expected_step}단계: "
                              f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
             self._notify("work", f"{before}단계 완료",
@@ -1075,6 +1132,7 @@ class SafetyConsole(QMainWindow):
         # 마지막 단계의 정답 눌림 → 공정 완료. 작업 초기화는 이 경로를 타지 않는다.
         if before == self.fsm.step_count and self.fsm.state == State.IDLE:
             self._stats.step_done(before, button, self._step_name(before))
+            self._check_press(before, button, last_step=True)
             self._show_result()
 
     def _show_result(self):
@@ -1267,7 +1325,7 @@ class SafetyConsole(QMainWindow):
         if sub.wrong_tool:
             # 🔴 순서 경고·차단 배너를 덮지 않는다 — 우선순위 차단 > 순서 경고 > 공구
             #    경고(G2). 덮으면 해제 버튼이 사라지고 배너 없이 갇혔다(리뷰 U2·U3).
-            if self.alert.mode is None:
+            if self.alert.mode in (None, "notice"):     # 안내보다는 공구 경고가 먼저다
                 self.alert.show_wrong_tool(sub.wrong_tool_name, sub.want_tool_name)
                 self.glow.set_level("warn")
                 self._refresh_dim()
@@ -1404,6 +1462,7 @@ class SafetyConsole(QMainWindow):
         #    진행 중인 작업이 없는데 「비상정지로 작업 중단」이 떴다(종합 리뷰 A-M2). 완주 때
         #    `finish()` 가 running 을 끄는 것과 같다.
         self._stats.reset()
+        self._press_pending = None   # 누름 카메라 확인 기억도
         self._last_result = None     # 완료 결과도 버린다 — 「작업 시작」 전 상태(A-M3)
         self.fsm.reset()
 
@@ -1492,6 +1551,9 @@ class SafetyConsole(QMainWindow):
 
         # 발광·배너는 상태에 따라 — 🔴 발광은 영상 영역에만(GlowFrame 이 담당)
         if new == State.BLOCK:
+            # 누른 단계가 차단으로 취소된다 — 그 누름의 카메라 확인 기억을 버린다(설계 §3).
+            #    🔴 IDLE 에서는 지우지 않는다 — 마지막 단계 완료가 IDLE 을 먼저 부른다.
+            self._press_pending = None
             # 🔴 비상정지(EMO)는 순서 위반이 아니다 — 정당한 안전 조작이다. 위반으로
             #    적으면 결과창 머리가 「⚠ 위반이 있었습니다」로 뒤집힌다(리뷰 I2).
             #    작동 시각은 아래 인터락 기록이 이미 담고 있어 정보 손실이 없다.
@@ -1524,8 +1586,9 @@ class SafetyConsole(QMainWindow):
             self._notify("warn", "순서가 다릅니다",
                          f"지금은 {self.fsm.correct_roi} {self.fsm.current_step_name}")
         else:
-            # 공구 경고는 서브 작업 쪽이 관리하므로 그때는 지우지 않는다
-            if self.alert.mode != "tool":
+            # 공구 경고는 서브 작업 쪽이 관리하므로 그때는 지우지 않는다 · 안내는 시간이 닫는다
+            #    (손이 들락거릴 때마다 지우면 안내가 곧바로 사라진다 — 누름 카메라 확인)
+            if self.alert.mode not in ("tool", "notice"):
                 self.glow.set_level(None)
                 self.alert.hide_all()
                 self._refresh_dim()
