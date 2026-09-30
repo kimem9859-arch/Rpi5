@@ -49,7 +49,7 @@ def test_clean_run():
     #    (2026-08-19 승인 — 설계는 별도로 갱신).
     check(set(out) == {"recipe", "started_at", "finished_at", "total_sec", "ok",
                        "steps", "violations", "interlocks", "tools", "tool_names",
-                       "frames", "detections"},
+                       "frames", "detections", "unconfirmed"},
           f"finish() 최상위 키 집합 {sorted(out)} — 스키마와 정확히 일치")
 
 
@@ -134,6 +134,20 @@ def test_no_false_positive_field():
     out = s.finish(now=1.0)
     for bad in ("false_positive", "fp", "오탐", "misdetect"):
         check(bad not in out, f"'{bad}' 항목 없음")
+
+
+def test_unconfirmed_press():
+    """누름 카메라 확인 — 미확인 누름은 목록에 남고 「완주 성공」(ok)은 그대로다."""
+    print("\n[미확인] 카메라 미확인 누름")
+    s = SessionStats()
+    s.start("t", 4, now=0.0)
+    s.unconfirmed(2, "B2", now=5.0)
+    out = s.finish(now=10.0)
+    check(out["unconfirmed"] == [{"at": 5.0, "order": 2, "button": "B2"}], f"목록 {out['unconfirmed']}")
+    check(out["ok"] is True, "위반이 아니다 — ok 그대로")
+    s.reset()
+    s.start("t", 4, now=20.0)
+    check(s.finish(now=21.0)["unconfirmed"] == [], "새 작업은 빈 목록")
 
 
 if __name__ == "__main__":

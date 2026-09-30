@@ -467,6 +467,14 @@ def test_result_panel_shows():
           "공구 검출은 분모가 다르다고 밝힌다")
     check("차단 0건" in texts and not any("인터락 작동" in t for t in texts),
           "차단 기록은 「차단 N건」 — 인터락이 작동했다고 쓰지 않는다(종합 리뷰 중요 4)")
+    check("카메라 미확인 0건" in texts, "🔑 unconfirmed 키가 없는 옛 데이터도 「카메라 미확인 0건」")
+    panel.show_result({**{"recipe": "t", "started_at": 0.0, "finished_at": 30.0, "total_sec": 30.0,
+                          "ok": True, "steps": [], "violations": [], "interlocks": [], "tools": [],
+                          "tool_names": {}, "frames": 0, "detections": {}},
+                       "unconfirmed": [{"at": 0.0, "order": 2, "button": "B2"}]})
+    texts = [w.text() for w in panel._body.findChildren(QLabel)]
+    check("카메라 미확인 1건" in texts and any(t.endswith("— 2단계 B2") for t in texts),
+          f"미확인 칸·줄 — {[t for t in texts if '미확인' in t or '2단계' in t]}")
     panel.hide()
 
 

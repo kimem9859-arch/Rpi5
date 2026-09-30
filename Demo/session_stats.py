@@ -31,6 +31,7 @@ class SessionStats:
         self._steps = []           # {order, button, name, pressed_at, done_at, sec}
         self._pending = {}         # button -> pressed_at
         self._violations = []
+        self._unconfirmed = []     # 카메라 미확인 누름 {at, order, button}(2026-09-30)
         self._interlocks = []
         self._tools = []           # {button, want, start, grasp_sec, wrong{키:횟수}}
         self._tool_names = {}      # 공구 키 -> 표시명(레시피 sub.tool_names)
@@ -107,6 +108,11 @@ class SessionStats:
         self._violations.append({"at": _now(now), "expected": expected,
                                  "actual": actual, "level": level})
 
+    # ------------------------------------------------------------------ 카메라 미확인 누름
+    def unconfirmed(self, order, button, now=None):
+        """카메라가 확인하지 못한 맞는 버튼 누름(설계 2026-09-30) — 위반이 아니라 ok 에 넣지 않는다."""
+        self._unconfirmed.append({"at": _now(now), "order": order, "button": button})
+
     def interlock(self, engaged, now=None):
         t = _now(now)
         if engaged:
@@ -151,6 +157,7 @@ class SessionStats:
             "tool_names": dict(self._tool_names),
             "frames": self._frames,
             "detections": {k: dict(v) for k, v in self._dets.items()},
+            "unconfirmed": list(self._unconfirmed),
         }
         # 🔴 완주 후에는 running 을 꺼 집계를 멈춘다. 「작업 시작」을 거치지 않고
         # 다시 PROCESS_RUN 으로 돌아가는 경로(EMO→BLOCK→차단 해제)가 있어, 다음
