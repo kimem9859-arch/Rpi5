@@ -1057,7 +1057,9 @@ def test_g5_emo_banner_text():
     win = make_console()
     win._on_cta()
     key(win, "3")
-    check("순서 위반" in win.alert._line1.text(), f"위반 차단 = '{win.alert._line1.text()}'")
+    # 2026-09-30 문구 변경 — 「순서 위반이 계속되어」 → 「B1 차례에 B3 버튼을 눌러」(사용자 승인)
+    line1 = win.alert._line1.text()
+    check("차례에" in line1 and "비상정지" not in line1, f"위반 차단 = '{line1}'")
     win.close()
 
 def test_g2_tool_banner_does_not_cover_warning():
@@ -1653,6 +1655,69 @@ def test_review_am5_wrong_tool_held_through_retry_counted_once():
     hold_other(win)                                  # 같은 오답 공구를 쥐고 있다
     out = win._stats.finish()
     check(out["tools"][-1]["wrong"] == {other: 1}, f"새 작업에서 다시 센다 — {out['tools'][-1]['wrong']}")
+    win.close()
+
+def _feedback_lines(win):
+    return [l for l in win.log_browser.toPlainText().splitlines() if "[피드백] ⛔" in l]
+
+def test_hw0930_emo_no_signal_at_start_wording():
+    """2026-09-30 실HW — 켤 때 EMO 신호가 없으면(눌림·배선 끊김 구별 불가) 「비상정지」로 단정하지 않는다.
+    해제한 뒤 운용 중 EMO 는 다시 「비상정지」다."""
+    print("\n[실HW 0930] 켤 때 EMO 신호 없음")
+    win = make_console()                             # 인터락 끔 → 미연결 문구
+    win._mark_emo_no_signal()                        # GPIO 가 켤 때 HIGH 를 알렸다
+    key(win, "E")
+    check(win.alert._line1.text() == "EMO 신호 없음 — 눌림 또는 배선 끊김",
+          f"둘째 줄 = {win.alert._line1.text()!r}")
+    check(win.alert._line2.text() == "⚠ 화면에서만 차단 · EMO·배선 확인 뒤 해제",
+          f"셋째 줄(인터락 미연결) = {win.alert._line2.text()!r}")
+    lines = _feedback_lines(win)
+    check(bool(lines) and lines[-1].endswith("[피드백] ⛔ 차단 — EMO 신호 없음(눌림/배선)"),
+          f"로그 = {lines[-1:]}")
+    win.gpio_input.emo_active = lambda: False        # 배선을 고쳤다
+    win._release_block()
+    key(win, "E")                                    # 운용 중 EMO
+    check(win.alert._line1.text() == "비상정지로 차단됐습니다",
+          f"해제 뒤 EMO 는 다시 비상정지 = {win.alert._line1.text()!r}")
+    win.close()
+
+def test_hw0930_emo_no_signal_wording_when_linked():
+    """인터락이 붙어 있으면 셋째 줄은 해제 방법만 — 「EMO 복귀·배선 확인 뒤 「차단 해제」」."""
+    print("\n[실HW 0930] 켤 때 EMO 신호 없음 · 인터락 연결")
+    win = make_console()
+    cls = type(win.interlock)
+    orig = cls.connected
+    cls.connected = property(lambda self: True)
+    try:
+        win._mark_emo_no_signal()
+        key(win, "E")
+        check(win.alert._line2.text() == "— EMO 복귀·배선 확인 뒤 「차단 해제」",
+              f"셋째 줄(인터락 연결) = {win.alert._line2.text()!r}")
+    finally:
+        cls.connected = orig
+    win.close()
+
+def test_hw0930_emo_feedback_log_says_emergency():
+    """EMO 는 오조작이 아니다 — 로그가 「오조작 강행 감지」라고 쓰지 않는다."""
+    print("\n[실HW 0930] EMO 피드백 로그")
+    win = make_console()
+    win._on_cta()
+    key(win, "E")
+    lines = _feedback_lines(win)
+    check(bool(lines) and lines[-1].endswith("[피드백] ⛔ 차단 — 비상정지"), f"로그 = {lines[-1:]}")
+    win.close()
+
+def test_hw0930_violation_block_names_buttons():
+    """오답 차단은 첫 오답에서 즉시다 — 「계속되어」가 아니라 어느 차례에 무엇을 눌렀는지 쓴다."""
+    print("\n[실HW 0930] 오답 차단 문구")
+    win = make_console()
+    win._on_cta()
+    key(win, "3")                                    # 1단계(B1) 차례에 B3
+    check(win.alert._line1.text() == "B1 차례에 B3 버튼을 눌러 차단했습니다",
+          f"둘째 줄 = {win.alert._line1.text()!r}")
+    lines = _feedback_lines(win)
+    check(bool(lines) and lines[-1].endswith("[피드백] ⛔ 차단 — 오조작 강행 감지"),
+          f"오답 로그는 그대로 = {lines[-1:]}")
     win.close()
 
 if __name__ == "__main__":

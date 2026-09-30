@@ -29,6 +29,10 @@ mkdir -p "$OUT"
 
 SCREEN_MP4="$OUT/screen.mp4"
 DISPLAY_ID="${DISPLAY:-:0}"
+# 🔴 녹화 크기 = 실제 화면 크기 — 1920x1080 고정이던 때 모니터(1920x1280) 아래 200px(연결 상태
+#    아이콘·알림 종)가 녹화에서 잘렸다(2026-09-30 실HW). 못 읽으면 종전 값.
+SCREEN_SIZE="$(DISPLAY="$DISPLAY_ID" xdpyinfo 2>/dev/null | awk '/dimensions:/{print $2; exit}')"
+[ -n "$SCREEN_SIZE" ] || SCREEN_SIZE=1920x1080
 
 echo "══════════════════════════════════════════════"
 echo "  시나리오 $SCENARIO 촬영"
@@ -56,7 +60,7 @@ echo
 
 # --- 녹화 시작 -----------------------------------------------------------
 ffmpeg -hide_banner -loglevel error -y \
-    -f x11grab -framerate 15 -video_size 1920x1080 -i "$DISPLAY_ID" \
+    -f x11grab -framerate 15 -video_size "$SCREEN_SIZE" -i "$DISPLAY_ID" \
     -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p \
     "$SCREEN_MP4" &
 SCREEN_PID=$!

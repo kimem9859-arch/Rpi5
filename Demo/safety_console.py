@@ -93,6 +93,8 @@ class SafetyConsole(QMainWindow):
         self._fps_log_at = 0.0
         self._seen_buttons = set()       # 2차 점검 — 지금 화면에 보이는 버튼
         self._last_button = None         # 마지막으로 눌린 버튼 — 결과 집계(위반 시 actual)용
+        self._block_reason = None        # 위반 차단 배너 둘째 줄 — 차단 순간에 정한다(연결이 바뀌어 다시 그려도 같게)
+        self._emo_no_signal = False      # 켤 때부터 EMO HIGH — 누름·배선 끊김 구별 불가(해제되면 끝)
         self._hand_seen = False          # 결과 집계 — 이번 프레임에 손이 보였는가
         self._tool_dets_for_stats = []   # 결과 집계 — 이번 프레임의 공구 검출
         self._sub_timer = QTimer()
@@ -153,7 +155,8 @@ class SafetyConsole(QMainWindow):
         # 환경에선 fallback(로그만) → 키보드 시뮬(1~4·E)로 동일 동작.
         self.gpio_button_signal.connect(self._press_button)
         self.gpio_input = GpioInputController(
-            on_button=self.gpio_button_signal.emit, log=self.bg_log_signal.emit)
+            on_button=self.gpio_button_signal.emit, log=self.bg_log_signal.emit,
+            on_emo_at_start=self._mark_emo_no_signal)
 
         self.camera_thread = CameraThread()
         self.camera_thread.change_pixmap_signal.connect(self._update_camera_frame)
@@ -1210,7 +1213,13 @@ class SafetyConsole(QMainWindow):
         linked = self.interlock.connected
         self._block_banner_linked = linked          # 연결이 바뀌면 _update_conn_bar 가 다시 그린다
         itl_hint = "" if linked else "⚠ 인터락 미연결 — 화면에서만 차단 중"
-        if emo:
+        if emo and self._emo_no_signal:
+            # 🔴 켤 때부터 HIGH — 누름과 배선 끊김이 같은 신호라 「비상정지」로 단정하지 않는다
+            #    (2026-09-30 실HW · EMO 선이 옆 핀에 꽂혀 있었다).
+            self.alert.show_block("EMO 신호 없음 — 눌림 또는 배선 끊김",
+                                  "⚠ 화면에서만 차단 · EMO·배선 확인 뒤 해제" if itl_hint
+                                  else "— EMO 복귀·배선 확인 뒤 「차단 해제」")
+        elif emo:
             # 🔴 「화면에서만」이 붙어도 EMO 복귀 안내(G5)는 남긴다 — 하나로 바꿔 끼우면 해제
             #    방법이 사라졌다(최종 리뷰 I-1). 문구 길이는 위반 차단 줄과 같게 — 길면 좁은
             #    창에서 두 줄로 넘쳐 차단 박스만 커진다(세 박스 같은 크기 · 사용자 결정 ②).
@@ -1218,7 +1227,12 @@ class SafetyConsole(QMainWindow):
                                   "⚠ 화면에서만 차단 · EMO 복귀 뒤 해제" if itl_hint
                                   else "— EMO 를 복귀한 뒤 「차단 해제」를 누르세요")
         else:
-            self.alert.show_block(hint=itl_hint)
+            self.alert.show_block(self._block_reason or "잘못된 버튼을 눌러 차단했습니다",
+                                  hint=itl_hint)
+
+    def _mark_emo_no_signal(self):
+        """GPIO 가 켤 때 EMO HIGH 를 알렸다 — 이 차단은 「EMO 신호 없음」 문구로 보인다(해제되면 끝)."""
+        self._emo_no_signal = True
 
     def _cancel_sub(self, why):
         """진행 중인 서브 작업을 버린다 — 🔴 눌림을 FSM 에 전달하지 않는다(설계 D5 · 차단 = 취소).
@@ -1328,6 +1342,7 @@ class SafetyConsole(QMainWindow):
             return
         was_running = self._stats.running
         self.fsm.release_block()
+        self._emo_no_signal = False      # 풀렸으면 신호가 돌아왔다 — 다음 EMO 는 비상정지다
         if self.fsm.state == State.IDLE:
             # EMO 차단 해제 → 「작업 시작」 전 대기(P5 · 설계 D4). 진행 중이던 작업은 여기서
             # 끝난다 — 결과창 없이 알림 하나로 마무리하고 집계를 비운다(G4).
@@ -1484,6 +1499,9 @@ class SafetyConsole(QMainWindow):
             self.glow.set_level("block")
             if self._last_button != emo:
                 self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "block")
+                # 🔴 오답 차단은 첫 오답을 누르는 **즉시**다(fsm.press_button) — 「계속되어」가 아니다.
+                self._block_reason = (f"{self.fsm.correct_roi} 차례에 "
+                                      f"{self._last_button or '?'} 버튼을 눌러 차단했습니다")
                 self._show_block_banner(emo=False)
                 self._notify("danger", "버튼 입력 차단됨",
                              f"{self.fsm.expected_step}단계 {self.fsm.correct_roi}")
@@ -1548,7 +1566,14 @@ class SafetyConsole(QMainWindow):
         if level == Feedback.WARNING:
             self._append_log("[피드백] ⚠ 경고 — 시각 팝업 + 청각 타워램프")
         elif level == Feedback.BLOCK:
-            self._append_log("[피드백] ⛔ 차단 — 오조작 강행 감지")
+            # 🔴 EMO 는 오조작이 아니다 — 원인별로 적는다(2026-09-30 실HW).
+            if not self.fsm.emo_active:
+                cause = "오조작 강행 감지"
+            elif self._emo_no_signal:
+                cause = "EMO 신호 없음(눌림/배선)"
+            else:
+                cause = "비상정지"
+            self._append_log(f"[피드백] ⛔ 차단 — {cause}")
         # 램프 명령의 권위 소스 — NONE→RUN / WARNING→WARN / BLOCK→BLOCK 송신.
         self.interlock.set_feedback(level)
 

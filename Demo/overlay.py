@@ -538,6 +538,7 @@ class AlertBanner(_Panel):
         self._shown_mode = None         # 화면에 그려져 있는 mode (등장 트리거 비교용)
         self._last_paint = None         # 마지막 _paint 인자 — 테마를 다시 칠할 때 쓴다(G8)
         self._needs_entrance = False    # 다음 relayout 에서 미끄러져 들어올 것
+        self._pending_rect = None       # 등장 중에 건너뛴 relayout 의 창 크기 — 앉은 뒤 다시 한다
 
         lay = QHBoxLayout(self)
         # 🔴 박스 안 여백은 **레이아웃 여백**으로 준다 — QSS padding 은 맨 QWidget 의 배치에
@@ -675,6 +676,9 @@ class AlertBanner(_Panel):
         # 🔴 슬라이드 중에는 geometry 를 건드리지 않는다 — _update_sub_view 가 200ms
         #    마다 relayout 을 부르므로, 그대로 두면 등장 중에 위치가 튄다.
         if anim.busy(self):
+            # 🔴 건너뛰기만 하면 등장 중에 창이 커진 경우(켤 때 차단 → showMaximized) 옛 창
+            #    가운데에 남는다(2026-09-30 실HW) — 크기를 기억했다가 앉은 뒤 다시 한다.
+            self._pending_rect = QRect(parent_rect)
             return
         # 모든 박스가 같은 크기·자리 — 화면 정중앙(사용자 결정 2026-09-25).
         # 🔴 높이는 **실제 폭에서의 높이**로 잰다 — sizeHint 는 폭을 모른 채 긴 문구를 두 줄로
@@ -687,7 +691,13 @@ class AlertBanner(_Panel):
         # 위치가 정해진 **지금** 등장한다(_paint 시점에는 목표 위치를 몰랐다).
         if self._needs_entrance:
             self._needs_entrance = False
-            anim.slide_in(self, self.geometry())
+            anim.slide_in(self, self.geometry(), on_done=self._relayout_pending)
+
+    def _relayout_pending(self):
+        """등장이 끝난 뒤 — 등장 중에 건너뛴 relayout 이 있으면 그 크기로 다시 앉는다."""
+        r, self._pending_rect = self._pending_rect, None
+        if r is not None and self._mode is not None:
+            self.relayout(r)
 
 
 class ConnBar(_Panel):

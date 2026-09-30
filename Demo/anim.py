@@ -71,18 +71,29 @@ def flash(widget, color_hex, ms=D_FLASH):
           on_done=lambda: widget.setStyleSheet(base))
 
 
-def slide_in(widget, target, ms=D_SLIDE, dy=SLIDE_DY):
-    """아래(dy>0)에서 미끄러져 목표 사각형에 앉는다. geometry 만 움직인다."""
+def slide_in(widget, target, ms=D_SLIDE, dy=SLIDE_DY, on_done=None):
+    """아래(dy>0)에서 미끄러져 목표 사각형에 앉는다. geometry 만 움직인다.
+
+    on_done — 앉은 뒤(busy 가 풀린 뒤) 부른다. 등장 중에 건너뛴 relayout 을 다시 하는 자리다.
+    """
     if not enabled():
         widget.setGeometry(target)
         widget.show()
+        if on_done:
+            on_done()
         return
     widget.setGeometry(target.translated(0, dy))
     widget.show()
     setattr(widget, _BUSY, True)
+
+    def _done():
+        setattr(widget, _BUSY, False)
+        if on_done:
+            on_done()
+
     tween(widget, ms,
           lambda t: widget.setGeometry(target.translated(0, int(dy * (1 - float(t))))),
-          on_done=lambda: setattr(widget, _BUSY, False))
+          on_done=_done)
 
 
 def busy(widget):

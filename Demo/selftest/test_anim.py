@@ -169,6 +169,27 @@ def test_alert_relayout_skips_while_sliding():
     a.hide_all()
 
 
+def test_alert_recenters_after_slide_when_window_grew():
+    """🔴 켤 때 뜬 배너가 첫 창(1280×720) 가운데에 남던 것(2026-09-30 실HW) — 등장 중에 창이
+    커지면 relayout 이 건너뛰어졌고 다시 부르는 곳이 없었다. 등장이 끝나면 새 크기로 다시 앉는다."""
+    print("\n[등장 중 창이 커지면 끝난 뒤 새 가운데로]")
+    from PyQt6.QtTest import QTest
+    small = QRect(0, 0, 1280, 720)
+    a = AlertBanner(_w)
+    a.show_block()
+    a.relayout(small)                       # 첫 창 크기로 등장 시작
+    check(anim.busy(a), "등장(슬라이드) 중이다")
+    a.relayout(SCREEN)                      # 등장 도중 창이 커짐(showMaximized)
+    QTest.qWait(anim.D_SLIDE + 300)          # 등장이 끝날 시간
+    g = a.geometry()
+    check(not anim.busy(a), "등장이 끝났다")
+    check(abs(g.center().x() - SCREEN.center().x()) <= 1,
+          f"가로 가운데가 새 창 가운데다 (배너 {g.center().x()} · 창 {SCREEN.center().x()})")
+    check(abs(g.center().y() - SCREEN.center().y()) <= 1,
+          f"세로 가운데가 새 창 가운데다 (배너 {g.center().y()} · 창 {SCREEN.center().y()})")
+    a.hide_all()
+
+
 def test_status_label_is_korean_and_consistent():
     """🔴 상태 표시명 — 기동 직후와 작업 초기화 후가 **같아야 한다**.
 

@@ -34,8 +34,11 @@ class GpioInputController:
     호출부에서 GUI 스레드로 마샬링할 것(예: pyqtSignal.emit 를 on_button 으로 주입).
     """
 
-    def __init__(self, on_button, log=None, enabled=None):
+    def __init__(self, on_button, log=None, enabled=None, on_emo_at_start=None):
         self._on_button = on_button
+        # 켤 때 이미 HIGH 면 EMO 발사 **전에** 부른다 — 누름과 배선 끊김을 구별할 수 없어 콘솔이
+        # 「비상정지」로 단정하지 않게 한다(2026-09-30 실HW · 선이 옆 핀에 꽂혀 있었다).
+        self._on_emo_at_start = on_emo_at_start
         self._log = log or (lambda m: print(m))
         self._enabled = config.GPIO_INPUT_ENABLED if enabled is None else enabled
         self._devices = []
@@ -77,6 +80,8 @@ class GpioInputController:
             # 놓쳐 무방비 기동한다. 미배선 콘솔은 GPIO_INPUT_ENABLED=False 로 끌 것.
             if not emo.is_pressed:
                 self._log(f"[입력] 🚨 EMO(GPIO{emo_pin}) 시작 시 HIGH(비상/단선/미배선) — 즉시 BLOCK")
+                if self._on_emo_at_start:
+                    self._on_emo_at_start()
                 self._fire("EMO")
         except Exception as e:
             failures.append("EMO 초기화 실패")
