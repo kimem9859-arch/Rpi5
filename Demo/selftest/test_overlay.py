@@ -699,6 +699,23 @@ def test_review_i2_u15_overlapping_tweens_stay_empty():
     finally:
         config.UI_ANIMATION = False
 
+def test_alert_notice_mode():
+    """누름 카메라 확인 — 안내 박스: 해제 버튼 없음 · 맥박 없음 · 다른 박스와 같은 크기."""
+    print("\n[안내] notice 모드")
+    host = QWidget()
+    host.resize(1920, 1080)
+    a = AlertBanner(host)
+    a.show_notice("카메라 미확인", "카메라가 B2 누름을 확인하지 못했습니다", "— 다음 버튼은 보면서 누르세요")
+    a.relayout(SCREEN)
+    check(a.mode == "notice", f"mode = {a.mode}")
+    check(a._release.isHidden(), "해제 버튼 없음")
+    check(not a._pulse.active(), "맥박 없음")
+    size_notice = a.geometry().size()
+    a.show_order_violation("B2", "펌프/퍼지")
+    a.relayout(SCREEN)
+    check(a.geometry().size() == size_notice, f"순서 경고와 같은 크기 {a.geometry().size()} vs {size_notice}")
+    a.hide_all()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

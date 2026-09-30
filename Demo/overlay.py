@@ -598,6 +598,14 @@ class AlertBanner(_Panel):
         self._paint("danger", "⛔", "버튼 입력 차단됨", reason, hint,
                     release_text="차단 해제", indent2=bool(hint))
 
+    def show_notice(self, title, line1, line2):
+        """안내(누름 카메라 확인 · 2026-09-30) — 해제 버튼 없음 · 시간이 지나면 콘솔이 닫는다.
+
+        🔴 우선순위가 가장 낮다 — 경고·차단이 오면 그쪽 show_* 가 덮는다.
+        """
+        self._mode = "notice"
+        self._paint("info", "ⓘ", title, line1, line2, release_text=None, indent2=True)
+
     def _paint(self, token, mark, title, line1, line2, release_text, indent2):
         # 🔴 self._mode 는 show_* 가 여기 오기 **전에** 이미 새 값이다. 그래서 화면에
         #    그려져 있던 모드를 따로 들고 비교한다.
