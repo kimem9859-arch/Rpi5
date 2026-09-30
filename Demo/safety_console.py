@@ -1205,7 +1205,7 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.set_tool_scan(False)
 
     def _show_block_banner(self, emo):
-        """차단 배너 문구 — EMO 차단은 「비상정지」(G5), 위반 차단은 기본 문구.
+        """차단 배너 문구 — EMO 차단은 「비상정지」(G5) · 켤 때 신호 없음은 따로 · 위반 차단은 차단 순간의 사유.
 
         🔴 인터락이 안 붙어 있으면 전기가 끊기지 않았다 — 둘째 줄에 「화면에서만 차단 중」을
            적어 끊겼다고 믿게 두지 않는다(I1 · 검토 C7).
@@ -1341,13 +1341,13 @@ class SafetyConsole(QMainWindow):
                         "비상정지 버튼을 돌려 복귀(또는 EMO 배선 점검) 후 다시 시도하세요.")
             return
         was_running = self._stats.running
+        no_signal = self._emo_no_signal  # release_block 이 _on_fsm_state 에서 끈다 — 먼저 읽어 둔다
         self.fsm.release_block()
-        self._emo_no_signal = False      # 풀렸으면 신호가 돌아왔다 — 다음 EMO 는 비상정지다
         if self.fsm.state == State.IDLE:
             # EMO 차단 해제 → 「작업 시작」 전 대기(P5 · 설계 D4). 진행 중이던 작업은 여기서
             # 끝난다 — 결과창 없이 알림 하나로 마무리하고 집계를 비운다(G4).
             self._stats.reset()
-            self._append_log("[FSM] 비상정지 해제 — 「작업 시작」 전 대기")
+            self._append_log(f"[FSM] {'EMO 신호 없음' if no_signal else '비상정지'} 해제 — 「작업 시작」 전 대기")
             if was_running:
                 self._notify("danger", "비상정지로 작업 중단",
                              "「작업 시작」을 눌러 1단계부터 다시 합니다")
@@ -1509,7 +1509,8 @@ class SafetyConsole(QMainWindow):
                 # 🔴 EMO 차단을 「순서 위반」이라 적지 않는다(G5) — 해제하려면 EMO 부터
                 #    복귀해야 한다는 것을 문구가 알려야 한다.
                 self._show_block_banner(emo=True)
-                self._notify("danger", "비상정지", "버튼 입력 차단됨")
+                self._notify("danger", "EMO 신호 없음" if self._emo_no_signal else "비상정지",
+                             "버튼 입력 차단됨")
             self._refresh_dim()
         elif new == State.WARNING:
             # 🔴 경고는 **버튼을 누르지 않고** 손이 오답 ROI 에 머물러 난 것이다 —
@@ -1533,6 +1534,9 @@ class SafetyConsole(QMainWindow):
         # 🔴 인터락 폴트 창은 닫지 않는다 — 「차단 미확인」은 지난 사실이고 릴레이·배선·Arduino 점검
         #    안내는 여전히 유효하다. 안전 경보는 사람이 보고 OK 로 닫는다(설계 §10.3).
         if old == State.BLOCK:
+            # 켤 때 신호 없음 차단도 여기서 끝난다 — 해제·초기화 어느 쪽이든(최종 리뷰 I1).
+            #    다음 EMO 는 운용 중 비상정지다.
+            self._emo_no_signal = False
             for k in ("release_refused", "reset_refused"):
                 box = self._popups.get(k)
                 if box is not None:

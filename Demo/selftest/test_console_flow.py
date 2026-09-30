@@ -1681,6 +1681,37 @@ def test_hw0930_emo_no_signal_at_start_wording():
           f"해제 뒤 EMO 는 다시 비상정지 = {win.alert._line1.text()!r}")
     win.close()
 
+def test_hw0930_emo_no_signal_cleared_by_reset():
+    """최종 리뷰 I1 — 켤 때 차단을 「작업 초기화」로 벗어나도 다음 운용 중 EMO 는 「비상정지」다."""
+    print("\n[실HW 0930] 켤 때 신호 없음 → 작업 초기화로 벗어남")
+    win = make_console()
+    win._mark_emo_no_signal()
+    key(win, "E")
+    win.gpio_input.emo_active = lambda: False        # 배선을 고쳤다
+    win._reset_work()                                # 해제 대신 초기화로 벗어남
+    win._on_cta()
+    key(win, "E")                                    # 운용 중 EMO
+    check(win.alert._line1.text() == "비상정지로 차단됐습니다",
+          f"초기화 뒤 EMO = {win.alert._line1.text()!r}")
+    lines = _feedback_lines(win)
+    check(bool(lines) and lines[-1].endswith("[피드백] ⛔ 차단 — 비상정지"), f"로그 = {lines[-1:]}")
+    win.close()
+
+def test_hw0930_emo_no_signal_notify_and_release_log():
+    """최종 리뷰 M1 — 켤 때 신호 없음은 알림 제목·해제 로그도 「비상정지」로 부르지 않는다."""
+    print("\n[실HW 0930] 켤 때 신호 없음 — 알림·해제 로그")
+    win = make_console()
+    win._mark_emo_no_signal()
+    key(win, "E")
+    titles = notify_titles(win)
+    check("EMO 신호 없음" in titles and "비상정지" not in titles, f"알림 제목 = {titles}")
+    win.gpio_input.emo_active = lambda: False
+    win._release_block()
+    log = win.log_browser.toPlainText()
+    check("[FSM] EMO 신호 없음 해제" in log and "[FSM] 비상정지 해제" not in log,
+          f"해제 로그 = {[l for l in log.splitlines() if '해제 —' in l][-1:]}")
+    win.close()
+
 def test_hw0930_emo_no_signal_wording_when_linked():
     """인터락이 붙어 있으면 셋째 줄은 해제 방법만 — 「EMO 복귀·배선 확인 뒤 「차단 해제」」."""
     print("\n[실HW 0930] 켤 때 EMO 신호 없음 · 인터락 연결")

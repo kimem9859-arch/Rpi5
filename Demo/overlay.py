@@ -589,7 +589,7 @@ class AlertBanner(_Panel):
                     f"쥔 것: {wrong_name} — {want_name}로 바꿔 주세요",
                     "", release_text=None, indent2=False)
 
-    def show_block(self, reason="순서 위반이 계속되어 차단했습니다", hint=""):
+    def show_block(self, reason="잘못된 버튼을 눌러 차단했습니다", hint=""):
         """차단 — 해제 버튼 있음(EMO 미복귀 거부는 기존 _release_block 이 담당).
 
         hint = 둘째 줄(들여쓰기) — EMO 차단은 복귀 방법을 적는다.

@@ -81,7 +81,12 @@ class GpioInputController:
             if not emo.is_pressed:
                 self._log(f"[입력] 🚨 EMO(GPIO{emo_pin}) 시작 시 HIGH(비상/단선/미배선) — 즉시 BLOCK")
                 if self._on_emo_at_start:
-                    self._on_emo_at_start()
+                    # 생성자 안에서 호출 스레드로 동기 호출 — on_button 과 달리 마샬링이 필요 없다.
+                    # 🔴 예외가 나도 아래 fail-safe 발사를 건너뛰지 않는다(최종 리뷰 M2).
+                    try:
+                        self._on_emo_at_start()
+                    except Exception as e:
+                        self._log(f"[입력] 켤 때 EMO 알림 콜백 오류: {e}")
                 self._fire("EMO")
         except Exception as e:
             failures.append("EMO 초기화 실패")
