@@ -15,19 +15,21 @@
 
 장면 목록은 데이터확보 설계서 §5 의 8종이다. 화면에 띄워 **그 자체가 촬영
 지시서**가 되게 한다 — 「무엇을 몇 번 찍어라」를 말로 전하면 혼선이 생겨
-재촬영을 부른다.
+재촬영을 부른다. 시간표·현장 절차 = `docs/촬영지시서.md`.
 
 사용법:
-    python3 test/capture_dataset.py                      # 촬영(미리보기 + 키 조작)
-    python3 test/capture_dataset.py --every 0.5          # 저장 간격 0.5초
+    python3 test/capture_dataset.py --place 장소2               # 촬영(미리보기 + 키 조작)
+    python3 test/capture_dataset.py --place 장소2 --count       # 촬영 직후 현장 장수 세기
+    python3 test/capture_dataset.py --place 장소2 --every 0.5   # 저장 간격 0.5초
     python3 test/capture_dataset.py --bench 60 --esp-port /dev/ttyACM1
     python3 test/capture_dataset.py --bench 60 --no-save # 저장 비용 분리
     python3 test/capture_dataset.py --selftest
 
-키:  space=녹화 시작/정지   s=장면   p=장소   q=종료
+키:  space=녹화 시작/정지   s=장면   q=종료   (장소는 --place 로 고정 — 촬영 중 못 바꾼다)
 """
 from __future__ import annotations
 import argparse
+import functools
 import json
 import os
 import re
@@ -48,10 +50,25 @@ sys.path.insert(0, _DEMO)
 import config
 import frame_orient
 
-# 데이터확보 설계서 §5 촬영 장면 8종
-SCENES = ["1 콘솔전체", "2 버튼누르기", "3 손지나감", "4 머리움직임",
-          "5 빛반사", "6 놓인공구", "7 쥔공구", "8 배경"]
+# 데이터확보 설계서 §5 촬영 장면 — 번호는 설계서 그대로 둔다(폴더 이름 끝에 남는다).
+#   0 정지 = 묶음 도구(review_batch --template)가 요구하는 같은 장소의 정지 장면.
+#   5 빛반사 는 뺐다 — 반사를 만들 조명이 없다(사용자 2026-10-01).
+SCENES = ["0 정지", "1 콘솔전체", "2 버튼누르기", "3 손지나감", "4 머리움직임",
+          "6 놓인공구", "7 쥔공구", "8 배경"]
 PLACES = ["장소1", "장소2", "장소3"]
+
+# 🔴 화면 글씨는 Pillow + 한글 글꼴로 그린다 — cv2.putText 는 한글을 `???` 로 찍어
+#    2026-10-01 시운전에서 장면 이름을 못 읽어 장면 7 녹화를 못 했다(calib_capture 와 같은 처방).
+FONT_PATH = "/usr/share/fonts/truetype/nanum/NanumBarunGothicBold.ttf"
+BANNER_H = 64                    # 미리보기 위쪽 안내 띠 높이(px) — 저장 사진에는 그리지 않는다
+HELP = "space 녹화 시작/정지  ·  s 다음 장면(대기 중에만)  ·  q 종료"
+
+# 현장 장수 세기의 최소 기준 — 거른 뒤(깨짐·검은 화면·중복) 남아야 할 장수. 근거 = 2026-10-01
+# 장소1 실측(b001~b004 사람 검토 800장): 공구 장면 사진 한 장에 driver 가 있을 비율 0.308(세 공구 중 최저).
+#   장소2 6+7 — 장소1 과 합쳐 클래스당 1,500(설계서 §6): (1,500 − 장소1 추정 895) ÷ 0.308 ≈ 1,964 → 2,000
+#   장소3 6+7 — 시험 세트 클래스당 300(사용자 2026-10-01): 300 ÷ 0.308 ≈ 974 → 1,000
+#   장소3 7·8 — 쥔 공구 300 · 배경 100 에 라벨러 제외(3~4%) 여유
+MIN_KEEP = {"장소2": {"6+7": 2000}, "장소3": {"6+7": 1000, "7": 320, "8": 110}}
 
 # 펌웨어가 5초마다 자동으로 찍는 줄. cap 과 sent 의 차이가 핵심이다 —
 # 잡았는데 못 보냈으면 전송이, 애초에 적게 잡았으면 카메라·펌웨어가 병목이다.
@@ -62,13 +79,16 @@ _FRAME_RE = re.compile(r"Frame: cap=(\d+) sent=(\d+) drop=(\d+) · ([\d.]+)KB/�
 class Session:
     """한 회차의 저장 폴더와 메타를 들고 있는다."""
 
-    def __init__(self, root: Path, place: str, scene: str, every: float, meta: dict):
+    def __init__(self, root: Path, place: str, scene: str, every: float, meta: dict,
+                 stages0: dict | None = None):
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.dir = root / f"{stamp}_{place}_{scene.split()[0]}"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.place, self.scene, self.every = place, scene, every
         self.meta = dict(meta)
+        self.stages0 = dict(stages0 or {})   # 녹화 시작 때의 단계 수 — 이 녹화 몫만 남기려고
         self.n = 0
+        self.next_at = 0.0
         self.started = time.time()
 
     def save(self, img) -> None:
@@ -76,14 +96,120 @@ class Session:
         cv2.imwrite(str(self.dir / f"f{self.n:05d}.png"), img,
                     [cv2.IMWRITE_PNG_COMPRESSION, 3])
 
+    def maybe_save(self, img, now: float) -> bool:
+        """간격이 됐으면 한 장 저장한다.
+
+        🔴 시각은 저장 «전»에 잰 now 로 잡는다 — 저장 «뒤» 시각으로 잡으면 PNG 저장 시간(약 70ms)이
+           간격에 더해져 0.2초가 0.27초가 됐다(2026-10-01 시운전 · 초당 5장 → 3.6장).
+        격자(next_at += every)로 잡아 평균 간격이 every 가 되게 하고, 한 칸 넘게 밀리면 몰아서
+        따라잡지 않고 그 시각부터 다시 센다.
+        """
+        if now < self.next_at:
+            return False
+        nxt = self.next_at + self.every
+        self.next_at = nxt if nxt > now else now + self.every
+        self.save(img)
+        return True
+
     def close(self, stages: dict) -> None:
         self.meta.update({
             "place": self.place, "scene": self.scene, "every_sec": self.every,
             "frames": self.n, "seconds": round(time.time() - self.started, 1),
-            "stages": dict(stages),
+            # 🔑 이 녹화 동안만 — 도구를 켠 뒤 누적이면 녹화 68초에 수신 10,188 처럼 뜻이 어긋난다(2026-10-01)
+            "stages": {k: v - self.stages0.get(k, 0) for k, v in stages.items()},
         })
         (self.dir / "session.json").write_text(
             json.dumps(self.meta, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def out_root(out: str, place: str) -> Path:
+    """저장 뿌리 — 🔴 장소3(시험 전용)은 형제 폴더 `<out>_장소3` 에 따로 둔다.
+    학습 묶음을 만들 때 장소 폴더 하나를 통째로 넘겨도 시험 사진이 섞이지 않게(설계 2026-09-16 §4)."""
+    root = Path(os.path.expanduser(out))
+    return root.with_name(f"{root.name}_장소3") if place == "장소3" else root
+
+
+def orient_meta(w0: int, h0: int, calib_path) -> dict:
+    """촬영 조건 기록 — 장소1 사진을 찍은 bench_detector 의 manifest 와 **같은 이름·같은 뜻**.
+    🔴 frame_size 는 센서 원본(회전 전) 크기다. 회전 뒤 크기를 적으면 같은 이름이 다른 뜻이 된다
+       (2026-10-01 시운전에서 768x1024 로 기록돼 장소1 의 1024x768 과 어긋났다)."""
+    return {"frame_size": f"{w0}x{h0}",
+            "undistort": calib_path is not None,
+            "calibration_file": os.path.basename(calib_path) if calib_path else None,
+            "flip_mode": "v" if config.CAMERA_FLIP_VERTICAL else "none",
+            "rotate_ccw90": bool(config.CAMERA_ROTATE_CCW90)}
+
+
+@functools.lru_cache(maxsize=4)
+def _font(size: int):
+    from PIL import ImageFont
+    return ImageFont.truetype(FONT_PATH, size)
+
+
+def draw_banner(view, title: str, help_text: str) -> None:
+    """미리보기 위쪽 BANNER_H 줄에 한글 안내 띠를 그린다(제자리 수정). 띠 높이만큼만 바꾼다 —
+    한 장 전체를 Pillow 로 오가면 프레임마다 비용이 커서 띠만 그려 붙인다."""
+    from PIL import Image, ImageDraw
+    band = Image.new("RGB", (view.shape[1], BANNER_H), (0, 0, 0))
+    d = ImageDraw.Draw(band)
+    d.text((10, 4), title, font=_font(30), fill=(255, 230, 0))
+    d.text((10, 40), help_text, font=_font(18), fill=(220, 220, 220))
+    view[:BANNER_H] = cv2.cvtColor(np.asarray(band), cv2.COLOR_RGB2BGR)
+
+
+# ───────────────────────────────────────────────────────────── 현장 장수 세기
+def _health(path: str):
+    """한 장의 거름 재료 — (버릴 사진인가, pHash). 기준은 묶음 도구(review_batch)와 같다."""
+    import dedupe_raw
+    import frame_health
+    from review_batch import BLACK_MEAN
+    seam, washed = frame_health.metrics(Path(path))
+    img = cv2.imread(path)
+    bad = seam > 0.02 or washed > 0.25 or img is None or float(img.mean()) < BLACK_MEAN
+    return bad, (dedupe_raw.phash(img) if img is not None else None)
+
+
+def count_place(root: Path, place: str, workers: int = 4) -> dict:
+    """한 장소의 녹화를 묶음 도구와 같은 거름(깨짐·검은 화면 → 장소 전체 합쳐 pHash 중복)에
+    넣어 장면별로 남는 장수를 센다. 🔑 촬영 직후 현장에서 돌린다 — 모자라면 장비를 걷기 전에 더 찍는다."""
+    import dedupe_raw
+    from review_batch import PHASH_THR
+    dirs = sorted(d for d in Path(root).glob(f"*_{place}_*") if d.is_dir())
+    items = [(d.name.rsplit("_", 1)[1], str(p)) for d in dirs for p in sorted(d.glob("f*.png"))]
+    paths = [p for _, p in items]
+    if workers > 1:
+        from multiprocessing import Pool
+        with Pool(workers) as pool:
+            res = pool.map(_health, paths, chunksize=16)
+    else:
+        res = [_health(p) for p in paths]
+    ok = [i for i, (bad, _) in enumerate(res) if not bad]
+    keep = dedupe_raw.dedupe([res[i][1] for i in ok], PHASH_THR)
+    scenes: dict = {}
+    for s, _ in items:
+        scenes.setdefault(s, {"saved": 0, "unique": 0})["saved"] += 1
+    for k in keep:
+        scenes[items[ok[k]][0]]["unique"] += 1
+    checks = []
+    for key, need in MIN_KEEP.get(place, {}).items():
+        have = sum(scenes.get(s, {}).get("unique", 0) for s in key.split("+"))
+        checks.append({"scenes": key, "need": need, "have": have, "ok": have >= need})
+    return {"scenes": scenes, "checks": checks}
+
+
+def run_count(args) -> int:
+    root = out_root(args.out, args.place)
+    print(f"[장수 세기] {root} · {args.place} — 깨짐·검은 화면·중복(장소 전체)을 거른다…")
+    r = count_place(root, args.place)
+    names = {s.split()[0]: s for s in SCENES}
+    print(f"\n{'장면':<10}{'저장':>8}{'남음':>8}")
+    for s in sorted(r["scenes"]):
+        v = r["scenes"][s]
+        print(f"{names.get(s, s):<10}{v['saved']:>8}{v['unique']:>8}")
+    for c in r["checks"]:
+        mark = "✅" if c["ok"] else f"❌ {c['need'] - c['have']}장 모자람 — 그 장면을 더 찍는다"
+        print(f"장면 {c['scenes']}: 남음 {c['have']} / 최소 {c['need']}  {mark}")
+    return 0 if all(c["ok"] for c in r["checks"]) else 1
 
 
 # ───────────────────────────────────────────────────────────── 수신
@@ -154,12 +280,14 @@ def run(args) -> int:
     sock = _connect(host)
 
     # 🔑 맵은 **첫 프레임의 실제 크기**로 만든다 — config 에 해상도 상수가 없다.
-    umap, umap_ready = None, False
-    root = Path(os.path.expanduser(args.out))
-    place_i, scene_i = 0, 0
-    sess, last_save = None, 0.0
+    umap, umap_ready, cond = None, False, {}
+    place = args.place
+    root = out_root(args.out, place)
+    scene_i = 0
+    sess = None
     stages = {"recv": 0, "decode": 0, "orient": 0, "saved": 0}
-    print("space=녹화 시작/정지  s=장면  p=장소  q=종료")
+    print(f"[저장] {root} · {place}")
+    print(HELP)
 
     while True:
         data = _recv_frame(sock)
@@ -174,7 +302,8 @@ def run(args) -> int:
 
         if not umap_ready:
             h0, w0 = frame.shape[:2]
-            umap, umap_ready = frame_orient.undistort_map(w0, h0), True
+            umap, _, cpath = frame_orient.load_undistort(w0, h0)
+            umap_ready, cond = True, orient_meta(w0, h0, cpath)
             if umap is None:
                 print(f"🔴 [왜곡보정] {w0}×{h0} 용 맵 없음 — 런타임과 다른 그림이 된다.")
                 if not args.force:
@@ -184,15 +313,16 @@ def run(args) -> int:
         frame = frame_orient.apply_full(frame, umap)
         stages["orient"] += 1
 
-        if sess is not None and (time.time() - last_save) >= args.every:
-            sess.save(frame)
+        if sess is not None and sess.maybe_save(frame, time.time()):
             stages["saved"] += 1
-            last_save = time.time()
 
         view = frame.copy()
-        state = f"REC {sess.n}" if sess else "대기"
-        cv2.putText(view, f"{PLACES[place_i]} | {SCENES[scene_i]} | {state}",
-                    (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+        if sess:
+            el = int(time.time() - sess.started)
+            state = f"● 녹화 {el // 60:02d}:{el % 60:02d} · {sess.n}장"
+        else:
+            state = "대기"
+        draw_banner(view, f"{place} · {SCENES[scene_i]} · {state}", HELP)
         cv2.imshow("capture_dataset", view)
 
         k = cv2.waitKey(1) & 0xFF
@@ -200,22 +330,19 @@ def run(args) -> int:
             break
         if k == ord(" "):
             if sess is None:
-                sess = Session(root, PLACES[place_i], SCENES[scene_i], args.every,
-                               {"host": host,
-                                "frame_size": f"{frame.shape[1]}x{frame.shape[0]}",
-                                "jpeg_quality": args.jpeg_quality,
-                                "undistort": umap is not None})
-                last_save = 0.0
+                sess = Session(root, place, SCENES[scene_i], args.every,
+                               {"host": host, **cond, "jpeg_quality": args.jpeg_quality},
+                               stages0=stages)
                 print(f"[녹화 시작] {sess.dir}")
             else:
                 sess.close(stages)
                 print(f"[녹화 정지] {sess.n}장 → {sess.dir}")
                 sess = None
-        # 🔑 장면·장소는 녹화 중에 못 바꾼다 — 한 폴더에 두 조건이 섞이면 나중에 가를 수 없다.
+        # 🔑 장면은 녹화 중에 못 바꾼다 — 한 폴더에 두 조건이 섞이면 나중에 가를 수 없다.
+        #    장소는 키로 바꾸지 않는다(--place) — 켜면 장소1 로 시작해 p 를 잊으면
+        #    장소3 사진이 장소1 이름으로 학습 묶음에 섞일 수 있었다(2026-10-01).
         if k == ord("s") and sess is None:
             scene_i = (scene_i + 1) % len(SCENES)
-        if k == ord("p") and sess is None:
-            place_i = (place_i + 1) % len(PLACES)
 
     if sess is not None:
         sess.close(stages)
@@ -322,8 +449,12 @@ def _selftest() -> int:
     return 0
 
 
-def main() -> int:
+def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--place", choices=PLACES, default=None,
+                    help="촬영 장소 — 촬영·--count 에 필수. 장소3 은 <out>_장소3 에 따로 저장한다")
+    ap.add_argument("--count", action="store_true",
+                    help="촬영 대신 그 장소의 녹화를 묶음 도구와 같은 거름에 넣어 장면별로 남는 장수를 센다")
     ap.add_argument("--host", default=None, help="ESP32 IP(기본: config)")
     ap.add_argument("--out", default="~/data/capture", help="저장 뿌리")
     ap.add_argument("--every", type=float, default=0.2,
@@ -339,10 +470,14 @@ def main() -> int:
                     help="그때 펌웨어의 jpeg_quality. 기록용이며 도구가 바꾸지 않는다 "
                          "(0~63, 낮을수록 고화질). 안 주면 조건에 null 로 남는다")
     ap.add_argument("--selftest", action="store_true")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     if a.selftest:
         return _selftest()
-    return run_bench(a) if a.bench > 0 else run(a)
+    if a.bench > 0:
+        return run_bench(a)
+    if a.place is None:
+        ap.error("--place 장소2 처럼 촬영 장소를 정하라")
+    return run_count(a) if a.count else run(a)
 
 
 if __name__ == "__main__":

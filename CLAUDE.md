@@ -73,7 +73,7 @@ ESP32-S3(OV3660) ─TCP:8888→ CameraThread
 - ESP32 펌웨어(.ino) = **Arduino CLI**(IDE 아님), **라즈베리파이에서만** 편집·컴파일(Windows 엔 미설치).
 - `original/` = 참고용 구버전(`yolo_hailo_tcp.py` = RPi Hailo 추론 핵심, `provision_wifi.py` 등 RPi 전용).
 - **촬영·런처 함정** = `../.claude/skills/촬영/` · **데이터셋·라벨링** = `../.claude/skills/데이터셋/` · **벤치·DB·시뮬레이터** = `../.claude/skills/측정도구/`
-  - 파이프라인 문서 = `Demo/docs/dataset_pipeline.md` · 라벨링 기준 = `Demo/docs/labeling_guide.md` · FSM 테스트 = `Demo/docs/TESTING_FSM.md`
+  - 파이프라인 문서 = `Demo/docs/dataset_pipeline.md` · 라벨링 기준 = `Demo/docs/labeling_guide.md` · 장소2·3 촬영 = `Demo/docs/촬영지시서.md` · FSM 테스트 = `Demo/docs/TESTING_FSM.md`
 
 ## 다음
 
