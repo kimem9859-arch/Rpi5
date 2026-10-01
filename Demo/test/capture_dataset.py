@@ -13,7 +13,7 @@
 
 🔴 저장은 무손실 PNG 다 — B4(파란 스티커)는 손실 압축만으로도 사라진다.
 
-장면 목록은 데이터확보 설계서 §5 의 8종이다. 화면에 띄워 **그 자체가 촬영
+장면 목록은 데이터확보 설계서 §5 장면에 0 정지를 더하고 5 빛반사를 뺀 것이다(SCENES). 화면에 띄워 **그 자체가 촬영
 지시서**가 되게 한다 — 「무엇을 몇 번 찍어라」를 말로 전하면 혼선이 생겨
 재촬영을 부른다. 시간표·현장 절차 = `docs/촬영지시서.md`.
 
@@ -82,8 +82,16 @@ class Session:
     def __init__(self, root: Path, place: str, scene: str, every: float, meta: dict,
                  stages0: dict | None = None):
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.dir = root / f"{stamp}_{place}_{scene.split()[0]}"
-        self.dir.mkdir(parents=True, exist_ok=True)
+        # 🔑 같은 초에 정지→다시 시작하면 이름이 같아 앞 녹화를 덮어쓴다 — 시각 끝에 b·c… 를 붙인다.
+        #    장면 번호는 폴더 이름 끝(count_place)·시각은 앞 두 조각(review_batch.short_name)이라 둘 다 그대로다.
+        root.mkdir(parents=True, exist_ok=True)
+        for tail in ["", *"bcdefgh"]:
+            self.dir = root / f"{stamp}{tail}_{place}_{scene.split()[0]}"
+            try:
+                self.dir.mkdir()
+                break
+            except FileExistsError:
+                continue
         self.place, self.scene, self.every = place, scene, every
         self.meta = dict(meta)
         self.stages0 = dict(stages0 or {})   # 녹화 시작 때의 단계 수 — 이 녹화 몫만 남기려고
@@ -92,9 +100,12 @@ class Session:
         self.started = time.time()
 
     def save(self, img) -> None:
+        """🔴 cv2.imwrite 는 디스크가 차도 예외 없이 False 만 돌려준다 — 그대로 두면 화면의 장수만 오르고
+        파일은 없다(여유 5.7G 에서 장소2 약 2~4G 를 찍는다). 실패하면 OSError 로 촬영을 멈춘다."""
+        path = self.dir / f"f{self.n + 1:05d}.png"
+        if not cv2.imwrite(str(path), img, [cv2.IMWRITE_PNG_COMPRESSION, 3]):
+            raise OSError(f"PNG 저장 실패 — 디스크 여유(df -h ~/data)를 확인하라: {path}")
         self.n += 1
-        cv2.imwrite(str(self.dir / f"f{self.n:05d}.png"), img,
-                    [cv2.IMWRITE_PNG_COMPRESSION, 3])
 
     def maybe_save(self, img, now: float) -> bool:
         """간격이 됐으면 한 장 저장한다.
@@ -125,7 +136,7 @@ class Session:
 def out_root(out: str, place: str) -> Path:
     """저장 뿌리 — 🔴 장소3(시험 전용)은 형제 폴더 `<out>_장소3` 에 따로 둔다.
     학습 묶음을 만들 때 장소 폴더 하나를 통째로 넘겨도 시험 사진이 섞이지 않게(설계 2026-09-16 §4)."""
-    root = Path(os.path.expanduser(out))
+    root = Path(os.path.abspath(os.path.expanduser(out)))   # abspath — `--out .` 도 이름이 생긴다
     return root.with_name(f"{root.name}_장소3") if place == "장소3" else root
 
 
@@ -163,7 +174,10 @@ def _health(path: str):
     import dedupe_raw
     import frame_health
     from review_batch import BLACK_MEAN
-    seam, washed = frame_health.metrics(Path(path))
+    try:
+        seam, washed = frame_health.metrics(Path(path))
+    except OSError:                  # 쓰다 만 파일(전원 차단·강제 종료) — 한 장 때문에 세기 전체가 죽지 않게
+        return True, None
     img = cv2.imread(path)
     bad = seam > 0.02 or washed > 0.25 or img is None or float(img.mean()) < BLACK_MEAN
     return bad, (dedupe_raw.phash(img) if img is not None else None)
@@ -194,13 +208,18 @@ def count_place(root: Path, place: str, workers: int = 4) -> dict:
     for key, need in MIN_KEEP.get(place, {}).items():
         have = sum(scenes.get(s, {}).get("unique", 0) for s in key.split("+"))
         checks.append({"scenes": key, "need": need, "have": have, "ok": have >= need})
-    return {"scenes": scenes, "checks": checks}
+    return {"sessions": len(dirs), "scenes": scenes, "checks": checks}
 
 
 def run_count(args) -> int:
     root = out_root(args.out, args.place)
     print(f"[장수 세기] {root} · {args.place} — 깨짐·검은 화면·중복(장소 전체)을 거른다…")
     r = count_place(root, args.place)
+    if r["sessions"] == 0:
+        # 경로를 잘못 주면 「전부 모자람 — 더 찍는다」로 읽혀 다 찍은 장면을 다시 찍게 된다
+        print(f"🔴 세션 없음 — {root} 에 *_{args.place}_* 폴더가 없다. --out·--place 를 확인하라.")
+        return 2
+    print(f"세션 {r['sessions']}개")
     names = {s.split()[0]: s for s in SCENES}
     print(f"\n{'장면':<10}{'저장':>8}{'남음':>8}")
     for s in sorted(r["scenes"]):
@@ -304,6 +323,8 @@ def run(args) -> int:
             h0, w0 = frame.shape[:2]
             umap, _, cpath = frame_orient.load_undistort(w0, h0)
             umap_ready, cond = True, orient_meta(w0, h0, cpath)
+            # 🔑 해상도를 눈에 보이게 — VGA 보정 파일도 있어 펌웨어가 VGA 면 경고 없이 VGA 로 찍힌다
+            print(f"[카메라] {w0}×{h0} · 보정 {cond['calibration_file']}  (장소1 = 1024×768)")
             if umap is None:
                 print(f"🔴 [왜곡보정] {w0}×{h0} 용 맵 없음 — 런타임과 다른 그림이 된다.")
                 if not args.force:
@@ -313,8 +334,16 @@ def run(args) -> int:
         frame = frame_orient.apply_full(frame, umap)
         stages["orient"] += 1
 
-        if sess is not None and sess.maybe_save(frame, time.time()):
-            stages["saved"] += 1
+        try:
+            if sess is not None and sess.maybe_save(frame, time.time()):
+                stages["saved"] += 1
+        except OSError as e:
+            print(f"🔴 [저장 실패] {e}")
+            sess.close(stages)
+            print(f"[녹화 정지] {sess.n}장 → {sess.dir}")
+            sock.close()
+            cv2.destroyAllWindows()
+            return 1
 
         view = frame.copy()
         if sess:
