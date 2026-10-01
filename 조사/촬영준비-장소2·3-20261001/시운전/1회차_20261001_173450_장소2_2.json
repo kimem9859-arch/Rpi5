@@ -1,0 +1,17 @@
+{
+ "host": "192.168.1.16",
+ "frame_size": "768x1024",
+ "jpeg_quality": null,
+ "undistort": true,
+ "place": "장소2",
+ "scene": "2 버튼누르기",
+ "every_sec": 0.2,
+ "frames": 250,
+ "seconds": 68.8,
+ "stages": {
+  "recv": 10188,
+  "decode": 10188,
+  "orient": 10188,
+  "saved": 250
+ }
+}

@@ -1,0 +1,20 @@
+{
+ "host": "192.168.1.16",
+ "frame_size": "1024x768",
+ "undistort": true,
+ "calibration_file": "camera_calibration_1024x768.npz",
+ "flip_mode": "v",
+ "rotate_ccw90": true,
+ "jpeg_quality": 15,
+ "place": "장소2",
+ "scene": "8 배경",
+ "every_sec": 0.2,
+ "frames": 112,
+ "seconds": 22.4,
+ "stages": {
+  "recv": 398,
+  "decode": 398,
+  "orient": 398,
+  "saved": 112
+ }
+}

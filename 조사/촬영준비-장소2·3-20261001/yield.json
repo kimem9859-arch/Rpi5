@@ -1,0 +1,88 @@
+{
+ "s1 정지 @0.272": {
+  "sec": 49.5,
+  "saved": 87,
+  "quality_ok": 87,
+  "unique": 14,
+  "blur_in_unique": 0,
+  "per_min_saved": 105.5,
+  "per_min_unique": 17.0
+ },
+ "s1 정지 @0.2": {
+  "sec": 49.5,
+  "saved": 87,
+  "quality_ok": 87,
+  "unique": 14,
+  "blur_in_unique": 0,
+  "per_min_saved": 105.5,
+  "per_min_unique": 17.0
+ },
+ "s2 이동 @0.272": {
+  "sec": 57.5,
+  "saved": 190,
+  "quality_ok": 190,
+  "unique": 149,
+  "blur_in_unique": 9,
+  "per_min_saved": 198.2,
+  "per_min_unique": 155.4
+ },
+ "s2 이동 @0.2": {
+  "sec": 57.5,
+  "saved": 254,
+  "quality_ok": 254,
+  "unique": 186,
+  "blur_in_unique": 13,
+  "per_min_saved": 264.9,
+  "per_min_unique": 194.0
+ },
+ "s6 SOP작업 @0.272": {
+  "sec": 217.6,
+  "saved": 709,
+  "quality_ok": 705,
+  "unique": 559,
+  "blur_in_unique": 21,
+  "per_min_saved": 195.5,
+  "per_min_unique": 154.2
+ },
+ "s6 SOP작업 @0.2": {
+  "sec": 217.6,
+  "saved": 945,
+  "quality_ok": 939,
+  "unique": 695,
+  "blur_in_unique": 26,
+  "per_min_saved": 260.6,
+  "per_min_unique": 191.7
+ },
+ "공구 자유 @0.272": {
+  "sec": 565.4,
+  "saved": 1648,
+  "quality_ok": 1635,
+  "unique": 1295,
+  "blur_in_unique": 80,
+  "per_min_saved": 174.9,
+  "per_min_unique": 137.4
+ },
+ "공구 자유 @0.2": {
+  "sec": 565.4,
+  "saved": 2380,
+  "quality_ok": 2360,
+  "unique": 1743,
+  "blur_in_unique": 110,
+  "per_min_saved": 252.6,
+  "per_min_unique": 185.0
+ },
+ "오늘 시운전(실제 도구) @0.272": {
+  "sec": 68.7,
+  "saved": 250,
+  "quality_ok": 250,
+  "unique": 199,
+  "blur_in_unique": 28,
+  "per_min_saved": 218.4,
+  "per_min_unique": 173.9
+ },
+ "장소 전체 합쳐 중복 제거 @0.272": {
+  "s2 이동": 149,
+  "s6 SOP작업": 558,
+  "공구 자유": 1290
+ }
+}
