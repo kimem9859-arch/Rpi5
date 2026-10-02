@@ -275,6 +275,45 @@ def test_fps_stale():
     check(fps_stale(99.0, now=100.0, stale_after=0.5), "임계를 좁히면 끊김으로 본다")
 
 
+def test_banner_mode_change_during_entrance_enters_once():
+    """종합 리뷰 B-M4 — 배너가 미끄러져 들어오는 도중(260ms) 모드가 바뀌면(경고 직후 오답 → 차단)
+    등장은 한 번이다 — 글자만 바뀐다. 🔴 종전에는 등장이 끝나자마자 한 번 더 미끄러져 들어왔다
+    (9/30 「등장 중 건너뛴 relayout 을 앉은 뒤 다시」가 남은 등장 예약을 실행)."""
+    print("\n[배너] 등장 중 모드 전환 — 등장 한 번")
+    from PyQt6.QtTest import QTest
+    config.UI_ANIMATION = True
+    host = QWidget()
+    host.resize(1280, 720)
+    host.show()
+    b = AlertBanner(host)
+    calls = []
+    real = anim.slide_in
+
+    def spy(*a, **k):
+        calls.append(1)
+        return real(*a, **k)
+
+    anim.slide_in = spy
+    try:
+        r = QRect(0, 0, 1280, 720)
+        b.show_order_violation("B2", "펌프/퍼지")
+        b.relayout(r)
+        QTest.qWait(60)                              # 아직 미끄러져 들어오는 중
+        b.show_block("잘못된 버튼을 눌러 차단했습니다")
+        b.relayout(r)
+        QTest.qWait(1500)
+        check(len(calls) == 1, f"등장 {len(calls)}회")
+        check(b._needs_entrance is False, "남은 등장 예약 없음")
+        check(b.mode == "block", f"글자는 차단으로 바뀐다 ({b.mode})")
+        b.relayout(r)                                # 테마 전환·창 크기 변경 흉내
+        QTest.qWait(600)
+        check(len(calls) == 1, f"그 뒤 다시 앉혀도 등장 없음 ({len(calls)}회)")
+    finally:
+        anim.slide_in = real
+        b.hide_all()
+        host.close()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

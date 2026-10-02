@@ -648,7 +648,9 @@ class AlertBanner(_Panel):
         #    부르므로, 지금은 배너가 앉을 최종 위치가 아직 정해지지 않았다.
         if self._mode != prev_mode:
             self._pulse.stop()
-            self._needs_entrance = True
+            # 🔴 이미 미끄러져 들어오는 중이면 등장을 다시 예약하지 않는다 — 글자만 바뀐다.
+            #    예약하면 등장이 끝나자마자 한 번 더 미끄러져 들어왔다(종합 리뷰 B-M4).
+            self._needs_entrance = not anim.busy(self)
             if self._mode == "block":
                 self._pulse.start()
         self.show()
