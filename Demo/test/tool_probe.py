@@ -285,7 +285,7 @@ def main():
             lms = hand.last_landmarks
 
             if sub is None and gate.available:
-                sub = SubTask(spec)
+                sub = SubTask(spec, now=now)   # 🔴 tick 과 같은 시계 — SubTask 기본은 단조 시계라 섞으면 대기가 즉시 찬다
                 print(f"[시작] 워커 준비됨 — 지금부터 {spec.get('sec')}초 타이머 + 공구 판정")
             if sub is not None:
                 sub.tick(now)

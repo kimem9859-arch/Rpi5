@@ -15,8 +15,10 @@
     그 버튼이 제거되고 **자동 진행**이 됐다(통합문서 §6.1.1).
 
 ⚠️ Qt 에 의존하지 않는다 — GUI 없이 시험할 수 있어야 한다.
-⚠️ 시간을 **인자로 받는다**(`now`). 내부에서 time.time() 을 부르면 테스트가
+⚠️ 시간을 **인자로 받는다**(`now`). 내부에서 시계를 부르면 테스트가
    30초를 실제로 기다려야 한다. 인자를 생략하면 실시간을 쓴다(런타임 편의).
+🔴 실시간 = **단조 시계(`time.monotonic`)** 다 — 벽시계는 RTC 없는 파이가 부팅 직후 NTP 로
+   맞출 때 튀어, 대기가 즉시 끝나거나 오래 멈췄다(종합 리뷰 A-M7). 판정기·카메라와 같은 시계다.
 """
 
 import time
@@ -30,7 +32,7 @@ class SubTask:
 
     def __init__(self, spec, now=None):
         self._spec = spec or None
-        self._start = time.time() if now is None else now
+        self._start = time.monotonic() if now is None else now
         self._now = self._start
         # 공구 판정 결과(A-2). 🔑 두 경우에만 값이 들어온다 —
         #   ① 오답 공구를 쥐었을 때 그 공구(→ wrong_tool 경고)
@@ -136,18 +138,18 @@ class SubTask:
     # ------------------------------------------------------------------ 입력
     def tick(self, now=None):
         """현재 시각을 갱신한다. GUI 타이머가 주기적으로 부른다."""
-        self._now = time.time() if now is None else now
+        self._now = time.monotonic() if now is None else now
 
     def pause(self, now=None):
         """경고가 뜨면 멈춘다(설계 D5 · G1). 이미 멈춰 있으면 아무 일도 없다."""
         if self._spec and self._paused_at is None:
-            self._paused_at = time.time() if now is None else now
+            self._paused_at = time.monotonic() if now is None else now
 
     def resume(self, now=None):
         """경고가 풀리면 **남은 시간부터** 잇는다 — 멈춘 동안은 경과에 넣지 않는다."""
         if self._paused_at is None:
             return
-        now = time.time() if now is None else now
+        now = time.monotonic() if now is None else now
         self._paused_total += max(0.0, now - self._paused_at)
         self._paused_at = None
         self._now = now

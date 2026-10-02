@@ -130,6 +130,25 @@ def test_real_clock_default():
     check(st.elapsed_sec < 1.0, f"방금 만들었으므로 경과 {st.elapsed_sec:.3f}s")
 
 
+def test_wall_clock_jump_does_not_move_timer():
+    """종합 리뷰 A-M7 — 기본 시계는 단조 시계다. 벽시계가 튀어도(부팅 직후 NTP 맞춤) 대기가
+    즉시 끝나거나 멈추지 않는다."""
+    print("\n[A-M7] 벽시계가 튀어도")
+    real = time.time
+    try:
+        st = SubTask(WAIT)
+        time.time = lambda: real() + 3600.0          # 벽시계가 1시간 앞으로
+        st.tick()
+        check(not st.time_done and st.elapsed_sec < 1.0, f"앞으로 튐 — 경과 {st.elapsed_sec:.1f}s")
+        time.time = lambda: real() - 3600.0          # 뒤로
+        st.pause()
+        st.resume()
+        st.tick()
+        check(0.0 <= st.elapsed_sec < 1.0, f"뒤로 튐(멈춤·재개 포함) — 경과 {st.elapsed_sec:.1f}s")
+    finally:
+        time.time = real
+
+
 # ----------------------------------------------------- 일시정지 (설계 2026-09-25 D5 · G1)
 def test_pause_freezes_time():
     """경고로 멈춘 동안은 시간이 흐르지 않는다."""
@@ -178,6 +197,7 @@ if __name__ == "__main__":
     test_wait_type_has_no_tool_state()
     test_display_fields()
     test_real_clock_default()
+    test_wall_clock_jump_does_not_move_timer()
     test_pause_freezes_time()
     test_resume_continues_from_remaining()
     test_paused_never_advances()

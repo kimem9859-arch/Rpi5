@@ -5,6 +5,9 @@
 ⚠️ Qt 에 의존하지 않는다 — GUI 없이 시험할 수 있어야 한다.
 ⚠️ 시간을 **인자로 받는다**(`now`). 생략하면 실시간을 쓴다(런타임 편의).
    fsm.py · sub_task.py 와 같은 규약이다.
+🔴 실시간은 둘이다 — 결과창에 **보이는 시각**(started_at·pressed_at·at 등)은 벽시계, **소요 시간**
+   (total_sec·sec·grasp_sec)은 단조 시계로 잰다. 벽시계는 부팅 직후 NTP 맞춤으로 튀어 소요 시간이
+   틀어졌다(종합 리뷰 A-M7). `now` 를 주면(시험) 둘 다 그 값이다.
 
 🔴 오탐지(false positive)를 집계하지 않는다. 오탐 판정에는 정답 라벨이 필요하고
    실시간 데모 중에 그것을 알 방법이 없다 — 숫자를 만들면 근거 없는 수치가 된다.
@@ -17,7 +20,13 @@ import time
 
 
 def _now(now):
+    """보이는 시각(벽시계)."""
     return time.time() if now is None else now
+
+
+def _mono(now):
+    """소요 시간을 재는 시각(단조 시계) — 차이만 쓴다."""
+    return time.monotonic() if now is None else now
 
 
 class SessionStats:
@@ -28,8 +37,9 @@ class SessionStats:
         self._recipe = ""
         self._step_count = 0
         self._started = None
+        self._started_m = None     # 시작 시각(단조) — total_sec 용
         self._steps = []           # {order, button, name, pressed_at, done_at, sec}
-        self._pending = {}         # button -> pressed_at
+        self._pending = {}         # button -> (pressed_at 벽시계, 단조)
         self._violations = []
         self._unconfirmed = []     # 카메라 미확인 누름 {at, order, button}(2026-09-30)
         self._interlocks = []
@@ -44,6 +54,7 @@ class SessionStats:
         self._recipe = recipe_name
         self._step_count = step_count
         self._started = _now(now)
+        self._started_m = _mono(now)
 
     @property
     def running(self):
@@ -52,14 +63,14 @@ class SessionStats:
     # ------------------------------------------------------------------ 단계
     def button_pressed(self, button, expected, ok, now=None):
         if ok:
-            self._pending[button] = _now(now)
+            self._pending[button] = (_now(now), _mono(now))
 
     def step_done(self, order, button, name, now=None):
-        t = _now(now)
-        pressed = self._pending.pop(button, t)
+        t, tm = _now(now), _mono(now)
+        pressed, pressed_m = self._pending.pop(button, (t, tm))
         self._steps.append({"order": order, "button": button, "name": name,
                             "pressed_at": pressed, "done_at": t,
-                            "sec": t - pressed})
+                            "sec": tm - pressed_m})
 
     # ------------------------------------------------------------------ 서브
     def sub_started(self, button, spec, now=None):
@@ -82,11 +93,11 @@ class SessionStats:
         #    집계를 비우고, 레시피 단계 버튼은 서로 다르다). 한 레시피에 같은 버튼 단계가
         #    둘 생기면 취소 표시를 따로 둬야 한다(② 리뷰 9).
         if self._tools and self._tools[-1]["button"] == button:
-            self._tools[-1].update({"want": spec.get("tool"), "_start": _now(now),
+            self._tools[-1].update({"want": spec.get("tool"), "_start": _mono(now),
                                     "grasp_sec": None})
             return
         self._tools.append({"button": button, "want": spec.get("tool"),
-                            "_start": _now(now), "grasp_sec": None, "wrong": {}})
+                            "_start": _mono(now), "grasp_sec": None, "wrong": {}})
 
     def sub_done(self, button, now=None):
         pass          # 쥔 시각은 tool_grasped 가 이미 기록한다
@@ -97,7 +108,7 @@ class SessionStats:
         cur = self._tools[-1]
         if ok:
             if cur["grasp_sec"] is None:
-                cur["grasp_sec"] = _now(now) - cur["_start"]
+                cur["grasp_sec"] = _mono(now) - cur["_start"]
         elif key:
             # 🔴 **횟수**를 센다 — 종류당 1회만 남기면 세 번 집어도 「1회」로 보인다
             #    (설계 §3.3 은 횟수·종류 둘 다를 요구한다).
@@ -140,13 +151,14 @@ class SessionStats:
 
     # ------------------------------------------------------------------ 마감
     def finish(self, now=None):
-        t = _now(now)
+        t, tm = _now(now), _mono(now)
         started = self._started if self._started is not None else t
+        started_m = self._started_m if self._started is not None else tm
         out = {
             "recipe": self._recipe,
             "started_at": started,
             "finished_at": t,
-            "total_sec": t - started,
+            "total_sec": tm - started_m,
             "ok": not self._violations,
             "steps": list(self._steps),
             "violations": list(self._violations),

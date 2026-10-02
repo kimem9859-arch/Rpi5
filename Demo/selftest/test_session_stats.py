@@ -150,6 +150,32 @@ def test_unconfirmed_press():
     check(s.finish(now=21.0)["unconfirmed"] == [], "새 작업은 빈 목록")
 
 
+def test_wall_clock_jump_keeps_durations():
+    """종합 리뷰 A-M7 — 기본 시계에서 소요 시간은 단조 시계로 잰다(벽시계가 NTP 맞춤으로 튀어도 그대로) ·
+    결과창에 보이는 시각(started_at·pressed_at 등)은 벽시계다."""
+    print("\n[A-M7] 벽시계가 튀어도 소요 시간")
+    real = time.time
+    try:
+        s = SessionStats()
+        time.time = lambda: 1_000_000.0
+        s.start("t", 4)
+        s.button_pressed("B1", "B1", True)
+        s.sub_started("B1", {"tool": "wrench"})
+        time.time = lambda: 1_003_600.0              # 벽시계가 1시간 앞으로
+        s.tool_grasped("wrench", True)
+        s.step_done(1, "B1", "클린")
+        out = s.finish()
+    finally:
+        time.time = real
+    check(out["total_sec"] < 1.0, f"총 소요 {out['total_sec']:.1f}s")
+    check(out["steps"][0]["sec"] < 1.0, f"단계 소요 {out['steps'][0]['sec']:.1f}s")
+    check(out["tools"][0]["grasp_sec"] < 1.0, f"쥐기까지 {out['tools'][0]['grasp_sec']:.1f}s")
+    check(out["started_at"] == 1_000_000.0 and out["finished_at"] == 1_003_600.0,
+          f"표시 시각은 벽시계 ({out['started_at']} · {out['finished_at']})")
+    check(out["steps"][0]["pressed_at"] == 1_000_000.0 and out["steps"][0]["done_at"] == 1_003_600.0,
+          "단계 시각도 벽시계")
+
+
 if __name__ == "__main__":
     t0 = time.time()
     for _name, _fn in sorted(globals().items()):

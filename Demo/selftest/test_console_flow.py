@@ -118,7 +118,7 @@ def test_scenario_runs_to_end():
             # 🔑 서브 작업이 있으면 FSM 은 아직 안 올라가 있어야 한다
             check(win.fsm.expected_step == before,
                   f"{btn} 누름 → 서브 작업 중, 기대단계 {before} 유지")
-            win._sub.tick(now=time.time() + 999)    # 시간 채움
+            win._sub.tick(now=time.monotonic() + 999)    # 시간 채움
             if win._sub.needs_tool:
                 win._sub.set_tool(win._sub.want_tool)
             win._update_sub_view()                  # 조건 충족 → 자동 진행
@@ -136,7 +136,7 @@ def test_auto_advance_without_button():
     key(win, "1")                                   # B1 물리 버튼
     check(win.fsm.expected_step == before,
           f"누른 직후엔 기대단계 {before} 유지 — 서브 작업 중")
-    win._sub.tick(now=time.time() + 999)            # 대기 시간을 채운다
+    win._sub.tick(now=time.monotonic() + 999)            # 대기 시간을 채운다
     win._update_sub_view()                          # 타이머가 부르는 것과 같다
     check(win._sub is None, "조건 충족 → 서브 작업이 스스로 끝난다")
     check(win.fsm.expected_step == before + 1,
@@ -151,12 +151,12 @@ def test_tool_step_waits_until_grasped():
     win = make_console()
     win._on_cta()
     key(win, "1")
-    win._sub.tick(now=time.time() + 999)
+    win._sub.tick(now=time.monotonic() + 999)
     win._update_sub_view()                          # B1 자동 통과
 
     key(win, "2")                                   # B2 — 공구 요구
     before = win.fsm.expected_step
-    win._sub.tick(now=time.time() + 999)
+    win._sub.tick(now=time.monotonic() + 999)
     win._update_sub_view()
     check(win._sub is not None and win._sub.is_active,
           "시간이 차도 공구가 없으면 안 넘어간다")
@@ -182,7 +182,7 @@ def test_tool_signal_drives_gate():
     win._on_cta()
     key(win, "1")                                    # B1 — 공구 없는 서브
     check(win._tool_state is None, "wait 서브에는 공구 판정이 붙지 않는다")
-    win._sub.tick(now=time.time() + 999)
+    win._sub.tick(now=time.monotonic() + 999)
     win._update_sub_view()
 
     key(win, "2")                                    # B2 — wait_tool 서브
@@ -218,7 +218,7 @@ def test_tool_signal_drives_gate():
 
     # ⑤ 시간까지 차면 (시간 AND 공구) 조건이 다 채워져 **버튼 없이** 자동 진행하고,
     #    서브 작업이 끝나면 스캔이 꺼진다 (🔴 안 끄면 워커가 CPU 를 계속 먹는다)
-    win._sub.tick(now=time.time() + 999)
+    win._sub.tick(now=time.monotonic() + 999)
     win._update_sub_view()
     check(win._sub is None, "시간까지 차면 자동 진행")
     check(win._tool_state is None, "판정 상태가 정리된다")
@@ -235,9 +235,9 @@ def test_tool_hand_unseen_does_not_advance():
     print("\n[3-c] 쥐기 전에는 완료되지 않는다")
     win = make_console()
     win._on_cta()
-    key(win, "1"); win._sub.tick(now=time.time() + 999); win._finish_sub()
+    key(win, "1"); win._sub.tick(now=time.monotonic() + 999); win._finish_sub()
     key(win, "2")
-    win._sub.tick(now=time.time() + 999)                  # 시간은 이미 찼다
+    win._sub.tick(now=time.monotonic() + 999)                  # 시간은 이미 찼다
 
     for _ in range(10):
         win.camera_thread.tool_signal.emit([], None)      # 손·공구 함께 사라짐
@@ -378,7 +378,7 @@ def test_cta_hidden_while_sheet_open():
     key(win, "1")                                   # B1 → 서브 작업
     win._toggle_settings(True)                      # 시트를 열어 둔 채
     if win._sub is not None and win._sub.is_active:
-        win._sub.tick(now=time.time() + 999)        # 시간이 다 참
+        win._sub.tick(now=time.monotonic() + 999)        # 시간이 다 참
         if win._sub.needs_tool:
             win._sub.set_tool(win._sub.want_tool)
         win._update_sub_view()                      # 시트가 열려 있어도 스스로 진행한다
@@ -570,7 +570,7 @@ def test_result_panel_on_completion():
     for step in ("1", "2", "3", "4"):
         key(win, step)
         if win._sub is not None and win._sub.is_active:
-            win._sub.tick(now=time.time() + 999)
+            win._sub.tick(now=time.monotonic() + 999)
             if win._sub.needs_tool:
                 win._sub.set_tool(win._sub.want_tool)
             win._update_sub_view()
@@ -616,7 +616,7 @@ def test_stats_wiring_step_seconds():
             # 🔑 실제로 시간을 흘려보낸다 — 이것이 있어야 「눌림 시각을 언제
             #    찍었나」가 값의 차이로 드러난다(버그 상태의 sec 은 ~0.003초).
             time.sleep(0.12)
-            win._sub.tick(now=time.time() + 999)
+            win._sub.tick(now=time.monotonic() + 999)
             if win._sub.needs_tool:
                 win._sub.set_tool(win._sub.want_tool)
             win._update_sub_view()
@@ -640,7 +640,7 @@ def test_stats_wiring_tools_only():
     for step in ("1", "2", "3", "4"):
         key(win, step)
         if win._sub is not None and win._sub.is_active:
-            win._sub.tick(now=time.time() + 999)
+            win._sub.tick(now=time.monotonic() + 999)
             if win._sub.needs_tool:
                 win._sub.set_tool(win._sub.want_tool)
             win._update_sub_view()
@@ -662,12 +662,12 @@ def test_stats_wiring_dwell_violation_actual():
     win = make_console()
     win._on_cta()
     key(win, "1")                                   # B1 을 정상 완료해 둔다
-    win._sub.tick(now=time.time() + 999)
+    win._sub.tick(now=time.monotonic() + 999)
     win._update_sub_view()
     check(win._last_button == "B1", "마지막 물리 눌림 = B1")
 
     # 오답 ROI(B4)에 임계(레시피 1.0초)를 넘겨 머문다 — 시각을 주입한다.
-    t0 = time.time()
+    t0 = time.monotonic()
     win.fsm.update_vision("B4", t0)
     win.fsm.update_vision("B4", t0 + 1.5)
     check(win.fsm.state == State.WARNING, f"체류 경고 발생({win.fsm.state.value})")
@@ -728,13 +728,13 @@ def test_stats_wiring_reentry_keeps_press_time():
     key(win, "1")                                     # 🔴 같은 버튼 재입력(무시돼야 함)
     check(win._sub is not None and win._sub.is_active, "재입력 후에도 서브 작업 계속 진행")
 
-    win._sub.tick(now=time.time() + 999)             # 대기 시간 채움 → 자동 진행
+    win._sub.tick(now=time.monotonic() + 999)             # 대기 시간 채움 → 자동 진행
     win._update_sub_view()
 
     for step in ("2", "3", "4"):                     # 나머지 단계를 채워 완주
         key(win, step)
         if win._sub is not None and win._sub.is_active:
-            win._sub.tick(now=time.time() + 999)
+            win._sub.tick(now=time.monotonic() + 999)
             if win._sub.needs_tool:
                 win._sub.set_tool(win._sub.want_tool)
             win._update_sub_view()
@@ -761,7 +761,7 @@ def test_sim_tool_key_completes_tool_subtask():
     win._on_cta()
 
     key(win, "1")                                    # B1 — 공구 없는 서브
-    win._sub.tick(now=time.time() + 999)
+    win._sub.tick(now=time.monotonic() + 999)
     win._update_sub_view()                           # 자동 진행 → B2 기대
 
     key(win, "2")                                    # B2 — 공구를 요구하는 서브
@@ -773,13 +773,13 @@ def test_sim_tool_key_completes_tool_subtask():
     check(win.fsm.expected_step == before,
           "🔴 시간이 안 찼으면 t 만으로는 넘어가지 않는다")
 
-    win._sub.tick(now=time.time() + 999)             # 시간까지 채움
+    win._sub.tick(now=time.monotonic() + 999)             # 시간까지 채움
     win._update_sub_view()
     check(win.fsm.expected_step == before + 1, "시간까지 차면 자동 진행")
 
     # 집계에도 남아 결과창의 「N초 만에 쥠」이 채워진다
     key(win, "3")
-    win._sub.tick(now=time.time() + 999)
+    win._sub.tick(now=time.monotonic() + 999)
     win._update_sub_view()
     key(win, "4")
     out = win._stats.finish()
@@ -850,7 +850,7 @@ def finish_sub(win):
     """서브 작업의 시간·공구 조건을 채우고 타이머 틱 한 번을 흉내 낸다."""
     if win._sub is None:
         return
-    win._sub.tick(now=time.time() + 999)
+    win._sub.tick(now=time.monotonic() + 999)
     if win._sub.needs_tool:
         win._sub.set_tool(win._sub.want_tool)
     win._update_sub_view()
@@ -866,7 +866,7 @@ def test_g1_warning_pauses_sub():
     check(win.fsm.state == State.WARNING, f"B3 머묾 → WARNING({win.fsm.state.value})")
     check(win._sub is not None and win._sub.paused, "서브 작업이 멈춘다")
     if win._sub is not None:
-        win._sub.tick(now=time.time() + 999)         # 멈춘 동안 시간이 흘러도
+        win._sub.tick(now=time.monotonic() + 999)         # 멈춘 동안 시간이 흘러도
         win._update_sub_view()
     check(win._sub is not None and win.fsm.expected_step == 1,
           "🔴 멈춘 동안은 게이지가 차지 않아 진행하지 않는다")
@@ -1195,7 +1195,7 @@ def test_r5_stream_reset_clears_fsm_observation():
     print("\n[R5] 재연결 → 판정기 관측 지움")
     win = make_console()
     win._on_cta()
-    t0 = time.time()
+    t0 = time.monotonic()
     win.fsm.update_vision("B3", t0)
     win.fsm.update_vision("B3", t0 + 0.1)
     signal = getattr(win.camera_thread, "stream_reset_signal", None)
@@ -1295,7 +1295,7 @@ def test_u13_dim_follows_state():
     win = make_console()
     win._on_cta()
     win._toggle_menu(True)
-    t0 = time.time()
+    t0 = time.monotonic()
     win.fsm.update_vision("B1", t0)                  # 손 진입 → MONITOR
     win.fsm.update_vision(None, t0 + 5)              # 이탈 → PROCESS_RUN
     check(not win.scrim.isHidden(), "메뉴가 열린 동안 손이 들락거려도 어둡게 한다")
