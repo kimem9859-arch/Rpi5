@@ -2013,12 +2013,14 @@ def test_confirm_notice_stays_behind_menu():
     win.close()
 
 def test_confirm_gpio_signal_reaches_press_confirm():
-    """누름 확인 리뷰 M-5(a) — GPIO 신호(gpio_button_signal)가 맞는 버튼 누름 확인까지 이어진다.
-    다른 시험은 `_press_button(source="gpio")` 를 직접 불러, 연결이 끊겨도 통과했다."""
-    print("\n[확인] GPIO 신호 → 누름 확인")
+    """누름 확인 리뷰 M-5(a) — GPIO 입력(컨트롤러 콜백 → gpio_button_signal → _press_gpio_button)이
+    맞는 버튼 누름 확인까지 이어진다. 다른 시험은 `_press_button(source="gpio")` 를 직접 불러,
+    연결이 끊겨도 통과했다. 🔑 컨트롤러 콜백부터 부른다 — 신호부터 부르면 콜백 연결이 바뀌어도
+    통과했다(최종 리뷰 2026-10-03 사소 3)."""
+    print("\n[확인] GPIO 입력 → 누름 확인")
     win = make_console()
     win._on_cta()
-    win.gpio_button_signal.emit("B1")                # 관측 없음
+    win.gpio_input._on_button("B1")                  # GPIO 엣지가 부르는 콜백 · 관측 없음
     finish_sub(win)
     check(len(win._stats._unconfirmed) == 1, f"미확인 집계 1건 ({win._stats._unconfirmed})")
     check(bool(_logs(win, "[확인] B1 누름 — 카메라 미확인")), "미확인 로그")

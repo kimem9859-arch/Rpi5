@@ -140,11 +140,14 @@ def test_wall_clock_jump_does_not_move_timer():
         time.time = lambda: real() + 3600.0          # 벽시계가 1시간 앞으로
         st.tick()
         check(not st.time_done and st.elapsed_sec < 1.0, f"앞으로 튐 — 경과 {st.elapsed_sec:.1f}s")
-        time.time = lambda: real() - 3600.0          # 뒤로
+        time.time = lambda: real() - 3600.0          # 뒤로 — 증상은 「0에 붙어 오래 멈춤」
         st.pause()
         st.resume()
+        before = st.elapsed_sec
+        time.sleep(0.2)
         st.tick()
-        check(0.0 <= st.elapsed_sec < 1.0, f"뒤로 튐(멈춤·재개 포함) — 경과 {st.elapsed_sec:.1f}s")
+        check(st.elapsed_sec - before >= 0.15,
+              f"뒤로 튀어도(멈춤·재개 포함) 시간은 흐른다 — {before:.2f}s → {st.elapsed_sec:.2f}s")
     finally:
         time.time = real
 

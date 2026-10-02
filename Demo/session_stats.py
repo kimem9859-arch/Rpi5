@@ -7,7 +7,10 @@
    fsm.py · sub_task.py 와 같은 규약이다.
 🔴 실시간은 둘이다 — 결과창에 **보이는 시각**(started_at·pressed_at·at 등)은 벽시계, **소요 시간**
    (total_sec·sec·grasp_sec)은 단조 시계로 잰다. 벽시계는 부팅 직후 NTP 맞춤으로 튀어 소요 시간이
-   틀어졌다(종합 리뷰 A-M7). `now` 를 주면(시험) 둘 다 그 값이다.
+   틀어졌다(종합 리뷰 A-M7). `now` 를 주면 둘 다 그 값이다 — 그래서 런타임이 벽시계 `now` 를
+   넘겨도 되는 곳은 **보이는 시각만 쓰는 메서드**(violation·unconfirmed·interlock)뿐이다. 소요 시간을
+   재는 메서드(start·button_pressed·step_done·sub_started·tool_grasped·finish)에 벽시계를 넘기면
+   단조 시각과 섞여 터무니없는 소요 시간이 나온다 — 거기에는 시험만 `now` 를 준다.
 
 🔴 오탐지(false positive)를 집계하지 않는다. 오탐 판정에는 정답 라벨이 필요하고
    실시간 데모 중에 그것을 알 방법이 없다 — 숫자를 만들면 근거 없는 수치가 된다.
@@ -43,7 +46,7 @@ class SessionStats:
         self._violations = []
         self._unconfirmed = []     # 카메라 미확인 누름 {at, order, button}(2026-09-30)
         self._interlocks = []
-        self._tools = []           # {button, want, start, grasp_sec, wrong{키:횟수}}
+        self._tools = []           # {button, want, _start(단조), grasp_sec, wrong{키:횟수}}
         self._tool_names = {}      # 공구 키 -> 표시명(레시피 sub.tool_names)
         self._frames = 0
         self._dets = {}            # name -> {frames, score_sum, score_frames}
@@ -153,7 +156,7 @@ class SessionStats:
     def finish(self, now=None):
         t, tm = _now(now), _mono(now)
         started = self._started if self._started is not None else t
-        started_m = self._started_m if self._started is not None else tm
+        started_m = self._started_m if self._started_m is not None else tm
         out = {
             "recipe": self._recipe,
             "started_at": started,
