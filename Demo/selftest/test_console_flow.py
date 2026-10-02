@@ -836,8 +836,12 @@ def test_fps_stops_when_camera_dies():
 # 재현 원본 = Rpi5/조사/런타임-검토-20260924/flow_probe.py (리뷰 U#)
 # ============================================================================
 def dwell_warning(win, roi="B3"):
-    """오답 ROI 에 레시피 체류 임계를 넘겨 머문다 — 0.1초 간격 프레임으로 WARNING 을 만든다."""
-    t0 = time.time()
+    """오답 ROI 에 레시피 체류 임계를 넘겨 머문다 — 0.1초 간격 프레임으로 WARNING 을 만든다.
+
+    🔴 카메라와 같은 시계(monotonic)로 넣는다 — 벽시계로 넣으면 판정기가 그보다 30초 넘게 앞선
+       관측(monotonic)을 통째로 정리해, 누름 확인과 섞을 때 가짜 미확인이 났다(리뷰 M-5(c)).
+    """
+    t0 = time.monotonic()
     for i in range(6):
         win.fsm.update_vision(roi, t0 + i * 0.1)
 
@@ -1580,7 +1584,8 @@ def test_review_am3_voice_state_file():
     check(bool(now() and now().get("결과")), "완주 — 결과 공개")
     key(win, "E")
     check(bool(now() and now().get("결과")), "완료 뒤 EMO — 결과가 남는다")
-    check(bool(now()) and now().get("비상정지") is True, "완료 뒤 EMO — 비상정지를 싣는다")
+    check(bool(now()) and now().get("비상정지") is True,
+          "완료 뒤 EMO — 상태 파일에 비상정지를 싣는다(음성 답은 완료 결과 — 카드가 결과 갈래를 쓴다)")
     win.gpio_input.emo_active = lambda: False        # EMO 복귀
     win._release_block()
     check(bool(now() and now().get("결과")), "완료 뒤 EMO 해제 — 결과가 남는다")
@@ -1636,6 +1641,7 @@ def test_review_am5_wrong_tool_held_through_retry_counted_once():
     hold_other(win)                                  # 여전히 쥐고 있다
     check(notify_titles(win).count("다른 공구입니다") - n0 == 1, "「다른 공구입니다」 알림 1건")
     out = win._stats.finish()
+    check(len(out["tools"]) == 1, f"결과창 공구 줄 하나(이어 쓴다) — {[t['button'] for t in out['tools']]}")
     check(out["tools"][-1]["wrong"] == {other: 1}, f"결과창 오답 공구 = {out['tools'][-1]['wrong']}")
     win.close()
 
@@ -1950,6 +1956,113 @@ def test_confirm_log_prefers_before_press():
     win._press_button("B1", source="gpio", now=t)
     finish_sub(win)
     check(bool(_logs(win, "카메라 확인(누르기 0.7초 전 관측)")), f"로그 {_logs(win, '[확인]')}")
+    win.close()
+
+# ============================================================================
+# 리뷰 미룬 항목 (2026-10-03) — 누름 확인 최종 리뷰 M-2~M-5 · 종합 리뷰 B-M5
+# ============================================================================
+def test_confirm_result_time_is_press_time():
+    """누름 확인 리뷰 M-2 — 결과창 「카메라 미확인」 시각은 단계가 끝난 시각이 아니라 누른 시각이다
+    (녹화 영상과 대조할 때 10초 이상 어긋나지 않게)."""
+    print("\n[확인] 미확인 시각 = 누른 시각")
+    win = make_console()
+    win._on_cta()
+    real = time.time
+    try:
+        time.time = lambda: 1_000_000.0              # 누른 순간의 벽시계
+        _gpio(win, "B1")                             # 관측 없음
+        time.time = lambda: 1_000_010.0              # 10초 뒤 단계가 끝난다
+        finish_sub(win)
+    finally:
+        time.time = real
+    at = [u["at"] for u in win._stats._unconfirmed]
+    check(at == [1_000_000.0], f"미확인 시각 = 누른 시각 ({at})")
+    win.close()
+
+def test_confirm_new_notice_replaces_shown_notice():
+    """누름 확인 리뷰 M-3 — 안내가 떠 있는 동안 새 미확인이 생기면 새 안내로 바꾸고 4초를 다시 센다
+    (지금 레시피로는 닿지 않는다 — 중간 단계 서브가 모두 10초 이상이라 판정 함수를 직접 부른다)."""
+    print("\n[확인] 안내 중 새 안내")
+    from PyQt6.QtTest import QTest
+    win = make_console()
+    win._on_cta()
+    _gpio(win, "B1")
+    finish_sub(win)                                  # 2단계 시작 → 「B1」 안내
+    check(win.alert.mode == "notice", f"첫 안내 ({win.alert.mode})")
+    QTest.qWait(1500)
+    win._remember_press("B2", "gpio", time.monotonic())
+    win._check_press(win.fsm.expected_step, "B2", last_step=False)
+    check(win.alert._line1.text() == "카메라가 B2 누름을 확인하지 못했습니다",
+          f"새 안내로 바뀐다 ({win.alert._line1.text()!r})")
+    left = win._notice_timer.remainingTime()
+    check(left > 3000, f"4초를 다시 센다 (남은 {left}ms)")
+    win.close()
+
+def test_confirm_notice_stays_behind_menu():
+    """누름 확인 리뷰 M-4 — 안내 중 메뉴를 열면 메뉴가 안내 위다(안내는 가벼운 알림 · 뒤에서 저절로 닫힌다)."""
+    print("\n[확인] 안내 중 메뉴")
+    win = make_console()
+    win._on_cta()
+    _gpio(win, "B1")
+    finish_sub(win)
+    check(win.alert.mode == "notice", f"안내 ({win.alert.mode})")
+    win._toggle_menu(True)
+    kids = win.alert.parentWidget().children()
+    check(kids.index(win.menu_panel) > kids.index(win.alert),
+          f"메뉴가 안내 위 (메뉴 {kids.index(win.menu_panel)} · 안내 {kids.index(win.alert)})")
+    win.close()
+
+def test_confirm_gpio_signal_reaches_press_confirm():
+    """누름 확인 리뷰 M-5(a) — GPIO 신호(gpio_button_signal)가 맞는 버튼 누름 확인까지 이어진다.
+    다른 시험은 `_press_button(source="gpio")` 를 직접 불러, 연결이 끊겨도 통과했다."""
+    print("\n[확인] GPIO 신호 → 누름 확인")
+    win = make_console()
+    win._on_cta()
+    win.gpio_button_signal.emit("B1")                # 관측 없음
+    finish_sub(win)
+    check(len(win._stats._unconfirmed) == 1, f"미확인 집계 1건 ({win._stats._unconfirmed})")
+    check(bool(_logs(win, "[확인] B1 누름 — 카메라 미확인")), "미확인 로그")
+    check(not _logs(win, "카메라 확인 생략"), "키보드로 취급하지 않는다")
+    win.close()
+
+def test_confirm_after_dwell_warning_helper():
+    """누름 확인 리뷰 M-5(c) — 시험 도우미 dwell_warning 이 카메라와 같은 시계(monotonic)로 관측을 넣는다.
+    벽시계로 넣으면 판정기 관측 기록이 통째로 정리돼, 보면서 누른 것도 가짜 미확인이 됐다."""
+    print("\n[확인] 경고 도우미 뒤 누름 확인")
+    from PyQt6.QtTest import QTest
+    win = make_console()
+    win._on_cta()
+    _gpio(win, "B1", dt_seen=-0.5)                   # 보면서 누름(누르기 0.5초 전 관측)
+    dwell_warning(win, "B3")                         # 서브 중 경고 — 도우미가 관측을 더 넣는다
+    QTest.qWait(700)                                 # 누른 뒤 여유가 지나 확인 결과를 다시 찍는다
+    key(win, "1")                                    # 경고 중 정답 → 해제 · 서브 이어서
+    finish_sub(win)
+    check(bool(_logs(win, "[확인] B1 누름 — 카메라 확인")), f"확인 로그 {_logs(win, '[확인]')}")
+    check(win._stats._unconfirmed == [], "가짜 미확인 없음")
+    win.close()
+
+def test_review_bm5_resume_logged_once():
+    """종합 리뷰 B-M5 ① — 경고 중 정답(D3)일 때 「이어서」 줄은 한 번이다(누른 쪽은 「경고 해제」만 적는다)."""
+    print("\n[종합 B-M5] 「이어서」 한 번")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")
+    dwell_warning(win, "B3")
+    key(win, "1")                                    # 경고 중 정답
+    resumed = _logs(win, "이어서")
+    check(len(resumed) == 1, f"「이어서」 {len(resumed)}줄 {resumed}")
+    check(bool(_logs(win, "[FSM] 경고 중 정답 B1 — 경고 해제")), "누른 쪽은 「경고 해제」")
+    win.close()
+
+def test_review_bm5_first_camera_connect_quiet():
+    """종합 리뷰 B-M5 ② — 켤 때 첫 카메라 연결에는 「끊기기 전 손 관측을 버렸다」를 적지 않는다(버릴 것이 없다).
+    재연결 때는 적는다."""
+    print("\n[종합 B-M5] 첫 연결 로그")
+    win = make_console()
+    win._on_stream_reset()                           # 첫 연결
+    check(not _logs(win, "손 관측을 버렸다"), "첫 연결 — 적지 않는다")
+    win._on_stream_reset()                           # 재연결
+    check(len(_logs(win, "손 관측을 버렸다")) == 1, "재연결 — 적는다")
     win.close()
 
 if __name__ == "__main__":

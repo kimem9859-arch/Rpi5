@@ -95,7 +95,8 @@ class SafetyConsole(QMainWindow):
         self._last_button = None         # 마지막으로 눌린 버튼 — 결과 집계(위반 시 actual)용
         self._block_reason = None        # 위반 차단 배너 둘째 줄 — 차단 순간에 정한다(연결이 바뀌어 다시 그려도 같게)
         self._emo_no_signal = False      # 켤 때부터 EMO HIGH — 누름·배선 끊김 구별 불가(해제되면 끝)
-        self._press_pending = None       # 단계를 인정받은 누름 {button,t,order,source} — 단계가 끝날 때 카메라 확인
+        self._press_pending = None       # 단계를 인정받은 누름 {button,t,wall,order,source} — 단계가 끝날 때 카메라 확인
+        self._cam_connected_once = False # 첫 카메라 연결에는 「손 관측을 버렸다」를 적지 않는다(버릴 것이 없다 · 종합 리뷰 B-M5)
         self._notice_timer = QTimer()
         self._notice_timer.setSingleShot(True)
         self._notice_timer.timeout.connect(self._hide_notice)
@@ -773,7 +774,8 @@ class SafetyConsole(QMainWindow):
             #    닫기"가 불가능해진다(2026-08-04 실기동에서 실제로 막혔다).
             self.btn_menu.raise_()
             self.btn_notify.raise_()
-            if self.alert.mode:
+            # 안내(notice)는 가벼운 알림이라 열린 창 위로 올리지 않는다 — 뒤에서 저절로 닫힌다(리뷰 M-4)
+            if self.alert.mode not in (None, "notice"):
                 self.glow.raise_()
                 self.alert.raise_()
             if not self.log_browser.isHidden():
@@ -888,7 +890,9 @@ class SafetyConsole(QMainWindow):
     def _on_stream_reset(self):
         """카메라 (재)연결 — 끊기기 전 손 관측을 판정기에서 지운다(R5)."""
         self.fsm.forget_observation()
-        self._append_log("[카메라] 연결 — 끊기기 전 손 관측을 버렸다")
+        if self._cam_connected_once:
+            self._append_log("[카메라] 연결 — 끊기기 전 손 관측을 버렸다")
+        self._cam_connected_once = True
 
     # =========================================================================
     # [판정부 FSM — 인식 입력 / 상태 출력]  통합문서 §8·§9
@@ -1046,7 +1050,8 @@ class SafetyConsole(QMainWindow):
                 if self.fsm.state == State.WARNING:
                     # 경고 중 정답 = 경고 해제 + 멈춘 서브 작업을 이어서(설계 §2.2 · D3).
                     # 🔴 단계를 곧바로 완료하지 않는다 — 남은 대기를 건너뛰는 우회로다.
-                    self._append_log(f"[서브] {button} — 경고 해제, {self._sub.label} 이어서")
+                    # 「이어서」는 _on_fsm_state 가 적는다 — 여기서도 적으면 두 줄이 됐다(종합 리뷰 B-M5).
+                    self._append_log(f"[FSM] 경고 중 정답 {button} — 경고 해제")
                     self.fsm.release_warning()      # → _on_fsm_state 가 서브를 재개한다
                     return
                 self._append_log(f"[서브] {button} 재입력 무시 — {self._sub.label} 진행 중")
@@ -1078,7 +1083,9 @@ class SafetyConsole(QMainWindow):
             self._append_log(f"[시험] 키보드 {button} — 카메라 확인 생략")
             self._press_pending = None
             return
-        p = {"button": button, "t": t, "order": self.fsm.expected_step, "source": source}
+        # wall = 결과창에 적을 누른 시각(벽시계) — 단계 끝 시각을 적으면 영상과 10초 넘게 어긋났다(리뷰 M-2)
+        p = {"button": button, "t": t, "wall": time.time(), "order": self.fsm.expected_step,
+             "source": source}
         p["seen"] = self._press_seen(p)
         self._press_pending = p
         # 🔴 누른 직후(뒤쪽 여유가 지난 때) 한 번 더 찍어 둔다 — 단계가 30초를 넘기면(공구를 늦게 쥠·
@@ -1115,9 +1122,10 @@ class SafetyConsole(QMainWindow):
             self._append_log(f"[확인] {button} 누름 — 카메라 확인({when})")
             return
         self._append_log(f"[확인] {button} 누름 — 카메라 미확인(누르기 전 {w:.1f}초 손 관측 없음)")
-        self._stats.unconfirmed(order, button)
+        self._stats.unconfirmed(order, button, now=p["wall"])
         self._notify("warn", f"카메라가 {button} 누름을 확인하지 못했습니다", "다음 버튼은 보면서 누르세요")
-        if not last_step and self.alert.mode is None:
+        # 떠 있는 안내는 새 안내로 바꾸고 4초를 다시 센다 — 앞 버튼 이름이 남지 않게(리뷰 M-3)
+        if not last_step and self.alert.mode in (None, "notice"):
             self.alert.show_notice("카메라 미확인", f"카메라가 {button} 누름을 확인하지 못했습니다",
                                    "— 다음 버튼은 보면서 누르세요")
             self._relayout()
