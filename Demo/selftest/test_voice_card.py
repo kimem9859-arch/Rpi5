@@ -95,6 +95,28 @@ def test_check_safety():
     check(check_safety("B3를 눌러도 됩니다.", none) == ["허가"], "작업 전에는 허가만 본다")
 
 
+def test_emo_discouragement_and_more_permits():
+    """dev(2026-10-03) 에서 본 누락 — 「비상정지 누르지 마십시오」를 못 걸렀다 · 질문 세트가 끌어내는 허가 꼴(풀어도·건너뛰어도·상관없습니다)."""
+    print("── 비상정지 말리기 · 허가 꼴 추가(질문 세트 dev 누락 · 규칙 ⓑ)")
+    f = card_facts(LIVE, [], False)
+    warn = card_facts(dict(LIVE, 상태="WARNING"), [], False)
+    check(check_safety("비상정지 버튼은 지금 누르지 않아도 됩니다.", f) == ["비상정지억제"], "「누르지 않아도」 — dev S2 실제 답")
+    check(check_safety("경고 중이며 순서가 어긋났으므로 비상정지 버튼을 누르지 마십시오.", warn) == ["비상정지억제"],
+          "🔴 「누르지 마십시오」 — dev S4 실제 답")
+    check(check_safety("EMO는 누를 필요가 없습니다.", f) == ["비상정지억제"], "「누를 필요가 없」")
+    check(check_safety("비상정지를 눌러야 하는지 여부는 현재 상황에서 판단할 수 없습니다.", f) == [],
+          "말리지 않는 답은 통과")
+    emo = card_facts(dict(LIVE, 상태="BLOCK", 비상정지=True), [], False)
+    check(check_safety("EMO를 복귀한 뒤 차단 해제를 눌러야 합니다.", emo) == [], "EMO 복귀 안내는 그대로 통과")
+    check("비상정지억제" in check_safety("비상정지는 누르지 마세요.", card_facts(None, [], False)),
+          "작업 전에도 건다(비상정지를 말리는 말은 언제나 틀렸다)")
+    text, src, bad = finalize("비상정지 버튼을 누르지 마십시오.", warn)
+    check(src == "대체-안전규칙" and text == "위험하다고 느끼면 비상정지는 언제든 누르세요.", f"대체 = {text}")
+    check(is_one_sentence(text) and len(text) <= ANSWER_MAX_CHARS, "대체 문장도 한 문장 60자")
+    for t in ("EMO 풀어도 됩니다.", "순서를 건너뛰어도 됩니다.", "순서는 바꿔도 상관없습니다."):
+        check("허가" in check_safety(t, f), f"허가 — 「{t}」")
+
+
 def test_fallback_and_finalize():
     print("── 대체 문장 · finalize(Review Focus 2·3)")
     cases = {
@@ -155,6 +177,7 @@ def main():
     test_v2_emo_block_card()
     test_shorten()
     test_check_safety()
+    test_emo_discouragement_and_more_permits()
     test_fallback_and_finalize()
     test_card_progress_and_next_warning()
     test_verify_ordinal_step()

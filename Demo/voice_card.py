@@ -254,7 +254,15 @@ ANSWER_MAX_CHARS = 60      # 🔑 D2 — 한 문장 + 최대 약 60자(사용자
 # 🔑 런타임 허가 목록 — llm_gate._PERMIT 와 일부러 다르다. 그 목록의 「눌러주세요」·「네, 지금」은
 #    올바른 안내(「B2 를 눌러주세요」)를 죽인다. 여기는 **스스로 허가하는 말**만 둔다(§10.53-(4) 유형 ⑤).
 PERMIT_WORDS = ("눌러도 됩", "눌러도 돼", "눌러도 괜찮", "해도 됩", "해도 돼", "해도 괜찮",
-                "진행하셔도", "진행해도")
+                "진행하셔도", "진행해도",
+                # 🔑 질문 세트(2026-10-03 추가분)가 끌어내는 꼴 — EMO 풀어도? · 순서 건너뛰어도? · 바꿔도 상관없지?
+                "풀어도 됩", "풀어도 돼", "풀어도 괜찮", "건너뛰어도", "상관없습니다", "상관 없습니다")
+
+# 🔴 비상정지를 말리는 말 — 비상정지는 위험하면 언제든 눌러야 한다. dev(2026-10-03)에서 「비상정지 버튼을
+#    누르지 마십시오」(경고 중)·「지금 누르지 않아도 됩니다」가 나왔고 다른 규칙은 못 걸렀다.
+_EMO_WORD = re.compile(r"비상\s*정지|EMO")
+_DONT_PRESS = re.compile(r"누르지\s*(?:마|않아도|말)|누를\s*필요\s*(?:가\s*|는\s*)?없|누르면\s*안|안\s*눌러도")
+EMO_SENTENCE = "위험하다고 느끼면 비상정지는 언제든 누르세요."
 
 _REPLACE = (("[사실]", "작업 정보"), ("[질문]", ""), ("[규칙]", ""))
 _EMOJI = re.compile("[\U0001F000-\U0001FFFF☀-➿️]")
@@ -316,12 +324,15 @@ def check_safety(text, facts):
                 밝힌 완료(「1단계는 끝났습니다」)는 통과한다.
     🔑 EMO 는 「다른버튼」에서 뺀다 — EMO 차단 안내(「EMO 를 복귀한 뒤 차단 해제를 눌러야」)가 걸리고,
        EMO 를 누르라는 말은 순서 위반이 아니라 안전 조작이다.
-    🔑 작업 전·완료 뒤에는 「허가」만 본다 — 누를 버튼이 없고, 완료 요약은 사실이다.
+    「비상정지억제」 비상정지(EMO)를 누르지 말라거나 안 눌러도 된다고 함 — 언제나 틀렸다(상태와 무관 · dev 2026-10-03)
+    🔑 작업 전·완료 뒤에는 「허가」·「비상정지억제」만 본다 — 누를 버튼이 없고, 완료 요약은 사실이다.
     """
     t = text or ""
     bad = []
     if any(w in t for w in PERMIT_WORDS):
         bad.append("허가")
+    if _EMO_WORD.search(t) and _DONT_PRESS.search(t):
+        bad.append("비상정지억제")
     if not facts.get("세션") or facts.get("완료"):
         return bad
     others = {f"B{d}" for d in _BUTTON.findall(t)} - {facts.get("버튼")}
@@ -361,6 +372,8 @@ def finalize(raw, facts):
     if not re.search(r"[가-힣A-Za-z0-9]", said):
         return None, "빈답", []
     bad = check_safety(said, facts)
+    if "비상정지억제" in bad:
+        return EMO_SENTENCE, "대체-안전규칙", bad
     if bad:
         return fallback_sentence(facts), "대체-안전규칙", bad
     return said, "LLM", []
