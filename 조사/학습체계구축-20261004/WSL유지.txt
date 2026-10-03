@@ -1,0 +1,23 @@
+WSL 이 꺼지지 않게 — 공식 문서 확인과 판단 (2026-10-03 · 세션 29dda3cc · 계획서 Task 3 · 기존 ⏸ 「WSL 이 꺼지지 않게 하기」 흡수)
+
+1. 공식 문서 — Microsoft Learn 「Advanced settings configuration in WSL」 https://learn.microsoft.com/en-us/windows/wsl/wsl-config (updated_at 2026-09-16 · 조회 2026-10-03)
+- [general] instanceIdleTimeout · 기본 15000 — "The number of milliseconds that a distro is idle, before it is shut down. Set to -1 to disable auto shutdown"
+- [wsl2] vmIdleTimeout · 기본 60000 — "The number of milliseconds that a VM is idle, before it is shut down." — 「Only available on Windows 11」
+- 설정 파일 = Windows %UserProfile%\.wslconfig("The .wslconfig file does not exist by default.") · 바꾼 뒤 WSL 을 완전히 멈췄다 다시 켜야 적용(「8 second rule」 · wsl --shutdown).
+- ⚠️ 미확인 — 「유휴(idle)」의 정의(백그라운드 프로세스·systemd 서비스가 유휴를 막는가)는 문서에 없다.
+
+2. 지금 상태(읽기 전용 · 22:47)
+- Windows 10.0.19045(Windows 10) · WSL 3.0.1.0 → vmIdleTimeout 은 못 쓴다 · instanceIdleTimeout 은 Windows 11 표시가 없다.
+- .wslconfig 없음 · /etc/wsl.conf = systemd=true · WSL 가동 2026-10-03 01:32 부터.
+- 로그인 터미널 1개(pts/1 · 2026-10-02 13:28 부터) — 지금 WSL 이 살아 있는 이유로 보인다(추론). 이 창을 닫으면 15초 뒤 꺼질 수 있다.
+
+3. 판단 · 사용자에게 드리는 설정(Windows 쪽 파일이라 Claude 가 바꾸지 않는다)
+- %UserProfile%\.wslconfig 를 만들고 아래 두 줄:
+    [general]
+    instanceIdleTimeout=-1
+- 적용 = PowerShell 에서 `wsl --shutdown` → 8초 이상 기다림 → WSL 터미널을 다시 연다(SSH 서버·Tailscale 이 WSL 안에 있어 WSL 이 켜져야 파이가 들어온다).
+- ⚠️ 적용은 학습이 돌지 않을 때 한다(wsl --shutdown 은 도는 학습을 끈다 — 실행기는 다시 뜰 때 「끊김」으로 기록한다).
+- 되돌리기 = .wslconfig 의 그 줄을 지우고 같은 방법으로 다시 켠다.
+- 남는 한계 — Windows 를 다시 켜면 WSL 은 스스로 켜지지 않는다(누군가 WSL 을 한 번 열어야 파이가 들어온다). 학습 중 재부팅이 생기면 실행기의 「끊김」 기록 → 이어서 학습으로 처리한다.
+
+4. 그때까지 — 데스크톱의 WSL 터미널 하나를 열어 둔다(지금 상태 그대로).
