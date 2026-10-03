@@ -1,0 +1,13 @@
+데스크톱 학습 환경 — ~/학습실험 (2026-10-03 · 세션 29dda3cc · 계획서 Task 2 · 설계 §4.1)
+
+1. 폴더 — ~/학습실험/{원본,나눔,코드,data,대기열,도는중,끝,뺀것,runs} · 설치 스크립트 ~/학습실험/설치.sh(백그라운드 · 로그 설치.log)
+2. venv — ~/학습실험/venv (python3 -m venv · Python 3.12.3 · 5.2G)
+   - pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cu130 → 이어서 pip install ultralytics==8.4.171
+   - 결과(검증 22:58):
+       ultralytics 8.4.171 · torch 2.12.1+cu130 · cuda 13.0
+       GPU True NVIDIA GeForce RTX 5060 · GPU 계산 True
+       albumentations 설치 False
+   - ⚠️ torch 판이 지정(2.12.0)과 다르게 2.12.1+cu130 으로 깔렸다 — GPU 정상이라 그대로 쓴다(결과 폴더 요약에 판이 남는다).
+3. ultralytics 사용자 설정(~/.config/Ultralytics/settings.json)을 8.4.171 이 새 형식으로 갱신했다 — 기존 ~/projects/.poc_venv(8.4.60)도 정상 import 확인(설정 안내 문구만 뜸). runs_dir 는 그대로(~/projects/runs) — 학습 체계는 project 를 직접 준다.
+4. 출발 가중치 ~/학습실험/yolov8n.pt — 파이 Demo/models/yolov8n.pt 와 sha256 같음(f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36)
+5. 원격 백그라운드 띄우기 — `( setsid nohup … > 로그 2>&1 < /dev/null & )` 형태면 ssh 가 1초 안에 돌아오고 프로그램은 산다(2026-10-03 확인 · 설치에도 이 형태를 썼다).
