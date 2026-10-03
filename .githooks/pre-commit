@@ -1,0 +1,100 @@
+#!/bin/sh
+# 커밋 비밀 검사 — 커밋에 새로 들어가는 줄에서 비밀정보(비밀번호·API 키·토큰·개인 키)를 찾으면 커밋을 멈춘다.
+#
+# 왜: 2026-09-06~19 와이파이 비밀번호 3쌍이 추적 파일 3개(+ 옛 스케치 하드코딩)로 커밋됐고, 저장소가 공개로
+#     바뀌면서 이력에 그대로 드러났다. 「파일 이름으로 제외(.gitignore)」만으로는 값을 코드·문서에 직접 써 넣는
+#     것을 막지 못한다. 이 훅이 그 빈틈을 막는다.
+# 무엇을 보나(새로 추가되는 줄만):
+#   ① 알려진 실제 값 — 로컬 자격 증명 파일(wifi_credentials.h 의 비밀번호 · .env 의 KEY/TOKEN/SECRET/PASS 값)과 같은 문자열
+#   ② 비밀 모양 — password/api_key/secret/token… 에 8자 이상 따옴표 값 대입(자리표시 YOUR_·발급받은… 은 통과) ·
+#      토큰 접두어(ghp_ · github_pat_ · tskey- · sk- · AKIA) · 개인 키 머리
+#   ③ 비밀 파일 자체(.env · wifi_credentials.h · *.pem · *.key · id_rsa) 를 올리는 것
+# 🔴 값은 절대 출력하지 않는다 — 파일:줄과 종류만 알린다.
+# 잘못 걸렸을 때(확인한 뒤에만): SECRET_SCAN_SKIP=1 git commit …
+# 내부 오류는 커밋을 막지 않는다(fail-open) — 걸린 것만 막는다.
+# 정본 = sop-project/.githooks/pre-commit · Rpi5·project-docs 는 같은 사본(시험 = .githooks/test-pre-commit.sh 가 대조)
+# 켜기 = 저장소마다 `git config core.hooksPath .githooks` (sop-project 세션 시작 훅이 자동으로 켠다)
+
+if [ "${SECRET_SCAN_SKIP:-0}" = "1" ]; then
+  echo "⚠️  커밋 비밀 검사 건너뜀(SECRET_SCAN_SKIP=1)" >&2
+  exit 0
+fi
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+TMP=$(mktemp -d 2>/dev/null) || exit 0
+trap 'rm -rf "$TMP"' EXIT INT TERM
+chmod 700 "$TMP" 2>/dev/null
+VALS="$TMP/vals"; ADDED="$TMP/added"; HITS="$TMP/hits"
+: > "$VALS"; : > "$HITS"
+
+# ── ① 알려진 값 모으기 — 이 저장소(얕게) + sop-project/Rpi5 의 자격 증명 파일 ─────────────────
+{
+  find "$ROOT" -maxdepth 3 \( -name .git -prune \) -o \( -name wifi_credentials.h -o -name .env \) -print 2>/dev/null
+  for f in "$HOME/sop-project/Rpi5/arduino/wifi_credentials.h" "$HOME/sop-project/Rpi5/.env"; do
+    [ -f "$f" ] && echo "$f"
+  done
+} | sort -u > "$TMP/srcs"
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  case "$f" in
+    *wifi_credentials.h)   # { "SSID", "비밀번호" } — 둘째 값만(SSID 는 비밀이 아니다)
+      sed -n 's/.*{[[:space:]]*"[^"]*"[[:space:]]*,[[:space:]]*"\([^"]*\)".*/\1/p' "$f" ;;
+    *.env)                 # 이름에 KEY/TOKEN/SECRET/PASS/PWD 가 든 값
+      sed -n 's/^[[:space:]]*\(export[[:space:]]*\)\{0,1\}[A-Za-z0-9_]*\(KEY\|TOKEN\|SECRET\|PASS\|PWD\)[A-Za-z0-9_]*[[:space:]]*=[[:space:]]*["'"'"']\{0,1\}\([^"'"'"']*\)["'"'"']\{0,1\}[[:space:]]*$/\3/p' "$f" ;;
+  esac
+done < "$TMP/srcs" | awk 'length($0) >= 6' | sort -u > "$VALS"
+
+# ── 새로 추가되는 줄 — "경로<TAB>줄번호<TAB>내용" ────────────────────────────────────────────
+git -c core.quotepath=false diff --cached -U0 --no-color --no-ext-diff --diff-filter=ACMR 2>/dev/null | awk '
+  /^\+\+\+ / { f = substr($0, 5); sub(/^b\//, "", f); next }
+  /^@@ / { split($3, a, ","); n = substr(a[1], 2) + 0; next }
+  /^\+/ { if (f != "") printf "%s\t%d\t%s\n", f, n, substr($0, 2); n++ }
+' > "$ADDED"
+
+# ① 알려진 값
+if [ -s "$VALS" ] && [ -s "$ADDED" ]; then
+  cut -f3- "$ADDED" | grep -n -F -f "$VALS" 2>/dev/null | cut -d: -f1 | while IFS= read -r i; do
+    sed -n "${i}p" "$ADDED" | awk -F'\t' '{printf "  %s:%s — 알려진 비밀 값(로컬 자격 증명 파일과 같음)\n", $1, $2}'
+  done >> "$HITS"
+fi
+
+# ② 비밀 모양
+if [ -s "$ADDED" ]; then
+  awk -F'\t' '
+    BEGIN { IGNORECASE = 1
+            pk = "PRIVATE" " KEY-----"; bg = "-----" "BEGIN" }   # 이어 붙여 만든다 — 이 파일 자체가 걸리지 않게
+    {
+      line = $0; sub(/^[^\t]*\t[^\t]*\t/, "", line); low = tolower(line)
+      kind = ""
+      if (match(line, /(ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|tskey-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})/)) kind = "토큰 모양"
+      else if (index(line, pk) && index(line, bg)) kind = "개인 키 머리"
+      else if (match(low, /(password|passwd|pwd|psk|api[_-]?key|secret|token|auth[_-]?key)["'"'"' ]*[:=][ ]*["'"'"'][^"'"'"' ]{8,}["'"'"']/)) {
+        v = substr(line, RSTART, RLENGTH); sub(/^[^"'"'"']*["'"'"']/, "", v); sub(/["'"'"']$/, "", v)
+        lv = tolower(v)
+        if (lv !~ /(your|xxx|example|dummy|changeme|sample|placeholder|<|\*\*\*|여기에|발급|더미|예시|입력)/) kind = "비밀 대입 모양"
+      }
+      if (kind != "") printf "  %s:%s — %s\n", $1, $2, kind
+    }
+  ' "$ADDED" >> "$HITS"
+fi
+
+# ③ 비밀 파일 자체
+git -c core.quotepath=false diff --cached --name-only --diff-filter=ACMR 2>/dev/null | while IFS= read -r p; do
+  b=${p##*/}
+  case "$b" in
+    *.example) ;;
+    .env|.env.*|wifi_credentials.h|*.pem|*.key|id_rsa|id_rsa.*|id_ed25519|id_ed25519.*)
+      echo "  $p — 비밀 파일 자체를 올림" >> "$HITS" ;;
+  esac
+done
+
+if [ -s "$HITS" ]; then
+  {
+    echo "🔴 커밋 멈춤 — 비밀정보로 보이는 것이 있습니다(값은 표시하지 않음)"
+    sort -u "$HITS"
+    echo "   비밀 값은 정해진 파일(wifi_credentials.h · .env — git 제외)에만 둡니다."
+    echo "   잘못 걸린 것을 확인했으면: SECRET_SCAN_SKIP=1 git commit …"
+  } >&2
+  exit 1
+fi
+exit 0

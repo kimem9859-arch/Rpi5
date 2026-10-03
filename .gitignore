@@ -72,3 +72,13 @@ Demo/models/tool_*.pt
 
 # 음성비서 시연 촬영 산출물 — 영상은 저장소에 올리지 않는다
 Demo/voice/촬영본/
+
+# 비밀정보 — 값은 정해진 파일에만 두고 올리지 않는다(2026-10-03 · 커밋 검사 = .githooks/pre-commit)
+**/wifi_credentials.h
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
