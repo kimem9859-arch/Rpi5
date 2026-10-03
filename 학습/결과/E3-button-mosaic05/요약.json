@@ -1,0 +1,28 @@
+{
+ "id": "E3-button-mosaic05",
+ "group": "button",
+ "입력": "늘리기640",
+ "바꾼것": "mosaic=0.5",
+ "나눔": {
+  "name": "place1_v1",
+  "해시": "0a3197afa1ddeac1"
+ },
+ "종료이유": "일찍멈춤",
+ "이상": false,
+ "에폭": 72,
+ "best_epoch": 52,
+ "분": 10.0,
+ "끝": "2026-10-04T01:49:16+09:00",
+ "판": {
+  "ultralytics": "8.4.171",
+  "torch": "2.12.1+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 5060",
+  "albumentations": false
+ },
+ "코드해시": "754e25748d",
+ "conf": 0.65,
+ "속도재기": false,
+ "출발_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+ "best_sha256": "8adecda51d7d23b534b9abd1f9e2ab137f75fa542c811cee028b29d58da32f0e"
+}

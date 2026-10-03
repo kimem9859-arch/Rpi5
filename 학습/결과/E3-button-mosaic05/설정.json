@@ -1,0 +1,87 @@
+{
+ "id": "E3-button-mosaic05",
+ "group": "button",
+ "입력": "늘리기640",
+ "바꾼것": "mosaic=0.5",
+ "names": [
+  "B1",
+  "B2",
+  "B3",
+  "B4",
+  "EMO"
+ ],
+ "conf": 0.65,
+ "train_kwargs": {
+  "epochs": 200,
+  "patience": 20,
+  "batch": 16,
+  "workers": 2,
+  "cache": "disk",
+  "optimizer": "AdamW",
+  "lr0": 0.001,
+  "momentum": 0.9,
+  "warmup_bias_lr": 0.0,
+  "deterministic": true,
+  "amp": true,
+  "plots": true,
+  "mosaic": 0.5,
+  "imgsz": 640,
+  "seed": 0
+ },
+ "predict_imgsz": 640,
+ "stretch": [
+  640,
+  640
+ ],
+ "멈춤": {
+  "포화_에폭": 30,
+  "포화_향상": 0.002,
+  "점수0_에폭": 10,
+  "점수0_mAP50": 0.05,
+  "진행없음_분": 15,
+  "시간상한_배": 2
+ },
+ "출발": "~/학습실험/yolov8n.pt",
+ "원본": "~/학습실험/원본/place1",
+ "루트": "~/학습실험",
+ "나눔": {
+  "name": "place1_v1",
+  "해시": "0a3197afa1ddeac1"
+ },
+ "코드": "~/학습실험/코드/754e25748d",
+ "코드해시": "754e25748d",
+ "시간상한_s": 4069.7199999999993,
+ "설정": {
+  "나눔": "place1_v1",
+  "입력": "늘리기640",
+  "출발": "yolov8n.pt",
+  "seed": 0,
+  "train": {
+   "epochs": 200,
+   "patience": 20,
+   "batch": 16,
+   "workers": 2,
+   "cache": "disk",
+   "optimizer": "AdamW",
+   "lr0": 0.001,
+   "momentum": 0.9,
+   "warmup_bias_lr": 0.0,
+   "deterministic": true,
+   "amp": true,
+   "plots": true,
+   "mosaic": 0.5
+  },
+  "멈춤": {
+   "포화_에폭": 30,
+   "포화_향상": 0.002,
+   "점수0_에폭": 10,
+   "점수0_mAP50": 0.05,
+   "진행없음_분": 15,
+   "시간상한_배": 2
+  },
+  "메모": "공식 소규모 권고",
+  "id": "E3-button-mosaic05",
+  "group": "button",
+  "바꾼것": "mosaic=0.5"
+ }
+}
