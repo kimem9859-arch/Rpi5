@@ -50,7 +50,7 @@ def _options(num_predict=None):
     """질문과 예열이 **같은** 값을 쓴다 — num_ctx 가 다르면 다시 적재한다(R3 C2)."""
     return {"num_ctx": config.LLM_NUM_CTX,
             "num_predict": num_predict or config.LLM_NUM_PREDICT,
-            "temperature": 0.0}
+            "temperature": config.LLM_TEMPERATURE}
 
 
 def ask(card, question, url=None, model=None, timeout=None, num_predict=None):

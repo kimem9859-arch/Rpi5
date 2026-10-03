@@ -175,6 +175,19 @@ def main():
         check(ok is False and "LLM오류" in wm, "예열 실패는 (False, 오류)")
         Fake.MODE = "ok"
         check("한 문장" in voice_llm.SYSTEM and "두 문장" not in voice_llm.SYSTEM, "SYSTEM = 한 문장 규칙(D2)")
+
+        print("── temperature 는 config 한 곳(기본 0 · 사용자 요청 2026-10-03 「같은 질문에 다르게」 시험용)")
+        import config
+        old_t = config.LLM_TEMPERATURE
+        check(old_t == 0.0, f"기본은 0(같은 질문엔 같은 답) — {old_t}")
+        config.LLM_TEMPERATURE = 0.8
+        try:
+            voice_llm.ask(card, "뭐야", url=url)
+            check(_seen["body"]["options"]["temperature"] == 0.8, "질문이 config 값을 쓴다")
+            voice_llm.warm(url=url)
+            check(_seen["body"]["options"]["temperature"] == 0.8, "예열도 같은 값")
+        finally:
+            config.LLM_TEMPERATURE = old_t
     finally:
         srv.shutdown()
 
