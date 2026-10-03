@@ -803,6 +803,7 @@ class SafetyConsole(QMainWindow):
         name = self._tool_display_name(tool_key)
         self._append_log(f"[설정] 지정 공구 → {name}")
         self._notify("work", "설정 변경", f"지정 공구 → {name}")
+        self._publish_state()          # 🔴 카드의 「필요한 공구」가 다음 전이까지 옛 값이었다(R2 M5)
 
     def _on_theme_changed(self, name):
         theme.set_theme(name)
@@ -948,6 +949,7 @@ class SafetyConsole(QMainWindow):
                              f" ({self._tool_state.want_tool})")
             if self._tool_state.phase == "grasped":
                 self._stats.tool_grasped(self._tool_state.want_tool, True)
+            self._publish_state()      # 공구 충족이 바뀌었다(음성 §4.4)
         self._update_sub_view()
 
     def _sim_tool_grasped(self):
@@ -977,6 +979,7 @@ class SafetyConsole(QMainWindow):
         self._stats.tool_grasped(sub.want_tool, True)
         self._append_log(f"[시험] t — 공구 「{sub.want_tool_name}」를 쥔 것으로 "
                          f"처리(키보드 우회)")
+        self._publish_state()
         self._update_sub_view()
 
     def _on_start_process(self):
@@ -1222,6 +1225,15 @@ class SafetyConsole(QMainWindow):
                     sub = {"label": spec.get("label", ""), "sec": spec.get("sec"),
                            "tool": tool,
                            "tool_name": (spec.get("tool_names") or {}).get(tool, tool)}
+            # 🔑 서브 작업 진행(음성 설계 2026-10-03 §4.4) — 사양(서브작업)만 실으면 B2 누르기 전과 N2 퍼지
+            #    진행 중의 파일이 똑같아 음성비서가 「끝났습니다」를 지어냈다(R3 I4).
+            prog = None
+            live = self._sub
+            if (sub is not None and live is not None and live.is_active
+                    and self._sub_button == self.fsm.correct_roi):
+                prog = {"상태": "멈춤" if live.paused else "진행 중",
+                        "남은초": round(max(0.0, live.total_sec - live.elapsed_sec), 1),
+                        "공구충족": bool(live.tool_ok)}
             nxt = cur + 1 if cur < self.fsm.step_count else None
             self._state_pub.publish({
                 "세션": True,
@@ -1236,6 +1248,7 @@ class SafetyConsole(QMainWindow):
                 "상태": self.fsm.state.value,
                 "비상정지": self.fsm.emo_active,     # EMO 차단을 순서 위반과 가른다(V2)
                 "서브작업": sub,
+                "서브진행": prog,
                 "결과": result,
             })
         except Exception as e:                      # noqa: BLE001 — GUI 를 절대 안 죽인다
@@ -1280,6 +1293,7 @@ class SafetyConsole(QMainWindow):
             self.camera_thread.set_tool_scan(True)
         self._update_sub_view()
         self._stats.sub_started(button, spec)
+        self._publish_state()          # 🔑 서브 시작 = 「진행 중」 공개(음성 §4.4)
 
     def _end_tool_scan(self):
         """공구 스캔을 끄고 판정 상태를 버린다.
@@ -1558,7 +1572,6 @@ class SafetyConsole(QMainWindow):
     def _on_fsm_state(self, old, new):
         self.status_panel.update_view(new.value, self.fsm.expected_step)
         self._append_log(f"[FSM] {old.value} → {new.value}")
-        self._publish_state()
 
         # 서브 작업은 판정기 상태를 따른다(설계 2026-09-25 D5 · G1) — 경고 = 일시정지 ·
         # 차단 = 취소. 🔴 따로 돌게 두면 EMO 해제 뒤 대기 중이던 눌림이 뒤늦게 확정돼
@@ -1577,6 +1590,8 @@ class SafetyConsole(QMainWindow):
                 sub.resume()
                 self._append_log(f"[서브] {sub.label} 이어서 — 경고 해제")
                 self.gauge_panel.update_view(sub)
+        # 🔑 공개는 서브 작업을 판정기 상태에 맞춘 **뒤**다 — 앞에서 하면 멈춤·취소가 안 실린다(음성 §4.4)
+        self._publish_state()
 
         # 발광·배너는 상태에 따라 — 🔴 발광은 영상 영역에만(GlowFrame 이 담당)
         if new == State.BLOCK:

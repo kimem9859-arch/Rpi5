@@ -1159,6 +1159,34 @@ def test_g6_g7_tool_settings_follow_recipe():
     check(sub["tool"] == "driver", f"공개된 공구 = {sub['tool']}")
     win.close()
 
+def test_voice_sub_progress_published():
+    """음성 설계 2026-10-03 §4.4 — 상태 파일에 서브 작업 진행(시작 전·진행 중·멈춤·공구 충족)을 싣는다(R3 I4 · R2 M5)."""
+    print("\n[음성 §4.4] 서브 진행 공개")
+    win = make_console()
+    pubs = []
+    win._state_pub.publish = pubs.append
+    win._on_cta()
+    check(bool(pubs) and pubs[-1].get("서브진행") is None, "1단계 B1 누르기 전 — 진행 없음(시작 전)")
+    key(win, "1")
+    p = pubs[-1].get("서브진행")
+    check(p is not None and p["상태"] == "진행 중" and p["남은초"] > 0, f"B1 누른 뒤 — 진행 중 공개 {p}")
+    dwell_warning(win, "B3")
+    p = pubs[-1].get("서브진행")
+    check(win.fsm.state == State.WARNING and p is not None and p["상태"] == "멈춤", f"경고 — 멈춤 공개 {p}")
+    key(win, "1")                                    # 경고 중 정답 → 이어서
+    p = pubs[-1].get("서브진행")
+    check(p is not None and p["상태"] == "진행 중", f"경고 해제 — 다시 진행 중 {p}")
+    finish_sub(win)                                  # 2단계로
+    check(pubs[-1].get("현재단계") == 2 and pubs[-1].get("서브진행") is None, "2단계 시작 전 — 진행 없음")
+    key(win, "2")
+    check(pubs[-1]["서브진행"]["공구충족"] is False, "공구 쥐기 전 — 공구충족 False")
+    key(win, "t")
+    check(pubs[-1]["서브진행"]["공구충족"] is True, "공구 쥠 — 공구충족 True 를 곧바로 공개")
+    n = len(pubs)
+    win._on_tool_changed("driver")
+    check(len(pubs) == n + 1, "설정에서 공구를 바꾸면 곧바로 공개한다(R2 M5)")
+    win.close()
+
 def test_g10_frame_sink_attached_at_start():
     """G10 — 시연 촬영이면 카메라 sink 를 기동 때 붙여 첫 프레임이 촬영 시작 전에 담긴다(U11)."""
     print("\n[G10] 1인칭 녹화 크기 — sink 선연결")
