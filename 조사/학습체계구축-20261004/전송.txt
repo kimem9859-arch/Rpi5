@@ -1,0 +1,27 @@
+데스크톱 WSL → 파이 큰 조각 전송 문제 — 원인과 처리 (2026-10-03 · 세션 29dda3cc · 계획서 Task 1)
+
+1. 증상(재확인 22:40) — ssh 로 데스크톱→파이 1000B 통과 · 1100B 이상 0B · 200000B 0B. 파이→데스크톱은 20MB 7.4초 · sha256 일치.
+
+2. 진단(읽기 전용)
+- WSL eth0 MTU = 1280 · tailscale0 MTU = 1280 · /etc/wsl.conf = systemd=true 만 · Windows .wslconfig 없음
+- Tailscale = 파이(pi1)와 direct 연결(DERP 아님) · WSL tailscale 1.102.2
+- 쪼개기 금지(DF) ping 데스크톱→파이: 1000·1100·1150 통과 · 1200·1252 실패
+  → 안쪽 1,150+28 바이트까지 통과 · 1,200+28 부터 실패 = 바깥(암호화 덧붙임 뒤) 패킷이 eth0 1280 을 넘는 지점
+- tailscaled 로그: 파이 경로를 「mtu=1360」으로 보고 보낸다(magicsock disco) — eth0 1280 과 어긋난다
+
+3. 공식 문서 — Tailscale KB 1295「Install Tailscale on Windows with WSL 2」(https://tailscale.com/kb/1295/install-windows-wsl2 · Last updated Nov 3, 2025 · 조회 2026-10-03)
+- "If you run Tailscale inside WSL 2, the current versions of WSL 2 have a default MTU of 1280 on their default interface, which is not large enough for Tailscale to function."
+- "There is a workaround inside tailscaled that will raise the MTU of the default interface to 1340 if it detects that you're on WSL and it is using what appears to be this default MTU."
+- 이 우회는 tailscaled 시작 때 적용된다. 지금 eth0 = 1280 → 적용되지 않았거나 그 뒤 되돌려졌다(추론 — tailscaled 가동 10-02 부터 · WSL 이 망 변화 때 eth0 를 다시 맞춘 것으로 보임 · 미확인).
+
+4. 원인 = WSL 기본 장치 MTU 1280 + tailscaled 의 1340 우회가 지금은 걸려 있지 않음.
+
+5. 처리 — 파이 쪽 중계(Rpi5 학습/mss_proxy.py · ssh ProxyCommand · TCP 최대 조각 900B)를 파이 ~/.ssh/config 의 wsl-train 에 둔다.
+- 근본 해결(데스크톱 `sudo ip link set dev eth0 mtu 1340`)은 비밀번호가 필요해 원격으로 못 하고, WSL 이 되돌리면 다시 막힌다 — 데스크톱을 바꾸지 않는 중계를 정식으로 쓴다(Ruling · 계획서 Task 1 Step 4b).
+- 사용자가 원하면 데스크톱 WSL 터미널에서 위 한 줄을 실행해도 된다(되돌리기 = mtu 1280). 중계는 그대로 둬도 해가 없다.
+- 되돌리기(파이) = cp ~/.ssh/config.bak-20261003 ~/.ssh/config
+
+6. 검증(관문 · 22:50 · 중계 적용 뒤)
+- 데스크톱→파이 1100B → 1100B · 200000B → 200000B
+- 5MB 무작위 파일 rsync 받기 2.73초 · sha256 앞 16자리 양쪽 같음(078969ceef07f381)
+- 파이→데스크톱 20MB 9.04초(중계 전 7.38초 — 조각이 작아져 조금 느려짐 · 쓰기에 지장 없음)
