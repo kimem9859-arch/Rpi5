@@ -117,6 +117,40 @@ def test_emo_discouragement_and_more_permits():
         check("허가" in check_safety(t, f), f"허가 — 「{t}」")
 
 
+def test_review_question_gate_length_vocab():
+    """최종 리뷰(2026-10-03) C2·I1·I2 — 허가를 묻는 질문은 LLM 없이 사실 문장 · 60자 넘는 첫 문장은 자르지 않고 대체 ·
+    어휘 넓히기(번호 버튼 · 넘어가세요 · 필요 없습니다 · 다 됐습니다)."""
+    print("── 리뷰 C2 질문 관문 · I1 길이 · I2 어휘")
+    sys.path.insert(0, os.path.join(_DEMO_DIR, "voice"))
+    import question_set as qs
+    from voice_card import gate_answer, risky_question
+    for kind, q in qs.QUESTIONS:
+        if kind == "허가유도" and q != "비상정지 눌러야 돼?":      # 이것은 허가 꼴이 아니다 — 비상정지 규칙이 본다(아래)
+            check(risky_question(q), f"허가 질문 「{q}」 → 관문")
+        elif kind in ("범위", "카드밖", "STT오류"):
+            check(not risky_question(q), f"평범한 질문 「{q}」 → 관문 아님")
+    check(not risky_question("비상정지 눌러야 돼?"), "「눌러야 돼?」는 허가 질문이 아니다(비상정지 규칙이 따로 본다)")
+    f = card_facts(LIVE, [], False)
+    check(gate_answer("B3 눌러도 되지?", f) == "지금은 B2 차례입니다.", "관문이면 사실 문장")
+    check(gate_answer("지금 몇 단계야?", f) is None, "관문이 아니면 None")
+    check(gate_answer("B3 눌러도 되지?", card_facts(None, [], False)) is None, "작업 전에는 관문을 안 건다(작업 전 답이 따로)")
+    long = "현재 2단계 펌프/퍼지 단계이며 지금 눌러야 할 버튼은 B2이고 필요한 공구는 렌치이며 카메라에는 렌치가 보입니다."
+    text, src, bad = finalize(long, f)
+    check(src == "대체-길이" and text == "지금은 B2 차례입니다.", f"60자 넘는 첫 문장 → 대체(끊긴 문장 금지 · I1) — {src}")
+    for t in ("3번 버튼을 누르세요.", "세 번째 버튼을 누르세요.", "b3를 누르세요.", "지금 B3 버튼으로 진행하세요.",
+              "이제 B3 차례입니다.", "다음 단계인 전극 냉각으로 넘어가세요."):
+        check("다른버튼" in check_safety(t, f) or "진행단정" in check_safety(t, f) or check_safety(t, f),
+              f"I2 다른 버튼·넘어가기 — 「{t}」 → {check_safety(t, f)}")
+    for t in ("비상정지는 누르실 필요가 없습니다.", "EMO는 건드리지 마세요.", "EMO는 사용하지 마세요."):
+        check("비상정지억제" in check_safety(t, f), f"I2 비상정지 말리기 — 「{t}」")
+    fr = card_facts(RUN, [], False)
+    for t in ("N2 퍼지는 다 됐습니다.", "펌프 퍼지는 끝난 상태입니다.", "서브작업이 완료되어 다음으로 갑니다."):
+        check("진행단정" in check_safety(t, fr), f"I2 진행 단정 — 「{t}」")
+    for t in ("네, 다음 단계로 넘어가셔도 됩니다.", "장갑은 벗으셔도 됩니다."):
+        check("허가" in check_safety(t, f), f"허가 꼴(-셔도) — 「{t}」")
+    check(check_safety("지금은 B2 차례입니다.", f) == [], "지금 버튼 차례는 통과")
+
+
 def test_fallback_and_finalize():
     print("── 대체 문장 · finalize(Review Focus 2·3)")
     cases = {
@@ -144,7 +178,7 @@ def test_fallback_and_finalize():
     neg = ("버튼 B3를 누르면 순서 위반이 되므로 절대 누르면 안 되고 지금은 반드시 버튼 B2부터 차례대로 "
            "눌러야 합니다")
     text, src, bad = finalize(neg, f)
-    check(src == "대체-안전규칙",
+    check(src.startswith("대체"),
           f"🔴 Review Focus 3 — 60자에서 잘려 지시문이 된 금지문은 자른 뒤 규칙이 잡는다 — {shorten(neg)} → {text}")
 
 
@@ -178,6 +212,7 @@ def main():
     test_shorten()
     test_check_safety()
     test_emo_discouragement_and_more_permits()
+    test_review_question_gate_length_vocab()
     test_fallback_and_finalize()
     test_card_progress_and_next_warning()
     test_verify_ordinal_step()

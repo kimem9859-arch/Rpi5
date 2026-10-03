@@ -161,6 +161,22 @@ def test_once_mode_closes():
         g.stop()
 
 
+def test_thread_death_is_visible():
+    """최종 리뷰 M1 — 수신 스레드가 예외로 죽으면 alive() 가 거짓이고 로그가 남는다(메인 루프가 알아챈다)."""
+    print("\n[죽음] 수신 스레드 예외")
+    g = FakeGlass([], mic_port=0, cmd_port=0, tail_sec=5, quiet=True).start()
+    logs = []
+    mr = MicReceiver(lambda: "127.0.0.1", g.mic_port, retry_sec=0.1, log=logs.append)
+    mr._read = lambda s: (_ for _ in ()).throw(RuntimeError("시험"))
+    mr.start()
+    try:
+        check(wait_for(lambda: not mr.alive(), 3), "alive() 가 거짓이 된다")
+        check(any("죽었다" in l for l in logs), "로그에 남는다")
+    finally:
+        mr.stop()
+        g.stop()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

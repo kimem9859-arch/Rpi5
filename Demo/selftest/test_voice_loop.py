@@ -158,7 +158,7 @@ def test_other_button_replaced():
 def test_permission_replaced():
     print("\n[안전] 허가 → 대체")
     b = bot(llm=FakeLlm("네, 지금 눌러도 됩니다."))
-    ok, m = ask(b, "지금 눌러도 돼")
+    ok, m = ask(b, "지금 상태 어때")          # 🔑 허가를 묻지 않는 질문 — 답 쪽 규칙을 본다(허가 질문은 관문이 먼저 · 최종 리뷰 C2)
     check(m["답변출처"] == "대체-안전규칙" and "허가" in m["안전규칙"], f"{m.get('안전규칙')}")
 
 
@@ -231,6 +231,27 @@ def test_llm_off_answers_a_for_any_question():
     check(b.spk.keys() == ["wrench"] and m["답변출처"] == "고정-LLM미사용", f"{b.spk.calls}")
 
 
+def test_risky_question_skips_llm():
+    """최종 리뷰 C2 — 허가를 묻는 질문은 LLM 을 안 부르고 사실 문장으로 답한다(「확인 중」도 없음)."""
+    print("\n[관문] 허가 질문 → LLM 없이 사실 문장")
+    b = bot(llm=FakeLlm("네, 눌러도 됩니다."))
+    ok, m = ask(b, "B3 눌러도 되지?")
+    check(b.llm.asked == [] and b.spk.keys() == [], f"LLM·확인 중 없음 · {b.spk.calls}")
+    check(b.tts.said == ["지금은 B2 차례입니다."] and m["답변출처"] == "대체-위험질문", f"{b.tts.said} · {m.get('답변출처')}")
+
+
+def test_answer_exception_falls_back():
+    """최종 리뷰 M2 — 답을 만들다 예외가 나도 침묵하지 않고 고정 답(「어디서 실패해도 A」)."""
+    print("\n[예외] 답하다 예외 → 고정 답")
+    broken = dict(STATE, 서브진행={"상태": "진행 중", "남은초": "깨짐", "공구충족": False})
+    b = bot(state=broken)
+    try:
+        ok, m = ask(b, "지금 몇 단계야")
+        check(b.spk.keys() == ["unavailable"] and m.get("답변출처") == "고정-오류", f"{b.spk.calls} · {m.get('답변출처')}")
+    except Exception as e:                           # noqa: BLE001
+        check(False, f"예외가 새어 나왔다 — {type(e).__name__}: {e}")
+
+
 # ── 메인 루프(Task 9) ─────────────────────────────────────────────────────
 def tone(sec, amp=4000):
     return [int(amp * math.sin(i / 5)) for i in range(int(16000 * sec))]
@@ -276,6 +297,7 @@ def test_loop_discards_speech_during_answer():
         texts.append(len(samples))
         return "가디언 지금 몇 단계야" if len(texts) == 1 else "가디언"
 
+    logs, restore = _capture_log()
     th, stop = _run_bg(fg, stt, FakeLlm("지금은 2단계입니다.", delay=2.5), FakeTts())
     try:
         fg.mic_done.wait(20)
@@ -284,7 +306,12 @@ def test_loop_discards_speech_during_answer():
         stop.set()
         th.join(5)
         fg.stop()
+        restore()
     check(len(texts) == 1, f"STT 는 첫 발화 한 번만 — 대답 중 들어온 둘째는 버렸다 · {len(texts)}회")
+    # 🔑 clear() 가 실제로 버렸는지 직접 본다 — 밀림 버림(lag_limit)에 가려 통과하지 않게(최종 리뷰 I6)
+    import re as _re
+    dropped = [float(m.group(1)) for l in logs for m in [_re.search(r"대답하는 동안 들어온 소리 ([\d.]+)초", l)] if m]
+    check(bool(dropped) and max(dropped) >= 1.0, f"대답 중 소리 버림 로그 · {dropped}")
     check(fg.count("chime") == 1, f"띠링 1번 · {fg.count('chime')}")
     check(fg.count("write") >= 2, "확인 중 + 답이 실제로 갔다")
     check(fg.count("mic_drop") == 0 and fg.count("mic_conn") == 1, "대답하는 동안에도 업링크가 끊기지 않았다(P1)")
@@ -358,6 +385,67 @@ def test_loop_vad_hop():
         fg.stop()
         va.find_utterance = orig
     check(0 < len(n) <= 3.5 / 0.25 + 2, f"3.5초 무음에 VAD {len(n)}회")
+
+
+def _free_ports(n=2):
+    import socket
+    socks = [socket.socket() for _ in range(n)]
+    for k in socks:
+        k.bind(("127.0.0.1", 0))
+    ports = [k.getsockname()[1] for k in socks]
+    for k in socks:
+        k.close()
+    return ports
+
+
+def test_loop_board_later_preattaches_speaker():
+    """최종 리뷰 I3 — 데몬이 보드보다 먼저 켜지면(상시 가동의 기본 순서) 첫 연결 때 명령 채널을 미리 붙인다."""
+    print("\n[루프] 보드가 나중에 켜짐 → 명령 채널 미리 붙임")
+    va.WAV_DIR = _wavdir()
+    old = va.RETRY_SEC
+    va.RETRY_SEC = 0.2
+    mp, cp = _free_ports()
+    stop = threading.Event()
+    th = threading.Thread(target=va.run, daemon=True, kwargs=dict(
+        get_ip=lambda: "127.0.0.1", mic_port=mp, cmd_port=cp, stt=lambda s: "", tts=FakeTts(), llm=FakeLlm(),
+        read_state=lambda: STATE, read_tools=lambda: WRENCH, stop=stop))
+    th.start()
+    time.sleep(1.5)                                  # 보드 없음 — 명령 채널 연결 실패
+    fg = FakeGlass([], mic_port=mp, cmd_port=cp, lead_sec=10.0, quiet=True).start()
+    try:
+        end = time.time() + 6
+        while time.time() < end and fg.count("cmd_conn") < 1:
+            time.sleep(0.1)
+    finally:
+        stop.set()
+        th.join(5)
+        fg.stop()
+        va.RETRY_SEC = old
+    check(fg.count("mic_conn") >= 1, "업링크 연결")
+    check(fg.count("cmd_conn") >= 1, f"띠링 없이도 명령 채널을 미리 붙였다 · {fg.count('cmd_conn')}")
+
+
+def test_loop_exits_when_mic_thread_dies():
+    """최종 리뷰 M1 — 수신 스레드가 죽으면 데몬을 끝낸다(감시가 다시 띄운다) — 조용한 영구 귀먹음 방지."""
+    print("\n[루프] 수신 스레드 죽음 → 데몬 끝")
+    import voice_mic
+    va.WAV_DIR = _wavdir()
+    logs, restore = _capture_log()
+    orig = voice_mic.MicReceiver._read
+    voice_mic.MicReceiver._read = lambda self, s: (_ for _ in ()).throw(RuntimeError("시험 — 수신 스레드가 터졌다"))
+    fg = FakeGlass([], mic_port=0, cmd_port=0, lead_sec=10.0, quiet=True).start()
+    th, stop = _run_bg(fg, lambda s: "", FakeLlm(), FakeTts())
+    try:
+        th.join(6)
+        ended = not th.is_alive()
+    finally:
+        stop.set()
+        th.join(3)
+        fg.stop()
+        voice_mic.MicReceiver._read = orig
+        restore()
+    check(ended, "run() 이 스스로 끝났다")
+    check(any("수신 스레드" in l for l in logs), "이유를 로그에 남겼다")
 
 
 def test_lock_and_exit_code():

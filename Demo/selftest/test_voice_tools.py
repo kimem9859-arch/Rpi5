@@ -31,6 +31,23 @@ def test_audio_ip_untracked():
         check(".audio_ip" not in open(os.path.join(_DEMO_DIR, f), encoding="utf-8").read(), f"{f} 가 .audio_ip 를 안 본다")
 
 
+def _empty_file():
+    f = tempfile.NamedTemporaryFile("w", delete=False, suffix=".camera_ip")
+    f.close()
+    return f.name
+
+
+def test_gate_check_empty_address_stops_before_hw():
+    """최종 리뷰 I7 — 주소 파일이 비면 G0 에서 끝난다(ping·재생·카메라 접속 전) — 시험이 HW 에 닿지 않는 안전판."""
+    print("\n[gate_check] 빈 주소 → G0 에서 끝")
+    p = os.path.join(tempfile.mkdtemp(), "voice.lock")       # 아무도 안 쥔 잠금
+    r = subprocess.run(["bash", os.path.join(_DEMO_DIR, "voice", "gate_check.sh")],
+                       env=dict(os.environ, SOP_VOICE_LOCK=p, SOP_CAM_IP_FILE=_empty_file()),
+                       capture_output=True, text=True, timeout=20)
+    check(r.returncode == 1 and "비었다" in r.stdout, f"코드 {r.returncode} · {r.stdout.strip()[-60:]}")
+    check("ping" not in r.stdout and "G2" not in r.stdout, "G2 이후로 가지 않았다")
+
+
 def test_gate_check_refuses_when_daemon_runs():
     """M10 — 음성비서가 돌면 8889·8890 을 빼앗고 거짓 통과한다 — 시작하지 않는다."""
     print("\n[gate_check] 데몬이 돌면 거절")
@@ -38,8 +55,10 @@ def test_gate_check_refuses_when_daemon_runs():
     f = open(p, "w")
     fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     try:
+        # 🔴 빈 주소 파일을 함께 준다 — 잠금 검사가 회귀해도 G0 에서 끝나 실제 보드에 닿지 않는다(최종 리뷰 I7)
         r = subprocess.run(["bash", os.path.join(_DEMO_DIR, "voice", "gate_check.sh")],
-                           env=dict(os.environ, SOP_VOICE_LOCK=p), capture_output=True, text=True, timeout=20)
+                           env=dict(os.environ, SOP_VOICE_LOCK=p, SOP_CAM_IP_FILE=_empty_file()),
+                           capture_output=True, text=True, timeout=20)
     finally:
         f.close()
     check(r.returncode != 0 and "음성비서가 돌고 있다" in r.stdout, f"코드 {r.returncode} · {r.stdout.strip()[:80]}")

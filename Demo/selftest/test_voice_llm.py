@@ -177,7 +177,7 @@ def main():
         Fake.MODE = "ok"
         check("한 문장" in voice_llm.SYSTEM and "두 문장" not in voice_llm.SYSTEM, "SYSTEM = 한 문장 규칙(D2)")
 
-        print("── temperature 는 config 한 곳(기본 0 · 사용자 요청 2026-10-03 「같은 질문에 다르게」 시험용)")
+        print("── temperature 는 config 한 곳(기본 0.8 · 사용자 규칙 판정 2026-10-03 「같은 질문에도 조금씩 다르게」)")
         old_t = config.LLM_TEMPERATURE
         check(old_t == 0.8, f"기본은 0.8 — 같은 질문에도 조금씩 다르게(사용자 규칙 판정 2026-10-03) — {old_t}")
         config.LLM_TEMPERATURE = 0.3

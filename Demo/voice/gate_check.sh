@@ -17,7 +17,7 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."     # → Rpi5
 PY="$HOME/env/tts/.venv/bin/python"
-CAM_IP_FILE=Demo/.camera_ip
+CAM_IP_FILE="${SOP_CAM_IP_FILE:-Demo/.camera_ip}"   # SOP_CAM_IP_FILE = 시험용(빈 파일이면 G0 에서 끝나 HW 에 안 닿는다)
 LOCK="${SOP_VOICE_LOCK:-/tmp/sop_voice_assistant.lock}"
 FAILS=0
 

@@ -306,7 +306,7 @@ class Speaker:
         if self.s is None:
             try:
                 self.ip = self._ip()
-            except SystemExit as e:   # esp_ip() 는 주소 파일이 없으면 SystemExit — 이 전송만 실패로
+            except (Exception, SystemExit) as e:   # esp_ip() 는 주소 파일이 없으면 SystemExit — 이 전송만 실패로
                 raise OSError(str(e)) from None
             self.s = socket.create_connection((self.ip, self.port), 10)
             self.s.settimeout(30)
@@ -528,6 +528,15 @@ class Assistant:
         return True
 
     def _answer(self, text, tool_q, m):
+        """🔴 무엇이 나도 침묵하지 않는다 — 예외면 고정 답(최종 리뷰 M2 · 예: 상태 파일의 값이 깨짐)."""
+        try:
+            self._answer_inner(text, tool_q, m)
+        except Exception as e:                 # noqa: BLE001
+            log(f"🔴 답을 만들다 예외 — 고정 답으로: {type(e).__name__}: {e}")
+            m["답변오류"] = f"{type(e).__name__}: {e}"[:120]
+            self._answer_a(tool_q, "고정-오류", m)
+
+    def _answer_inner(self, text, tool_q, m):
         dets, fresh = self._read_tools()
         state = self._read_state()
         facts = voice_card.card_facts(state, dets, fresh)
@@ -541,6 +550,13 @@ class Assistant:
         m["LLM사용"] = llm_on
         if not llm_on:
             self._answer_a(tool_q, "고정-LLM미사용", m, any_question=True)
+            return
+        gated = voice_card.gate_answer(text, facts)
+        if gated:
+            # 🔑 허가를 묻는 질문 — LLM 을 안 부르고 사실 문장(최종 리뷰 C2 · 사용자 「위험 질문엔 고정 대체 문장」)
+            m["위험질문"] = True
+            log(f"허가를 묻는 질문 — LLM 없이 사실 문장으로 답한다: {text}")
+            self._say(gated, "대체-위험질문", facts, tool_q, m)
             return
         if not self.llm.available():
             m["LLM오류"] = "예열 전" if not self.llm.ready else "건너뜀(연속 실패)"
@@ -677,9 +693,13 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                 if mic.closed:
                     log("업링크 종료 — 리허설 끝")
                     return
+                if not mic.alive():
+                    log("🔴 마이크 수신 스레드가 죽었다 — 데몬을 끝낸다(run_voice.sh --forever 가 다시 띄운다)")
+                    return
                 if mic.generation != gen:
-                    if gen:
-                        # 🔑 다시 붙었으면 명령 채널도 미리 다시 붙인다 — 첫 띠링 유실(Q3 · R2 I1)
+                    if gen or spk.s is None:
+                        # 🔑 다시 붙었거나, 보드보다 데몬이 먼저 켜져 시작 때 못 붙었으면 명령 채널을 미리 붙인다
+                        #    — 첫 띠링 유실(Q3 · R2 I1 · 최종 리뷰 I3: 상시 가동에선 데몬이 먼저 뜨는 것이 기본 순서)
                         spk.reset()
                         spk.send(b"")
                     gen = mic.generation

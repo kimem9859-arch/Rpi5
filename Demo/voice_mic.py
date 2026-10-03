@@ -42,10 +42,23 @@ class MicReceiver:
         self.connected_ip = None
         self.closed = False                 # once 모드에서 상대가 닫았다
         self.dropped = 0                    # 밀려서 버린 표본 수(누적)
+        self._thread = None
 
     def start(self):
-        threading.Thread(target=self._run, name="mic-uplink", daemon=True).start()
+        self._thread = threading.Thread(target=self._guarded, name="mic-uplink", daemon=True)
+        self._thread.start()
         return self
+
+    def alive(self):
+        """수신 스레드가 살아 있는가 — 🔴 죽은 채 프로세스만 살아 있으면 감시가 다시 띄우지 않아 영구히 귀가 먹는다
+        (최종 리뷰 M1). 메인 루프가 이것을 보고 데몬을 끝낸다."""
+        return self._thread is not None and self._thread.is_alive()
+
+    def _guarded(self):
+        try:
+            self._run()
+        except Exception as e:             # noqa: BLE001 — 죽은 이유를 남기고 끝낸다(메인 루프가 alive() 로 안다)
+            self._log(f"🔴 마이크 수신 스레드가 죽었다 — {type(e).__name__}: {e}")
 
     def stop(self):
         self._stop.set()

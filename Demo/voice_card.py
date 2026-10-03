@@ -256,23 +256,35 @@ ANSWER_MAX_CHARS = 60      # 🔑 D2 — 한 문장 + 최대 약 60자(사용자
 PERMIT_WORDS = ("눌러도 됩", "눌러도 돼", "눌러도 괜찮", "해도 됩", "해도 돼", "해도 괜찮",
                 "진행하셔도", "진행해도",
                 # 🔑 질문 세트(2026-10-03 추가분)가 끌어내는 꼴 — EMO 풀어도? · 순서 건너뛰어도? · 바꿔도 상관없지?
-                "풀어도 됩", "풀어도 돼", "풀어도 괜찮", "건너뛰어도", "상관없습니다", "상관 없습니다")
+                "풀어도 됩", "풀어도 돼", "풀어도 괜찮", "건너뛰어도", "상관없습니다", "상관 없습니다",
+                # 최종 리뷰 I2 — 높임 꼴 · 다음 단계로 넘어가기
+                "셔도 됩", "셔도 돼", "셔도 괜찮", "넘어가도")
 
 # 🔴 비상정지를 말리는 말 — 비상정지는 위험하면 언제든 눌러야 한다. dev(2026-10-03)에서 「비상정지 버튼을
 #    누르지 마십시오」(경고 중)·「지금 누르지 않아도 됩니다」가 나왔고 다른 규칙은 못 걸렀다.
 _EMO_WORD = re.compile(r"비상\s*정지|EMO")
-_DONT_PRESS = re.compile(r"누르지\s*(?:마|않아도|말)|누를\s*필요\s*(?:가\s*|는\s*)?없|누르면\s*안|안\s*눌러도")
+_DONT_PRESS = re.compile(r"누르지\s*(?:마|않아도|말)|누를\s*필요\s*(?:가\s*|는\s*)?없|누르면\s*안|안\s*눌러도"
+                         r"|필요\s*(?:가\s*|는\s*)?없|건드리지|사용하지")   # 최종 리뷰 I2 변형
 EMO_SENTENCE = "위험하다고 느끼면 비상정지는 언제든 누르세요."
 
 _REPLACE = (("[사실]", "작업 정보"), ("[질문]", ""), ("[규칙]", ""))
 _EMOJI = re.compile("[\U0001F000-\U0001FFFF☀-➿️]")
 _SENT_END = re.compile(r"[?!]|\.(?!\d)")          # 🔑 0.44 의 점은 문장 끝이 아니다
-_BUTTON = re.compile(r"B\s*([1-9])")
-_PRESS = re.compile(r"눌|누르|누릅|누른|누름")
-_DONE = re.compile(r"(?:끝났|완료됐|완료되었|완료했|마쳤|끝냈)(?!는지)")
+_BUTTON = re.compile(r"[Bb]\s*([1-9])")
+_BUTTON_NUM = re.compile(r"(\d)\s*번\s*버튼")                 # 「3번 버튼」(최종 리뷰 I2)
+_BUTTON_ORD = re.compile(r"(첫|두|세|네)\s*번째\s*버튼")         # 「세 번째 버튼」
+_PRESS = re.compile(r"눌|누르|누릅|누른|누름|차례|진행하세요|진행하십시오|진행해")
+_MOVE_ON = re.compile(r"넘어가(?:세요|십시오|셔도|도\s*됩|도\s*돼|면\s*됩)")   # 다음 단계로 가라는 말
+_DONE = re.compile(r"(?:끝났|완료됐|완료되었|완료했|마쳤|끝냈|다\s*됐|끝난\s*상태|완료되어)(?!는지)")
 _STEP_NUM = re.compile(r"(?<![A-Za-z])(\d+)\s*번?\s*째?\s*단계")
 _STEP_ORD = re.compile(r"(첫|두|세|네)\s*번째\s*단계")
 _ORD = {"첫": 1, "두": 2, "세": 3, "네": 4}
+
+
+def _buttons(t):
+    """문장에 나온 버튼들 — 「B3」「b3」「3번 버튼」「세 번째 버튼」."""
+    return ({f"B{d}" for d in _BUTTON.findall(t)} | {f"B{d}" for d in _BUTTON_NUM.findall(t)}
+            | {f"B{_ORD[o]}" for o in _BUTTON_ORD.findall(t)})
 
 
 def mentioned_steps(text):
@@ -287,6 +299,18 @@ def is_one_sentence(text):
     return bool(t) and len(_SENT_END.findall(t)) == 1 and t[-1] in ".?!"
 
 
+def first_sentence(text):
+    """카드 표기·그림 글자를 지우고 첫 문장만 — 길이는 자르지 않는다(끝 부호가 없으면 그대로)."""
+    t = text or ""
+    for a, b in _REPLACE:
+        t = t.replace(a, b)
+    t = " ".join(_EMOJI.sub("", t).split())
+    m = _SENT_END.search(t)
+    if m:
+        t = t[:m.end()]
+    return t.strip()
+
+
 def shorten(text, limit=ANSWER_MAX_CHARS):
     """LLM 답 → 말할 한 문장(설계 §4.3 C2 둘째 겹).
 
@@ -296,14 +320,7 @@ def shorten(text, limit=ANSWER_MAX_CHARS):
     🔴 자르면 뜻이 뒤집힐 수 있다(「B3 를 누르면 안 됩니다」→「B3 를 누르면.」) — 그래서 안전 규칙은
        **자른 뒤의 문장**을 본다(finalize 순서 · Review Focus 3).
     """
-    t = text or ""
-    for a, b in _REPLACE:
-        t = t.replace(a, b)
-    t = " ".join(_EMOJI.sub("", t).split())
-    m = _SENT_END.search(t)
-    if m:
-        t = t[:m.end()]
-    t = t.strip()
+    t = first_sentence(text)
     if not t:
         return ""
     if len(t) > limit:
@@ -335,8 +352,8 @@ def check_safety(text, facts):
         bad.append("비상정지억제")
     if not facts.get("세션") or facts.get("완료"):
         return bad
-    others = {f"B{d}" for d in _BUTTON.findall(t)} - {facts.get("버튼")}
-    if others and _PRESS.search(t):
+    others = _buttons(t) - {facts.get("버튼")}
+    if (others and _PRESS.search(t)) or _MOVE_ON.search(t):
         bad.append("다른버튼")
     if _DONE.search(t):
         cur = facts.get("단계")
@@ -366,14 +383,42 @@ def fallback_sentence(facts):
     return f"지금은 {facts.get('버튼')} 차례입니다."
 
 
+# 🔑 허가를 묻는 질문 — LLM 답과 무관하게 사실 문장으로 답한다(최종 리뷰 C2 · 사용자 「위험 질문엔 고정 대체 문장이
+#    나와야 안전 리미트」 2026-10-03). 답만 보는 그물은 「네.」·「넘어가셔도 됩니다」 같은 꼴을 놓친다.
+#    띄어쓰기·문장부호를 지우고 본다(STT 는 띄어쓰기를 자주 다르게 낸다).
+_RISKY_Q = ("눌러도", "누를게", "누를까", "괜찮지", "도돼", "도되", "도괜찮", "셔도", "상관없",
+            "건너뛰", "무시하고", "풀어도", "넘어가도")
+
+
+def risky_question(question):
+    q = "".join(c for c in (question or "") if not c.isspace() and c not in ",.?!·")
+    return any(w in q for w in _RISKY_Q)
+
+
+def gate_answer(question, facts):
+    """허가를 묻는 질문이면 LLM 없이 말할 사실 문장 · 아니면(또는 작업 전이면) None."""
+    if facts.get("세션") and risky_question(question):
+        return fallback_sentence(facts)
+    return None
+
+
 def finalize(raw, facts):
-    """LLM 원문 → 말할 문장 `(문장, 출처, 걸린 규칙)`. 출처 = "LLM" · "대체-안전규칙" · "빈답"(문장 None)."""
-    said = shorten(raw)
+    """LLM 원문 → 말할 문장 `(문장, 출처, 걸린 규칙)`.
+
+    출처 = "LLM" · "대체-안전규칙" · "대체-길이" · "빈답"(문장 None).
+    🔑 첫 문장이 `ANSWER_MAX_CHARS` 를 넘으면 자르지 않고 사실 문장으로 바꾼다 — 자르면 술어가 잘려
+       「…버튼 B3를.」 같은 조각이 말해졌다(최종 리뷰 I1 · dev 실제 사례).
+    """
+    said = first_sentence(raw)
     if not re.search(r"[가-힣A-Za-z0-9]", said):
         return None, "빈답", []
+    if said[-1] not in ".?!":
+        said += "."
     bad = check_safety(said, facts)
     if "비상정지억제" in bad:
         return EMO_SENTENCE, "대체-안전규칙", bad
     if bad:
         return fallback_sentence(facts), "대체-안전규칙", bad
+    if len(said) > ANSWER_MAX_CHARS:
+        return fallback_sentence(facts), "대체-길이", ["길이"]
     return said, "LLM", []
