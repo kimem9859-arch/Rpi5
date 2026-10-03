@@ -1,0 +1,22 @@
+[config] ⚠️ 포트 해석 실패: No module named 'serial'
+[config] → 찾을 때까지 연결하지 않는다(꽂히면 자동으로 붙는다). 강제하려면 SOP_INTERLOCK_PORT=/dev/ttyACMx
+모델 tool_v3.pt · 이미지 1427 · conf 0.65 · IoU 0.5
+
+■ 클래스별 (판정 근거)
+클래스                       정답    적중      재현율
+driver                   301    18       6%
+pliers                   306     0       0%
+wrench                   640    52       8%
+오검출(전체)                    1
+
+■ 촬영 세트별 (참고 — 세트 안에도 놓인 공구가 섞여 있다)
+세트조건      클래스                       정답    적중
+unknown   driver                   301    18
+unknown   pliers                   306     0
+unknown   wrench                   640    52
+
+🔴 인용 시 조건을 함께 옮긴다 — 카메라·임계·구도·세션 수.
+
+real	7m39.853s
+user	13m30.957s
+sys	0m6.020s
