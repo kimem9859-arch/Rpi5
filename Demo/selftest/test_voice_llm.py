@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
 
+import config
 import voice_llm
 
 _fails = []
@@ -137,7 +138,7 @@ def main():
         print("── 🔴 보낸 요청의 모양")
         b = _seen["body"]
         check(b.get("think") is False, "🔴 think:false 가 반드시 들어간다(§10.46-(4))")
-        check(b["options"]["temperature"] == 0.0, "temperature 0")
+        check(b["options"]["temperature"] == config.LLM_TEMPERATURE, "temperature = config 값")
         check(b["stream"] is False, "스트리밍을 안 쓴다")
         check(b["system"] == voice_llm.SYSTEM, "시스템 프롬프트는 모듈 상수 그대로(고정)")
         check("[사실]" in b["prompt"] and "[질문]" in b["prompt"],
@@ -177,15 +178,14 @@ def main():
         check("한 문장" in voice_llm.SYSTEM and "두 문장" not in voice_llm.SYSTEM, "SYSTEM = 한 문장 규칙(D2)")
 
         print("── temperature 는 config 한 곳(기본 0 · 사용자 요청 2026-10-03 「같은 질문에 다르게」 시험용)")
-        import config
         old_t = config.LLM_TEMPERATURE
-        check(old_t == 0.0, f"기본은 0(같은 질문엔 같은 답) — {old_t}")
-        config.LLM_TEMPERATURE = 0.8
+        check(old_t == 0.8, f"기본은 0.8 — 같은 질문에도 조금씩 다르게(사용자 규칙 판정 2026-10-03) — {old_t}")
+        config.LLM_TEMPERATURE = 0.3
         try:
             voice_llm.ask(card, "뭐야", url=url)
-            check(_seen["body"]["options"]["temperature"] == 0.8, "질문이 config 값을 쓴다")
+            check(_seen["body"]["options"]["temperature"] == 0.3, "질문이 config 값을 쓴다")
             voice_llm.warm(url=url)
-            check(_seen["body"]["options"]["temperature"] == 0.8, "예열도 같은 값")
+            check(_seen["body"]["options"]["temperature"] == 0.3, "예열도 같은 값")
         finally:
             config.LLM_TEMPERATURE = old_t
     finally:
