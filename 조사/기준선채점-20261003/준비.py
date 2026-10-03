@@ -1,6 +1,6 @@
 """기준선 채점 준비 — 장소1 사람 검토 라벨(b004~b009)을 기존 채점 도구의 입력 형태로 만든다.
 
-실행: python3 준비.py <출력 폴더>
+실행: python3 준비.py <출력 폴더> [--only <사진 이름 목록 파일>]   (--only = 그 이름만 · 재학습 확인 20261003 의 떼어 둔 사진)
   버튼 → <출력>/btn/labels(버튼 줄만) · <출력>/btn/images(원본 PNG 링크 · 이름 = 라벨 이름)
          → `Demo/test/score_hef.py --labels … --images …`
   공구 → <출력>/tool/labels(공구 줄만) · <출력>/tool/images(원본을 JPEG 로 · 시연 `tool_gate` 와 같은 품질)
@@ -27,7 +27,7 @@ PLACE1 = Path.home() / "data/label_dataset/place1"
 BATCH_DIR = Path.home() / "data/label_batches"
 
 
-def main(out):
+def main(out, only=None):
     out = Path(out)
     for d in ("btn/labels", "btn/images", "tool/labels", "tool/images"):
         (out / d).mkdir(parents=True, exist_ok=True)
@@ -38,8 +38,8 @@ def main(out):
         for r in json.load(open(BATCH_DIR / b / "manifest.json", encoding="utf-8"))["images"]:
             name = r["file"].split("__", 1)[1].rsplit(".", 1)[0]
             lab = PLACE1 / "labels" / f"{name}.txt"
-            if not lab.exists():
-                continue                      # exclude 사진
+            if not lab.exists() or (only is not None and name not in only):
+                continue                      # exclude 사진 · 목록 밖
             lines = [l.split() for l in open(lab) if l.strip()]
             btn = [" ".join(v) for v in lines if int(v[0]) in BTN]
             tool = [" ".join(v) for v in lines if int(v[0]) in TOOL]
@@ -57,4 +57,7 @@ def main(out):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    only = None
+    if "--only" in sys.argv:
+        i = sys.argv.index("--only"); only = set(Path(sys.argv[i + 1]).read_text(encoding="utf-8").split()); del sys.argv[i:i + 2]
+    main(sys.argv[1], only)

@@ -1,0 +1,14 @@
+모델 tool_v3.pt · 사진 292 · 정답 박스 126 · 운용 conf 0.65 · IoU 0.5
+mAP50 0.119 · 클래스별 AP50 driver 0.183 / wrench 0.078 / pliers 0.096
+cls        TP   FP   FN  precision  recall
+driver      3    1   44      0.750   0.064
+wrench      0    0   49      0.000   0.000
+pliers      0    0   30      0.000   0.000
+전체         3    1  123      0.750   0.024
+혼동행렬 (행=정답 · 열=예측 · 끝 열=미검출 · 끝 행=오검출)
+          driver  wrench  pliers     미검출
+driver         3       0       0      44
+wrench         0       0       0      49
+pliers         0       0       0      30
+오검출          1       0       0
+클래스 간 오분류 0건
