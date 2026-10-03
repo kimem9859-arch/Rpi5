@@ -231,6 +231,171 @@ def test_llm_off_answers_a_for_any_question():
     check(b.spk.keys() == ["wrench"] and m["답변출처"] == "고정-LLM미사용", f"{b.spk.calls}")
 
 
+# ── 메인 루프(Task 9) ─────────────────────────────────────────────────────
+def tone(sec, amp=4000):
+    return [int(amp * math.sin(i / 5)) for i in range(int(16000 * sec))]
+
+
+def _wavdir():
+    d = tempfile.mkdtemp(prefix="sop_wav_")
+    for k in ("checking", "notready", "unavailable", "changed", "wrench", "driver", "pliers",
+              "none", "notstep"):
+        with wave.open(os.path.join(d, f"{k}.wav"), "w") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(b"\x00\x00" * 1600)
+    return d
+
+
+def _run_bg(fg, stt, llm, tts):
+    stop = threading.Event()
+    th = threading.Thread(target=va.run, daemon=True, kwargs=dict(
+        get_ip=lambda: "127.0.0.1", mic_port=fg.mic_port, cmd_port=fg.cmd_port, stt=stt, tts=tts,
+        llm=llm, read_state=lambda: STATE, read_tools=lambda: WRENCH, stop=stop))
+    th.start()
+    return th, stop
+
+
+def _capture_log():
+    logs = []
+    old = va.log
+    va.log = lambda m: (logs.append(m), old(m))
+    return logs, lambda: setattr(va, "log", old)
+
+
+def test_loop_discards_speech_during_answer():
+    """G11 · P1 — 대답하는 동안 들어온 둘째 발화는 버리고, 그동안에도 업링크는 안 끊긴다(Review Focus 1)."""
+    print("\n[루프] 대답 중 소리 버림 · 업링크 유지")
+    va.WAV_DIR = _wavdir()
+    fg = FakeGlass([tone(0.8), tone(0.8)], mic_port=0, cmd_port=0, lead_sec=1.0, gap_sec=1.0,
+                   tail_sec=4.0, play_speed=0.05, quiet=True).start()
+    texts = []
+
+    def stt(samples):
+        texts.append(len(samples))
+        return "가디언 지금 몇 단계야" if len(texts) == 1 else "가디언"
+
+    th, stop = _run_bg(fg, stt, FakeLlm("지금은 2단계입니다.", delay=2.5), FakeTts())
+    try:
+        fg.mic_done.wait(20)
+        time.sleep(0.5)
+    finally:
+        stop.set()
+        th.join(5)
+        fg.stop()
+    check(len(texts) == 1, f"STT 는 첫 발화 한 번만 — 대답 중 들어온 둘째는 버렸다 · {len(texts)}회")
+    check(fg.count("chime") == 1, f"띠링 1번 · {fg.count('chime')}")
+    check(fg.count("write") >= 2, "확인 중 + 답이 실제로 갔다")
+    check(fg.count("mic_drop") == 0 and fg.count("mic_conn") == 1, "대답하는 동안에도 업링크가 끊기지 않았다(P1)")
+
+
+def test_loop_halfopen_reattaches_speaker():
+    """P5 · Q3 — 반열림이면 다시 붙고, 붙은 뒤 명령 채널도 미리 다시 붙인다(첫 띠링 유실 방지)."""
+    print("\n[루프] 반열림 → 재접속 + 명령 채널 미리 붙임")
+    va.WAV_DIR = _wavdir()
+    old = (va.STALL_SEC, va.RETRY_SEC)
+    va.STALL_SEC, va.RETRY_SEC = 0.8, 0.2
+    fg = FakeGlass([tone(0.3)], mic_port=0, cmd_port=0, lead_sec=0.5, tail_sec=5.0, vanish=True,
+                   play_speed=0.05, quiet=True).start()
+    th, stop = _run_bg(fg, lambda s: "", FakeLlm(), FakeTts())
+    try:
+        end = time.time() + 8
+        while time.time() < end and not (fg.count("mic_conn") >= 2 and fg.count("cmd_conn") >= 2):
+            time.sleep(0.1)
+    finally:
+        stop.set()
+        th.join(5)
+        fg.stop()
+        va.STALL_SEC, va.RETRY_SEC = old
+    check(fg.count("mic_conn") >= 2, f"업링크 재접속 · {fg.count('mic_conn')}")
+    check(fg.count("cmd_conn") >= 2, f"명령 채널도 다시 붙였다 · {fg.count('cmd_conn')}")
+
+
+def test_loop_survives_exception():
+    """M8 — 한 발화 처리에서 예외가 나도 루프는 산다 — 다음 발화를 처리한다."""
+    print("\n[루프] 예외 보호")
+    va.WAV_DIR = _wavdir()
+    logs, restore = _capture_log()
+    fg = FakeGlass([tone(0.8), tone(0.8)], mic_port=0, cmd_port=0, lead_sec=1.0, gap_sec=1.5,
+                   tail_sec=2.5, play_speed=0.05, quiet=True).start()
+    calls = []
+
+    def stt(samples):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("시험 — STT 가 터졌다")
+        return "가디언"
+
+    th, stop = _run_bg(fg, stt, FakeLlm(), FakeTts())
+    try:
+        fg.mic_done.wait(20)
+        time.sleep(0.5)
+    finally:
+        stop.set()
+        th.join(5)
+        fg.stop()
+        restore()
+    check(len(calls) == 2, f"둘째 발화도 처리했다 · {len(calls)}회")
+    check(fg.count("chime") == 1, "둘째 발화(호출어)에 띠링")
+    check(any("메인 루프 오류" in l for l in logs), "오류를 로그에 남겼다")
+
+
+def test_loop_vad_hop():
+    """Q7 — VAD 는 새 소리가 0.25초 쌓였을 때만 본다(종전: 512샘플 조각마다 · 초당 31회)."""
+    print("\n[루프] VAD 간격")
+    va.WAV_DIR = _wavdir()
+    n = []
+    orig = va.find_utterance
+    va.find_utterance = lambda *a, **k: (n.append(1), orig(*a, **k))[1]
+    fg = FakeGlass([], mic_port=0, cmd_port=0, lead_sec=3.0, tail_sec=0.5, quiet=True).start()
+    th, stop = _run_bg(fg, lambda s: "", FakeLlm(), FakeTts())
+    try:
+        fg.mic_done.wait(10)
+    finally:
+        stop.set()
+        th.join(5)
+        fg.stop()
+        va.find_utterance = orig
+    check(0 < len(n) <= 3.5 / 0.25 + 2, f"3.5초 무음에 VAD {len(n)}회")
+
+
+def test_lock_and_exit_code():
+    """§4.6 — 한 대만 돈다(명령 채널은 손님 하나) · 이미 돌면 코드 3 으로 끝난다(감시가 멈춘다)."""
+    print("\n[잠금] 한 대만")
+    import subprocess
+    p = os.path.join(tempfile.mkdtemp(), "voice.lock")
+    a = va.take_lock(p)
+    check(a is not None and va.take_lock(p) is None, "둘째 잠금은 실패")
+    r = subprocess.run([sys.executable, os.path.join(_DEMO_DIR, "voice_assistant.py"), "--ip", "127.0.0.1"],
+                       env=dict(os.environ, SOP_VOICE_LOCK=p), capture_output=True, text=True, timeout=60)
+    check(r.returncode == va.EXIT_ALREADY_RUNNING and "이미" in r.stdout,
+          f"이미 돌면 코드 {r.returncode} · {r.stdout.strip()[-80:]}")
+    a.close()
+    check(va.take_lock(p) is not None, "놓으면 다시 잡힌다")
+
+
+def test_esp_ip_camera_ip_only():
+    """§4.9 — 보드는 하나 — 주소는 .camera_ip 하나(.audio_ip 를 읽지 않는다)."""
+    print("\n[주소] .camera_ip 하나")
+    d = tempfile.mkdtemp()
+    old = va.IP_FILE
+    va.IP_FILE = os.path.join(d, ".camera_ip")
+    try:
+        with open(va.IP_FILE, "w") as f:
+            f.write("192.168.1.16\n")
+        check(va.esp_ip() == "192.168.1.16", "파일 그대로")
+        os.remove(va.IP_FILE)
+        try:
+            va.esp_ip()
+            check(False, "파일이 없으면 SystemExit")
+        except SystemExit as e:
+            check(".camera_ip" in str(e), f"이유와 함께 끝난다 · {e}")
+    finally:
+        va.IP_FILE = old
+    check(not hasattr(va, "AUDIO_IP_FILE"), ".audio_ip 상수가 없다")
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

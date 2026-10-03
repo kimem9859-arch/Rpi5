@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
-"""음성비서 데몬 — 「가디언」 → 띠링 → 「앞에 보이는 게 뭐야?」 → 공구 안내.
+"""음성비서 데몬 — 「가디언」 → 띠링 → 질문 → 답(LLM 또는 고정 wav).
 
-실행: ./Demo/run_voice.sh          (= ~/env/tts/.venv/bin/python Demo/voice_assistant.py)
-정본: ../docs/superpowers/specs/2026-09-06-음성비서-시연구현-design.md
+실행: ./Demo/run_voice.sh [--forever]   (= ~/env/tts/.venv/bin/python Demo/voice_assistant.py)
+      시연에서는 run_demo.sh 가 함께 띄운다(설계 2026-10-03 §4.6).
+정본: ../docs/superpowers/specs/2026-10-03-음성비서-시연안정화-design.md (안정화)
+      · 2026-09-07-음성비서-LLM-design.md (B 갈래) · 2026-09-06-음성비서-시연구현-design.md (A 갈래)
 
-🔑 GUI 를 0줄도 건드리지 않는다 — 별도 프로세스이고, 공구 정보는 tool_worker 가
-   이미 쓰는 /dev/shm/sop_tool/resp.json 을 읽기만 한다.
-
-🔴 접속 주소는 Demo/.camera_ip 를 매번 읽는다 — mDNS 를 쓰지 않기로 했고
+🔑 GUI 를 0줄도 건드리지 않는다 — 별도 프로세스이고, 공구·상태는 GUI 가 /dev/shm 에 쓴 파일을 읽기만 한다.
+🔴 접속 주소는 Demo/.camera_ip 를 붙을 때마다 다시 읽는다 — mDNS 를 쓰지 않기로 했고
    (통신경로 설계 §6-②), 그 덕에 iptime·폰·파이AP 어느 폴백에서도 그대로 돈다.
-
-🔴 이 코드는 실HW 에서 아직 돌아본 적이 없다(2026-09-06 시점). 오프라인
-   리허설(Demo/test/fake_glass.py)로 배선만 확인했다. 촬영 당일 첫 기동에서
-   문제가 나면 Demo/voice/시연절차.md 의 증상별 대응표를 본다.
+🔑 구조 — 수신 스레드(voice_mic)가 업링크를 늘 비우고, 메인 루프가 VAD·STT 를 돌려 발화를
+   Assistant 에 넘긴다. 오프라인 리허설 = Demo/test/fake_glass.py · 증상별 대응 = Demo/voice/시연절차.md.
 """
 import argparse
 import array
@@ -27,22 +25,23 @@ import threading
 import time
 import wave
 
+import numpy as np
+
 _DEMO_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _DEMO_DIR)
 
 from voice_lib import (answer_key, find_utterance, is_question,
                        is_tool_question, is_wake, noise_floor, read_tool_dets)
 from voice_lib import rms as vl_rms
+from voice_mic import MicReceiver
 
 import config
 import voice_card
 import voice_llm
 import voice_tts
 
-# 🔑 보드가 둘이다(2026-09-06 결정) — 메인=카메라(.camera_ip) / 서브=오디오(.audio_ip).
-#    .audio_ip 가 없으면 한 보드 구성으로 보고 .camera_ip 를 쓴다.
-AUDIO_IP_FILE = os.path.join(_DEMO_DIR, ".audio_ip")
-IP_FILE       = os.path.join(_DEMO_DIR, ".camera_ip")
+# 🔑 보드는 하나다(9/7 한 보드 복귀 · 설계 2026-10-03 §4.9) — 주소 = Demo/.camera_ip.
+IP_FILE  = os.path.join(_DEMO_DIR, ".camera_ip")
 WAV_DIR  = os.path.join(_DEMO_DIR, "voice", "wav")
 MIC_PORT = 8889
 CMD_PORT = 8890
@@ -56,9 +55,18 @@ WINDOW_SEC = 6.0      # 판정에 쓰는 최근 구간
 LISTEN_SEC = 20.0     # 🔑 호출 뒤 질문을 기다리는 시간.
                       #    🔴 8초는 짧았다 — 2026-09-07 실측에서 사용자가 다시
                       #    말하기까지 12초가 걸려 깨어남이 이미 풀려 있었다.
-LAG_LIMIT  = 2.0      # 🔴 이보다 밀리면 오래된 오디오를 버린다(최신 우선)
+LAG_LIMIT  = 2.0      # 🔴 도착한 지 이보다 오래된 소리는 밀린 것 — 버린다(최신 우선 · voice_mic)
 QUIET_TAIL = 0.4      # 발화가 끝났다고 보기까지 필요한 뒤쪽 무음
 VOLUME     = 5        # 🔑 펌웨어 음량 1~5. 기본 3 은 실청취에서 작았다(2026-09-07)
+VAD_HOP_SEC = 0.25    # 🔑 새 소리가 이만큼 쌓였을 때만 판정한다 — 512샘플 조각마다 버퍼 전체를 다시 보던
+                      #    것이 무음 대기 CPU 의 원인이었다(설계 2026-10-03 §4.1 · Q7 · 10/03 실측)
+STALL_SEC  = 3.0      # 🔴 펌웨어는 접속 중 쉬지 않고 보낸다 — 이만큼 0바이트면 반열림으로 보고 다시 붙는다(P5)
+RETRY_SEC  = 3.0      # 다시 붙기 전 대기
+
+# 🔑 한 대만 돈다 — 명령 채널(8890)은 손님 하나라 둘이 돌면 서로 끊는다(R2 통신 규약 대조표).
+LOCK_FILE = os.environ.get("SOP_VOICE_LOCK", "/tmp/sop_voice_assistant.lock")
+EXIT_ALREADY_RUNNING = 3      # run_voice.sh --forever 가 이 코드면 감시를 멈춘다
+_AUTO = object()
 
 # 🔑 보고서 시각자료용 계측 — 발화마다 한 줄씩 JSONL 로 남긴다.
 #    환경변수 SOP_VOICE_METRICS 로 경로를 준다(없으면 안 남긴다).
@@ -108,8 +116,9 @@ class AudioLog:
         self.full.setframerate(RATE)
 
     def mic(self, samples):
+        """업링크 원본 — 🔑 수신 스레드에서 불린다(대답하는 동안의 소리도 빠짐없이 남는다)."""
         if self.full:
-            self.full.writeframes(array.array("h", samples).tobytes())
+            self.full.writeframes(samples.tobytes())
 
     def utterance(self, samples, text):
         """잘라낸 발화 + STT 결과. 🔑 둘을 짝지어 둬야 나중에 대조가 된다."""
@@ -177,19 +186,18 @@ def open_audio_log(path):
 
 
 def esp_ip():
-    """오디오 보드 주소. `.audio_ip` 가 있으면 그것, 없으면 `.camera_ip`.
+    """보드 주소 = `Demo/.camera_ip` — 보드가 하나다(설계 2026-10-03 §4.9).
 
     🔴 mDNS 를 쓰지 않으므로(통신경로 설계 §6-②) 주소는 파일이 정본이고,
        매번 다시 읽어 통신경로 폴백(iptime→폰→파이AP)을 따라간다.
     """
-    for path in (AUDIO_IP_FILE, IP_FILE):
-        try:
-            ip = open(path, encoding="utf-8").read().strip()
-            if ip:
-                return ip
-        except OSError:
-            continue
-    raise SystemExit(f"🔴 오디오 보드 주소를 못 찾았다 — {AUDIO_IP_FILE} 를 만들어라")
+    try:
+        ip = open(IP_FILE, encoding="utf-8").read().strip()
+    except OSError:
+        ip = ""
+    if not ip:
+        raise SystemExit(f"🔴 보드 주소를 못 찾았다 — {IP_FILE} 를 만들어라(arduino/read_esp32_ip.sh)")
+    return ip
 
 
 def build_stt():
@@ -231,27 +239,48 @@ def wav_payload(path):
             + struct.pack("<I", chk) + b"P\n"), len(a) / rate
 
 
-def connect_mic(ip_getter, retry_sec=3.0):
-    """마이크 업링크에 붙는다 — 될 때까지 다시 시도한다.
+def load_tts():
+    """런타임 합성기 — 못 올리면 None(고정 wav 로만 답한다)."""
+    if not config.LLM_ENABLED:
+        return None
+    try:
+        from voice_tts import Tts
+        t = Tts()
+        log("런타임 TTS 준비됨")
+        return t
+    except Exception as e:                     # noqa: BLE001
+        log(f"🔴 런타임 TTS 를 못 올렸다 — 고정 wav 로만 답한다: {e}")
+        return None
 
-    🔴 예전에는 `socket.create_connection` 이 try 밖에 있어, 끊긴 뒤 ESP32 가
-       아직 안 살아났으면 `ConnectionRefusedError` 로 **프로세스가 통째로 죽었다**
-       (2026-09-06 교차 리허설, 세션 73cfe23a 가 발견). 촬영 중이면 재시작해야
-       하는 자리라 반드시 살아남아야 한다.
 
-    🔑 주소를 함수로 받는 이유 — 재시도마다 `.camera_ip` 를 다시 읽어야
-       통신경로 폴백(iptime→폰→파이AP)을 따라갈 수 있다.
-    """
-    while True:
-        ip = ip_getter()
-        try:
-            s = socket.create_connection((ip, MIC_PORT), 10)
-            s.settimeout(5)
-            log(f"마이크 업링크 연결됨 ({ip}:{MIC_PORT})")
-            return s
-        except OSError as e:
-            log(f"🔴 업링크 연결 실패 ({ip}:{MIC_PORT}) {e} — {retry_sec:.0f}초 뒤 재시도")
-            time.sleep(retry_sec)
+def take_lock(path=None):
+    """한 대만 돌게 잠근다. 잡았으면 파일 객체(쥐고 있어야 한다) · 이미 잡혀 있으면 None."""
+    import fcntl
+    f = open(path or LOCK_FILE, "w")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return None
+    f.write(f"{os.getpid()}\n")
+    f.flush()
+    return f
+
+
+def ready_line(mic, spk, tts, llm):
+    """준비 상태 한 줄 — 시연 절차서가 이 줄을 확인한다(설계 §4.6)."""
+    def w(ok):
+        return "✓" if ok else "✗"
+    if llm is None:
+        llm_s = "끔"
+    elif llm.ready:
+        llm_s = "✓"
+    elif llm.warming:
+        llm_s = "예열 중"
+    else:
+        llm_s = "✗(배경에서 다시 데운다)"
+    return (f"준비 상태 — 마이크 {w(mic.generation > 0)} · 명령 채널 {w(spk.s is not None)} · "
+            f"STT ✓ · TTS {w(tts is not None)} · LLM {llm_s}")
 
 
 class Speaker:
@@ -589,226 +618,130 @@ class Assistant:
                   "재생_ms": round((time.time() - t_p) * 1000), **extra})
 
 
-def run(ip, once=False, a_ip=None):
-    log(f"ESP32 = {ip}")
-    log("STT 적재 중...")
-    rec = build_stt()
-    log("STT 준비됨")
+def handle_utterance(bot, stt, alog, seg):
+    """잘라낸 발화 하나 — STT · 계측 · 판단. 질문에 답했으면 True."""
+    samples = seg.tolist()
+    t_stt = time.time()
+    text = stt(samples)
+    m = {
+        "t": time.strftime("%H:%M:%S"),
+        "발화초": round(len(samples) / RATE, 2),
+        "발화RMS": round(vl_rms(samples)),
+        "노이즈바닥": round(noise_floor(seg, RATE)),
+        "STT텍스트": text,
+        "STT_ms": round((time.time() - t_stt) * 1000),
+    }
+    alog.utterance(samples, text)
+    if not text.strip():
+        m["판정"] = "빈 결과"
+        metric(m)
+        return False
+    log(f"들림: {text}")
+    answered = bot.on_text(text, m)
+    metric(m)
+    return answered
 
-    tts = None
-    if config.LLM_ENABLED:
-        try:
-            from voice_tts import Tts
-            tts = Tts()
-            log("런타임 TTS 준비됨")
-        except Exception as e:                 # noqa: BLE001
-            log(f"🔴 런타임 TTS 를 못 올렸다 — 고정 wav 로만 답한다: {e}")
 
+def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
+        tts=_AUTO, llm=_AUTO, read_state=None, read_tools=None, stop=None):
+    """데몬 본체. `stt`·`tts`·`llm`·`read_*`·`stop` 은 시험이 넣는다(없으면 실제 모델·파일)."""
+    if stt is None:
+        log("STT 적재 중...")
+        rec = build_stt()
+        stt = lambda samples: transcribe(rec, samples)      # noqa: E731
+        log("STT 준비됨")
+    if tts is _AUTO:
+        tts = load_tts()
+    if llm is _AUTO:
+        llm = voice_llm.LlmClient(log=log) if config.LLM_ENABLED else None
     alog = open_audio_log(AUDIO_DIR)
     if AUDIO_DIR:
         log(f"오디오 기록 → {AUDIO_DIR}")
-    spk = Speaker(ip)
-    # 🔑 명령 채널을 미리 붙여 둔다 — 첫 「띠링」이 연결 설정과 겹쳐 안 들렸다
-    #    (2026-09-07 실측: 로그에는 나갔는데 귀로는 안 들렸다).
+    spk = Speaker(get_ip, cmd_port)
+    mic = MicReceiver(get_ip, mic_port, rate=RATE, stall_sec=STALL_SEC, retry_sec=RETRY_SEC,
+                      lag_limit=LAG_LIMIT, max_queue_sec=WINDOW_SEC + LAG_LIMIT,
+                      on_chunk=alog.mic, log=log, once=once)
+    if llm is not None:
+        # 🔑 켜자마자 배경에서 데운다 — 콜드는 질문으로는 안 데워진다(R3 C2 · D1)
+        llm.start_warm(on_done=lambda ok, m: log(ready_line(mic, spk, tts, llm)))
+    # 🔑 명령 채널을 미리 붙여 둔다 — 첫 「띠링」이 연결 설정과 겹쳐 안 들렸다(2026-09-07).
     spk.send(b"")
-    # 🔑 데몬을 ESP32 보다 먼저 켜도 된다 — 붙을 때까지 기다린다.
-    get_ip = (lambda: a_ip) if a_ip else esp_ip
-    mic = connect_mic(get_ip)
-
-    buf = array.array("h")
-    awake_until = 0.0
-
-    while True:
-        try:
-            chunk = mic.recv(16384)
-        except socket.timeout:
-            continue
-        except OSError as e:
-            # 🔴 끊김은 빈 청크로만 오지 않는다 — reset by peer 도 여기로 온다.
-            log(f"🔴 업링크 오류: {e}")
-            chunk = b""
-        if not chunk:
-            if once:
-                log("업링크 종료 — 리허설 끝")
-                return
-            log("🔴 업링크 끊김 — 다시 붙는다")
+    mic.start()                       # 🔑 데몬을 ESP32 보다 먼저 켜도 된다 — 붙을 때까지 다시 시도한다
+    bot = Assistant(spk, tts, llm, alog, read_state=read_state, read_tools=read_tools)
+    buf = np.zeros(0, dtype=np.int16)
+    since, gen = 0, 0
+    hop = int(RATE * VAD_HOP_SEC)
+    try:
+        while not (stop is not None and stop.is_set()):
             try:
-                mic.close()
-            except OSError:
-                pass
-            time.sleep(3)
-            mic = connect_mic(get_ip)
-            buf = array.array("h")
-            spk.reset()          # 명령 채널도 다시 잡게 한다
-            continue
-
-        a = array.array("h")
-        a.frombytes(chunk[:len(chunk) // 2 * 2])
-        buf.extend(a)
-        alog.mic(a)
-
-        # 🔴 최신 우선 — TCP 재전송으로 밀리면 오래된 것을 버린다.
-        #    카메라가 CAMERA_GRAB_LATEST 로 같은 문제를 푸는 것과 같은 처방.
-        limit = int(RATE * (WINDOW_SEC + LAG_LIMIT))
-        if len(buf) > limit:
-            dropped = len(buf) - int(RATE * WINDOW_SEC)
-            del buf[:dropped]
-            log(f"⚠️ 오디오가 밀려 {dropped / RATE:.1f}초를 버렸다(최신 우선)")
-
-        if len(buf) < RATE * 0.8:
-            continue
-
-        seg = find_utterance(buf.tolist(), RATE)
-        if seg is None:
-            # 무음만 길게 쌓이면 앞을 잘라 둔다
-            if len(buf) > RATE * WINDOW_SEC:
-                del buf[:len(buf) - int(RATE * 1.0)]
-            continue
-        s, e = seg
-        # 발화가 아직 끝나지 않았으면(끝이 버퍼 끝에 붙어 있음) 더 기다린다
-        if len(buf) - e < int(RATE * QUIET_TAIL):
-            continue
-
-        seg_samples = buf[s:e].tolist()
-        t_stt = time.time()
-        text = transcribe(rec, seg_samples)
-        stt_ms = (time.time() - t_stt) * 1000
-        m = {
-            "t": time.strftime("%H:%M:%S"),
-            "발화초": round((e - s) / RATE, 2),
-            "발화RMS": round(vl_rms(seg_samples)),
-            "노이즈바닥": round(noise_floor(seg_samples, RATE)),
-            "STT텍스트": text,
-            "STT_ms": round(stt_ms),
-        }
-        del buf[:e]
-        alog.utterance(seg_samples, text)
-        if not text.strip():
-            m["판정"] = "빈 결과"
-            metric(m)
-            continue
-        log(f"들림: {text}")
-
-        now = time.time()
-        awake = now < awake_until
-        m["호출어"] = is_wake(text)
-
-        if is_wake(text):
-            t_c = time.time()
-            spk.chime()
-            m["띠링_ms"] = round((time.time() - t_c) * 1000)
-            awake_until = now + LISTEN_SEC
-            awake = True
-            log("호출어 인식 → 띠링")
-            # 🔑 한 문장에 질문까지 있으면 바로 답한다(상태기계 폴백).
-            #    "가디언, 앞에 보이는 게 뭐야?" 를 한 번에 말해도 동작한다.
-
-        tool_q = is_tool_question(text)          # 🔑 폴백 선택에 쓴다(아래 ②③)
-        m["공구질문"] = tool_q
-        # 🔴 질문 판정은 **문맥**이다 — 목록(`is_tool_question`)으로 쫓으면 설계
-        #    §2 가 약속한 질문 5종 중 4종이 재생 없는 침묵으로 빠진다(2026-09-08
-        #    최종 리뷰). 깨어난 20초 창 안의 발화는 호출어 단독만 빼고 질문으로 본다.
-        if awake and is_question(text, awake):
-            dets, fresh = read_tool_dets()
-            state = voice_card.read_state()
-            facts = voice_card.card_facts(state, dets, fresh)
-            m.update({"공구수": len(dets), "공구신선": fresh,
-                      "검출": [[str(d[0]), round(float(d[1]), 2)] for d in dets],
-                      "단계": facts["단계"], "세션": facts["세션"]})
-
-            # ── ① 작업 전이면 LLM 을 안 태운다 ────────────────────────────
-            #    카드가 비어 있어 LLM 이 할 말 자체가 없다. 5~7초를 기다릴
-            #    이유가 없고, 없는 상태를 지어낼 위험만 생긴다(유형 ⑤).
-            if not facts["세션"]:
-                t_p = time.time()
-                ok = spk.play("notready", alog)
-                m.update({"답변출처": "고정-작업전", "답변": "notready",
-                          "재생_ms": round((time.time() - t_p) * 1000), "재생성공": ok})
-                awake_until = 0.0
-                metric(m)
-                continue
-
-            # ── ② LLM 갈래 ────────────────────────────────────────────────
-            said = None
-            llm_on = config.LLM_ENABLED and tts is not None
-            m["LLM사용"] = llm_on
-            if llm_on:
-                card = voice_card.build_card(state, dets, fresh)
-                m["카드줄수"] = card.count("\n")
-                th, box = ask_async(voice_llm.ask, card, text)
-                try:
-                    spk.play("checking", alog)     # 🔑 LLM 과 겹쳐 돈다
-                    th.join(timeout=config.LLM_TIMEOUT_SEC + 2.0)
-                    said, lm = box.get("r", (None, {"LLM오류": "스레드 미완"}))
-                    m.update(lm)
-                finally:
-                    # 🔴 기다리는 5~7초 동안 쌓인 소리를 버린다(최신 우선).
-                    #    안 버리면 밀린 소리가 곧바로 다음 발화로 잡혀,
-                    #    답이 끝나자마자 엉뚱한 답이 또 나간다. ← G11 의 실체
-                    del buf[:]
-
-            # ── ③ 합성 → 검산 → 전송 ────────────────────────────────────
-            #    🔴 **검산은 합성 뒤·전송 앞이다**(설계 §7). 재생에 가장 가까운
-            #       시점일수록 판단이 정확하다. 검산에 걸리면 이미 합성한
-            #       0.4~1.05초를 버리게 되지만, **어긋난 답을 내보내는 것보다 싸다.**
-            t_p = time.time()
-            got = tts.synth(said) if said else None
-            if got:
-                pcm, rate, sec = got
-                dets2, fresh2 = read_tool_dets()
-                now2 = voice_card.card_facts(voice_card.read_state(), dets2, fresh2)
-                ok_v, bad = voice_card.verify_answer(said, facts, now2)
-                m["검산"] = bad or "일치"
-                if ok_v:
-                    resp = spk.send(voice_tts.frame(pcm, rate), expect=True)
-                    ok = bool(resp) and any("재생 완료" in r for r in resp)
-                    alog.played_pcm("llm", pcm, rate, said)
-                    m.update({"답변출처": "LLM", "답변문장": said,
-                              "말하는초": round(sec, 2), "재생성공": ok})
-                    log(f"LLM 답변({sec:.1f}초 말함) → {said}")
-                else:
-                    # 🔑 공구를 물었던 것이면 새 상태의 공구 답이 더 쓸모 있다.
-                    log(f"⚠️ 검산 불일치 {bad} — 합성한 소리를 버린다: {said}")
-                    key = (answer_key(dets2, fresh2)
-                           if (tool_q and bad == ["공구"]) else "changed")
-                    ok = spk.play(key, alog)
-                    m.update({"답변출처": "고정-검산불일치", "답변": key,
-                              "버린문장": said, "재생성공": ok})
-            else:
-                if said:
-                    key, src = "unavailable", "고정-합성실패"
-                elif llm_on:
-                    # 🔴 공구를 물었으면 A 갈래 답이 있다 — 그것이 「최악의 경우가
-                    #    오늘 수준」(설계 §10)의 뜻이다. 「답변할 수 없습니다」로
-                    #    떨어뜨리면 오늘보다 못해진다.
-                    key = answer_key(dets, fresh) if tool_q else "unavailable"
-                    src = "고정-폴백"
-                else:
-                    # 🔴 LLM 을 안 쓰는 구성(SOP_LLM=0 · TTS 적재 실패)이면 A 갈래
-                    #    그대로 답한다 — 「답변할 수 없습니다」는 기능이 아예 없다는
-                    #    뜻이 되어 시연에서 더 나쁘다.
-                    key, src = answer_key(dets, fresh), "고정-LLM미사용"
-                ok = spk.play(key, alog)
-                m.update({"답변출처": src, "답변": key, "재생성공": ok})
-            m["재생_ms"] = round((time.time() - t_p) * 1000)
-
-            awake_until = 0.0
-            metric(m)
-            if once:
-                log("리허설 목표 달성")
-                return
-            continue
-        metric(m)
+                if mic.closed:
+                    log("업링크 종료 — 리허설 끝")
+                    return
+                if mic.generation != gen:
+                    if gen:
+                        # 🔑 다시 붙었으면 명령 채널도 미리 다시 붙인다 — 첫 띠링 유실(Q3 · R2 I1)
+                        spk.reset()
+                        spk.send(b"")
+                    gen = mic.generation
+                    buf, since = np.zeros(0, dtype=np.int16), 0
+                    log(ready_line(mic, spk, tts, llm))
+                new = mic.pull()
+                if len(new) == 0:
+                    time.sleep(0.02)
+                    continue
+                buf = np.concatenate((buf, new))
+                since += len(new)
+                limit = int(RATE * (WINDOW_SEC + LAG_LIMIT))
+                if len(buf) > limit:
+                    # 🔴 최신 우선 — 링크가 막혔다 한꺼번에 터지면(fake_glass --burst) 오래된 것을 버린다
+                    dropped = len(buf) - int(RATE * WINDOW_SEC)
+                    buf = buf[dropped:]
+                    log(f"⚠️ 오디오가 밀려 {dropped / RATE:.1f}초를 버렸다(최신 우선)")
+                if since < hop or len(buf) < RATE * 0.8:
+                    continue
+                since = 0
+                seg = find_utterance(buf, RATE)
+                if seg is None:
+                    if len(buf) > RATE * WINDOW_SEC:       # 무음만 길게 쌓이면 앞을 잘라 둔다
+                        buf = buf[len(buf) - int(RATE * 1.0):]
+                    continue
+                s, e = seg
+                if len(buf) - e < int(RATE * QUIET_TAIL):  # 발화가 아직 안 끝났다
+                    continue
+                seg_samples, buf = buf[s:e], buf[e:]
+                if handle_utterance(bot, stt, alog, seg_samples):
+                    # 🔴 대답하는 동안 들어온 소리를 버린다 — 답 반향·늦은 호출어가 다음 발화로 잡혀
+                    #    엉뚱한 띠링·헛답이 났다(G11 · R3 I3). 시각 = 답이 끝난 지금까지.
+                    n = mic.clear()
+                    buf = np.zeros(0, dtype=np.int16)
+                    if n:
+                        log(f"대답하는 동안 들어온 소리 {n / RATE:.1f}초를 버렸다(G11)")
+                    if once:
+                        log("리허설 목표 달성")
+                        return
+            except Exception as e:                         # noqa: BLE001
+                # 🔴 예외 하나로 시연 내내 데몬이 없으면 안 된다(R2 M8) — 그 발화만 버리고 계속한다
+                log(f"🔴 메인 루프 오류 — 이 발화만 버리고 계속한다: {type(e).__name__}: {e}")
+                buf, since = np.zeros(0, dtype=np.int16), 0
+                time.sleep(0.5)
+    finally:
+        mic.stop()
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--ip", help="ESP32 주소 (기본: Demo/.camera_ip)")
+    ap.add_argument("--ip", help="ESP32 주소 (기본: Demo/.camera_ip 를 붙을 때마다 다시 읽는다)")
     ap.add_argument("--once", action="store_true",
                     help="답변을 한 번 내보내면 끝낸다 (오프라인 리허설용)")
     a = ap.parse_args()
+    lock = take_lock()                                      # noqa: F841 — 끝날 때까지 쥐고 있는다
+    if lock is None:
+        log(f"🔴 음성비서가 이미 돈다({LOCK_FILE}) — 명령 채널은 손님 하나라 둘이 돌면 서로 끊는다. 끝낸다")
+        sys.exit(EXIT_ALREADY_RUNNING)
+    get_ip = (lambda: a.ip) if a.ip else esp_ip
+    log(f"ESP32 = {get_ip()}")       # 🔴 주소 파일이 없으면 여기서 이유와 함께 끝난다
     try:
-        run(a.ip or esp_ip(), once=a.once, a_ip=a.ip)
+        run(get_ip, once=a.once)
     except KeyboardInterrupt:
         print()
 
