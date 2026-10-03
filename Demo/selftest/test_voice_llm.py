@@ -66,7 +66,64 @@ class Fake(BaseHTTPRequestHandler):
         pass
 
 
+def _wait_idle(c, sec=2.0):
+    end = time.time() + sec
+    while c.warming and time.time() < end:
+        time.sleep(0.01)
+
+
+def test_client_skip_and_rewarm():
+    """LlmClient — 예열 전 묻지 않음 · 실패한 예열은 skip_sec 마다 · 연속 실패 3회 → 60초 건너뜀 + 다시 데움
+    (Review Focus 5 — 파이2 가 꺼졌다 켜져도 질문마다 15초 기다리지 않고 스스로 회복)."""
+    print("── LlmClient")
+    t = [0.0]
+    calls = {"ask": 0, "warm": 0}
+    warm_ok = [False]
+    answers = []
+
+    def fake_ask(card, q):
+        calls["ask"] += 1
+        return answers.pop(0)
+
+    def fake_warm():
+        calls["warm"] += 1
+        return warm_ok[0], {"예열_ms": 1}
+
+    c = voice_llm.LlmClient(ask_fn=fake_ask, warm_fn=fake_warm, fail_limit=3, skip_sec=60,
+                            clock=lambda: t[0])
+    text, m = c.ask("카드", "질문")
+    check(text is None and m["LLM오류"] == "예열 전" and calls["ask"] == 0, "예열 전에는 묻지 않는다")
+    _wait_idle(c)
+    check(calls["warm"] == 1, "예열 전 질문이 데우기를 건다")
+    c.ask("카드", "질문")
+    _wait_idle(c)
+    check(calls["warm"] == 1, "실패한 예열은 skip_sec 안에 다시 걸지 않는다")
+    t[0] = 61.0
+    c.available()
+    _wait_idle(c)
+    check(calls["warm"] == 2, "skip_sec 뒤에는 다시 데운다")
+    warm_ok[0] = True
+    t[0] = 122.0
+    c.available()
+    _wait_idle(c)
+    check(c.ready, "예열이 되면 쓸 수 있다")
+    answers[:] = [("답", {})]
+    check(c.ask("카드", "질문")[0] == "답", "쓸 수 있으면 묻는다")
+    answers[:] = [(None, {"LLM오류": "시간 초과"})] * 3
+    for _ in range(3):
+        c.ask("카드", "질문")
+    _wait_idle(c)
+    check(calls["ask"] == 4, "실패 3번까지는 묻는다")
+    check(calls["warm"] == 4, "3번 이어 실패하면 배경에서 다시 데운다")
+    text, m = c.ask("카드", "질문")
+    check(calls["ask"] == 4 and m["LLM오류"] == "건너뜀(연속 실패)", "건너뛰는 동안은 묻지 않는다")
+    t[0] += 61.0
+    answers[:] = [("다시 답", {})]
+    check(c.ask("카드", "질문")[0] == "다시 답", "skip_sec 뒤에는 다시 묻는다")
+
+
 def main():
+    test_client_skip_and_rewarm()
     srv = HTTPServer(("127.0.0.1", 0), Fake)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_port}/api/generate"
@@ -101,6 +158,23 @@ def main():
         check(text is None and "LLM오류" in m,
               "🔴 타임아웃이면 None — 서버가 0.5초 자게 해 하드웨어 속도에 안 매이게 잰다")
         Fake.MODE = "ok"
+
+        print("── 🔑 상주·예열(설계 2026-10-03 §4.2 · D1)")
+        voice_llm.ask(card, "뭐야", url=url)
+        b = _seen["body"]
+        check(b.get("keep_alive") == -1, "모든 질문에 keep_alive -1(D1 상주)")
+        ok, wm = voice_llm.warm(url=url)
+        w = _seen["body"]
+        check(ok is True, "예열 성공")
+        check(not w.get("prompt"), "예열은 프롬프트 없이 — 적재만 한다(Ollama FAQ 「Preloading」)")
+        check(w.get("options", {}).get("num_ctx") == b["options"]["num_ctx"],
+              "🔴 예열과 질문의 num_ctx 가 같다 — 다르면 다시 적재한다(R3 C2)")
+        check(w.get("keep_alive") == -1, "예열도 상주")
+        Fake.MODE = "slow"
+        ok, wm = voice_llm.warm(url=url, timeout=0.05)
+        check(ok is False and "LLM오류" in wm, "예열 실패는 (False, 오류)")
+        Fake.MODE = "ok"
+        check("한 문장" in voice_llm.SYSTEM and "두 문장" not in voice_llm.SYSTEM, "SYSTEM = 한 문장 규칙(D2)")
     finally:
         srv.shutdown()
 

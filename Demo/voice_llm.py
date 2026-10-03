@@ -17,6 +17,7 @@
 import json
 import os
 import sys
+import threading
 import time
 import urllib.request
 
@@ -26,10 +27,12 @@ if _DEMO_DIR not in sys.path:
 
 import config  # noqa: E402
 
-# 🔑 규칙마다 막는 것이 있다(§10.53-(4)):
+# 🔑 규칙마다 막는 것이 있다(§10.53-(4) · 2026-10-03 설계 §4.3·§4.4):
 #      ①수치 지어냄·②모르는 상태를 안다고 함  ← 사실에만 근거 / 지어내지 않는다
 #      ⑤상태 모르면서 허가함                  ← 스스로 허가하지 않는다
-#      ⑥묻지 않은 위험 행동 제안              ← 두 문장을 넘기지 않는다
+#      순서 위반을 권함(R3 C3)               ← 지금 버튼이 아닌 버튼을 누르라고 말하지 않는다
+#      ⑥묻지 않은 위험 행동 제안 · 긴 답(P4)   ← 한 문장, 60자 안팎(D2)
+#    🔴 프롬프트만 믿지 않는다 — 같은 규칙을 voice_card.finalize 가 런타임에 다시 건다.
 SYSTEM = (
     "너는 반도체 PECVD 장비 정비(PM) 작업자를 돕는 음성 비서다. "
     "작업자는 장갑을 끼고 화면을 보지 않는다. 반드시 한국어로 답한다.\n\n"
@@ -38,8 +41,16 @@ SYSTEM = (
     "- [사실] 에 없는 것을 물으면 \"확인할 수 없습니다\" 라고 말한다.\n"
     "- 수치·부품명·상태를 추측하거나 지어내지 않는다.\n"
     "- 작업을 진행해도 되는지 묻는 질문에는 스스로 허가하지 않는다.\n"
-    "- 두 문장을 넘기지 않는다."
+    "- 지금 눌러야 할 버튼이 아닌 버튼을 누르라고 말하지 않는다.\n"
+    "- 한 문장, 60자 안팎으로 답한다."
 )
+
+
+def _options(num_predict=None):
+    """질문과 예열이 **같은** 값을 쓴다 — num_ctx 가 다르면 다시 적재한다(R3 C2)."""
+    return {"num_ctx": config.LLM_NUM_CTX,
+            "num_predict": num_predict or config.LLM_NUM_PREDICT,
+            "temperature": 0.0}
 
 
 def ask(card, question, url=None, model=None, timeout=None, num_predict=None):
@@ -51,11 +62,8 @@ def ask(card, question, url=None, model=None, timeout=None, num_predict=None):
         "prompt": f"{card}\n[질문] {question}",
         "stream": False,
         "think": False,
-        "options": {
-            "num_ctx": config.LLM_NUM_CTX,
-            "num_predict": num_predict or config.LLM_NUM_PREDICT,
-            "temperature": 0.0,
-        },
+        "keep_alive": config.LLM_KEEP_ALIVE,
+        "options": _options(num_predict),
     }, ensure_ascii=False).encode("utf-8")
 
     t0 = time.time()
@@ -81,3 +89,96 @@ def ask(card, question, url=None, model=None, timeout=None, num_predict=None):
         m["LLM오류"] = "빈 응답"
         return None, m
     return text, m
+
+
+def warm(url=None, model=None, timeout=None):
+    """모델을 올려 둔다 — 프롬프트 없는 요청은 적재만 한다(Ollama FAQ 「Preloading」). `(성공, 계측)`.
+
+    🔴 타임아웃을 길게 — 끊으면 Ollama 가 적재를 취소한다(R3 C2 · 끊은 뒤 85초까지 미적재 확인).
+    """
+    url = url or config.LLM_URL
+    body = json.dumps({"model": model or config.LLM_MODEL, "stream": False,
+                       "keep_alive": config.LLM_KEEP_ALIVE, "options": _options()}).encode("utf-8")
+    t0 = time.time()
+    try:
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout or config.LLM_WARM_TIMEOUT_SEC) as f:
+            r = json.load(f)
+    except Exception as e:                     # noqa: BLE001 — 무엇이 나도 데몬은 살아야 한다
+        return False, {"예열_ms": round((time.time() - t0) * 1000),
+                       "LLM오류": f"{type(e).__name__}: {e}"[:120]}
+    return True, {"예열_ms": round((time.time() - t0) * 1000),
+                  "적재_ms": round(r.get("load_duration", 0) / 1e6)}
+
+
+class LlmClient:
+    """LLM 가용성 — 예열 · 연속 실패 건너뛰기 · 다시 데우기(설계 2026-10-03 §4.2 · D1).
+
+    상태는 셋이다.
+      예열 전   ready=False — 묻지 않는다(콜드 모델은 데몬 요청으로 안 데워진다 · R3 C2)
+      쓸 수 있음 — 묻는다
+      건너뜀    연속 `fail_limit` 번 실패 뒤 `skip_sec` 초 — 묻지 않는다(질문마다 타임아웃까지 기다리지 않게)
+    쓸 수 없을 때 호출부는 A 갈래로 답한다.
+    🔑 `available()` 은 묻기만 하지 않는다 — 예열 전이고 데우는 중이 아니면 `skip_sec` 마다 다시 데운다
+       (파이2 가 늦게 켜져도 사람이 손대지 않고 회복하게 · Review Focus 5).
+    """
+
+    def __init__(self, ask_fn=None, warm_fn=None, fail_limit=None, skip_sec=None,
+                 clock=time.monotonic, log=None):
+        self._ask = ask_fn or ask
+        self._warm = warm_fn or warm
+        self.fail_limit = fail_limit or config.LLM_FAIL_LIMIT
+        self.skip_sec = config.LLM_SKIP_SEC if skip_sec is None else skip_sec
+        self._clock = clock
+        self._log = log or (lambda m: None)
+        self._lock = threading.Lock()
+        self.ready = False
+        self.warming = False
+        self.fails = 0
+        self.skip_until = 0.0
+        self._warm_end = None               # 마지막 예열이 끝난 시각(실패 포함)
+
+    def start_warm(self, on_done=None):
+        """배경에서 데운다 — 이미 데우는 중이면 아무것도 안 한다. 시작했으면 True."""
+        with self._lock:
+            if self.warming:
+                return False
+            self.warming = True
+
+        def work():
+            ok, m = self._warm()
+            with self._lock:
+                self.warming = False
+                self._warm_end = self._clock()
+                if ok:
+                    self.ready = True
+            self._log(f"LLM 예열 {'끝' if ok else '실패'} — {m}")
+            if on_done:
+                on_done(ok, m)
+
+        threading.Thread(target=work, name="llm-warm", daemon=True).start()
+        return True
+
+    def available(self):
+        now = self._clock()
+        if not self.ready:
+            if not self.warming and (self._warm_end is None or now - self._warm_end >= self.skip_sec):
+                self.start_warm()
+            return False
+        return now >= self.skip_until
+
+    def ask(self, card, question):
+        if not self.available():
+            return None, {"LLM오류": "예열 전" if not self.ready else "건너뜀(연속 실패)"}
+        text, m = self._ask(card, question)
+        if text is None:
+            self.fails += 1
+            if self.fails >= self.fail_limit:
+                self.fails = 0
+                self.skip_until = self._clock() + self.skip_sec
+                self._log(f"🔴 LLM 이 {self.fail_limit}번 이어 실패했다 — "
+                          f"{self.skip_sec:.0f}초 동안 건너뛰고 배경에서 다시 데운다")
+                self.start_warm()
+        else:
+            self.fails = 0
+        return text, m
