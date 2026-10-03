@@ -1,0 +1,10 @@
+# 배경 부하(실행 직전)
+ 19:59:03 up 3 days, 10:04,  4 users,  load average: 0.58, 0.71, 0.89
+%CPU %MEM COMMAND
+11.8  8.9 claude
+ 7.0  7.5 claude
+ 0.5  0.8 Xorg
+ 0.5  5.2 node
+ 0.2  1.1 tailscaled
+ 0.1  0.5 lxpanel-pi
+ 0.1  1.1 nxserver.bin
