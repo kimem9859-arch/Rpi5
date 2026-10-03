@@ -23,7 +23,10 @@ def check(cond, msg):
 
 
 items = qs.build_items()
-check(len(items) == 297 and len({i["id"] for i in items}) == 297, f"297문항 · id 중복 없음 · {len(items)}")
+check(len(qs.QUESTIONS) == 60 and len({q for _, q in qs.QUESTIONS}) == 60, "질문 60개 · 중복 없음")
+check(len(items) == 540 and len({i["id"] for i in items}) == 540, f"540문항 · id 중복 없음 · {len(items)}")
+check([i["id"] for i in items if i["번호"] <= 33][:2] == ["S1-작업전-q01", "S1-작업전-q02"],
+      "🔒 기존 1~33 의 id 는 그대로(이미 돈 dev 결과와 이어진다)")
 check(all(i["분할"] == ("dev" if zlib.crc32(i["id"].encode()) % 3 == 0 else "holdout") for i in items),
       "🔒 분할 = crc32 % 3 규칙 그대로")
 dev = [i for i in items if i["분할"] == "dev"]
