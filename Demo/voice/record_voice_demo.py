@@ -57,6 +57,7 @@ from PIL import Image, ImageDraw, ImageFont
 _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
 import config  # noqa: E402
+from state_publisher import StatePublisher  # noqa: E402
 import frame_orient  # noqa: E402
 
 OUT_DIR   = os.path.join(_DEMO_DIR, "voice", "촬영본")
@@ -68,6 +69,36 @@ TOOL_KO = {"driver": "드라이버", "wrench": "렌치", "pliers": "플라이어
 
 # 🔴 창 제목은 ASCII — 한글은 ?? 로 깨진다(2026-09-07 확인).
 PREVIEW_WIN = "FPV overlay - tool check (press q to stop)"
+
+# 🔑 GUI 없이 찍으므로 음성비서가 볼 작업 상태가 없다 — 없으면 모든 질문이 「작업 시작 전」(R2 I5).
+#    시험용 상태를 공개한다(설계 2026-10-03 §4.9). 「시험용」 표시를 붙이고 촬영이 끝나면 지운다.
+DEMO_STATE = {
+    "세션": True, "공정명": "PECVD 정비(PM) 시퀀스", "전체단계": 4,
+    "현재단계": 2, "현재단계명": "펌프/퍼지", "현재버튼": "B2",
+    "다음단계": 3, "다음단계명": "전극 냉각", "다음버튼": "B3",
+    "상태": "PROCESS RUN", "비상정지": False,
+    "서브작업": {"label": "N2 퍼지", "sec": 10, "tool": "wrench", "tool_name": "렌치"},
+    "서브진행": None, "결과": None, "시험용": True,
+}
+
+
+def summarize_voice(rows):
+    """계측 줄들 → 요약. 🔑 LLM 답(「답변문장」)도 답으로 센다 — B 갈래 뒤로 빠져 있었다(R2 I5)."""
+    answered = [r for r in rows if r.get("답변") or r.get("답변문장")]
+
+    def kind(r):
+        return r.get("답변") or "LLM"
+
+    timed = [r["재생_ms"] for r in answered if "재생_ms" in r]
+    return {
+        "발화수": len(rows),
+        "호출어인식": sum(1 for r in rows if r.get("호출어")),
+        "공구질문인식": sum(1 for r in rows if r.get("공구질문")),
+        "답변수": len(answered),
+        "답변분포": {k: sum(1 for r in answered if kind(r) == k) for k in {kind(r) for r in answered}},
+        "STT_ms_평균": round(sum(r["STT_ms"] for r in rows) / len(rows)) if rows else None,
+        "재생_ms_평균": round(sum(timed) / len(timed)) if timed else None,
+    }
 
 # 🔴 cv2.putText 는 한글을 못 그린다(전부 ? 로 나온다, 2026-09-07 확인).
 #    Hershey 폰트에 한글 글리프가 없기 때문이다. Pillow + 나눔 폰트로 그린다.
@@ -192,6 +223,9 @@ def main():
                     help="영상·소리를 저장하지 않는다 (확인 전용)")
     ap.add_argument("--conf", type=float, default=config.TOOL_CONF,
                     help=f"공구 검출 임계 (기본 = config.TOOL_CONF = {config.TOOL_CONF})")
+    ap.add_argument("--state", choices=["demo", "none"], default="demo",
+                    help="음성비서에게 보여 줄 작업 상태 — demo = 2단계 진행 중 시험용(GUI 없이 찍으므로) · "
+                         "none = 공개 안 함(모든 질문이 「작업 시작 전」)")
     a = ap.parse_args()
 
     if shutil.which("ffmpeg") is None:
@@ -299,6 +333,11 @@ def main():
             stdout=open(os.path.join(out, "음성비서.log"), "w"),
             stderr=subprocess.STDOUT, env=env)
         log("음성비서 데몬 시작 (로그 = 음성비서.log)")
+    pub = None
+    if not a.no_voice and a.state == "demo":
+        pub = StatePublisher(log=log)
+        pub.publish(DEMO_STATE)
+        log("시험용 작업 상태 공개 — 2단계 펌프/퍼지 진행 중(GUI 없음 · 촬영이 끝나면 지운다)")
 
     if a.preview:
         # 🔴 창을 **항상 위**로 띄운다 — 2026-09-07 에 NoMachine 창 뒤에 가려
@@ -367,6 +406,8 @@ def main():
                 p_fpv.kill()
         if voice:
             voice.terminate()
+        if pub:
+            pub.clear()
         tw.stop()
         cam.close()
         # ── 보고서용 요약 ──
@@ -379,23 +420,13 @@ def main():
             "조건": {"ESP32": ip, "모델": os.path.basename(config.TOOL_MODEL_PATH),
                      "conf": a.conf,
                      "conf_런타임기본": config.TOOL_CONF,
+                     "작업상태": a.state,
                      "스캔주기초": config.TOOL_SCAN_INTERVAL_SEC},
         }
         mpath = os.path.join(out, "계측.jsonl")
         if os.path.exists(mpath):
             rows = [json.loads(x) for x in open(mpath, encoding="utf-8") if x.strip()]
-            answered = [r for r in rows if r.get("답변")]
-            summary["음성"] = {
-                "발화수": len(rows),
-                "호출어인식": sum(1 for r in rows if r.get("호출어")),
-                "공구질문인식": sum(1 for r in rows if r.get("공구질문")),
-                "답변수": len(answered),
-                "답변분포": {k: sum(1 for r in answered if r["답변"] == k)
-                            for k in {r["답변"] for r in answered}},
-                "STT_ms_평균": round(sum(r["STT_ms"] for r in rows) / len(rows)) if rows else None,
-                "재생_ms_평균": round(sum(r["재생_ms"] for r in answered) / len(answered))
-                                if answered else None,
-            }
+            summary["음성"] = summarize_voice(rows)
         adir = os.path.join(out, "오디오")
         if os.path.isdir(adir):
             names = os.listdir(adir)

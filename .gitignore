@@ -2,6 +2,7 @@
 .env
 .env.*
 .camera_ip
+.audio_ip
 secrets.py
 config_secret.py
 *_key.py
