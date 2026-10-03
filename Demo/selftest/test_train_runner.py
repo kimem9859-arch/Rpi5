@@ -248,6 +248,31 @@ def test_데스크톱_메모리_못_읽음():
         check(not (root / "runs" / "E0-button-a").exists() and "못 읽" in (st.get("기다리는이유") or ""), f"안 띄움 · 이유 — {st.get('기다리는이유')}")
 
 
+def test_읽히지_않는_대기열_파일():
+    print("[12] 반쯤 쓴 대기열 파일 — 실행기가 죽지 않고 뺀것/ 으로 옮긴 뒤 다음 실험을 돌린다(최종 리뷰 I2)")
+    with tempfile.TemporaryDirectory() as t:
+        root, fake, _ = _setup(t)
+        (root / "대기열" / "20261004-000000-00_E0-button-bad.json").write_text('{"id": ', encoding="utf-8")
+        _job(root, fake, 1, "E0-button-a", "normal")
+        r = _run(root)
+        check(r.returncode == 0, f"실행기 종료 0 — {r.returncode} {r.stderr[-200:]}")
+        out = list((root / "뺀것").glob("*_E0-button-bad.json"))
+        why = list((root / "뺀것").glob("*_E0-button-bad.json.이유"))
+        check(len(out) == 1 and len(why) == 1, f"뺀것/ 으로 옮김 · 이유 — {[x.name for x in (root / '뺀것').glob('*')] if (root / '뺀것').exists() else '없음'}")
+        check(_summ(root, "E0-button-a")["종료이유"] == "최대에폭", "뒤 실험은 돈다")
+
+
+def test_실행기_오류_기록():
+    print("[13] 실행기 루프가 예외로 죽으면 상태에 「오류」를 남긴다 — 「끝남」으로 보이지 않게(최종 리뷰 I2)")
+    with tempfile.TemporaryDirectory() as t:
+        root, fake, _ = _setup(t)
+        _job(root, fake, 0, "E0-button-a", "normal")
+        (root / "속도.json").write_text("{", encoding="utf-8")
+        r = _run(root)
+        st = json.loads((root / "상태.json").read_text(encoding="utf-8")) if (root / "상태.json").exists() else {}
+        check(r.returncode != 0 and st.get("오류"), f"종료 코드 ≠ 0 · 상태 오류 — {r.returncode} {st.get('오류')}")
+
+
 if __name__ == "__main__":
     test_정상()
     test_진행없음()
@@ -260,6 +285,8 @@ if __name__ == "__main__":
     test_끊김_복구()
     test_데스크톱_메모리_여유()
     test_데스크톱_메모리_못_읽음()
+    test_읽히지_않는_대기열_파일()
+    test_실행기_오류_기록()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

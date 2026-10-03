@@ -98,14 +98,30 @@ def _age(st, now):
 
 
 def finished(st, now):
-    return bool(not st or st.get("끝") or st.get("멈춤") or _age(st, now) > 600)
+    return bool(not st or st.get("끝") or st.get("멈춤") or st.get("오류") or _age(st, now) > 600)
+
+
+def launch_state(st, now):
+    """걸기 직후 쓸 상태 — 지난번 「끝」이 남아 있으면 새 실행기가 상태를 쓰기 전에 「끝남」으로 읽히므로 덮는다.
+    도는 실행기의 상태는 덮지 않는다(None)."""
+    if st and not st.get("끝"):
+        return None
+    return {"시각": datetime.fromtimestamp(now).isoformat(timespec="seconds"), "끝": False, "도는중": [], "대기": [],
+            "기다리는이유": "실행기 시작 중(걸기 직후)", "끝남": (st or {}).get("끝남", 0)}
+
+
+def atomic_write_cmd(path):
+    """원격 파일을 임시 이름(.tmp — 실행기의 *.json 밖)에 다 쓴 뒤 이름을 바꾼다 — 실행기가 반쯤 쓴 파일을 읽지 않게."""
+    return f"cat > {path}.tmp && mv {path}.tmp {path}"
 
 
 def render_status(st, now):
     if not st:
         return "상태 파일 없음 — 아직 걸지 않았다"
     age = _age(st, now)
-    if st.get("끝"):
+    if st.get("오류"):
+        head = f"🔴 실행기 오류로 끝남 — {st['오류']} · 데스크톱 ~/학습실험 확인 뒤 `재개`"
+    elif st.get("끝"):
         head = "실행기 끝남(대기열이 비었거나 멈춤)"
     elif age > 120:
         head = f"🔴 실행기 응답 없음 — 마지막 {age / 60:.0f}분 전 · 데스크톱·WSL 확인(다시 뜨면 「끊김」으로 기록된다)"
@@ -256,12 +272,15 @@ def cmd_launch(a):
         deploy_code(head)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     for i, j in enumerate(jobs):
-        sh(f"cat > {RROOT}/대기열/{stamp}-{i:02d}_{j['id']}.json", input=json.dumps(j, ensure_ascii=False))
+        sh(atomic_write_cmd(f"{RROOT}/대기열/{stamp}-{i:02d}_{j['id']}.json"), input=json.dumps(j, ensure_ascii=False))
     print(f"대기열에 {len(jobs)}개: {', '.join(j['id'] for j in jobs)}")
     stop = sh(f"cat {RROOT}/대기열멈춤 2>/dev/null || true").strip()
     if stop:
         print(f"⏸ 대기열이 멈춰 있다({stop}) — 정한 뒤 `재개` 하면 돈다")
         return
+    st = launch_state(remote_json(f"{RROOT}/상태.json", {}), time.time())
+    if st:
+        sh(atomic_write_cmd(f"{RROOT}/상태.json"), input=json.dumps(st, ensure_ascii=False))
     start_runner(jobs[0]["코드해시"])
 
 

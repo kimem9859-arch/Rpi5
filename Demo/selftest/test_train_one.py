@@ -4,10 +4,12 @@
 정본 설계: 상위 docs/superpowers/specs/2026-10-03-학습파라미터-체계-design.md §5 · §7
 ⚠️ ultralytics·GPU 가 필요 없다(학습·채점은 Task 12·13 데스크톱 실제 실행에서 확인).
 """
+import fcntl
 import multiprocessing as mp
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import cv2
@@ -75,6 +77,21 @@ def test_동시_준비():
         check(all(p.exitcode == 0 for p in ps), f"두 프로세스 모두 정상 — {[p.exitcode for p in ps]}")
         b = root / "data" / "place9_v1_button_늘리기640"
         check((b / ".완료").exists() and len(list((b / "images" / "train").iterdir())) == 2, "완료 · 사진+npy 2개")
+    print("[2-b] 다른 프로세스가 잠금을 쥐고 있으면 풀릴 때까지 만들지 않는다(사진 몇 장으로는 경쟁이 안 생겨 [2] 만으로는 잠금을 못 지킨다 · 최종 리뷰 I4)")
+    with tempfile.TemporaryDirectory() as t:
+        src, root = _src(t), Path(t) / "루트"
+        b = root / "data" / "place9_v1_button_늘리기640"
+        b.parent.mkdir(parents=True)
+        lk = open(f"{b}.lock", "w")
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        p = mp.Process(target=_prep, args=((_job(src, [5, 3]), root),))
+        p.start()
+        time.sleep(1.0)
+        early = (b / ".완료").exists()
+        fcntl.flock(lk, fcntl.LOCK_UN)
+        lk.close()
+        p.join(30)
+        check(not early and p.exitcode == 0 and (b / ".완료").exists(), f"잠금 동안 안 만듦 · 풀린 뒤 완료 — 일찍 만듦 {early} · 종료 {p.exitcode}")
 
 
 def test_실험_폴더():

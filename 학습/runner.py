@@ -185,6 +185,20 @@ def recover_orphans(root):
         os.replace(p, Path(root) / "끝" / p.name)
 
 
+def readable_job(root, path):
+    """대기열 파일을 읽을 수 있나 — 반쯤 쓴 파일 등은 뺀것/ 으로 옮기고 이유를 남긴다(실행기가 죽지 않게)."""
+    try:
+        job = json.loads(path.read_text(encoding="utf-8"))
+        job["id"], job["입력"]
+        return True
+    except (ValueError, KeyError, TypeError) as e:
+        out = Path(root) / "뺀것"
+        out.mkdir(exist_ok=True)
+        os.replace(path, out / path.name)
+        (out / f"{path.name}.이유").write_text(f"{now_iso()} 읽히지 않는 대기열 파일 — {e!r}\n", encoding="utf-8")
+        return False
+
+
 def tick(root, runs, speed, gpu, ram_free, py, now):
     """한 번 둘러보기 — 끝난 것 정리 · 진행없음/시간초과 끄기 · 하나 띄우기. 반환 = (기다리는 이유 · 이번에 읽은 데스크톱 메모리)."""
     for r in list(runs):
@@ -207,7 +221,7 @@ def tick(root, runs, speed, gpu, ram_free, py, now):
         runs.remove(r)
     if (Path(root) / "대기열멈춤").exists():
         return "대기열 멈춤", None
-    queue = sorted((Path(root) / "대기열").glob("*.json"))
+    queue = [q for q in sorted((Path(root) / "대기열").glob("*.json")) if readable_job(root, q)]
     if not queue:
         return None, None
     mode = json.loads(queue[0].read_text(encoding="utf-8"))["입력"]
@@ -222,7 +236,7 @@ def tick(root, runs, speed, gpu, ram_free, py, now):
     return why, win
 
 
-def status(root, runs, gpu, why, now, done=False, win=None):
+def status(root, runs, gpu, why, now, done=False, win=None, err=None):
     root = Path(root)
     items = []
     for r in runs:
@@ -239,7 +253,7 @@ def status(root, runs, gpu, why, now, done=False, win=None):
         "기다리는이유": why, "멈춤": stop.read_text(encoding="utf-8").strip() if stop.exists() else None,
         "gpu": None if gpu is None else {"사용률": gpu[0], "used_mb": gpu[1], "total_mb": gpu[2]},
         "데스크톱사용가능MB": win,
-        "끝남": len(list((root / "끝").glob("*.json"))), "끝": done})
+        "끝남": len(list((root / "끝").glob("*.json"))), "끝": done, "오류": err})
 
 
 def main(argv=None):
@@ -260,10 +274,14 @@ def main(argv=None):
     runs, py = [], sys.executable
     while True:
         now = time.time()
-        sp = root / "속도.json"
-        speed = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
-        gpu = query_gpu()
-        why, win = tick(root, runs, speed, gpu, mem_available_mb(), py, now)
+        try:
+            sp = root / "속도.json"
+            speed = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
+            gpu = query_gpu()
+            why, win = tick(root, runs, speed, gpu, mem_available_mb(), py, now)
+        except Exception as e:               # 상태에 남기지 않으면 지난 「끝」·「살아 있음」이 그대로 보인다
+            status(root, runs, None, None, now, done=True, err=f"{type(e).__name__}: {e}")
+            raise
         idle = not runs and ((root / "대기열멈춤").exists() or not any((root / "대기열").glob("*.json")))
         status(root, runs, gpu, why, now, done=idle, win=win)
         if idle:

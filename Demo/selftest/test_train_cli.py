@@ -87,12 +87,31 @@ def test_상태():
     check(CLI.finished({**alive, "끝": True}, now) and "없음" in CLI.render_status({}, now), "끝 · 상태 파일 없음")
 
 
+def test_걸기_직후_상태():
+    print("[6] 걸기 직후 — 지난번 「끝」을 믿지 않는다 · 대기열 파일은 다 쓴 뒤 이름을 바꾼다 · 실행기 오류 표시(최종 리뷰 I2)")
+    now = time.time()
+    old = {"시각": datetime.fromtimestamp(now - 3600).isoformat(timespec="seconds"), "끝": True, "끝남": 10, "대기": []}
+    st = CLI.launch_state(old, now)
+    check(st is not None and not CLI.finished(st, now) and "시작 중" in CLI.render_status(st, now),
+          f"지난번 끝 → 새 상태 「시작 중」 · 끝까지 기다림 — {st}")
+    check(CLI.finished(st, now + 700) and "응답 없음" in CLI.render_status(st, now + 700), "실행기가 끝내 안 뜨면 10분 뒤 응답 없음 알림")
+    alive = {"시각": datetime.fromtimestamp(now - 5).isoformat(timespec="seconds"), "끝": False, "도는중": []}
+    check(CLI.launch_state(alive, now) is None, "도는 실행기 상태는 덮지 않는다")
+    check(CLI.launch_state({}, now) is not None, "상태 파일 없음 → 새 상태")
+    cmd = CLI.atomic_write_cmd("~/학습실험/대기열/x_E1-button-a.json")
+    check(cmd == "cat > ~/학습실험/대기열/x_E1-button-a.json.tmp && mv ~/학습실험/대기열/x_E1-button-a.json.tmp ~/학습실험/대기열/x_E1-button-a.json",
+          f"임시 이름(.json.tmp = 실행기 glob *.json 밖)에 쓴 뒤 mv — {cmd}")
+    err = {**alive, "끝": True, "오류": "JSONDecodeError"}
+    check(CLI.finished(err, now) and "오류" in CLI.render_status(err, now).splitlines()[0], "실행기 오류 → 첫 줄에 오류 · 알림")
+
+
 if __name__ == "__main__":
     test_작업()
     test_예상()
     test_걸기_전_막기()
     test_홈_경로()
     test_상태()
+    test_걸기_직후_상태()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

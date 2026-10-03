@@ -44,8 +44,8 @@ def test_범위와_판정():
     print("[1] E0 범위 · ↑↓= · 기준 부족")
     r = L.baseline_ranges(RES, "button")
     check(r == {"P": (0.90, 0.92), "R": (0.80, 0.82)}, f"버튼 범위 — {r}")
-    check(L.judge(RES[3][1], r, "button") == "P↑ R=", f"E3 — {L.judge(RES[3][1], r, 'button')}")
-    check(L.judge(RES[4][1], r, "button") == "P↓ R↓", "E4a — P↓ R↓")
+    check(L.judge(RES[3][1], r, "button") == "P↑+0.030 R=", f"E3 — 넘은 만큼 붙임 — {L.judge(RES[3][1], r, 'button')}")
+    check(L.judge(RES[4][1], r, "button") == "P↓-0.010 R↓-0.010", f"E4a — {L.judge(RES[4][1], r, 'button')}")
     check(L.baseline_ranges(RES, "tool") is None, "공구 E0 2개 → 범위 없음")
     check(L.judge(RES[8][1], None, "tool") == "기준 부족", "기준 부족")
 
@@ -75,10 +75,38 @@ def test_다시_만들기():
         check(md.count("| E0-button-") == 3 and "E9-" not in md, "E0 3줄 · 점검(E9) 제외")
 
 
+def test_기준_조건():
+    print("[4] 운용 조건(멈춤 규칙·나눔·conf·판)이 다른 E0 는 기준이 아니다 — E0 뒤 포화 문턱을 바꾼 경우(최종 리뷰 C1)")
+    old, new = {"포화_향상": 0.005}, {"포화_향상": 0.002}
+    def c(x, m):
+        return {**x[0], "조건": {"멈춤": m}}, x[1]
+    e0 = [c(btn(f"E0-button-s{i}", 0.90 + i / 100, 0.80), old) for i in range(3)]
+    e1 = c(btn("E1-button-in1024", 0.95, 0.80), new)
+    md = L.render(e0 + [e1])
+    row = [l for l in md.splitlines() if l.startswith("| E1-button")][0]
+    check("기준 다름" in row, f"E0 문턱 0.005 · 실험 0.002 → 기준 다름 — {row.split('|')[-2]}")
+    e0b = [c(btn(f"E0b-button-s{i}", 0.90 + i / 100, 0.80), new) for i in range(3)]
+    md = L.render(e0 + e0b + [e1])
+    rows = md.splitlines()
+    row = [l for l in rows if l.startswith("| E1-button")][0]
+    check("P↑+0.030 R=" in row, f"조건이 같은 E0b 3개로 판정 — {row.split('|')[-2]}")
+    check(all("기준 |" in l for l in rows if l.startswith("| E0b-")), "E0b = 기준")
+    check("후보 표시" in md and "함정⑤" in md, "머리말 — ↑↓ 는 후보 표시 · epochs 일정 함정")
+    with tempfile.TemporaryDirectory() as t:
+        d = Path(t) / "E0-button-s0"
+        d.mkdir()
+        (d / "요약.json").write_text(json.dumps({**btn("E0-button-s0", 0.9, 0.8)[0], "나눔": {"해시": "h"}, "conf": 0.65, "판": {"ultralytics": "8.4.171"}}), encoding="utf-8")
+        (d / "채점.json").write_text(json.dumps(btn("E0-button-s0", 0.9, 0.8)[1]), encoding="utf-8")
+        (d / "설정.json").write_text(json.dumps({"멈춤": new}), encoding="utf-8")
+        su = L.load_results(t)[0][0]
+        check(su.get("조건") == {"멈춤": new, "나눔": "h", "conf": 0.65, "판": {"ultralytics": "8.4.171"}}, f"결과 폴더에서 조건 읽기 — {su.get('조건')}")
+
+
 if __name__ == "__main__":
     test_범위와_판정()
     test_렌더()
     test_다시_만들기()
+    test_기준_조건()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
