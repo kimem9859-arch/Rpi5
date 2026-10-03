@@ -11,8 +11,13 @@ import time
 _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
 
-from voice_lib import (answer_key, find_utterance, is_tool_question, is_wake,
-                       read_tool_dets, rms)
+import random
+
+import numpy as np
+
+import voice_lib
+from voice_lib import (answer_key, find_utterance, is_question, is_tool_question,
+                       is_wake, read_tool_dets, rms)
 
 _fails = []
 
@@ -130,6 +135,55 @@ os.unlink(tmp)
 # ---- V3 가드(전후 통과) — 호출어는 발화 어디에 있어도 잡는다(설명을 이 동작에 맞췄다)
 check(is_wake("아 저기 가디언 지금 몇 단계야"), "V3 — 군말 뒤의 호출어도 잡는다")
 check(not is_wake("지금 몇 단계야"), "V3 — 호출어가 없으면 아니다")
+
+# ---- 설계 2026-10-03 §4.1 — VAD 효율화(Q7 · R2 ⑤)
+print("[VAD] 배열을 넘겨도 리스트와 같은 구간을 낸다")
+_rng = random.Random(7)
+
+
+def _noisy(sec, amp=150):
+    return [1400 + int(_rng.gauss(0, amp)) for _ in range(int(rate * sec))]
+
+
+def _speech(sec, amp=4000):
+    return [1400 + int(amp * math.sin(i / 5)) for i in range(int(rate * sec))]
+
+
+_cases = [_noisy(1) + _speech(1) + _noisy(1),
+          _noisy(0.5) + _speech(0.1) + _noisy(0.5) + _speech(0.8) + _noisy(1),
+          _noisy(3),
+          _noisy(0.3) + _speech(6.5)]
+for _i, _c in enumerate(_cases):
+    _a = find_utterance(_c, rate)
+    _b = find_utterance(np.array(_c, dtype=np.int16), rate)
+    check(_a == _b, f"사례 {_i}: 리스트 {_a} == 배열 {_b}")
+
+print("[VAD] 프레임 RMS 는 한 번만 계산한다(같은 버퍼를 두 번 훑지 않는다)")
+_calls = []
+_orig = voice_lib._frame_rms
+voice_lib._frame_rms = lambda s, fr: (_calls.append(1), _orig(s, fr))[1]
+try:
+    voice_lib.find_utterance(np.array(_cases[0], dtype=np.int16), rate)
+finally:
+    voice_lib._frame_rms = _orig
+check(len(_calls) == 1, f"프레임 RMS 계산 {len(_calls)}회 — 1회여야 한다")
+
+print("[VAD] 성능 — 6초 버퍼 1회 중앙값 ≤ 3ms(설계 §4.8)")
+_buf6 = np.array(_noisy(6), dtype=np.int16)
+_ts = []
+for _ in range(21):
+    _t0 = time.perf_counter()
+    find_utterance(_buf6, rate)
+    _ts.append(time.perf_counter() - _t0)
+_med = sorted(_ts)[len(_ts) // 2] * 1000
+check(_med <= 3.0, f"6초 버퍼 중앙값 {_med:.2f}ms")
+
+print("[질문 판정] is_question — 깨어난 창 안의 2글자 이상 발화(Review Focus 1)")
+check(not is_question("지금 몇 단계야", False), "깨어 있지 않으면 질문이 아니다")
+check(not is_question("가디언", True), "호출어만 있으면 질문이 아니다(띠링으로 답한다)")
+check(is_question("가디언 지금 몇 단계야", True), "호출어 + 말 = 질문")
+check(not is_question("아", True), "🔑 1글자(띠링 반향 「아」)는 질문이 아니다")
+check(is_question("몇 단계", True), "깨어 있으면 호출어 없이도 질문")
 
 print()
 if _fails:

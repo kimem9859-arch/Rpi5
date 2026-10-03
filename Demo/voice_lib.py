@@ -121,16 +121,19 @@ def _frame_rms(samples, fr):
     return [rms(samples[i:i + fr]) for i in range(0, n, fr)]
 
 
-def noise_floor(samples, rate, pct=0.2):
+def noise_floor(samples, rate, pct=0.2, vals=None):
     """주변 소음 크기(노이즈 플로어) — 조용한 프레임들의 평균 RMS.
 
     🔑 왜 필요한가 — 고정 임계는 장소가 바뀌면 무너진다. 2026-09-01 녹음(조용한
        실내)의 무음 구간은 RMS **147~184** 인데, 소음이 그 2배만 돼도 종료 임계
        300 을 넘어 **발화가 영영 안 끝난다**(비서가 아무 반응도 못 한다).
        그래서 임계를 **그때그때 바닥에서 재서** 정한다.
+    🔑 `vals` — 이미 계산한 20ms 프레임 RMS. 주면 다시 계산하지 않는다 — find_utterance 가
+       넘긴다(같은 버퍼를 두 번 훑던 것이 VAD 시간의 큰 몫이었다 · 설계 2026-10-03 §4.1 · R2 ⑤).
     """
-    fr = max(1, int(rate * 0.02))
-    vals = sorted(_frame_rms(samples, fr))
+    if vals is None:
+        vals = _frame_rms(samples, max(1, int(rate * 0.02)))
+    vals = sorted(vals)
     if not vals:
         return 0.0
     k = max(1, int(len(vals) * pct))
@@ -158,11 +161,13 @@ def find_utterance(samples, rate, start_th=None, end_th=None,
 
     ⚠️ `tail_ms` 가 700ms 인 이유 — 500ms 면 **문장 중간 쉼에서 잘린다.**
        "가디언, 지금 다음 순서 뭐야?" 가 2.43초에서 끊겼다(원본 4.5초).
+
+    🔑 `samples` 는 리스트도 numpy 배열도 된다 — 배열이면 변환 복사가 없다(메인 루프는 배열을 넘긴다 · 설계 §4.1).
     """
     fr = max(1, int(rate * 0.02))
     vals = _frame_rms(samples, fr)
     if start_th is None or end_th is None:
-        floor = noise_floor(samples, rate)
+        floor = noise_floor(samples, rate, vals=vals)
         if start_th is None:
             start_th = max(400.0, floor * 3.5)
         if end_th is None:
