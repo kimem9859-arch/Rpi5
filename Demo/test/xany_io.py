@@ -17,6 +17,24 @@ DRAFT_VERSION = "sop-draft-1"      # 우리가 쓴 초벌 표시 — X-AnyLabeli
 REVIEW_FLAG = "검토함"             # 사진 단위 플래그 — 고칠 게 없는 사진은 이것을 켜고 저장한다.
                                   # 🔑 X-AnyLabeling 은 고친 것이 없으면 Ctrl+S 로도 저장하지 않고(3.3.5), 3.3.5 에는
                                   #    검토 완료(checked) 항목이 없다 — 플래그를 켜는 것이 「고친 것」이 되어 저장된다.
+MAX_PER_NAME = {"wrench": 2}       # 한 사진에 같은 이름 박스 상한 — 나머지(버튼 5종·driver·pliers)는 1개.
+                                  # 렌치는 모양이 다른 두 개를 모두 wrench 로 그린다(사용자 2026-10-03).
+
+
+def max_per_name(name):
+    return MAX_PER_NAME.get(name, 1)
+
+
+def drop_exact_duplicates(items):
+    """이름·박스가 똑같은 것은 첫 하나만 남긴다(items = label·box 를 가진 dict — 라벨 shapes 와 초벌 drafts 둘 다).
+    🔑 초벌에 같은 버튼 박스가 두 번 그려지면 검토 화면에서 하나로 겹쳐 보여 사람이 지울 수 없다
+    (b004·b006·b009 5장이 그대로 학습 라벨까지 감 · 2026-10-03). 잃는 정보가 없어 되돌려 보내지 않고 합친다."""
+    seen, out = set(), []
+    for s in items:
+        k = (s["label"], tuple(round(float(v), 1) for v in s["box"]))
+        if k not in seen:
+            seen.add(k); out.append(s)
+    return out
 
 
 def shape(label, box, score=None, description=None, difficult=False):

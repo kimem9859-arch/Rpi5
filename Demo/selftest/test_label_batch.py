@@ -403,6 +403,67 @@ def test_묶음_안내문():
     check(ok, "review_batch.py 컴파일 경고 없음")
 
 
+def test_같은_이름_개수_상한_초벌():
+    print("[31] 🔴 초벌의 같은 이름 박스는 버튼 5종·driver·pliers 1개 · wrench 2개까지 — 확신도 높은 것을 남기고 순서는 그대로"
+          " (b004~b014 초벌에 같은 버튼 박스가 똑같이 두 번 · 사용자 2026-10-03)")
+    A = [10, 10, 60, 60]
+    rev = {"boxes": [{"name": "B1", "score": 0.9, "box": A, "pre": A, "why": ["배치 불확실"]},
+                     {"name": "B1", "score": 0.7, "box": A, "pre": A, "why": ["배치 불확실"]},
+                     {"name": "B2", "score": 0.6, "box": [100, 10, 150, 60], "pre": [100, 10, 150, 60], "why": []},
+                     {"name": "B2", "score": 0.8, "box": [200, 10, 250, 60], "pre": [200, 10, 250, 60], "why": []}],
+           "missing": [], "nvis": 4}
+    tools = [["wrench", 0.5, 0, 300, 50, 400], ["wrench", 0.6, 100, 300, 150, 400], ["wrench", 0.4, 200, 300, 250, 400],
+             ["driver", 0.3, 300, 300, 350, 400], ["driver", 0.35, 400, 300, 450, 400]]
+    shapes, drafts, _ = RB.compose_shapes(rev, tools)
+    got = [(s["label"], s["score"]) for s in shapes]
+    check(got == [("B1", 0.9), ("B2", 0.8), ("wrench", 0.5), ("wrench", 0.6), ("driver", 0.35)], f"{got}")
+    check([d["label"] for d in drafts] == [s["label"] for s in shapes], "초벌 기록도 같은 박스만")
+    rev2 = {"boxes": [{"name": "B1", "score": 0.95, "box": [300, 10, 350, 60], "pre": [300, 10, 350, 60], "why": ["배치≠초벌"], "layout": "B4"},
+                      {"name": "B1", "score": 0.6, "box": A, "pre": A, "why": [], "layout": "B1"}], "missing": [], "nvis": 2}
+    got2 = [(s["label"], s["score"]) for s in RB.compose_shapes(rev2, [])[0]]
+    check(got2 == [("B1", 0.6)], f"버튼은 콘솔 자리가 이름과 맞는 박스를 확신도보다 먼저 남긴다 — {got2}")
+
+
+def test_같은_이름_개수_회수():
+    print("[32] 🔴 회수 — 똑같은 박스(이름·위치)는 하나로 합쳐 받고 · 위치가 다른 같은 이름이 상한을 넘으면 거부(wrench 는 2개까지) · exclude 사진은 예외")
+    B = [10, 10, 60, 60]
+    with tempfile.TemporaryDirectory() as d:
+        files = [f"a_check__S__f0000{i}.png" for i in range(5)]
+        man = _man(files)
+        man["images"][0]["drafts"] = [{"label": "B1", "box": B, "kind": "check", "why": []},
+                                      {"label": "B1", "box": B, "kind": "check", "why": []}]
+        cases = {0: [X.shape("B1", B), X.shape("B1", B)],
+                 1: [X.shape("B2", [10, 10, 60, 60]), X.shape("B2", [200, 200, 250, 250])],
+                 2: [X.shape("wrench", [0, 300, 50, 400]), X.shape("wrench", [100, 300, 150, 400])],
+                 3: [X.shape("wrench", [0, 300, 50, 400]), X.shape("wrench", [100, 300, 150, 400]), X.shape("wrench", [200, 300, 250, 400])],
+                 4: [X.shape("B2", [10, 10, 60, 60]), X.shape("B2", [200, 200, 250, 250]), X.shape(X.EXCLUDE, [0, 0, 768, 1024])]}
+        for i, shapes in cases.items():
+            pth = os.path.join(d, f"a_check__S__f0000{i}.json")
+            X.write_json(pth, "x.png", 768, 1024, shapes)
+            doc = json.load(open(pth)); doc["version"] = "3.3.5"; json.dump(doc, open(pth, "w"))
+        p = CB.check_returned(man, d)
+        check(not any("f00000" in m for m in p), f"똑같은 박스 둘 = 통과 — {p}")
+        check(any("f00001" in m and "B2" in m for m in p), "위치가 다른 B2 둘 = 거부")
+        check(not any("f00002" in m for m in p), "wrench 둘 = 통과")
+        check(any("f00003" in m and "wrench" in m for m in p), "wrench 셋 = 거부")
+        check(not any("f00004" in m for m in p), "exclude 사진 = 통과")
+        near = [{"label": "B1", "box": B}, {"label": "B1", "box": [10, 11, 60, 61]}]   # 1px 어긋난 숨은 사본(b011 f07159 · b012 f09310 초벌)
+        apart = [{"label": "B2", "box": [10, 10, 60, 60]}, {"label": "B2", "box": [200, 200, 250, 250]}]
+        check(any("겹쳐 숨은" in m for m in CB.too_many(near)), f"거의 같은 자리 둘이면 숨은 사본이라고 알린다 — {CB.too_many(near)}")
+        check(CB.too_many(apart) and not any("겹쳐 숨은" in m for m in CB.too_many(apart)), "떨어진 둘은 거부하되 그 말을 붙이지 않는다")
+        ret = os.path.join(d, "ret"); os.mkdir(ret)
+        os.rename(os.path.join(d, "a_check__S__f00000.json"), os.path.join(ret, "a_check__S__f00000.json"))
+        man["images"] = man["images"][:1]
+        mp = os.path.join(d, "manifest.json"); json.dump(man, open(mp, "w"))
+        out = os.path.join(d, "out")
+        r = _run_collect(ret, mp, out)
+        lab = open(os.path.join(out, "labels", "S__f00000.txt")).read().splitlines()
+        check(r.returncode == 0 and len(lab) == 1, f"라벨 한 줄 — {lab} {r.stdout[-300:]}")
+        check("똑같은 박스 합침 1" in r.stdout, "합친 수를 알린다")
+        st = json.load(open(os.path.join(out, "stats", "t.json"), encoding="utf-8"))
+        check(st["check"]["그대로"] == 1 and st["check"]["지움"] == 0, f"초벌 중복도 합쳐 집계(지움으로 안 셈) — {st['check']}")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -434,6 +495,8 @@ if __name__ == "__main__":
     test_버튼_모델_기록()
     test_제안은_기본으로_끔()
     test_묶음_안내문()
+    test_같은_이름_개수_상한_초벌()
+    test_같은_이름_개수_회수()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

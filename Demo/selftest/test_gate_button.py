@@ -45,14 +45,28 @@ def _fin(pos=None):
 
 
 def test_셈():
-    print("[1] 깨끗한 사진 = 기계 확정 5 · 장갑 사진 = 6개 모두 사람에게 · 장갑 박스는 가짜(지움) → 사람 몫 6 · 가짜 1 · 기계 확정 틀림 0")
+    print("[1] 깨끗한 사진 = 기계 확정 5 · 장갑 사진 = 장갑 B2 가 같은 이름 상한(1개)에 걸려 초벌에서 빠짐 — 장갑 점수가 진짜보다"
+          " 낮아도(0.7) 높아도(0.95) 콘솔 자리가 맞는 진짜 B2 가 남는다 → 사람 몫 5 · 가짜 0 · 새로 그림 0 (상한 = 사용자 2026-10-03)")
     tpl = [panel() for _ in range(3)]
     glove = (640, 950); jit = {"B1": (3, -2), "B3": (-2, 3), "EMO": (2, 2)}   # test_label_review [7] 과 같은 장면
     moved = {n: (POS[n][0] + jit.get(n, (0, 0))[0], POS[n][1] + jit.get(n, (0, 0))[1]) for n in POS}
     clean, gl = panel(), panel(extra=(glove, 28, (235, 235, 235)), jitter=jit)
-    run = R.lookup_run([(tpl[0], _rows()), (clean, _rows()), (gl, _rows(moved) + [["B2", 0.7, *loose("B2", glove)]])])
-    c = G.evaluate(run, False, tpl, [(clean, _fin()), (gl, _fin(moved))])
-    check(c == {"work": 6, "check": 6, "propose": 0, "added": 0, "fake": 1, "auto_wrong": 0}, f"{c}")
+    for gs in (0.7, 0.95):
+        run = R.lookup_run([(tpl[0], _rows()), (clean, _rows()), (gl, _rows(moved) + [["B2", gs, *loose("B2", glove)]])])
+        c = G.evaluate(run, False, tpl, [(clean, _fin()), (gl, _fin(moved))])
+        check(c == {"work": 5, "check": 5, "propose": 0, "added": 0, "fake": 0, "auto_wrong": 0}, f"장갑 B2 {gs} — {c}")
+
+
+def test_가짜_셈():
+    print("[1-b] 진짜 B4 가 안 잡히고 장갑을 B4 라 하면(같은 이름 상한에 안 걸림) 사람이 지움 = 가짜 1 · 진짜 B4 새로 그림 1")
+    tpl = [panel() for _ in range(3)]
+    glove = (640, 950); jit = {"B1": (3, -2), "B3": (-2, 3), "EMO": (2, 2)}
+    moved = {n: (POS[n][0] + jit.get(n, (0, 0))[0], POS[n][1] + jit.get(n, (0, 0))[1]) for n in POS}
+    gl = panel(extra=(glove, 28, (235, 235, 235)), jitter=jit)
+    rows = [r for r in _rows(moved) if r[0] != "B4"] + [["B4", 0.8, *loose("B4", glove)]]
+    run = R.lookup_run([(tpl[0], _rows()), (gl, rows)])
+    c = G.evaluate(run, False, tpl, [(gl, _fin(moved))])
+    check(c["fake"] == 1 and c["added"] == 1, f"{c}")
 
 
 def test_기계_확정_틀림():
@@ -83,6 +97,7 @@ def test_JSON_초벌():
 
 if __name__ == "__main__":
     test_셈()
+    test_가짜_셈()
     test_기계_확정_틀림()
     test_JSON_초벌()
     print()

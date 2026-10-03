@@ -43,8 +43,23 @@ def check_returned(man, returned_dir, viewed_all=False):
         if any(sh["label"] == X.EXCLUDE for sh in doc["shapes"]):     # exclude 사진은 통째로 빠진다 — 남은 제안은 상관없다
             probs = [m for m in probs if not m.startswith("제안이 남음")]
         else:
-            probs += same_spot(doc["shapes"])
+            shapes = X.drop_exact_duplicates(doc["shapes"])     # 똑같은 박스는 받을 때 합친다 — 거부할 일이 아니다
+            probs += same_spot(shapes) + too_many(shapes)
         out += [f"{r['file']}: {m}" for m in probs]
+    return out
+
+
+def too_many(shapes):
+    """같은 이름이 한 사진의 상한(X.max_per_name — wrench 2 · 나머지 1)을 넘는다 — 위치가 달라 어느 쪽이 맞는지 사람이 가린다
+    (b005 f07741 B2 둘 중 하나가 노랑 B1 · 사용자 2026-10-03)."""
+    n = Counter(s["label"] for s in shapes if s["label"] in X.CLASSES)
+    out = []
+    for k, v in n.items():
+        if v > X.max_per_name(k):
+            same = [s["box"] for s in shapes if s["label"] == k]
+            hidden = any(LR.iou(a, b) >= 0.9 for i, a in enumerate(same) for b in same[i + 1:])
+            out.append(f"같은 이름이 너무 많음: {k} {v}개 — 한 사진에 {X.max_per_name(k)}개까지"
+                       + (" · 거의 같은 자리에 겹쳐 숨은 초벌 사본이 있다 — 하나를 지운다" if hidden else ""))
     return out
 
 
@@ -173,9 +188,12 @@ def main():
     out = Path(a.out).expanduser()
     (out / "labels").mkdir(parents=True, exist_ok=True); (out / "stats").mkdir(exist_ok=True)
     total = {k: Counter() for k in ("auto", "check", "propose", "tool")}; added = Counter()
-    excluded, rows, gone = 0, {}, set()
+    excluded, rows, gone, merged = 0, {}, set(), 0
     for r in man["images"]:
         doc = X.read_json(ret / (Path(r["file"]).stem + ".json"))
+        shapes = X.drop_exact_duplicates(doc["shapes"])
+        merged += len(doc["shapes"]) - len(shapes)
+        doc["shapes"] = shapes
         name = r["file"].split("__", 1)[1].rsplit(".", 1)[0]          # <짧은 세션>__fNNNNN
         lines = X.to_yolo_lines(doc["shapes"], r["w"], r["h"])
         if lines is None:          # exclude 사진은 수정 집계에서도 뺀다 — 박스를 남기든 지우든 기계 정확도와 무관하다
@@ -183,7 +201,7 @@ def main():
             (out / "labels" / f"{name}.txt").unlink(missing_ok=True)   # 다시 회수했을 때 exclude 로 바뀐 사진의 옛 라벨
             gone.add(name)
             continue
-        s = edit_stats(r["drafts"], doc["shapes"])
+        s = edit_stats(X.drop_exact_duplicates(r["drafts"]), doc["shapes"])   # 초벌의 똑같은 박스를 「지움」으로 세지 않는다
         for k in total:
             total[k].update(s[k])
         added.update(s["추가"])
@@ -196,7 +214,7 @@ def main():
     stats["공구 초벌"] = tool_catch(stats)
     stats["버튼 수고"] = button_work(stats)
     (out / "stats" / f"{man['batch']}.json").write_text(json.dumps(stats, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"✅ 회수 {len(rows)}장 · exclude {excluded}")
+    print(f"✅ 회수 {len(rows)}장 · exclude {excluded}" + (f" · 똑같은 박스 합침 {merged}" if merged else ""))
     for k in ("auto", "check", "propose", "tool"):
         print(f"  {k:8}", dict(total[k]))
     print("  추가    ", dict(added))

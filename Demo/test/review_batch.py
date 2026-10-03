@@ -125,11 +125,25 @@ def pick_frames(cands, size, seed):
     return sorted(out)
 
 
+def cap_per_name(items, name, score):
+    """같은 이름은 X.max_per_name 개까지 — score(앞쪽이 클수록 먼저 남김)순으로 남기고 원래 순서는 지킨다(사용자 2026-10-03).
+    b004~b014 초벌에 같은 버튼 박스가 똑같이 두 번 그려진 사진 16장 — 버튼 초벌 모델(button_r1 · yolo26 end2end = NMS 없음)이
+    같은 버튼에 거의 같은 박스를 두 번 내고, prelabel_tools 의 정수 절삭(또는 박스 맞추기)이 둘을 같은 픽셀로 만든다."""
+    keep, n = set(), {}
+    for i in sorted(range(len(items)), key=lambda k: score(items[k]), reverse=True):
+        nm = name(items[i])
+        if n.get(nm, 0) < X.max_per_name(nm):
+            n[nm] = n.get(nm, 0) + 1; keep.add(i)
+    return [items[i] for i in sorted(keep)]
+
+
 def compose_shapes(rev, tools, propose=False):
     """propose = 빠진 자리 제안을 넣을지 — 기본 끔(사용자 결정 2026-09-29 · b001~b004 제안 45개 안팎 중 쓸모 있던 것 0~8 ·
     설계 §6 ④ 개정). 버튼 관문(gate_button)도 이 기본을 따라 실제 작업과 같은 잣대로 센다."""
     shapes, drafts = [], []
-    for b in rev["boxes"]:
+    tools = cap_per_name(list(tools), lambda t: t[0], lambda t: t[1])
+    # 버튼은 콘솔 자리(기계 검토의 배치 틀)가 이름과 맞는 박스를 확신도보다 먼저 — 장갑을 높은 점수로 B2 라 해도 진짜 B2 가 남는다
+    for b in cap_per_name(rev["boxes"], lambda b: b["name"], lambda b: (b.get("layout") == b["name"], b["score"])):
         if b["why"]:
             shapes.append(X.shape(b["name"], b["box"], b["score"], "확인: " + ", ".join(b["why"]), difficult=True))
             drafts.append({"label": b["name"], "box": b["box"], "kind": "check", "why": b["why"]})
