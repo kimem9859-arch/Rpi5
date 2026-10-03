@@ -57,3 +57,13 @@ def frame(pcm, rate):
     chk = sum(v & 0xFFFF for v in a) & 0xFFFFFFFF
     return (f"W {len(a)} {rate}\n".encode() + pcm
             + struct.pack("<I", chk) + b"P\n")
+
+
+def fits(n_samples, rate):
+    """펌웨어가 받아 주는 크기인가(설계 2026-10-03 §4.3 C2 셋째 겹 · R3 I1).
+
+    🔴 넘으면 보내지 않는다 — 펌웨어가 본문을 안 읽고 거절해 남은 바이트가 명령으로 실행된다(P4).
+    """
+    import config
+    return (0 < n_samples <= config.VOICE_FW_MAX_SAMPLE
+            and config.VOICE_FW_RATE_MIN <= rate <= config.VOICE_FW_RATE_MAX)

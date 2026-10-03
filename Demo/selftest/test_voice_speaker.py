@@ -14,6 +14,10 @@ _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
 
 import voice_assistant as va
+import re
+
+import config
+import voice_tts
 
 _fails = []
 
@@ -101,7 +105,7 @@ def test_m2_timeout_drops_channel():
     check(spk.s is None, "명령 채널을 버린다(다음 전송이 새로 붙는다)")
     b.close()
     spk2, b2 = _speaker_pair()
-    _send_later(b2, ["[재생 완료]\n"])
+    _send_later(b2, ["[적재] ok\n", "[재생 완료]\n"])
     spk2._drain(wait=3.0)
     check(spk2.s is not None, "제때 끝나면 채널을 그대로 쓴다")
     b2.close()
@@ -126,6 +130,103 @@ def test_final_minor_bad_wav_does_not_kill():
     finally:
         va.WAV_DIR = old
         b.close()
+
+def _capture_log():
+    logs = []
+    old = va.log
+    va.log = lambda m: (logs.append(m), old(m))
+    return logs, lambda: setattr(va, "log", old)
+
+
+def test_fw_limits_match_firmware():
+    """§4.3 C2 — 파이 쪽 한도 상수가 펌웨어 소스와 같다(어긋나면 한도 검사가 무의미하다)."""
+    print("\n[한도] 펌웨어 대조")
+    src = open(os.path.join(_DEMO_DIR, "..", "arduino", "glass_voice", "glass_voice.ino"),
+               encoding="utf-8").read()
+    sec = int(re.search(r"MAX_SEC\s*=\s*(\d+)", src).group(1))
+    rmax = int(re.search(r"MAX_RATE\s*=\s*(\d+)", src).group(1))
+    rmin = int(re.search(r"r\s*<\s*(\d+)\s*\|\|", src).group(1))
+    check(config.VOICE_FW_MAX_SAMPLE == sec * rmax, f"샘플 한도 {config.VOICE_FW_MAX_SAMPLE} = {sec}×{rmax}")
+    check((config.VOICE_FW_RATE_MIN, config.VOICE_FW_RATE_MAX) == (rmin, rmax), "레이트 범위")
+    check(voice_tts.fits(240000, 24000), "한도 끝은 들어간다")
+    check(not voice_tts.fits(240001, 24000), "한도 넘으면 안 된다")
+    check(not voice_tts.fits(1000, 7999) and not voice_tts.fits(1000, 24001), "레이트 범위 밖")
+    check(not voice_tts.fits(0, 16000), "빈 소리는 안 된다")
+
+
+def test_stale_complete_ignored():
+    """§4.5 — 적재 확인 전에 온 「재생 완료」는 지난 재생의 늦은 응답이다 — 이번 확인으로 쓰지 않는다(R3 I1)."""
+    print("\n[확인] 이번 요청의 응답만")
+    spk, b = _speaker_pair()
+    _send_later(b, ["[재생 완료]\n", 0.2, "[준비]\n", "[적재] ok\n", 0.2, "[재생 완료]\n"])
+    t0 = time.time()
+    out = spk._drain(wait=3.0)
+    check(out.count("[재생 완료]") == 1 and out[-1] == "[재생 완료]", f"응답 = {out}")
+    check(time.time() - t0 >= 0.35, "앞선 「재생 완료」에서 멈추지 않았다")
+    b.close()
+
+
+def test_fail_resets_channel():
+    """§4.5 — 펌웨어 FAIL 이면 채널을 버린다 — 거절된 본문이 한 글자 명령으로 읽히는 것을 끊는다(P4)."""
+    print("\n[FAIL] 채널을 버린다")
+    spk, b = _speaker_pair()
+    _send_later(b, ["[FAIL] 샘플수 300000 — 1~240000 범위를 벗어났다.\n"])
+    out = spk._drain(wait=2.0)
+    check(any("FAIL" in x for x in out) and spk.s is None, f"FAIL → 채널 버림 · {out}")
+    b.close()
+
+
+def test_eof_logged_as_eof():
+    """R3 M3 — 명령 채널 EOF 를 「15초 안에 안 끝남」으로 적지 않는다."""
+    print("\n[EOF] 사실대로 적는다")
+    logs, restore = _capture_log()
+    try:
+        spk, b = _speaker_pair()
+        b.close()
+        spk._drain(wait=3.0)
+        check(spk.s is None, "채널을 버린다")
+        check(any("닫혔다" in l for l in logs) and not any("안에 끝나지 않았다" in l for l in logs),
+              f"로그 = {logs[-1:]}")
+    finally:
+        restore()
+
+
+def test_peer_closed_reconnects_before_send():
+    """R3 M1 · R2 C2 — 상대가 닫은 채널에 띠링을 보내면 오류 없이 사라졌다 — 보내기 전에 알아채고 다시 붙는다.
+    붙을 때마다 주소를 다시 읽는다(Review Focus 4)."""
+    print("\n[닫힘] 보내기 전에 다시 붙는다")
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(2)
+    srv.settimeout(3)
+    calls = []
+
+    def getter():
+        calls.append(1)
+        return "127.0.0.1"
+
+    spk = va.Speaker(getter, port=srv.getsockname()[1])
+    try:
+        spk.send(b"")
+        c1, _ = srv.accept()
+        c1.close()
+        time.sleep(0.1)
+        spk.chime()
+        c2, _ = srv.accept()
+        c2.settimeout(2)
+        got, end = b"", time.time() + 2
+        while b"B\n" not in got and time.time() < end:
+            try:
+                got += c2.recv(64)
+            except socket.timeout:
+                break
+        check(b"B\n" in got, f"띠링이 새 연결로 갔다 — {got!r}")
+        check(len(calls) == 2, f"붙을 때마다 주소를 다시 읽었다 — {len(calls)}회")
+        c2.close()
+    finally:
+        spk.reset()
+        srv.close()
+
 
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):

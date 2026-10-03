@@ -259,17 +259,27 @@ class Speaker:
 
     🔑 매번 새로 붙지 않는 이유 — 펌웨어가 손님 하나를 붙들고 있어서, 끊었다
        붙이면 그 사이 명령이 샐 수 있다.
+    🔑 주소는 붙을 때마다 다시 읽는다 — 마이크와 같은 주소를 따라간다(R2 C2 · 설계 2026-10-03 §4.5).
+       `ip` 는 문자열 또는 주소를 돌려주는 함수다.
     """
 
-    def __init__(self, ip):
-        self.ip = ip
+    def __init__(self, ip, port=CMD_PORT):
+        self._ip = ip if callable(ip) else (lambda: ip)
+        self.port = port
+        self.ip = None                # 마지막으로 붙은 주소
         self.s = None
         self.f = None                 # 쓰지 않는다(V1) — 옛 시험·호출부 호환용으로만 남긴다
         self._rbuf = b""              # 소켓에서 받은 아직 줄이 안 된 바이트
 
     def _ensure(self):
+        if self.s is not None:
+            self._drop_stale()
         if self.s is None:
-            self.s = socket.create_connection((self.ip, CMD_PORT), 10)
+            try:
+                self.ip = self._ip()
+            except SystemExit as e:   # esp_ip() 는 주소 파일이 없으면 SystemExit — 이 전송만 실패로
+                raise OSError(str(e)) from None
+            self.s = socket.create_connection((self.ip, self.port), 10)
             self.s.settimeout(30)
             self._rbuf = b""
             # 🔑 음량을 붙을 때마다 올린다 — 펌웨어 기본은 3단계(진폭 6000)인데
@@ -278,48 +288,82 @@ class Speaker:
             #    ⚠️ 배터리 구동에서는 소비가 늘어 슬라이드 스위치 정격(0.3A)에 붙는다
             #       (설계 §5.4) — 시연은 짧아 감수하지만, 상시 운용이면 낮춘다.
             self.s.sendall(f"{VOLUME}\n".encode())
-            log(f"명령 채널 연결됨 ({CMD_PORT}) · 음량 {VOLUME}단계")
+            log(f"명령 채널 연결됨 ({self.ip}:{self.port}) · 음량 {VOLUME}단계")
+
+    def _drop_stale(self):
+        """보내기 전에 쌓여 있던 응답을 버린다 — 지난 재생의 늦은 「[재생 완료]」가 이번 확인으로 읽히지 않게.
+
+        🔴 상대가 이미 닫았으면(EOF) 채널을 버린다 — 닫힌 채널에 보낸 띠링은 오류 없이 사라졌다(R3 M1).
+        """
+        self._rbuf = b""
+        self.s.settimeout(0.0)
+        try:
+            while True:
+                try:
+                    b = self.s.recv(4096)
+                except (BlockingIOError, InterruptedError):
+                    return
+                if not b:
+                    log("⚠️ 명령 채널이 상대 쪽에서 닫혀 있었다 — 다시 붙는다")
+                    self.reset()
+                    return
+        except OSError as e:
+            log(f"⚠️ 명령 채널 오류({e}) — 다시 붙는다")
+            self.reset()
+        finally:
+            if self.s is not None:
+                self.s.settimeout(30)
 
     def _drain(self, wait=15.0):
         """펌웨어 응답을 읽어 돌려준다 — 🔑 **보냈다 ≠ 들렸다**.
 
         🔴 2026-09-07 에 물렸다 — 데몬은 보내기만 하고 응답을 안 봐서, 로그에는
-           「재생 → wrench」가 찍혔는데 소리는 안 났다. 무엇이 어긋났는지 알 길이
-           없었다. 펌웨어는 「[적재] … ok」·「[재생 완료]」를 돌려주므로 그것을
-           확인해 기록한다.
-        ⚠️ 재생은 동기라 응답이 소리 길이만큼 늦게 온다 — 그동안 마이크 버퍼가
-           쌓이지만 「최신 우선」이 정리한다.
+           「재생 → wrench」가 찍혔는데 소리는 안 났다. 펌웨어는 「[적재] … ok」·
+           「[재생 완료]」를 돌려주므로 그것을 확인해 기록한다.
+        🔑 이번 요청의 확인만 받는다(설계 2026-10-03 §4.5) — 「[적재] … ok」 **뒤의** 「[재생 완료]」만
+           완료다. 그 앞에 온 것은 지난 재생의 늦은 응답이라 버린다(R3 I1: 엉뚱한 확인을 성공으로 적었다).
+        🔴 끝 응답 없이 끝나면(시간 초과·EOF·FAIL) 명령 채널을 버린다 — 다음 전송이 새로 붙는다(③ 리뷰 M-2).
+           FAIL 뒤에도 버리는 이유 = 펌웨어가 거절한 본문이 남아 한 글자 명령으로 읽힌다(P4).
         """
-        out = []
-        done = False
+        out, loaded, why = [], False, "시간 초과"
         end = time.time() + wait
         self.s.settimeout(1.0)
         while time.time() < end:
             try:
                 line = self._readline()
-            except (OSError, AttributeError):
+            except (OSError, AttributeError) as e:
+                why = f"오류 {e}"
                 break
             if line is None:
                 # 🔴 재생 중에는 펌웨어가 몇 초간 아무것도 안 보낸다 — 여기서
-                #    포기하면 「확인되지 않았다」로 잘못 판정한다(2026-09-07 에
-                #    실제로 그랬다. 소리는 났는데 로그만 실패로 남았다).
+                #    포기하면 「확인되지 않았다」로 잘못 판정한다(2026-09-07).
                 continue
             if not line:
+                why = "EOF"
                 break
             t = line.decode("utf-8", "replace").strip()
-            if t:
-                out.append(t)
-                if "재생 완료" in t or "FAIL" in t:
-                    done = True
-                    break
-        if not done:
-            # 🔴 끝 응답 없이 끝났으면 명령 채널을 버린다(③ 리뷰 M-2) — 남겨 두면 한도 뒤에 늦게 온
-            #    「[재생 완료]」가 **다음 재생의 확인으로 곧바로 읽혀** 그 재생 중에 다시 듣고, 이후
-            #    재생 확인이 한 칸씩 밀렸다. 다음 전송이 새로 붙는다(_ensure).
+            if not t:
+                continue
+            if "재생 완료" in t and not loaded:
+                continue                       # 지난 재생의 늦은 확인 — 이번 것이 아니다
+            out.append(t)
+            if "FAIL" in t:
+                why = "FAIL"
+                break
+            if t.startswith("[적재]") and t.endswith("ok"):
+                loaded = True
+            elif "재생 완료" in t:
+                self.s.settimeout(30)
+                return out
+        if why == "FAIL":
+            log("🔴 펌웨어가 거절했다 — 남은 바이트가 명령으로 읽히지 않게 명령 채널을 다시 붙인다")
+        elif why == "EOF":
+            log("🔴 재생 확인 중에 명령 채널이 닫혔다 — 다시 붙는다")
+        elif why == "시간 초과":
             log(f"⚠️ 재생 확인이 {wait:.0f}초 안에 끝나지 않았다 — 명령 채널을 다시 붙인다")
-            self.reset()
-            return out
-        self.s.settimeout(30)
+        else:
+            log(f"🔴 재생 확인 중 {why} — 명령 채널을 다시 붙인다")
+        self.reset()
         return out
 
     def _readline(self):
@@ -352,12 +396,7 @@ class Speaker:
                 return True
             except OSError as e:
                 log(f"🔴 명령 전송 실패({attempt}): {e}")
-                try:
-                    if self.s:
-                        self.s.close()
-                except OSError:
-                    pass
-                self.s = None
+                self.reset()
         return False
 
     def reset(self):
