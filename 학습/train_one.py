@@ -88,8 +88,32 @@ def end_reason(reason, epochs_done, max_epochs):
     return "최대에폭" if epochs_done >= max_epochs else "일찍멈춤"
 
 
+def no_pin_memory(modules=None):
+    """WSL 고정(page-locked) 메모리 한도 — 데이터로더의 pin_memory 를 끈다(학습 결과는 그대로 · GPU 로 옮기는 방식만 바뀐다).
+    2026-10-03 속도 측정: 늘리기640 2개 동시 · 원본768x1024 1개가 「pin memory thread … CUDA error: out of memory」로 죽었다
+    (GPU 최고치는 8GB 안). 8.4.171 은 끄는 설정이 없어(학습 = build_dataloader 기본 True · 검증 = pin_memory=self.training)
+    두 모듈이 import 한 이름을 감싼다 — 판 고정이라 경로가 바뀌지 않는다."""
+    if modules is None:
+        import ultralytics.data.build as b
+        import ultralytics.models.yolo.detect.train as t
+        import ultralytics.models.yolo.detect.val as v
+        modules = [b, t, v]
+    for mod in modules:
+        orig = getattr(mod, "build_dataloader", None)
+        if orig is None or getattr(orig, "_no_pin", False):
+            continue
+
+        def wrapped(*a, _orig=orig, **k):
+            k["pin_memory"] = False
+            return _orig(*a, **k)
+
+        wrapped._no_pin = True
+        mod.build_dataloader = wrapped
+
+
 def train(job, ds_yaml, rd):
     from ultralytics import YOLO
+    no_pin_memory()
     st = job["멈춤"]
     state = {"best": [], "reason": None}
     csv = rd / "results.csv"

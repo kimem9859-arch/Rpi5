@@ -96,11 +96,30 @@ def test_종료_이유():
     check(T1.end_reason(None, 57, 200) == "일찍멈춤", "일찍 멈춤")
 
 
+def test_고정_메모리_끄기():
+    print("[5] 고정 메모리 끄기 — 학습·검증 데이터로더 모두 pin_memory=False(WSL 한도 · 2026-10-03 속도 측정)")
+    import types
+    seen = []
+
+    def fake(*a, **k):
+        seen.append(k.get("pin_memory", "기본 True"))
+        return "loader"
+
+    b, t, v = (types.SimpleNamespace(build_dataloader=fake) for _ in range(3))
+    T1.no_pin_memory([b, t, v, types.SimpleNamespace()])
+    t.build_dataloader("ds", batch=16, workers=2, shuffle=True, rank=-1)                      # 학습 — 안 넘김(기본 True)
+    v.build_dataloader("ds", 32, 4, shuffle=False, rank=-1, drop_last=False, pin_memory=True)  # 검증 — 학습 중엔 True
+    check(seen == [False, False], f"둘 다 False — {seen}")
+    T1.no_pin_memory([t])
+    check(t.build_dataloader("ds") == "loader" and seen[-1] is False and len(seen) == 3, "두 번 감싸지 않음 · 반환값 그대로")
+
+
 if __name__ == "__main__":
     test_바탕_폴더()
     test_동시_준비()
     test_실험_폴더()
     test_종료_이유()
+    test_고정_메모리_끄기()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
