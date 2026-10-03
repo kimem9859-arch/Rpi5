@@ -7,8 +7,27 @@ echo "=== SOP 가디언 Demo 실행 ==="
 echo "경로: $(pwd)"
 echo
 
+# 🔑 음성비서를 함께 띄운다(설계 2026-10-03 §4.6 · D1′) — 죽으면 run_voice.sh 가 다시 띄운다.
+#    끄려면 SOP_VOICE=0 ./run_demo.sh · 로그 = logs/voice_<시각>.log(「준비 상태」 줄을 본다)
+VOICE_PID=""
+stop_voice() {
+    if [ -n "$VOICE_PID" ]; then
+        kill "$VOICE_PID" 2>/dev/null
+        VOICE_PID=""
+    fi
+}
+trap stop_voice EXIT
+if [ "${SOP_VOICE:-1}" != "0" ]; then
+    mkdir -p logs
+    VLOG="logs/voice_$(date +%Y%m%d_%H%M%S).log"
+    ./run_voice.sh --forever >>"$VLOG" 2>&1 &
+    VOICE_PID=$!
+    echo "음성비서 함께 시작 (로그 = $VLOG)"
+fi
+
 python3 main.py
 status=$?
+stop_voice              # 🔴 오류로 창을 붙잡아 둘 때도 음성비서는 먼저 끈다
 
 echo
 echo "=== 종료 (exit code: $status) ==="
