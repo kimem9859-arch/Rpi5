@@ -1,8 +1,8 @@
-"""학습 실행기(학습/runner.py)를 가짜 학습으로 고정한다 — 정상 · 진행없음 · 시간초과 · 점수0 · 오류 · 동시 2개 · 짝 이상 종료 · 잠금 · 끊김 복구.
+"""학습 실행기(학습/runner.py)를 가짜 학습으로 고정한다 — 정상 · 진행없음 · 시간초과 · 점수0 · 오류 · 동시 2개 · 짝 이상 종료 · 잠금 · 끊김 복구 · 데스크톱 메모리 여유.
 
 실행: python3 Demo/selftest/test_train_runner.py
 정본 설계: 상위 docs/superpowers/specs/2026-10-03-학습파라미터-체계-design.md §7
-⚠️ GPU 가 필요 없다 — nvidia-smi 는 가짜(TRAIN_NVIDIA_SMI). 약 30초.
+⚠️ GPU·Windows 가 필요 없다 — nvidia-smi(TRAIN_NVIDIA_SMI) · 데스크톱 메모리(TRAIN_WIN_PROBE)는 가짜. 약 30초.
 """
 import fcntl
 import json
@@ -64,6 +64,10 @@ def _setup(t):
     smi = Path(t) / "nvidia-smi"
     smi.write_text("#!/bin/sh\necho '5, 1000, 8000'\n")
     smi.chmod(0o755)
+    for name, body in (("win_ok", "echo 30000"), ("win_low", "echo 8000"), ("win_fail", "exit 1")):
+        w = Path(t) / name
+        w.write_text(f"#!/bin/sh\n{body}\n")
+        w.chmod(0o755)
     return root, fake, smi
 
 
@@ -74,10 +78,16 @@ def _job(root, fake, i, jid, mode, stall=0.5, limit=None):
     (root / "대기열" / f"20261004-000000-{i:02d}_{jid}.json").write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
 
 
-def _run(root, smi=None, timeout=60):
+def _env(root, smi=None, win="win_ok"):
     env = dict(os.environ)
     if smi:
         env["TRAIN_NVIDIA_SMI"] = str(smi)
+    env["TRAIN_WIN_PROBE"] = str(Path(root).parent / win)
+    return env
+
+
+def _run(root, smi=None, timeout=60, win="win_ok"):
+    env = _env(root, smi, win)
     return subprocess.run([sys.executable, RUNNER, "--루트", str(root), "--간격", "0.2"],
                           capture_output=True, text=True, timeout=timeout, env=env)
 
@@ -206,6 +216,38 @@ def test_끊김_복구():
         check(len(list((root / "끝").glob("*E0-button-o.json"))) == 1, "끝으로 옮김")
 
 
+def _wait_status(root, win):
+    """실행기를 띄워 2초 뒤 상태를 읽고 끈다 — 메모리가 모자라면 끝나지 않고 기다리기 때문."""
+    pr = subprocess.Popen([sys.executable, RUNNER, "--루트", str(root), "--간격", "0.2"],
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=_env(root, None, win))
+    time.sleep(2.5)
+    st = json.loads((root / "상태.json").read_text(encoding="utf-8"))
+    pr.terminate()
+    pr.wait(timeout=10)
+    return st
+
+
+def test_데스크톱_메모리_여유():
+    print("[10] 데스크톱 사용 가능 메모리 − 학습 몫 < 8GB 면 띄우지 않고 기다린다(첫 학습도)")
+    with tempfile.TemporaryDirectory() as t:
+        root, fake, _ = _setup(t)
+        (root / "속도.json").write_text(json.dumps({"늘리기640": {"동시": 2, "gpu_mb": 100, "ram_mb": 100}}), encoding="utf-8")
+        _job(root, fake, 0, "E0-button-a", "normal")
+        st = _wait_status(root, "win_low")
+        check(not (root / "runs" / "E0-button-a").exists(), "8000 − 100 < 8192 → 안 띄움")
+        check("데스크톱 메모리" in (st.get("기다리는이유") or "") and st.get("데스크톱사용가능MB") == 8000, f"이유·값 표시 — {st.get('기다리는이유')} · {st.get('데스크톱사용가능MB')}")
+        check(st["대기"] == ["E0-button-a"] and not st["끝"], "대기열 그대로 · 끝나지 않음")
+
+
+def test_데스크톱_메모리_못_읽음():
+    print("[11] 데스크톱 메모리를 못 읽으면 띄우지 않고 기다린다")
+    with tempfile.TemporaryDirectory() as t:
+        root, fake, _ = _setup(t)
+        _job(root, fake, 0, "E0-button-a", "normal")
+        st = _wait_status(root, "win_fail")
+        check(not (root / "runs" / "E0-button-a").exists() and "못 읽" in (st.get("기다리는이유") or ""), f"안 띄움 · 이유 — {st.get('기다리는이유')}")
+
+
 if __name__ == "__main__":
     test_정상()
     test_진행없음()
@@ -216,6 +258,8 @@ if __name__ == "__main__":
     test_속도표_없으면_1개()
     test_잠금()
     test_끊김_복구()
+    test_데스크톱_메모리_여유()
+    test_데스크톱_메모리_못_읽음()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

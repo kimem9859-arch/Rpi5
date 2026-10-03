@@ -112,7 +112,9 @@ def render_status(st, now):
     else:
         head = f"실행기 살아 있음({age:.0f}초 전)"
     g = st.get("gpu")
+    w = st.get("데스크톱사용가능MB")
     lines = [head + (f" · GPU {g['사용률']}% {g['used_mb'] / 1024:.1f}/{g['total_mb'] / 1024:.1f}GB" if g else "")
+             + (f" · 데스크톱 사용 가능 {w / 1024:.1f}GB" if w is not None else "")
              + f" · 끝남 {st.get('끝남', 0)} · 대기 {len(st.get('대기', []))}"]
     for r in st.get("도는중", []):
         last = r.get("최근") or {}

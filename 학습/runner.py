@@ -5,7 +5,9 @@
 - 하나만 뜬다(실행기.lock). 대기열이 비거나 멈췄고 도는 학습이 없으면 끝난다.
 - 폴더: 대기열/(이름 순서) → 도는중/ → 끝/ · runs/<id>/(train_one 이 쓴다) · 대기열멈춤(이유 한 줄) · 상태.json · 속도.json
 - 이상 종료(진행없음 · 시간초과 · 오류 · 점수0 · 끊김)면 대기열멈춤을 쓰고 새 학습을 띄우지 않는다 — 도는 학습은 끝까지 둔다.
-- 하나 더 띄우는 조건 = 동시 개수 한도 안 · 도는 학습이 모두 첫 에폭을 마침 · GPU·데스크톱 메모리 여유(속도표의 학습 하나 몫 + 여유).
+- 하나 더 띄우는 조건 = 동시 개수 한도 안 · 도는 학습이 모두 첫 에폭을 마침 · GPU·WSL 메모리 여유(속도표의 학습 하나 몫 + 여유).
+- 그리고 (첫 학습도) 데스크톱(Windows) 「사용 가능」 메모리 − 그 학습 몫 ≥ 8GB — 사용자 2026-10-04 「학습전 데스크탑 메모리 사용량을 확인하여 여유에 따라 진행」.
+  못 읽으면 띄우지 않고 기다린다. 한 번 읽는 데 약 6초라 띄울지 판단할 때만 읽는다.
 표준 라이브러리만 쓴다.
 """
 import argparse
@@ -24,6 +26,9 @@ sys.path.insert(0, str(HERE))
 import stoprules  # noqa: E402
 
 NVIDIA_SMI = os.environ.get("TRAIN_NVIDIA_SMI", "/usr/lib/wsl/lib/nvidia-smi")
+WIN_PROBE = ["/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", "-NoProfile", "-Command",
+             "(Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory).AvailableMBytes"]   # 이름이 번역되지 않는 CIM 클래스
+WIN_RESERVE_MB = 8192   # 학습을 띄운 뒤에도 데스크톱에 남길 메모리 — 사용자 승인 2026-10-04
 GPU_MARGIN_MB = 1024
 RAM_MARGIN_MB = 2048
 EXIT_ABNORMAL = 3
@@ -49,6 +54,26 @@ def mem_available_mb():
         if line.startswith("MemAvailable:"):
             return int(line.split()[1]) // 1024
     return 0
+
+
+def query_win_available_mb():
+    """데스크톱(Windows) 「사용 가능」 메모리 MB(작업 관리자와 같은 값) · 못 읽으면 None. 시험은 TRAIN_WIN_PROBE 로 바꾼다."""
+    probe = os.environ.get("TRAIN_WIN_PROBE")
+    try:
+        r = subprocess.run([probe] if probe else WIN_PROBE, capture_output=True, text=True, timeout=30)
+        lines = [l.strip() for l in r.stdout.splitlines() if l.strip()]
+        return int(float(lines[-1])) if r.returncode == 0 and lines else None
+    except Exception:
+        return None
+
+
+def desktop_ok(win_avail_mb, need_mb):
+    """데스크톱 사용 가능 메모리 − 학습 몫 ≥ WIN_RESERVE_MB 일 때만 띄운다(첫 학습도)."""
+    if win_avail_mb is None:
+        return False, "데스크톱 메모리를 못 읽음 — 기다린다"
+    if win_avail_mb - need_mb < WIN_RESERVE_MB:
+        return False, f"데스크톱 메모리 여유 부족(사용 가능 {win_avail_mb}MB − 학습 {need_mb}MB < {WIN_RESERVE_MB}MB)"
+    return True, ""
 
 
 def write_json(p, d):
@@ -161,7 +186,7 @@ def recover_orphans(root):
 
 
 def tick(root, runs, speed, gpu, ram_free, py, now):
-    """한 번 둘러보기 — 끝난 것 정리 · 진행없음/시간초과 끄기 · 하나 띄우기. 반환 = 기다리는 이유(없으면 None)."""
+    """한 번 둘러보기 — 끝난 것 정리 · 진행없음/시간초과 끄기 · 하나 띄우기. 반환 = (기다리는 이유 · 이번에 읽은 데스크톱 메모리)."""
     for r in list(runs):
         csv = run_dir(root, r.job) / "results.csv"
         if csv.exists():
@@ -181,19 +206,23 @@ def tick(root, runs, speed, gpu, ram_free, py, now):
             continue
         runs.remove(r)
     if (Path(root) / "대기열멈춤").exists():
-        return "대기열 멈춤"
+        return "대기열 멈춤", None
     queue = sorted((Path(root) / "대기열").glob("*.json"))
     if not queue:
-        return None
+        return None, None
     mode = json.loads(queue[0].read_text(encoding="utf-8"))["입력"]
     ok, why = can_start(mode, [(r.job["입력"], r.epochs) for r in runs], speed, gpu, ram_free)
+    win = None
+    if ok:
+        win = query_win_available_mb()
+        ok, why = desktop_ok(win, speed.get(mode, {}).get("ram_mb", 0))
     if ok:
         runs.append(start(root, queue[0], py, now))
-        return None
-    return why
+        return None, win
+    return why, win
 
 
-def status(root, runs, gpu, why, now, done=False):
+def status(root, runs, gpu, why, now, done=False, win=None):
     root = Path(root)
     items = []
     for r in runs:
@@ -209,6 +238,7 @@ def status(root, runs, gpu, why, now, done=False):
         "대기": [p.name.split("_", 1)[1][:-5] for p in sorted((root / "대기열").glob("*.json"))],
         "기다리는이유": why, "멈춤": stop.read_text(encoding="utf-8").strip() if stop.exists() else None,
         "gpu": None if gpu is None else {"사용률": gpu[0], "used_mb": gpu[1], "total_mb": gpu[2]},
+        "데스크톱사용가능MB": win,
         "끝남": len(list((root / "끝").glob("*.json"))), "끝": done})
 
 
@@ -233,9 +263,9 @@ def main(argv=None):
         sp = root / "속도.json"
         speed = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
         gpu = query_gpu()
-        why = tick(root, runs, speed, gpu, mem_available_mb(), py, now)
+        why, win = tick(root, runs, speed, gpu, mem_available_mb(), py, now)
         idle = not runs and ((root / "대기열멈춤").exists() or not any((root / "대기열").glob("*.json")))
-        status(root, runs, gpu, why, now, done=idle)
+        status(root, runs, gpu, why, now, done=idle, win=win)
         if idle:
             return 0
         time.sleep(a.interval)

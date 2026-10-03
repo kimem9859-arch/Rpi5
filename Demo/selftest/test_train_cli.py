@@ -74,10 +74,12 @@ def test_상태():
     now = time.time()
     iso = lambda s: (datetime.now().astimezone() - timedelta(seconds=s)).isoformat(timespec="seconds")
     alive = {"시각": iso(10), "도는중": [{"id": "E0-button-s0", "입력": "늘리기640", "에폭": 37, "최대": 200, "경과분": 22.0, "남은분어림": 30.0, "최근": {}}],
-             "대기": ["E0-button-s1"], "멈춤": None, "gpu": {"사용률": 45, "used_mb": 3100, "total_mb": 8151}, "끝남": 2, "끝": False}
+             "대기": ["E0-button-s1"], "멈춤": None, "gpu": {"사용률": 45, "used_mb": 3100, "total_mb": 8151}, "끝남": 2, "끝": False,
+             "데스크톱사용가능MB": 21000, "기다리는이유": "데스크톱 메모리 여유 부족(사용 가능 9000MB − 학습 4032MB < 8192MB)"}
     out = CLI.render_status(alive, now)
     check("살아 있음" in out and "E0-button-s0" in out and "37/200" in out and "대기 1" in out, "살아 있음 · 도는 중")
     check(not CLI.finished(alive, now), "도는 중 → 계속 기다림")
+    check("데스크톱 사용 가능 20.5GB" in out and "데스크톱 메모리 여유 부족" in out, "데스크톱 메모리 · 기다리는 이유 표시")
     stale = {**alive, "시각": iso(900)}
     check("응답 없음" in CLI.render_status(stale, now) and CLI.finished(stale, now), "15분 응답 없음 → 알림")
     stopped = {**alive, "멈춤": "2026-10-04T01:00:00+09:00 진행없음: E0-button-s0"}
