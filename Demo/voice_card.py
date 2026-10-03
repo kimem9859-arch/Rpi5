@@ -14,9 +14,11 @@
    그래야 HW 없이 1초 안에 도는 selftest 가 된다.
 """
 import json
+import math
 import os
 import re
 import sys
+import time
 
 _DEMO_DIR = os.path.dirname(os.path.abspath(__file__))
 if _DEMO_DIR not in sys.path:
@@ -91,18 +93,62 @@ def _state_bucket(st):
     return "정상"
 
 
-def card_facts(state, dets, fresh):
-    """검산이 대조할 사실 묶음 — 카드 문장이 아니라 값이다."""
+def sub_progress(state, now=None):
+    """지금 단계의 서브 작업이 어디까지 왔나 — 카드·안전 규칙·대체 문장이 쓴다(설계 2026-10-03 §4.4 · R3 I4).
+
+    돌려주는 것 = None(작업 전·완료·서브 없는 단계) 또는
+      {"라벨", "공구"(한글 이름|None), "상태": "시작 전"|"진행 중"|"멈춤", "남은초"(정수|None), "공구충족"}
+    🔑 남은 시간은 읽는 순간 다시 센다 — GUI 는 상태가 바뀔 때만 쓰므로, 진행 중이면 `쓴시각` 부터
+       흐른 만큼 뺀다. 멈춘 동안은 빼지 않는다(SubTask 일시정지와 같다).
+    """
+    st = state or {}
+    sub = st.get("서브작업")
+    if not st.get("세션") or st.get("결과") or not sub:
+        return None
+    tool = sub.get("tool")
+    name = (sub.get("tool_name") or TOOL_KO.get(tool, tool)) if tool else None
+    prog = st.get("서브진행")
+    if not prog:
+        return {"라벨": sub.get("label", ""), "공구": name, "상태": "시작 전",
+                "남은초": None, "공구충족": False}
+    left = float(prog.get("남은초") or 0.0)
+    if prog.get("상태") == "진행 중":
+        now = time.time() if now is None else now
+        left -= max(0.0, now - float(st.get("쓴시각") or now))
+    return {"라벨": sub.get("label", ""), "공구": name, "상태": prog.get("상태", "진행 중"),
+            "남은초": max(0, math.ceil(left)), "공구충족": bool(prog.get("공구충족"))}
+
+
+def card_facts(state, dets, fresh, now=None):
+    """검산·안전 규칙이 대조할 사실 묶음 — 카드 문장이 아니라 값이다."""
+    st = state or {}
     return {
         "공구": _seen_tool(dets, fresh),
-        "단계": (state or {}).get("현재단계"),
-        "버튼": (state or {}).get("현재버튼"),
-        "상태": _state_bucket((state or {}).get("상태")),
+        "단계": st.get("현재단계"),
+        "버튼": st.get("현재버튼"),
+        "상태": _state_bucket(st.get("상태")),
         "세션": bool(state and state.get("세션")),
+        "완료": bool(st.get("결과")),
+        "비상정지": bool(st.get("비상정지")),
+        "단계명": st.get("현재단계명"),
+        "서브": sub_progress(state, now),
     }
 
 
-def build_card(state, dets, fresh):
+def _progress_line(cur, btn, p):
+    """서브 작업 진행 한 줄 — 🔴 이것이 없으면 「끝났어?」에 근거가 없어 「끝났습니다」를 지어냈다(R3 I4)."""
+    head = f"{cur}단계 진행 상황: "
+    if p is None or p["상태"] == "시작 전":
+        return head + f"버튼 {btn} 누르기 전 (서브작업 시작 전)"
+    if p["상태"] == "멈춤":
+        return head + f"서브작업 「{p['라벨']}」 경고로 멈춤 · 남은 시간 약 {p['남은초']}초"
+    line = head + f"버튼 {btn} 누름 · 서브작업 「{p['라벨']}」 진행 중 · 남은 시간 약 {p['남은초']}초"
+    if p["공구"]:
+        line += f" · 필요한 공구 {'확인됨' if p['공구충족'] else '아직 확인 안 됨'}"
+    return line
+
+
+def build_card(state, dets, fresh, now=None):
     """LLM 프롬프트에 붙일 `[사실]` 블록."""
     L = ["[사실]"]
     if not state or not state.get("세션"):
@@ -129,8 +175,10 @@ def build_card(state, dets, fresh):
         else:
             L.append("상태: 정상 (경고 없음, 차단 없음)")
         if state.get("다음단계"):
+            # 🔴 「다음 버튼」만 적으면 LLM 이 그것을 지금 누르라고 권했다(R3 C3 · 5/5) — 조건을 같은 줄에 붙인다
             L.append(f"그 다음에 올 단계: {state['다음단계']}단계 "
-                     f"「{state.get('다음단계명', '')}」 · 버튼 {state.get('다음버튼', '')}")
+                     f"「{state.get('다음단계명', '')}」 · 버튼 {state.get('다음버튼', '')} "
+                     f"(현재 단계가 끝난 뒤에만 누른다 — 지금 누르면 순서 위반이다)")
         else:
             L.append("그 다음에 올 단계: 없음 (이번이 마지막 단계다)")
         sub = state.get("서브작업")
@@ -143,6 +191,7 @@ def build_card(state, dets, fresh):
             else:
                 line += f" · {cur}단계에 필요한 공구 = 없음"
             L.append(line)
+            L.append(_progress_line(cur, state.get("현재버튼", ""), sub_progress(state, now)))
         else:
             L.append(f"{cur}단계의 서브작업: 없음")
 
@@ -185,7 +234,7 @@ def verify_answer(text, then, now):
     bad = []
     if any(ko in t for ko in TOOL_KO.values()) and then.get("공구") != now.get("공구"):
         bad.append("공구")
-    if re.search(r"\d+\s*단계", t) and then.get("단계") != now.get("단계"):
+    if mentioned_steps(t) and then.get("단계") != now.get("단계"):
         bad.append("단계")
     if re.search(r"B\s*[1-9]", t) and then.get("버튼") != now.get("버튼"):
         bad.append("버튼")
@@ -194,3 +243,124 @@ def verify_answer(text, then, now):
     if then.get("세션") != now.get("세션"):
         bad.append("세션")
     return (not bad), bad
+
+
+# =============================================================================
+# 답 다듬기 · 안전 규칙 — 설계 2026-10-03 §4.3(C2) · §4.4(C3)
+# 🔑 데몬(voice_assistant.Assistant)과 질문 세트 평가(voice/eval_questions.py)가 **같이** 쓴다 — 재구현 금지.
+# =============================================================================
+ANSWER_MAX_CHARS = 60      # 🔑 D2 — 한 문장 + 최대 약 60자(사용자 2026-10-03)
+
+# 🔑 런타임 허가 목록 — llm_gate._PERMIT 와 일부러 다르다. 그 목록의 「눌러주세요」·「네, 지금」은
+#    올바른 안내(「B2 를 눌러주세요」)를 죽인다. 여기는 **스스로 허가하는 말**만 둔다(§10.53-(4) 유형 ⑤).
+PERMIT_WORDS = ("눌러도 됩", "눌러도 돼", "눌러도 괜찮", "해도 됩", "해도 돼", "해도 괜찮",
+                "진행하셔도", "진행해도")
+
+_REPLACE = (("[사실]", "작업 정보"), ("[질문]", ""), ("[규칙]", ""))
+_EMOJI = re.compile("[\U0001F000-\U0001FFFF☀-➿️]")
+_SENT_END = re.compile(r"[?!]|\.(?!\d)")          # 🔑 0.44 의 점은 문장 끝이 아니다
+_BUTTON = re.compile(r"B\s*([1-9])")
+_PRESS = re.compile(r"눌|누르|누릅|누른|누름")
+_DONE = re.compile(r"(?:끝났|완료됐|완료되었|완료했|마쳤|끝냈)(?!는지)")
+_STEP_NUM = re.compile(r"(?<![A-Za-z])(\d+)\s*번?\s*째?\s*단계")
+_STEP_ORD = re.compile(r"(첫|두|세|네)\s*번째\s*단계")
+_ORD = {"첫": 1, "두": 2, "세": 3, "네": 4}
+
+
+def mentioned_steps(text):
+    """문장에 나온 단계 번호들 — 「2단계」「2번 단계」「두 번째 단계」(R2 M4)."""
+    t = text or ""
+    return {int(x) for x in _STEP_NUM.findall(t)} | {_ORD[x] for x in _STEP_ORD.findall(t)}
+
+
+def is_one_sentence(text):
+    """문장 끝 부호가 정확히 하나이고 그것으로 끝나는가."""
+    t = (text or "").strip()
+    return bool(t) and len(_SENT_END.findall(t)) == 1 and t[-1] in ".?!"
+
+
+def shorten(text, limit=ANSWER_MAX_CHARS):
+    """LLM 답 → 말할 한 문장(설계 §4.3 C2 둘째 겹).
+
+    ① 카드 표기를 지운다(「[사실]」→「작업 정보」 · 🔴 같은 그림 글자 — R3 M4)
+    ② 첫 문장 끝(. ? !)에서 자른다 — 소수점은 문장 끝이 아니다
+    ③ 그래도 `limit` 자를 넘으면 그 안의 마지막 띄어쓰기에서 자르고 마침표를 붙인다
+    🔴 자르면 뜻이 뒤집힐 수 있다(「B3 를 누르면 안 됩니다」→「B3 를 누르면.」) — 그래서 안전 규칙은
+       **자른 뒤의 문장**을 본다(finalize 순서 · Review Focus 3).
+    """
+    t = text or ""
+    for a, b in _REPLACE:
+        t = t.replace(a, b)
+    t = " ".join(_EMOJI.sub("", t).split())
+    m = _SENT_END.search(t)
+    if m:
+        t = t[:m.end()]
+    t = t.strip()
+    if not t:
+        return ""
+    if len(t) > limit:
+        cut = t.rfind(" ", 0, limit)
+        t = (t[:cut] if cut > 0 else t[:limit - 1]).rstrip(" ,·、") + "."
+    elif t[-1] not in ".?!":
+        t += "."
+    return t
+
+
+def check_safety(text, facts):
+    """말해도 되는 문장인가 — 걸린 규칙 이름들(빈 목록 = 통과). 설계 §4.4 C3.
+
+    「허가」     스스로 허가하는 말(§10.53-(4) 유형 ⑤)
+    「다른버튼」 지금 눌러야 할 버튼이 아닌 B1~B4 를 「누르」 계열 동사와 함께 말함(R3 C3)
+    「진행단정」 지금 단계·서브 작업이 끝났다고 말함 — 지금 단계는 끝나는 순간 다음 단계로 바뀌므로
+                지금 단계에 대한 「끝났다」는 늘 거짓이다(R3 I4 「N2 퍼지 끝났습니다」). 지난 단계만
+                밝힌 완료(「1단계는 끝났습니다」)는 통과한다.
+    🔑 EMO 는 「다른버튼」에서 뺀다 — EMO 차단 안내(「EMO 를 복귀한 뒤 차단 해제를 눌러야」)가 걸리고,
+       EMO 를 누르라는 말은 순서 위반이 아니라 안전 조작이다.
+    🔑 작업 전·완료 뒤에는 「허가」만 본다 — 누를 버튼이 없고, 완료 요약은 사실이다.
+    """
+    t = text or ""
+    bad = []
+    if any(w in t for w in PERMIT_WORDS):
+        bad.append("허가")
+    if not facts.get("세션") or facts.get("완료"):
+        return bad
+    others = {f"B{d}" for d in _BUTTON.findall(t)} - {facts.get("버튼")}
+    if others and _PRESS.search(t):
+        bad.append("다른버튼")
+    if _DONE.search(t):
+        cur = facts.get("단계")
+        steps = mentioned_steps(t)
+        names = [n for n in (facts.get("단계명"), (facts.get("서브") or {}).get("라벨")) if n]
+        past_only = bool(steps) and cur is not None and all(s < cur for s in steps)
+        if not past_only or any(n in t for n in names):
+            bad.append("진행단정")
+    return bad
+
+
+def fallback_sentence(facts):
+    """안전 규칙에 걸린 답 대신 말할 한 문장 — 카드의 사실로만 만든다(지어낼 것이 없다)."""
+    if not facts.get("세션"):
+        return None
+    if facts.get("완료"):
+        return "작업은 이미 완료됐습니다."
+    if facts.get("상태") == "차단":
+        if facts.get("비상정지"):
+            return "비상정지 중이니 EMO를 복귀한 뒤 차단 해제를 누르세요."
+        return "차단 중이니 먼저 차단 해제를 누르세요."
+    sub = facts.get("서브") or {}
+    if sub.get("상태") == "진행 중":
+        return f"지금은 「{sub['라벨']}」 작업 중이며 끝나면 다음 단계로 넘어갑니다."
+    if sub.get("상태") == "멈춤":
+        return f"지금은 경고로 「{sub['라벨']}」 작업이 멈춰 있습니다."
+    return f"지금은 {facts.get('버튼')} 차례입니다."
+
+
+def finalize(raw, facts):
+    """LLM 원문 → 말할 문장 `(문장, 출처, 걸린 규칙)`. 출처 = "LLM" · "대체-안전규칙" · "빈답"(문장 None)."""
+    said = shorten(raw)
+    if not re.search(r"[가-힣A-Za-z0-9]", said):
+        return None, "빈답", []
+    bad = check_safety(said, facts)
+    if bad:
+        return fallback_sentence(facts), "대체-안전규칙", bad
+    return said, "LLM", []

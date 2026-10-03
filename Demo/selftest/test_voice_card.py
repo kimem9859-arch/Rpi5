@@ -17,7 +17,8 @@ import time
 _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
 
-from voice_card import build_card, card_facts, read_state, verify_answer
+from voice_card import (ANSWER_MAX_CHARS, build_card, card_facts, check_safety, fallback_sentence,
+                        finalize, is_one_sentence, read_state, shorten, verify_answer)
 
 _fails = []
 
@@ -49,8 +50,114 @@ def test_v2_emo_block_card():
           f"차단 = 버튼 입력이 막힘 — 전기가 끊겼다고 쓰지 않는다(종합 리뷰 중요 4): {card2}")
 
 
+RUN = dict(LIVE, 서브진행={"상태": "진행 중", "남은초": 6.0, "공구충족": False})
+DONE = dict(LIVE, 결과={"total_sec": 95.0, "steps": [1, 2, 3, 4], "violations": [], "interlocks": []})
+
+
+def test_shorten():
+    print("── 답 다듬기(설계 §4.3 · D2)")
+    s = shorten("현재 2단계입니다. 다음은 3단계입니다.")
+    check(s == "현재 2단계입니다.", f"첫 문장만 — {s}")
+    s = shorten("신뢰도 0.44로 렌치가 보입니다")
+    check(s == "신뢰도 0.44로 렌치가 보입니다.", f"소수점은 문장 끝이 아니다 · 마침표를 붙인다 — {s}")
+    s = shorten("[사실]에 없습니다 🔴")
+    check(s == "작업 정보에 없습니다.", f"카드 표기·그림 글자를 지운다(R3 M4) — {s}")
+    long = ("현재 진행 중인 단계는 2단계 펌프/퍼지 단계이며 지금 눌러야 할 버튼은 B2이고 "
+            "필요한 공구는 렌치이고 카메라에는 렌치가 보입니다")
+    s = shorten(long)
+    check(len(s) <= ANSWER_MAX_CHARS and s.endswith("."), f"{len(s)}자 — {s}")
+    check(long.startswith(s[:-1]) and long[len(s) - 1] == " ", "어절 경계에서 자른다")
+    check(is_one_sentence(s), "자른 것도 한 문장")
+    check(shorten("") == "", "빈 답은 빈 문자열")
+
+
+def test_check_safety():
+    print("── 안전 규칙(설계 §4.4 · R3 C3)")
+    f = card_facts(LIVE, [], False)
+    check(check_safety("다음 단계인 3단계로 가려면 버튼 B3를 누르시면 됩니다.", f) == ["다른버튼"],
+          "🔴 다음 단계 버튼을 누르라고 하면 걸린다(R3 C3 재현 문장)")
+    check(check_safety("지금 눌러야 할 버튼은 B2입니다.", f) == [], "지금 버튼은 통과")
+    check(check_safety("B2를 눌러주세요.", f) == [], "🔑 지금 버튼을 누르라는 안내는 허가가 아니다")
+    check(check_safety("네, 지금 눌러도 됩니다.", f) == ["허가"], "허가 표현")
+    check(check_safety("B3는 아직 아닙니다.", f) == [], "동사 없이 다른 버튼을 말하는 것은 통과")
+    emo = card_facts(dict(LIVE, 상태="BLOCK", 비상정지=True), [], False)
+    check(check_safety("EMO를 복귀한 뒤 차단 해제를 눌러야 합니다.", emo) == [],
+          "🔑 EMO 안내는 통과(EMO 는 다른버튼 규칙에서 뺐다)")
+    fr = card_facts(RUN, [], False)
+    check(check_safety("N2 퍼지가 끝났습니다.", fr) == ["진행단정"], "🔴 진행 중인 서브를 끝났다고 함(R3 I4)")
+    check(check_safety("펌프 퍼지 끝났습니다.", fr) == ["진행단정"], "단계를 안 밝힌 「끝났」도 걸린다")
+    check(check_safety("1단계는 이미 끝났습니다.", fr) == [], "지난 단계 완료는 사실 — 통과")
+    check(check_safety("N2 퍼지가 끝났는지 확인할 수 없습니다.", fr) == [], "「끝났는지」는 단정이 아니다")
+    check(check_safety("두 번째 단계가 완료됐습니다.", fr) == ["진행단정"], "서수 단계(두 번째)도 읽는다")
+    done = card_facts(DONE, [], False)
+    check(check_safety("B4까지 눌러 작업이 끝났습니다.", done) == [], "완료 뒤 요약은 통과")
+    none = card_facts(None, [], False)
+    check(check_safety("B3를 눌러도 됩니다.", none) == ["허가"], "작업 전에는 허가만 본다")
+
+
+def test_fallback_and_finalize():
+    print("── 대체 문장 · finalize(Review Focus 2·3)")
+    cases = {
+        "지금 버튼": (card_facts(LIVE, [], False), "지금은 B2 차례입니다."),
+        "서브 진행": (card_facts(RUN, [], False), "지금은 「N2 퍼지」 작업 중이며 끝나면 다음 단계로 넘어갑니다."),
+        "서브 멈춤": (card_facts(dict(LIVE, 상태="WARNING", 서브진행={"상태": "멈춤", "남은초": 4.0,
+                                                                  "공구충족": False}), [], False),
+                    "지금은 경고로 「N2 퍼지」 작업이 멈춰 있습니다."),
+        "위반 차단": (card_facts(dict(LIVE, 상태="BLOCK"), [], False), "차단 중이니 먼저 차단 해제를 누르세요."),
+        "EMO": (card_facts(dict(LIVE, 상태="BLOCK", 비상정지=True), [], False),
+                "비상정지 중이니 EMO를 복귀한 뒤 차단 해제를 누르세요."),
+        "완료": (card_facts(DONE, [], False), "작업은 이미 완료됐습니다."),
+    }
+    for name, (facts, want) in cases.items():
+        got = fallback_sentence(facts)
+        check(got == want, f"{name} → {got}")
+        check(is_one_sentence(got) and len(got) <= ANSWER_MAX_CHARS, f"{name} — 한 문장 · {len(got)}자")
+    check(fallback_sentence(card_facts(None, [], False)) is None, "작업 전에는 대체 문장이 없다")
+
+    f = card_facts(LIVE, [], False)
+    text, src, bad = finalize("다음 단계인 3단계로 가려면 버튼 B3를 누르세요. 그러면 됩니다.", f)
+    check((text, src, bad) == ("지금은 B2 차례입니다.", "대체-안전규칙", ["다른버튼"]), f"걸리면 대체 — {text}")
+    check(finalize("🔴", f) == (None, "빈답", []), "Review Focus 2 — 말할 문장이 안 남으면 빈답")
+    check(finalize("지금은 2단계입니다.", f) == ("지금은 2단계입니다.", "LLM", []), "통과하면 그대로")
+    neg = ("버튼 B3를 누르면 순서 위반이 되므로 절대 누르면 안 되고 지금은 반드시 버튼 B2부터 차례대로 "
+           "눌러야 합니다")
+    text, src, bad = finalize(neg, f)
+    check(src == "대체-안전규칙",
+          f"🔴 Review Focus 3 — 60자에서 잘려 지시문이 된 금지문은 자른 뒤 규칙이 잡는다 — {shorten(neg)} → {text}")
+
+
+def test_card_progress_and_next_warning():
+    print("── 카드 — 서브 진행 · 다음 버튼 경고(설계 §4.4 C3)")
+    c = build_card(LIVE, [], False)
+    check("현재 단계가 끝난 뒤에만 누른다" in c, "다음 단계 줄에 「끝난 뒤에만」")
+    check("버튼 B2 누르기 전" in c, "서브 시작 전")
+    t0 = time.time()
+    c = build_card(dict(RUN, 쓴시각=t0), [], False, now=t0 + 2.2)
+    check("진행 중 · 남은 시간 약 4초" in c, "진행 중이면 쓴 시각부터 흐른 만큼 빼고 올림")
+    check("필요한 공구 아직 확인 안 됨" in c, "공구 충족 여부")
+    c = build_card(dict(LIVE, 상태="WARNING", 쓴시각=t0,
+                        서브진행={"상태": "멈춤", "남은초": 4.0, "공구충족": True}), [], False, now=t0 + 100)
+    check("경고로 멈춤 · 남은 시간 약 4초" in c, "멈춘 동안은 시간이 흐르지 않는다")
+    c = build_card(dict(LIVE, 현재단계=4, 현재버튼="B4", 다음단계=None, 서브작업=None), [], False)
+    check("진행 상황" not in c, "서브 없는 단계에는 진행 줄이 없다")
+
+
+def test_verify_ordinal_step():
+    print("── 검산 — 서수 단계(R2 M4)")
+    base = card_facts(LIVE, [], False)
+    moved = dict(base, 단계=3)
+    for t in ("두 번째 단계입니다.", "2번 단계입니다.", "2번째 단계입니다."):
+        ok, bad = verify_answer(t, base, moved)
+        check(not ok and "단계" in bad, f"「{t}」 도 단계 언급으로 읽는다")
+
+
 def main():
     test_v2_emo_block_card()
+    test_shorten()
+    test_check_safety()
+    test_fallback_and_finalize()
+    test_card_progress_and_next_warning()
+    test_verify_ordinal_step()
     tmp = tempfile.mkdtemp(prefix="sop_card_test_")
     path = os.path.join(tmp, "state.json")
     try:
@@ -100,8 +207,11 @@ def main():
 
         print("── card_facts (검산이 쓸 재료)")
         f1 = card_facts(LIVE, [("wrench", 0.44, 0, 0, 9, 9)], True)
-        check(f1 == {"공구": "wrench", "단계": 2, "버튼": "B2",
-                     "상태": "정상", "세션": True}, "정상 상태의 사실 묶음")
+        check(f1 == {"공구": "wrench", "단계": 2, "버튼": "B2", "상태": "정상", "세션": True,
+                     "완료": False, "비상정지": False, "단계명": "펌프/퍼지",
+                     "서브": {"라벨": "N2 퍼지", "공구": "렌치", "상태": "시작 전",
+                              "남은초": None, "공구충족": False}},
+              f"정상 상태의 사실 묶음 — {f1}")
         f2 = card_facts(None, [], False)
         check(f2["세션"] is False and f2["공구"] is None, "상태가 없으면 전부 비어 있다")
         check(card_facts(dict(LIVE, 상태="MONITOR"), [], False)["상태"] == "정상",
