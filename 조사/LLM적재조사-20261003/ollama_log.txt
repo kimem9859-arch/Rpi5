@@ -1,0 +1,80 @@
+10월 03 19:56:16 sop-pi-2 ollama[14838]: srv  update_slots: all slots are idle
+10월 03 19:56:16 sop-pi-2 ollama[14838]: [GIN] 2026/10/03 - 19:56:16 | 200 | 11.432288035s |    192.168.1.10 | POST     "/api/generate"
+10월 03 19:56:17 sop-pi-2 ollama[14838]: srv  server_strea: conv_id= (empty=1)
+10월 03 19:56:17 sop-pi-2 ollama[14838]: slot get_availabl: id  0 | task -1 |  - checking sim = 0.972 (353/363) > 0.100
+10월 03 19:56:17 sop-pi-2 ollama[14838]: slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.972 (> 0.100 thold), f_keep = 0.901
+10월 03 19:56:17 sop-pi-2 ollama[14838]: slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> temp-ext -> dist
+10월 03 19:56:17 sop-pi-2 ollama[14838]: slot launch_slot_: id  0 | task -1 | sampler params:
+10월 03 19:56:17 sop-pi-2 ollama[14838]:         repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+10월 03 19:56:17 sop-pi-2 ollama[14838]:         dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+10월 03 19:56:17 sop-pi-2 ollama[14838]:         top_k = 64, top_p = 0.950, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+10월 03 19:56:17 sop-pi-2 ollama[14838]:         mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+10월 03 19:56:17 sop-pi-2 ollama[14838]: slot launch_slot_: id  0 | task 118 | processing task, is_child = 0
+10월 03 19:56:17 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 118 | new prompt, n_ctx_slot = 2048, n_keep = 4, task.n_tokens = 363
+10월 03 19:56:17 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 118 | checking checkpoint with [0, 358] against 0...
+10월 03 19:56:17 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 118 | forcing full prompt re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory, see https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+10월 03 19:56:17 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 118 | erased invalidated context checkpoint (pos_min = 0, pos_max = 358, n_tokens = 359, n_swa = 512, pos_next = 0, size = 4.211 MiB)
+10월 03 19:56:17 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 118 | cached n_tokens = 0, memory_seq_rm [0, end)
+10월 03 19:56:23 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 118 | prompt processing, n_tokens =    359, progress = 0.99, t =   5.74 s / 62.50 tokens per second
+10월 03 19:56:23 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 118 | cached n_tokens = 359, memory_seq_rm [359, end)
+10월 03 19:56:23 sop-pi-2 ollama[14838]: slot init_sampler: id  0 | task 118 | init sampler, took 0.08 ms, tokens: text = 363, total = 363
+10월 03 19:56:23 sop-pi-2 ollama[14838]: slot create_check: id  0 | task 118 | created context checkpoint 1 of 32 (pos_min = 0, pos_max = 358, n_tokens = 359, size = 4.211 MiB)
+10월 03 19:56:25 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 118 | prompt eval time =    5911.49 ms /   363 tokens (   16.29 ms per token,    61.41 tokens per second)
+10월 03 19:56:25 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 118 |        eval time =    1818.69 ms /    13 tokens (  139.90 ms per token,     7.15 tokens per second)
+10월 03 19:56:25 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 118 |       total time =    7730.19 ms /   376 tokens
+10월 03 19:56:25 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 118 |    graphs reused =        110
+10월 03 19:56:25 sop-pi-2 ollama[14838]: slot      release: id  0 | task 118 | stop processing: n_tokens = 375, truncated = 0
+10월 03 19:56:25 sop-pi-2 ollama[14838]: srv  update_slots: all slots are idle
+10월 03 19:56:25 sop-pi-2 ollama[14838]: [GIN] 2026/10/03 - 19:56:25 | 200 |   8.86133903s |    192.168.1.10 | POST     "/api/generate"
+10월 03 19:56:26 sop-pi-2 ollama[14838]: srv  server_strea: conv_id= (empty=1)
+10월 03 19:56:26 sop-pi-2 ollama[14838]: slot get_availabl: id  0 | task -1 |  - checking sim = 0.556 (203/365) > 0.100
+10월 03 19:56:26 sop-pi-2 ollama[14838]: slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.556 (> 0.100 thold), f_keep = 0.541
+10월 03 19:56:26 sop-pi-2 ollama[14838]: slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> temp-ext -> dist
+10월 03 19:56:26 sop-pi-2 ollama[14838]: slot launch_slot_: id  0 | task -1 | sampler params:
+10월 03 19:56:26 sop-pi-2 ollama[14838]:         repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+10월 03 19:56:26 sop-pi-2 ollama[14838]:         dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+10월 03 19:56:26 sop-pi-2 ollama[14838]:         top_k = 64, top_p = 0.950, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+10월 03 19:56:26 sop-pi-2 ollama[14838]:         mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+10월 03 19:56:26 sop-pi-2 ollama[14838]: slot launch_slot_: id  0 | task 133 | processing task, is_child = 0
+10월 03 19:56:26 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 133 | new prompt, n_ctx_slot = 2048, n_keep = 4, task.n_tokens = 365
+10월 03 19:56:26 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 133 | checking checkpoint with [0, 358] against 0...
+10월 03 19:56:26 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 133 | forcing full prompt re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory, see https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+10월 03 19:56:26 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 133 | erased invalidated context checkpoint (pos_min = 0, pos_max = 358, n_tokens = 359, n_swa = 512, pos_next = 0, size = 4.211 MiB)
+10월 03 19:56:26 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 133 | cached n_tokens = 0, memory_seq_rm [0, end)
+10월 03 19:56:32 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 133 | prompt processing, n_tokens =    361, progress = 0.99, t =   5.73 s / 63.04 tokens per second
+10월 03 19:56:32 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 133 | cached n_tokens = 361, memory_seq_rm [361, end)
+10월 03 19:56:32 sop-pi-2 ollama[14838]: slot init_sampler: id  0 | task 133 | init sampler, took 0.08 ms, tokens: text = 365, total = 365
+10월 03 19:56:32 sop-pi-2 ollama[14838]: slot create_check: id  0 | task 133 | created context checkpoint 1 of 32 (pos_min = 0, pos_max = 360, n_tokens = 361, size = 4.235 MiB)
+10월 03 19:56:34 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 133 | prompt eval time =    5893.51 ms /   365 tokens (   16.15 ms per token,    61.93 tokens per second)
+10월 03 19:56:34 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 133 |        eval time =    1867.32 ms /    13 tokens (  143.64 ms per token,     6.96 tokens per second)
+10월 03 19:56:34 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 133 |       total time =    7760.83 ms /   378 tokens
+10월 03 19:56:34 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 133 |    graphs reused =        121
+10월 03 19:56:34 sop-pi-2 ollama[14838]: slot      release: id  0 | task 133 | stop processing: n_tokens = 377, truncated = 0
+10월 03 19:56:34 sop-pi-2 ollama[14838]: srv  update_slots: all slots are idle
+10월 03 19:56:34 sop-pi-2 ollama[14838]: [GIN] 2026/10/03 - 19:56:34 | 200 |   8.87472929s |    192.168.1.10 | POST     "/api/generate"
+10월 03 19:56:35 sop-pi-2 ollama[14838]: srv  server_strea: conv_id= (empty=1)
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot get_availabl: id  0 | task -1 |  - checking sim = 1.000 (365/365) > 0.100
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 1.000 (> 0.100 thold), f_keep = 0.968
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> temp-ext -> dist
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot launch_slot_: id  0 | task -1 | sampler params:
+10월 03 19:56:35 sop-pi-2 ollama[14838]:         repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+10월 03 19:56:35 sop-pi-2 ollama[14838]:         dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+10월 03 19:56:35 sop-pi-2 ollama[14838]:         top_k = 64, top_p = 0.950, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+10월 03 19:56:35 sop-pi-2 ollama[14838]:         mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot launch_slot_: id  0 | task 148 | processing task, is_child = 0
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 148 | new prompt, n_ctx_slot = 2048, n_keep = 4, task.n_tokens = 365
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 148 | checking checkpoint with [0, 360] against 0...
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 148 | restored context checkpoint (pos_min = 0, pos_max = 360, n_tokens = 361, n_past = 360, size = 4.235 MiB)
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 148 | cached n_tokens = 360, memory_seq_rm [360, end)
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot create_check: id  0 | task 148 | created context checkpoint 2 of 32 (pos_min = 0, pos_max = 359, n_tokens = 360, size = 4.223 MiB)
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot   operator(): id  0 | task 148 | cached n_tokens = 361, memory_seq_rm [361, end)
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot init_sampler: id  0 | task 148 | init sampler, took 0.07 ms, tokens: text = 365, total = 365
+10월 03 19:56:35 sop-pi-2 ollama[14838]: slot create_check: id  0 | task 148 | created context checkpoint 3 of 32 (pos_min = 0, pos_max = 360, n_tokens = 361, size = 4.235 MiB)
+10월 03 19:56:37 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 148 | prompt eval time =     288.68 ms /     5 tokens (   57.74 ms per token,    17.32 tokens per second)
+10월 03 19:56:37 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 148 |        eval time =    1817.19 ms /    13 tokens (  139.78 ms per token,     7.15 tokens per second)
+10월 03 19:56:37 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 148 |       total time =    2105.87 ms /    18 tokens
+10월 03 19:56:37 sop-pi-2 ollama[14838]: slot print_timing: id  0 | task 148 |    graphs reused =        132
+10월 03 19:56:37 sop-pi-2 ollama[14838]: slot      release: id  0 | task 148 | stop processing: n_tokens = 377, truncated = 0
+10월 03 19:56:37 sop-pi-2 ollama[14838]: srv  update_slots: all slots are idle
+10월 03 19:56:37 sop-pi-2 ollama[14838]: [GIN] 2026/10/03 - 19:56:37 | 200 |  3.241498337s |    192.168.1.10 | POST     "/api/generate"
+10월 03 19:56:37 sop-pi-2 ollama[14838]: [GIN] 2026/10/03 - 19:56:37 | 200 |      46.037µs |    192.168.1.10 | GET      "/api/ps"
