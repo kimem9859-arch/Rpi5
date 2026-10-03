@@ -1,0 +1,22 @@
+{
+    "time": "Sat Oct  3 21:25:33 2026",
+    "inference_mode": "full_sync",
+    "network_groups": [
+        {
+            "name": "palm_detection_lite",
+            "full_hef_path": "/home/pi/lab/hoi/hailo8/palm_detection_lite.hef",
+            "FPS": "35.038510"
+        },
+        {
+            "name": "hand_landmark_lite",
+            "full_hef_path": "/home/pi/lab/hoi/hailo8/hand_landmark_lite.hef",
+            "FPS": "35.105102"
+        },
+        {
+            "name": "yolov8n",
+            "full_hef_path": "/tmp/claude-1000/-home-pi-sop-project/29dda3cc-0071-4cc6-a33a-9bd2845c7e7b/scratchpad/res_probe/probe_640x640.hef",
+            "FPS": "35.038480"
+        }
+    ],
+    "time_to_run": "15.00 seconds"
+}

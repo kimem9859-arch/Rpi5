@@ -1,0 +1,13 @@
+{
+    "time": "Sat Oct  3 21:15:25 2026",
+    "inference_mode": "full_sync",
+    "network_groups": [
+        {
+            "name": "yolov8n",
+            "full_hef_path": "/home/pi/sop-project/Rpi5/Demo/models/console_v2.hef",
+            "hw_latency": 6.316027,
+            "overall_latency": 8.057339
+        }
+    ],
+    "time_to_run": "10.00 seconds"
+}

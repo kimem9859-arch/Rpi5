@@ -1,0 +1,13 @@
+{
+    "time": "Sat Oct  3 21:26:24 2026",
+    "inference_mode": "full_sync",
+    "network_groups": [
+        {
+            "name": "yolov8n",
+            "full_hef_path": "/tmp/claude-1000/-home-pi-sop-project/29dda3cc-0071-4cc6-a33a-9bd2845c7e7b/scratchpad/res_probe/probe_1024x768.hef",
+            "hw_latency": 9.53804,
+            "overall_latency": 13.671341
+        }
+    ],
+    "time_to_run": "10.00 seconds"
+}

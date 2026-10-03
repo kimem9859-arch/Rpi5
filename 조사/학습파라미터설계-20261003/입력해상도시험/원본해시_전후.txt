@@ -1,0 +1,5 @@
+66ebc1dbdc7f3e8372c41a1bbf95979f120b3642cb60aa5438f0568a60a05ffb  ~/projects/dev/ai_model/console_v2.onnx
+7b57b71489ddeb7bbabc362976a59a8b2003926b2e734d00c9e617d731d76ce9  ~/projects/dev/ai_model/console_v2.pt
+--- 시험 뒤
+66ebc1dbdc7f3e8372c41a1bbf95979f120b3642cb60aa5438f0568a60a05ffb  ~/projects/dev/ai_model/console_v2.onnx
+7b57b71489ddeb7bbabc362976a59a8b2003926b2e734d00c9e617d731d76ce9  ~/projects/dev/ai_model/console_v2.pt
