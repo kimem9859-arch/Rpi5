@@ -434,7 +434,7 @@ class Speaker:
         return ok
 
 
-def ask_async(card, question):
+def ask_async(ask_fn, card, question):
     """LLM 을 배경에서 부른다 — 「확인 중」 재생과 겹치게 하려는 것이다.
 
     🔴 순서대로 하면 재생 2초가 지연에 그대로 더해진다. 명령 채널이 하나뿐이라
@@ -444,11 +444,149 @@ def ask_async(card, question):
     box = {}
 
     def _work():
-        box["r"] = voice_llm.ask(card, question)
+        box["r"] = ask_fn(card, question)
 
     th = threading.Thread(target=_work, daemon=True)
     th.start()
     return th, box
+
+
+class Assistant:
+    """발화 하나를 받아 답한다 — 스피커·합성·LLM·사실 출처는 밖에서 넣는다(selftest 가 가짜를 넣는다).
+
+    정본: ../docs/superpowers/specs/2026-10-03-음성비서-시연안정화-design.md §4.2~§4.5
+    갈래:
+      작업 전 → notready (카드가 비어 LLM 이 할 말이 없다 · 유형 ⑤)
+      LLM 을 안 씀(SOP_LLM=0 · TTS 없음) → A 갈래(어떤 질문이든 공구 키 · 종전 결정)
+      LLM 을 쓸 수 없음(예열 전·건너뜀) → 「확인 중」 없이 바로 A 갈래(공구 질문이면 공구 답 · 아니면 unavailable)
+      LLM → finalize(한 문장 60자 · 안전 규칙 → 대체 문장) → 합성 → 펌웨어 한도 → 검산 → 전송
+    🔴 어디서 실패해도 A 갈래로 떨어진다 — 「확인해 보겠습니다」 뒤 침묵을 남기지 않는다(R2 I2).
+    """
+
+    def __init__(self, spk, tts=None, llm=None, alog=None, read_state=None, read_tools=None,
+                 clock=time.time):
+        self.spk = spk
+        self.tts = tts
+        self.llm = llm
+        self.alog = alog or AudioLog(None)
+        self._read_state = read_state or voice_card.read_state
+        self._read_tools = read_tools or read_tool_dets
+        self._clock = clock
+        self.awake_until = 0.0
+
+    def on_text(self, text, m):
+        """STT 결과 하나. 질문에 답했으면 True — 호출부가 그동안 들어온 소리를 버린다(G11)."""
+        now = self._clock()
+        awake = now < self.awake_until
+        wake = is_wake(text)
+        m["호출어"] = wake
+        if wake:
+            t_c = time.time()
+            self.spk.chime()
+            m["띠링_ms"] = round((time.time() - t_c) * 1000)
+            self.awake_until = now + LISTEN_SEC
+            awake = True
+            log("호출어 인식 → 띠링")
+            # 🔑 한 문장에 질문까지 있으면 바로 답한다 — "가디언, 앞에 보이는 게 뭐야?"
+        tool_q = is_tool_question(text)          # 🔑 폴백 선택에 쓴다
+        m["공구질문"] = tool_q
+        # 🔴 질문 판정은 **문맥**이다 — 깨어난 20초 창 안의 발화는 호출어 단독만 빼고 질문으로 본다
+        #    (2026-09-08 최종 리뷰 · 목록으로 쫓으면 질문 5종 중 4종이 침묵으로 빠졌다).
+        if not (awake and is_question(text, awake)):
+            return False
+        self._answer(text, tool_q, m)
+        self.awake_until = 0.0
+        return True
+
+    def _answer(self, text, tool_q, m):
+        dets, fresh = self._read_tools()
+        state = self._read_state()
+        facts = voice_card.card_facts(state, dets, fresh)
+        m.update({"공구수": len(dets), "공구신선": fresh,
+                  "검출": [[str(d[0]), round(float(d[1]), 2)] for d in dets],
+                  "단계": facts["단계"], "세션": facts["세션"]})
+        if not facts["세션"]:
+            self._play_key("notready", "고정-작업전", m)
+            return
+        llm_on = config.LLM_ENABLED and self.tts is not None and self.llm is not None
+        m["LLM사용"] = llm_on
+        if not llm_on:
+            self._answer_a(tool_q, "고정-LLM미사용", m, any_question=True)
+            return
+        if not self.llm.available():
+            m["LLM오류"] = "예열 전" if not self.llm.ready else "건너뜀(연속 실패)"
+            self._answer_a(tool_q, "고정-LLM준비안됨", m)
+            return
+        card = voice_card.build_card(state, dets, fresh)
+        m["카드줄수"] = card.count("\n")
+        th, box = ask_async(self.llm.ask, card, text)
+        self.spk.play("checking", self.alog)     # 🔑 LLM 과 겹쳐 돈다
+        th.join(timeout=config.LLM_TIMEOUT_SEC + 2.0)
+        raw, lm = box.get("r", (None, {"LLM오류": "스레드 미완"}))
+        m.update(lm)
+        if not raw:
+            self._answer_a(tool_q, "고정-폴백", m)
+            return
+        said, src, bad = voice_card.finalize(raw, facts)
+        m.update({"LLM원문": raw, "다듬은문장": said})
+        if bad:
+            m["안전규칙"] = bad
+            log(f"⚠️ 안전 규칙 {bad} — 대체 문장으로 답한다: {raw}")
+        if not said:
+            self._answer_a(tool_q, "고정-빈답", m)
+            return
+        self._say(said, src, facts, tool_q, m)
+
+    def _say(self, said, src, facts, tool_q, m):
+        """합성 → 한도 → 검산 → 전송.
+
+        🔴 **검산은 합성 뒤·전송 앞이다**(설계 §7) — 재생에 가장 가까운 시점일수록 판단이 정확하다.
+        """
+        got = self.tts.synth(said)
+        if not got:
+            self._answer_a(tool_q, "고정-합성실패", m)
+            return
+        pcm, rate, sec = got
+        n = len(pcm) // 2
+        if not voice_tts.fits(n, rate):
+            m["한도초과"] = [n, rate]
+            log(f"🔴 답이 펌웨어 한도를 넘는다({n}샘플 · {rate}Hz) — 보내지 않고 A 갈래로: {said}")
+            self._answer_a(tool_q, "고정-한도초과", m)
+            return
+        dets2, fresh2 = self._read_tools()
+        now2 = voice_card.card_facts(self._read_state(), dets2, fresh2)
+        ok_v, bad = voice_card.verify_answer(said, facts, now2)
+        m["검산"] = bad or "일치"
+        if not ok_v:
+            # 🔑 공구를 물었던 것이면 새 상태의 공구 답이 더 쓸모 있다.
+            log(f"⚠️ 검산 불일치 {bad} — 합성한 소리를 버린다: {said}")
+            key = answer_key(dets2, fresh2) if (tool_q and bad == ["공구"]) else "changed"
+            self._play_key(key, "고정-검산불일치", m, 버린문장=said)
+            return
+        t_p = time.time()
+        resp = self.spk.send(voice_tts.frame(pcm, rate), expect=True)
+        ok = bool(resp) and any("재생 완료" in r for r in resp)
+        self.alog.played_pcm("llm", pcm, rate, said)
+        m.update({"답변출처": src, "답변문장": said, "말하는초": round(sec, 2),
+                  "재생성공": ok, "재생_ms": round((time.time() - t_p) * 1000)})
+        if ok:
+            log(f"{src} 답변({sec:.1f}초 말함) → {said}")
+            return
+        log(f"🔴 답 재생이 확인되지 않았다 — A 갈래로 한 번 더: {said}")
+        m["답변재생실패"] = said
+        self._answer_a(tool_q, "고정-재생실패대체", m)
+
+    def _answer_a(self, tool_q, src, m, any_question=False):
+        """A 갈래(고정 wav). 🔴 공구는 폴백 직전에 다시 읽는다 — 질문 때 것은 15초 전일 수 있다(R3 M2)."""
+        dets, fresh = self._read_tools()
+        key = answer_key(dets, fresh) if (tool_q or any_question) else "unavailable"
+        self._play_key(key, src, m)
+
+    def _play_key(self, key, src, m, **extra):
+        t_p = time.time()
+        ok = self.spk.play(key, self.alog)
+        m.update({"답변출처": src, "답변": key, "재생성공": ok,
+                  "재생_ms": round((time.time() - t_p) * 1000), **extra})
 
 
 def run(ip, once=False, a_ip=None):
@@ -597,7 +735,7 @@ def run(ip, once=False, a_ip=None):
             if llm_on:
                 card = voice_card.build_card(state, dets, fresh)
                 m["카드줄수"] = card.count("\n")
-                th, box = ask_async(card, text)
+                th, box = ask_async(voice_llm.ask, card, text)
                 try:
                     spk.play("checking", alog)     # 🔑 LLM 과 겹쳐 돈다
                     th.join(timeout=config.LLM_TIMEOUT_SEC + 2.0)
