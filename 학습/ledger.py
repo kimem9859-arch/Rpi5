@@ -46,13 +46,18 @@ def baseline_ranges(results, group, cond=None):
     return {name: (min(f(s) for s in base), max(f(s) for s in base)) for name, f in KEYS[group]}
 
 
+def _gap(x):
+    """넘은 만큼 — 아주 작게 넘어도 0 으로 보이지 않게(0.0001 미만은 다섯째 자리)."""
+    return f"{x:.4f}" if x >= 0.0001 else f"{x:.5f}"
+
+
 def judge(score, ranges, group, why="기준 부족"):
     if ranges is None:
         return why
     marks = []
     for name, f in KEYS[group]:
         v, (lo, hi) = f(score), ranges[name]
-        marks.append(name + (f"↑+{v - hi:.3f}" if v > hi else f"↓-{lo - v:.3f}" if v < lo else "="))
+        marks.append(name + (f"↑+{_gap(v - hi)}" if v > hi else f"↓-{_gap(lo - v)}" if v < lo else "="))
     return " ".join(marks)
 
 

@@ -44,8 +44,12 @@ def test_범위와_판정():
     print("[1] E0 범위 · ↑↓= · 기준 부족")
     r = L.baseline_ranges(RES, "button")
     check(r == {"P": (0.90, 0.92), "R": (0.80, 0.82)}, f"버튼 범위 — {r}")
-    check(L.judge(RES[3][1], r, "button") == "P↑+0.030 R=", f"E3 — 넘은 만큼 붙임 — {L.judge(RES[3][1], r, 'button')}")
-    check(L.judge(RES[4][1], r, "button") == "P↓-0.010 R↓-0.010", f"E4a — {L.judge(RES[4][1], r, 'button')}")
+    check(L.judge(RES[3][1], r, "button") == "P↑+0.0300 R=", f"E3 — 넘은 만큼 붙임 — {L.judge(RES[3][1], r, 'button')}")
+    check(L.judge(RES[4][1], r, "button") == "P↓-0.0100 R↓-0.0100", f"E4a — {L.judge(RES[4][1], r, 'button')}")
+    tiny = btn("E9-x", 0.8997, 0.81)[1]
+    check(L.judge(tiny, r, "button") == "P↓-0.0003 R=", f"0.0005 보다 작게 벗어나도 0 으로 보이지 않는다 — {L.judge(tiny, r, 'button')}")
+    tinier = btn("E9-y", 0.89998, 0.81)[1]
+    check(L.judge(tinier, r, "button") == "P↓-0.00002 R=", f"0.0001 보다 작으면 다섯째 자리 — {L.judge(tinier, r, 'button')}")
     check(L.baseline_ranges(RES, "tool") is None, "공구 E0 2개 → 범위 없음")
     check(L.judge(RES[8][1], None, "tool") == "기준 부족", "기준 부족")
 
@@ -89,7 +93,7 @@ def test_기준_조건():
     md = L.render(e0 + e0b + [e1])
     rows = md.splitlines()
     row = [l for l in rows if l.startswith("| E1-button")][0]
-    check("P↑+0.030 R=" in row, f"조건이 같은 E0b 3개로 판정 — {row.split('|')[-2]}")
+    check("P↑+0.0300 R=" in row, f"조건이 같은 E0b 3개로 판정 — {row.split('|')[-2]}")
     check(all("기준 |" in l for l in rows if l.startswith("| E0b-")), "E0b = 기준")
     check("후보 표시" in md and "함정⑤" in md, "머리말 — ↑↓ 는 후보 표시 · epochs 일정 함정")
     with tempfile.TemporaryDirectory() as t:
