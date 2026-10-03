@@ -220,6 +220,8 @@ X-AnyLabeling이라는 무료 프로그램을 씁니다. 버전은 **v4.0.6** �
 | `wrench` | 렌치(스패너) |
 | `pliers` | 플라이어(펜치) |
 
+렌치는 모양이 다른 두 개가 있지만 **둘 다 `wrench` 하나로** 그립니다. 그래서 한 사진에 `wrench` 박스가 2개일 수 있습니다. `driver` 와 `pliers` 는 하나씩뿐이라, 같은 이름의 박스가 2개 나오면 한 공구에 박스가 겹친 것입니다.
+
 <img src="labeling_guide_img/01_buttons.jpg" width="45%" alt="버튼 다섯 개">
 
 <img src="labeling_guide_img/05_driver.jpg" width="32%" alt="드라이버"> <img src="labeling_guide_img/05_wrench.jpg" width="32%" alt="렌치"> <img src="labeling_guide_img/05_pliers.jpg" width="32%" alt="플라이어">
@@ -280,6 +282,8 @@ X-AnyLabeling이라는 무료 프로그램을 씁니다. 버전은 **v4.0.6** �
 exclude 한 사진: 3장
 헷갈린 사진: a_check__0923-185019__f00068 (B3인지 EMO인지)
 ```
+
+사진은 위 예처럼 **시각까지 붙인 전체 이름**으로 적습니다. 끝의 번호(`f00068`)는 촬영할 때마다 0번부터 다시 세서, 번호만 쓰면 다른 사진과 겹칩니다.
 
 ## 8. 막히면
 
