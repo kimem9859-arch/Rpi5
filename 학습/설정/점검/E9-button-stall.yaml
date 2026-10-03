@@ -1,0 +1,7 @@
+id: E9-button-stall
+group: button
+train:
+  epochs: 50
+멈춤:
+  진행없음_분: 1
+메모: 점검 — 멈춰 세우면 1분 뒤 진행없음

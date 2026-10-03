@@ -1,0 +1,5 @@
+id: E4a-tool-lr0005
+group: tool
+train:
+  lr0: 0.0005
+메모: 학습률 시작값 아래

@@ -1,0 +1,5 @@
+id: E6-button-rot12
+group: button
+train:
+  degrees: 12
+메모: 머리 기울기(가이드 값 · 참고)

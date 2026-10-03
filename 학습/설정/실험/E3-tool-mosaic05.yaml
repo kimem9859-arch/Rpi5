@@ -1,0 +1,5 @@
+id: E3-tool-mosaic05
+group: tool
+train:
+  mosaic: 0.5
+메모: 공식 소규모 권고

@@ -1,0 +1,5 @@
+id: E3-button-mosaic05
+group: button
+train:
+  mosaic: 0.5
+메모: 공식 소규모 권고

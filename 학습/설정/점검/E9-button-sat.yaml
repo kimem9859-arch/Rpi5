@@ -1,0 +1,8 @@
+id: E9-button-sat
+group: button
+train:
+  epochs: 10
+멈춤:
+  포화_에폭: 2
+  포화_향상: 1.0
+메모: 점검 — 3 에폭에 포화 정상 종료 · 채점

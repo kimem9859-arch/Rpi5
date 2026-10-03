@@ -1,0 +1,5 @@
+id: E4a-button-lr0005
+group: button
+train:
+  lr0: 0.0005
+메모: 학습률 시작값 아래

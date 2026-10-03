@@ -1,0 +1,5 @@
+id: E9-button-time
+group: button
+멈춤:
+  시간상한_배: 0.01
+메모: 점검 — 시간초과

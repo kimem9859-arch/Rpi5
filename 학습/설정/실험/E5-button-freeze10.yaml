@@ -1,0 +1,5 @@
+id: E5-button-freeze10
+group: button
+train:
+  freeze: 10
+메모: 백본 0~9층 고정(공식 소규모 권고)

@@ -1,0 +1,6 @@
+id: E2-button-color
+group: button
+train:
+  hsv_h: 0.0
+  hsv_s: 0.3
+메모: 버튼 색 = 클래스(console_v2 가이드 값 · 참고만 — 사용자)

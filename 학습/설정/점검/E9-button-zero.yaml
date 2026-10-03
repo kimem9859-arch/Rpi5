@@ -1,0 +1,8 @@
+id: E9-button-zero
+group: button
+train:
+  epochs: 5
+멈춤:
+  점수0_에폭: 1
+  점수0_mAP50: 1.01
+메모: 점검 — 1 에폭에 점수0 이상 종료
