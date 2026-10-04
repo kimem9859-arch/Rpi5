@@ -766,6 +766,59 @@ def test_alert_during_stt_drops_answer():
     check(b.spk.pcms() == [] and b.tts.said == [], f"답하지 않았다 — {b.spk.calls} · {b.tts.said}")
 
 
+
+def test_m5_lock_keeps_pid():
+    """1단계 최종 리뷰 M5 — 잠금을 못 잡은 쪽이 잡은 쪽의 PID 줄을 지우지 않는다(잡은 뒤에 비운다)."""
+    print("\n[잠금] PID 줄 보존")
+    p = os.path.join(tempfile.mkdtemp(), "voice.lock")
+    a = va.take_lock(p)
+    check(open(p).read().strip() == str(os.getpid()), "잡은 쪽 PID 가 적힌다")
+    check(va.take_lock(p) is None, "둘째는 못 잡는다")
+    check(open(p).read().strip() == str(os.getpid()), "🔴 못 잡은 쪽이 PID 줄을 지우지 않았다")
+    a.close()
+
+
+def test_m11_ready_line_mic_now():
+    """1단계 최종 리뷰 M11 — 준비 줄의 「마이크 ✓」는 「지금 붙어 있음」이다(「한 번이라도 붙었음」이 아니다)."""
+    print("\n[준비 줄] 마이크는 지금 상태")
+
+    class Mic:
+        generation, connected = 2, False
+
+    class Spk:
+        s = None
+
+    check("마이크 ✗" in va.ready_line(Mic(), Spk(), None, None), "끊긴 채면 ✗")
+    Mic.connected = True
+    check("마이크 ✓" in va.ready_line(Mic(), Spk(), None, None), "붙어 있으면 ✓")
+
+
+def test_m3_repeated_errors_end_daemon():
+    """1단계 최종 리뷰 M3 — 같은 오류가 발화마다 이어지면(STT 가 매번 실패) 데몬을 끝내 감시(--forever)가 새로 띄우게 한다."""
+    print("\n[루프] 오류가 이어지면 끝낸다")
+    old = va.MAIN_ERR_LIMIT
+    va.MAIN_ERR_LIMIT = 2
+    fg = FakeGlass([tone(0.6)] * 4, mic_port=0, cmd_port=0, lead_sec=0.3, gap_sec=0.8, tail_sec=4.0,
+                   play_speed=0.05, quiet=True).start()
+
+    def bad_stt(samples):
+        raise RuntimeError("시험 — STT 가 매번 터진다")
+
+    logs = []
+    old_log = va.log
+    va.log = lambda m: (logs.append(m), old_log(m))
+    th, stop = _run_bg(fg, bad_stt, FakeLlm(), FakeTts())
+    try:
+        th.join(20)
+        ended = not th.is_alive()
+    finally:
+        stop.set()
+        fg.stop()
+        va.log = old_log
+        va.MAIN_ERR_LIMIT = old
+    check(ended and any("연속" in m for m in logs), f"오류 2번 연속 → 데몬 끝 — {[m for m in logs if '오류' in m][-3:]}")
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

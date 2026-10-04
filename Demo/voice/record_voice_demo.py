@@ -82,6 +82,23 @@ DEMO_STATE = {
 }
 
 
+def voice_busy(path=None):
+    """음성비서가 이미 도나(잠금이 잡혀 있나) — 그러면 이 도구가 띄운 데몬은 코드 3 으로 조용히 끝난다(1단계 M10)."""
+    import voice_assistant
+    f = voice_assistant.take_lock(path)
+    if f is None:
+        return True
+    f.close()
+    return False
+
+
+def gui_live(path=None):
+    """시연 프로그램(GUI)이 작업 상태를 내고 있나 — 그러면 시험용 상태로 덮어쓰지 않는다(1단계 M10)."""
+    import voice_card
+    st = voice_card.read_state(path)
+    return bool(st) and not st.get("시험용")
+
+
 def summarize_voice(rows):
     """계측 줄들 → 요약. 🔑 LLM 답(「답변문장」)도 답으로 센다 — B 갈래 뒤로 빠져 있었다(R2 I5)."""
     answered = [r for r in rows if r.get("답변") or r.get("답변문장")]
@@ -227,6 +244,14 @@ def main():
                     help="음성비서에게 보여 줄 작업 상태 — demo = 2단계 진행 중 시험용(GUI 없이 찍으므로) · "
                          "none = 공개 안 함(모든 질문이 「작업 시작 전」)")
     a = ap.parse_args()
+    if not a.no_voice and voice_busy():
+        log("🔴 음성비서가 이미 돈다(시연 프로그램?) — 이 도구의 음성비서가 코드 3 으로 조용히 끝난다."
+            " 시연 프로그램을 끄거나 --no-voice 로 다시")
+        sys.exit(1)
+    if not a.no_voice and a.state == "demo" and gui_live():
+        log("🔴 시연 프로그램이 작업 상태를 내고 있다 — 시험용 상태로 덮어쓰지 않는다."
+            " 시연 프로그램을 끄거나 --state none 으로 다시")
+        sys.exit(1)
 
     if shutil.which("ffmpeg") is None:
         sys.exit("🔴 ffmpeg 가 없다")

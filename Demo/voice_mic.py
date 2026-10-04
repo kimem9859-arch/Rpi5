@@ -39,6 +39,7 @@ class MicReceiver:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self.generation = 0                 # 붙을 때마다 +1 — 메인 루프가 재접속을 알아챈다
+        self.connected = False              # 지금 붙어 있나 — 준비 줄이 본다(1단계 M11)
         self.connected_ip = None
         self.closed = False                 # once 모드에서 상대가 닫았다
         self.dropped = 0                    # 밀려서 버린 표본 수(누적)
@@ -73,7 +74,8 @@ class MicReceiver:
         late = sum(len(a) for t, a in items if now - t > self.lag_limit)
         fresh = [a for t, a in items if now - t <= self.lag_limit]
         if late:
-            self.dropped += late
+            with self._lock:                # 🔑 수신 스레드도 더한다 — 잠금 밖이면 겹쳐 빠진다(1단계 M6)
+                self.dropped += late
             self._log(f"⚠️ 오디오가 {self.lag_limit:.0f}초 넘게 밀려 {late / self.rate:.1f}초를 버렸다(최신 우선)")
         return np.concatenate(fresh) if fresh else np.zeros(0, dtype=np.int16)
 
@@ -91,6 +93,7 @@ class MicReceiver:
             if s is None:
                 return
             why = self._read(s)
+            self.connected = False
             try:
                 s.close()
             except OSError:
@@ -119,6 +122,7 @@ class MicReceiver:
             s.settimeout(0.5)
             self.connected_ip = ip
             self.generation += 1
+            self.connected = True
             self._log(f"마이크 업링크 연결됨 ({ip}:{self.port})")
             return s
         return None

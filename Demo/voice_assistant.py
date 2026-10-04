@@ -67,6 +67,7 @@ ALERT_POLL_SEC = 0.1    # 🔑 상태 감시 간격 — 알림 목표 0.3초(설
 # 🔑 한 대만 돈다 — 명령 채널(8890)은 손님 하나라 둘이 돌면 서로 끊는다(R2 통신 규약 대조표).
 LOCK_FILE = os.environ.get("SOP_VOICE_LOCK", "/tmp/sop_voice_assistant.lock")
 EXIT_ALREADY_RUNNING = 3      # run_voice.sh --forever 가 이 코드면 감시를 멈춘다
+MAIN_ERR_LIMIT = 5            # 발화마다 오류가 이만큼 이어지면 데몬을 끝낸다 — 감시가 모델을 새로 올린다(1단계 M3)
 _AUTO = object()
 
 # 🔑 보고서 시각자료용 계측 — 발화마다 한 줄씩 JSONL 로 남긴다.
@@ -263,12 +264,13 @@ def load_tts():
 def take_lock(path=None):
     """한 대만 돌게 잠근다. 잡았으면 파일 객체(쥐고 있어야 한다) · 이미 잡혀 있으면 None."""
     import fcntl
-    f = open(path or LOCK_FILE, "w")
+    f = open(path or LOCK_FILE, "a")      # 🔑 "w" 로 열면 잡기 전에 비워 잡은 쪽의 PID 줄이 지워진다(1단계 M5)
     try:
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         f.close()
         return None
+    f.truncate(0)
     f.write(f"{os.getpid()}\n")
     f.flush()
     return f
@@ -286,7 +288,8 @@ def ready_line(mic, spk, tts, llm):
         llm_s = "예열 중"
     else:
         llm_s = "✗(배경에서 다시 데운다)"
-    return (f"준비 상태 — 마이크 {w(mic.generation > 0)} · 명령 채널 {w(spk.s is not None)} · "
+    # 🔑 마이크는 「지금 붙어 있음」 — generation>0 은 「한 번이라도 붙었음」이라 끊긴 뒤에도 ✓ 였다(1단계 M11)
+    return (f"준비 상태 — 마이크 {w(getattr(mic, 'connected', False))} · 명령 채널 {w(spk.s is not None)} · "
             f"STT ✓ · TTS {w(tts is not None)} · LLM {llm_s}")
 
 
@@ -917,6 +920,7 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     bot = Assistant(spk, tts, llm, alog, read_state=read_state, read_tools=read_tools,
                     alert_gen=(lambda: alerts.gen) if alerts is not None else None)
     seen_alert = 0
+    errs = 0                          # 이어진 오류 수 — 답을 마친 발화가 있으면 0
     buf = np.zeros(0, dtype=np.int16)
     since, gen = 0, 0
     hop = int(RATE * VAD_HOP_SEC)
@@ -971,7 +975,9 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                 if len(buf) - e < int(RATE * QUIET_TAIL):  # 발화가 아직 안 끝났다
                     continue
                 seg_samples, buf = buf[s:e], buf[e:]
-                if handle_utterance(bot, stt, alog, seg_samples):
+                answered = handle_utterance(bot, stt, alog, seg_samples)
+                errs = 0
+                if answered:
                     # 🔴 대답하는 동안 들어온 소리를 버린다 — 답 반향·늦은 호출어가 다음 발화로 잡혀
                     #    엉뚱한 띠링·헛답이 났다(G11 · R3 I3). 시각 = 답이 끝난 지금까지.
                     n = mic.clear()
@@ -983,6 +989,12 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                         return
             except Exception as e:                         # noqa: BLE001
                 # 🔴 예외 하나로 시연 내내 데몬이 없으면 안 된다(R2 M8) — 그 발화만 버리고 계속한다
+                errs += 1
+                if errs >= MAIN_ERR_LIMIT:
+                    # 🔴 같은 오류가 발화마다 이어지면(STT 가 매번 실패) 버티는 것이 귀먹음이다 — 끝내면
+                    #    run_voice.sh --forever 가 모델을 새로 올린다(1단계 M3)
+                    log(f"🔴 메인 루프 오류가 {errs}번 연속 — 데몬을 끝낸다(감시가 다시 띄운다): {type(e).__name__}: {e}")
+                    return
                 log(f"🔴 메인 루프 오류 — 이 발화만 버리고 계속한다: {type(e).__name__}: {e}")
                 buf, since = np.zeros(0, dtype=np.int16), 0
                 time.sleep(0.5)

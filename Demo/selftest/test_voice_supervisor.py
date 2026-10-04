@@ -74,6 +74,21 @@ def test_run_demo_starts_and_stops_voice():
     check(r.returncode == 0, f"문법 · {r.stderr.strip()}")
 
 
+
+def test_m4_restart_backs_off():
+    """1단계 최종 리뷰 M4 — 시작하자마자 죽는 일이 이어지면 다시 띄우는 간격을 늘린다(STT 를 몇 초마다 다시 올려
+    비전과 CPU 를 다투지 않게)."""
+    print("\n[감시] 곧바로 죽으면 간격을 늘린다")
+    d = tempfile.mkdtemp()
+    py = fake_python(d, "exit 1\n")
+    p = subprocess.Popen(["bash", RUN, "--forever"], env=dict(os.environ, SOP_VOICE_PY=py, SOP_VOICE_RESTART_SEC="1"),
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    time.sleep(3.6)
+    p.terminate()
+    out, _ = p.communicate(timeout=10)
+    check("1초 뒤 다시 띄운다" in out and "2초 뒤 다시 띄운다" in out, f"1초 → 2초 · {out.strip()}")
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
