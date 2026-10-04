@@ -1,0 +1,9 @@
+# 탐색기 스모크 — 2회 · 3 에폭(1-2단계 계획 Task 5 Step 7) · 결과는 동작 확인용(판정에 쓰지 않음)
+이름: T0
+group: tool
+틀: {train: {epochs: 3, patience: 0}, 멈춤: {포화_향상: 0}}
+범위: {lr0: [log, 0.0002, 0.003], lrf: [log, 0.01, 0.3], cos_lr: [cat, [false, true]], close_mosaic: [cat, [0, 1]]}
+횟수: 2
+시작무작위: 2
+시드: 0
+기준: [E0c-tool-f120, E0c-tool-f120s1, E0c-tool-f120s2]
