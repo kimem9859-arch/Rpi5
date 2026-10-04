@@ -82,7 +82,7 @@ def test_기본값():
 
 
 def test_커밋된_설정():
-    print("[4] 실험 50(E0b 6 · 후보 시드 4 · 조합 E7 3 · 에폭 고정 12 · 탐색 확인 E10 6 포함) · 점검 4 — 전부 읽히고 id 가 겹치지 않는다")
+    print("[4] 실험 56(E0b 6 · 후보 시드 4 · 조합 E7 3 · 에폭 고정 12 · 탐색 확인 E10 6 · 가설 E11·E12 6 포함) · 점검 4 — 전부 읽히고 id 가 겹치지 않는다")
     b = TC.load_yaml(CONF / "기본.yaml")
     ids = []
     for sub in ("실험", "점검"):
@@ -92,7 +92,7 @@ def test_커밋된_설정():
                 check(False, f"{p.name}: {e}")
             ids.append(p.stem)
     exp = [i for i in ids if not i.startswith("E9-")]
-    check(len(exp) == 50, f"실험 50 — {len(exp)}")
+    check(len(exp) == 56, f"실험 56 — {len(exp)}")
     check(len([i for i in ids if i.startswith("E9-")]) == 4, "점검 4")
     check(len(ids) == len(set(ids)), "id 겹침 없음")
     for e0 in ("E0", "E0b"):

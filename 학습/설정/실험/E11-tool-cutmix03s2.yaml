@@ -1,0 +1,10 @@
+id: E11-tool-cutmix03s2
+group: tool
+seed: 2
+train:
+  epochs: 120
+  patience: 0
+  cutmix: 0.3
+멈춤:
+  포화_향상: 0
+메모: ③ 가설 cutmix 0.3(손에 가린 버튼 · 설계 §7) · 새 기준 = E0c(Task 8 모두 기각) · 시드 2
