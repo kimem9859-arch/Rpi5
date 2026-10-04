@@ -1,0 +1,180 @@
+{
+ "id": "E0b-button-s0",
+ "group": "button",
+ "시각": "2026-10-04T23:41:28",
+ "코드해시": "e276a4ac54",
+ "판": {
+  "ultralytics": "8.4.171",
+  "torch": "2.12.1+cu130",
+  "onnx": "1.23.1",
+  "onnxslim": "0.1.97",
+  "dfc": "3.33.1",
+  "tensorflow": "2.18.0",
+  "numpy": "1.26.4",
+  "cv2": "4.11.0",
+  "hailort_요구": "4.23.0 (파이 python3-hailort 4.23.0-1 · hailo-all 5.1.1)"
+ },
+ "결정표": {
+  "파일": "조사/HEF변환-20261004/변환설정.json",
+  "sha256": "3c739f65902cfdf9b343e2a5305e603bee7628bbd9d430d775ed7e0f3ba6bbd9"
+ },
+ "수준": {
+  "지정": 2,
+  "결정표와_다름": false,
+  "미세학습": "enabled",
+  "DFC_로그": [
+   "[info] Starting Model Optimization",
+   "[info] MatmulDecompose skipped",
+   "[info] Starting Mixed Precision",
+   "[info] Model Optimization Algorithm Mixed Precision is done (completion time is 00:00:00.21)",
+   "[info] LayerNorm Decomposition skipped",
+   "[info] Starting Statistics Collector",
+   "[info] Using dataset with 1024 entries for calibration",
+   "[info] Model Optimization Algorithm Statistics Collector is done (completion time is 00:01:38.65)",
+   "[info] Starting Fix zp_comp Encoding",
+   "[info] Model Optimization Algorithm Fix zp_comp Encoding is done (completion time is 00:00:00.00)",
+   "[info] Matmul Equalization skipped",
+   "[info] Starting MatmulDecomposeFix",
+   "[info] Model Optimization Algorithm MatmulDecomposeFix is done (completion time is 00:00:00.00)",
+   "[info] Finetune encoding skipped",
+   "[info] Bias Correction skipped",
+   "[info] Adaround skipped",
+   "[info] Starting Quantization-Aware Fine-Tuning",
+   "[info] Using dataset with 1024 entries for finetune",
+   "[info] Model Optimization Algorithm Quantization-Aware Fine-Tuning is done (completion time is 00:30:20.66)",
+   "[info] Starting Layer Noise Analysis",
+   "[info] Model Optimization Algorithm Layer Noise Analysis is done (completion time is 00:01:29.57)",
+   "[info] Starting Hailo allocation and compilation flow",
+   "2026-10-04 23:07:14,392 - IMPORTANT - logger.py:58 - Starting Model Optimization",
+   "2026-10-04 23:07:16,899 - INFO - algorithm_base.py:149 - MatmulDecompose skipped",
+   "2026-10-04 23:07:16,946 - INFO - algorithm_base.py:152 - Starting Mixed Precision",
+   "2026-10-04 23:07:17,159 - INFO - algorithm_base.py:168 - Model Optimization Algorithm Mixed Precision is done (completion time is 00:00:00.21)",
+   "2026-10-04 23:07:17,255 - INFO - algorithm_base.py:149 - LayerNorm Decomposition skipped",
+   "2026-10-04 23:07:18,041 - INFO - algorithm_base.py:152 - Starting Statistics Collector",
+   "2026-10-04 23:07:18,044 - INFO - stats_collection.py:89 - Using dataset with 1024 entries for calibration",
+   "2026-10-04 23:08:56,692 - INFO - algorithm_base.py:168 - Model Optimization Algorithm Statistics Collector is done (completion time is 00:01:38.65)",
+   "2026-10-04 23:08:57,108 - INFO - algorithm_base.py:152 - Starting Fix zp_comp Encoding",
+   "2026-10-04 23:08:57,108 - INFO - algorithm_base.py:168 - Model Optimization Algorithm Fix zp_comp Encoding is done (completion time is 00:00:00.00)",
+   "2026-10-04 23:08:57,108 - INFO - algorithm_base.py:149 - Matmul Equalization skipped",
+   "2026-10-04 23:08:57,108 - INFO - algorithm_base.py:152 - Starting MatmulDecomposeFix",
+   "2026-10-04 23:08:57,108 - INFO - algorithm_base.py:168 - Model Optimization Algorithm MatmulDecomposeFix is done (completion time is 00:00:00.00)",
+   "2026-10-04 23:09:02,757 - INFO - algorithm_base.py:149 - Finetune encoding skipped",
+   "2026-10-04 23:09:02,758 - INFO - algorithm_base.py:149 - Bias Correction skipped",
+   "2026-10-04 23:09:02,762 - INFO - algorithm_base.py:149 - Adaround skipped",
+   "2026-10-04 23:09:03,377 - INFO - algorithm_base.py:152 - Starting Quantization-Aware Fine-Tuning",
+   "2026-10-04 23:09:04,072 - INFO - qft.py:332 - Using dataset with 1024 entries for finetune",
+   "2026-10-04 23:39:25,132 - INFO - algorithm_base.py:168 - Model Optimization Algorithm Quantization-Aware Fine-Tuning is done (completion time is 00:30:20.66)",
+   "2026-10-04 23:39:29,199 - INFO - algorithm_base.py:152 - Starting Layer Noise Analysis",
+   "2026-10-04 23:40:58,773 - INFO - algorithm_base.py:168 - Model Optimization Algorithm Layer Noise Analysis is done (completion time is 00:01:29.57)"
+  ]
+ },
+ "클래스": [
+  "B1",
+  "B2",
+  "B3",
+  "B4",
+  "EMO"
+ ],
+ "내보내기_인자": {
+  "opset": 11,
+  "imgsz": [
+   640,
+   640
+  ],
+  "batch": 1,
+  "dynamic": false,
+  "simplify": true,
+  "device": "cpu"
+ },
+ "hw_arch": "hailo8",
+ "끝_노드": [
+  "/model.22/cv2.0/cv2.0.2/Conv",
+  "/model.22/cv3.0/cv3.0.2/Conv",
+  "/model.22/cv2.1/cv2.1.2/Conv",
+  "/model.22/cv3.1/cv3.1.2/Conv",
+  "/model.22/cv2.2/cv2.2.2/Conv",
+  "/model.22/cv3.2/cv3.2.2/Conv"
+ ],
+ "HN_출력층": [
+  {
+   "이름": "conv41",
+   "채널": 64
+  },
+  {
+   "이름": "conv42",
+   "채널": 5
+  },
+  {
+   "이름": "conv52",
+   "채널": 64
+  },
+  {
+   "이름": "conv53",
+   "채널": 5
+  },
+  {
+   "이름": "conv62",
+   "채널": 64
+  },
+  {
+   "이름": "conv63",
+   "채널": 5
+  }
+ ],
+ "모델_스크립트": "normalization1 = normalization([0.0, 0.0, 0.0], [255.0, 255.0, 255.0])\nmodel_optimization_flavor(optimization_level=2, compression_level=0)\nmodel_optimization_config(calibration, batch_size=8, calibset_size=1024)\npost_quantization_optimization(finetune, policy=enabled, dataset_size=1024)\nchange_output_activation(conv42, sigmoid)\nchange_output_activation(conv53, sigmoid)\nchange_output_activation(conv63, sigmoid)\nnms_postprocess(\"~/학습실험/변환/E0b-button-s0/nms_config.json\", meta_arch=yolov8, engine=cpu)\nallocator_param(width_splitter_defuse=disabled)\n",
+ "NMS": {
+  "nms_scores_th": 0.25,
+  "nms_iou_th": 0.7,
+  "image_dims": [
+   640,
+   640
+  ],
+  "max_proposals_per_class": 100,
+  "classes": 5,
+  "regression_length": 16,
+  "background_removal": false,
+  "background_removal_index": 0,
+  "bbox_decoders": [
+   {
+    "name": "bbox_decoder_8",
+    "stride": 8,
+    "reg_layer": "conv41",
+    "cls_layer": "conv42"
+   },
+   {
+    "name": "bbox_decoder_16",
+    "stride": 16,
+    "reg_layer": "conv52",
+    "cls_layer": "conv53"
+   },
+   {
+    "name": "bbox_decoder_32",
+    "stride": 32,
+    "reg_layer": "conv62",
+    "cls_layer": "conv63"
+   }
+  ]
+ },
+ "보정": {
+  "장수": 1024,
+  "나눔": "place1_v1",
+  "나눔해시": "0a3197afa1ddeac1",
+  "몫": "train",
+  "시드": 0,
+  "목록_sha256": "8e41db6d02b33f44ab15ea2dcf1eca088ac1e777da56957b7fe4a0b089884af0",
+  "전처리": "def preprocess(bgr, imgsz):\n    \"\"\"런타임 HailoDetector.detect(Demo/detector.py)와 같은 늘리기 — imgsz = 결정표 onnx.imgsz [세로, 가로] · 비율 무시 · 보간 기본 · RGB · uint8 0~255.\"\"\"\n    import cv2\n    h, w = imgsz\n    return cv2.cvtColor(cv2.resize(bgr, (w, h)), cv2.COLOR_BGR2RGB)\n"
+ },
+ "해시": {
+  "best.pt": "24e7ce74ad8189d654a90e62bb30966b7708003a4168589cc771648c2592730e",
+  "model.onnx": "3ab20d4973f2c3e78338b3b72e2304175e6d47561ee6ea23fb1a14fa984e1e77",
+  "model.har": "2ad8f09dc722b2ed066af5b8de778c24cec9351c7420167bdac86083a7f62511",
+  "model.hef": "9054bb7be73a64878290178f50031ec1bfb06a795906c87788c0e32558f1b50e"
+ },
+ "시간_s": {
+  "onnx": 1.3,
+  "파싱": 1.3,
+  "최적화": 2028.5,
+  "컴파일": 25.2
+ },
+ "출력_vstream": "파이 hailortcli parse-hef 로 확인(관문 2 · 데스크톱엔 HailoRT 없음)"
+}
