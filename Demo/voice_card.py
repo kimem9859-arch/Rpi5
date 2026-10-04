@@ -393,11 +393,13 @@ _STATE_WORDS = ("차단", "경고", "중지", "멈춰", "멈추")
 
 
 def _tool_changed(then, now):
-    """공구 사실이 바뀌었나 — 공구 상황이 있으면 (상황, 보이는 공구 집합) · 없으면 점수 최고 공구(종전)."""
+    """공구 사실이 바뀌었나 — 공구 상황이 있으면 상황만 · 없으면 점수 최고 공구(종전).
+
+    🔑 보이는 공구 집합은 보지 않는다 — 곁의 공구가 깜빡이기만 해도 렌치를 말한 답이 버려졌다(최종 리뷰 minor ·
+       설계 §4.5-다는 「공구 상황」만 말한다 · 남은 초를 뺀 것과 같은 이유)."""
     ta, tb = then.get("공구상황"), now.get("공구상황")
     if ta or tb:
-        sig = lambda x: ((x or {}).get("상황"), tuple(sorted((x or {}).get("보이는") or ())))  # noqa: E731
-        return sig(ta) != sig(tb)
+        return (ta or {}).get("상황") != (tb or {}).get("상황")
     return then.get("공구") != now.get("공구")
 
 
@@ -462,9 +464,18 @@ _SENT_END = re.compile(r"[?!]|\.(?!\d)")          # 🔑 0.44 의 점은 문장 
 _BUTTON = re.compile(r"[Bb]\s*([1-9])")
 _BUTTON_NUM = re.compile(r"(\d)\s*번\s*버튼")                 # 「3번 버튼」(최종 리뷰 I2)
 _BUTTON_ORD = re.compile(r"(첫|두|세|네)\s*번째\s*버튼")         # 「세 번째 버튼」
+_BUTTON_BARE = re.compile(r"버튼\s*([1-9])(?!\s*(?:개|초|번\s*째))"     # 「버튼 3을」 · 「3번을 누르세요」(최종 리뷰 I1)
+                          r"|(?<![\d.])([1-9])\s*번(?=\s*(?:을|를|으로|로|부터|누르|눌러))")
 _PRESS = re.compile(r"눌|누르|누릅|누른|누름|차례|진행하세요|진행하십시오|진행해")
-_MOVE_ON = re.compile(r"넘어가(?:세요|십시오|셔도|도\s*됩|도\s*돼|면\s*됩)")   # 다음 단계로 가라는 말
-_DONE = re.compile(r"(?:끝났|완료됐|완료되었|완료했|마쳤|끝냈|다\s*됐|끝난\s*상태|완료되어)(?!는지)")
+_MOVE_ON = re.compile(r"넘어가(?:세요|십시오|셔도|시면\s*됩|도\s*됩|도\s*돼|면\s*됩)")   # 다음 단계로 가라는 말
+# 🔑 하라는 말(명령·「…시면 됩니다」) — 단계 번호·이름으로 가리켜도 다른 단계면 「다른버튼」(최종 리뷰 I1 · dev H2-S5-q31
+#    「4단계 「챔버 벤트」를 누르시면 됩니다」가 그대로 나갔다). 「누르시면 시작되고」 같은 조건은 지시가 아니다.
+_ORDER_TAIL = (r"(?:누르|눌러|누를|진행하|진행해|넘어가|시작하|시작해)(?:\s*주)?\s*"
+               r"(?:세요|십시오|시면\s*(?:됩|돼)|셔야|셔도|면\s*(?:됩|돼)|도\s*(?:됩|돼|괜찮)|야\s*(?:합|해|됩))")
+_ORDER = re.compile(_ORDER_TAIL)
+# 「다음 버튼을 누르세요」·「다음 단계를 진행해 주세요」 — 「B1 을 누르셔야 다음 단계로 진행됩니다」는 아니다
+_NEXT_ORDER = re.compile(r"다음\s*(?:버튼|단계)\s*(?:을|를|으로|로)?\s*(?:바로\s*)?" + _ORDER_TAIL)
+_DONE = re.compile(r"(?:끝났|완료됐|완료되었|완료했|마쳤|끝냈|다\s*됐|끝난\s*상태|완료되어|마무리\s*(?:됐|되었|했|돼|되어))(?!는지)")
 _STEP_NUM = re.compile(r"(?<![A-Za-z])(\d+)\s*번?\s*째?\s*단계")
 _STEP_ORD = re.compile(r"(첫|두|세|네)\s*번째\s*단계")
 _ORD = {"첫": 1, "두": 2, "세": 3, "네": 4}
@@ -477,6 +488,9 @@ _ALL_ASK = re.compile(r"작업|전부|전체|모두")
 _STEP_NUM_ASK = re.compile(r"(\d)단계")
 _ASK_STATE = {"끝남": "이미 끝남", "진행 중": "아직 끝나지 않음", "시작 전": "아직 시작 전"}
 _YES_LEAD = re.compile(r"^\s*(?:네|예)(?![가-힣])[\s,.!]*")                   # 맨 앞 「네,」·「예.」
+_AFFIRM = re.compile(r"^\s*(?:그렇습니다|그래요|맞습니다|맞아요)(?![가-힣])")          # 「네」를 지워도 남는 긍정
+_ALL_SAID = re.compile(r"작업|전체|전부|모든\s*단계")                               # 작업 전체를 말함
+_EMO_CONTEXT = re.compile(r"다른|[Bb]\s*[1-9]|\d\s*번|상태|중에|중이|동안")           # 비상정지가 조건일 뿐인 말
 _GRIP = re.compile(r"(?:쥐었|쥐셨)(?!으면)|쥔\s*것으로\s*확인|확인됐|확인되었|확인\s*완료")
 _SENSOR = re.compile(r"가스|압력|온도|누출|누설|진공도|유량")
 SENSOR_SENTENCE = "그 정보는 이 시스템이 확인할 수 없습니다."
@@ -487,7 +501,8 @@ _names_cache = None
 def _buttons(t):
     """문장에 나온 버튼들 — 「B3」「b3」「3번 버튼」「세 번째 버튼」."""
     return ({f"B{d}" for d in _BUTTON.findall(t)} | {f"B{d}" for d in _BUTTON_NUM.findall(t)}
-            | {f"B{_ORD[o]}" for o in _BUTTON_ORD.findall(t)})
+            | {f"B{_ORD[o]}" for o in _BUTTON_ORD.findall(t)}
+            | {f"B{a or b}" for a, b in _BUTTON_BARE.findall(t)})
 
 
 def mentioned_steps(text):
@@ -546,6 +561,36 @@ def shorten(text, limit=ANSWER_MAX_CHARS):
     return t
 
 
+def named_steps(text):
+    """문장에 이름(레시피 이름·조각·서브 작업 이름)으로 나온 단계 번호들."""
+    n = (text or "").replace(" ", "")
+    return {k for w, k in _step_words() if w in n}
+
+
+def _discourages_emo(t):
+    """비상정지를 말리나 — 🔑 비상정지가 조건일 뿐이면(「비상정지 상태에서는 다른 버튼을 누르면 안 됩니다」) 아니다
+    (1단계 최종 리뷰 M9 · EMO 상태에서 질문과 무관한 대체 문장이 나갔다)."""
+    for m in _EMO_WORD.finditer(t):
+        d = _DONT_PRESS.search(t, m.end())
+        if d and not _EMO_CONTEXT.search(t[m.end():d.start()]):
+            return True
+    return False
+
+
+def _claims_grip(t, want):
+    """요구 공구를 쥐었다·확인됐다고 하나 — 🔑 쥔다는 말 앞의 마지막 공구가 다른 공구면 오답 공구 이야기다
+    (「플라이어를 쥐셨으니 렌치로 바꿔 주셔야」 · 계획 2026-10-04 Task 12 minor)."""
+    for m in _GRIP.finditer(t):
+        before = t[:m.start()]
+        last = max(((before.rfind(w), w) for w in (*TOOL_KO.values(), "공구")), key=lambda x: x[0])
+        if last[0] >= 0:
+            if last[1] in (want, "공구"):
+                return True
+        elif want in t or "공구" in t:
+            return True
+    return False
+
+
 def check_safety(text, facts, question=None):
     """말해도 되는 문장인가 — 걸린 규칙 이름들(빈 목록 = 통과). 설계 §4.4 C3 · 2026-10-04 §4.5.
 
@@ -562,28 +607,34 @@ def check_safety(text, facts, question=None):
     bad = []
     if any(w in t for w in PERMIT_WORDS):
         bad.append("허가")
-    if _EMO_WORD.search(t) and _DONT_PRESS.search(t):
+    if _discourages_emo(t):
         bad.append("비상정지억제")
     if not facts.get("세션") or (facts.get("완료") and not facts.get("비상정지")):
         return bad
     act = facts.get("할일") or {"허용": (facts.get("버튼"),)}
+    allow = set(act.get("허용") or ())
     said = _buttons(t)
-    if said and _PRESS.search(t) and said - set(act.get("허용") or ()):
+    order = _ORDER.search(t)
+    if said and (_PRESS.search(t) or order) and said - allow:
         bad.append("다른버튼")
     if _MOVE_ON.search(t) and "다른버튼" not in bad:
         bad.append("다른버튼")
+    if order and "다른버튼" not in bad:
+        ok = {facts.get("단계")} | {int(b[1:]) for b in allow if re.fullmatch(r"B\d", b)}
+        if (mentioned_steps(t) | named_steps(t)) - ok or _NEXT_ORDER.search(t):
+            bad.append("다른버튼")
     if _DONE.search(t):
         cur = facts.get("단계")
         steps = mentioned_steps(t)
         names = [n for n in (facts.get("단계명"), (facts.get("서브") or {}).get("라벨")) if n]
         past_only = bool(steps) and cur is not None and all(s < cur for s in steps)
-        if not past_only or any(n in t for n in names):
+        if not past_only or any(n in t for n in names) or _ALL_SAID.search(t):
             bad.append("진행단정")
     if (question and _DONE_Q.search(question) and _YES.search(t) and "진행 중" in t
             and "진행단정" not in bad):
         bad.append("진행단정")
     tp = facts.get("공구상황")
-    if tp and tp["상황"] != "쥠" and _GRIP.search(t) and (tp["요구"] in t or "공구" in t):
+    if tp and tp["상황"] != "쥠" and _claims_grip(t, tp["요구"]):
         bad.append("공구단정")
     return bad
 
@@ -701,13 +752,14 @@ def _step_words():
     return sorted(out.items(), key=lambda kv: -len(kv[0]))
 
 
-def asked_progress(question, facts):
+def asked_progress(question, facts, default_current=False):
     """끝났냐는 질문의 대상과 끝남을 코드가 정한다 → {"대상", "상태"(끝남|진행 중|시작 전), "말"} · 모르면 None.
 
     🔴 holdout 판 2 45번(2026-10-04) — 4단계에서 「N2 퍼지 완료야?」에 LLM 이 지금 단계 줄의 「아직 끝나지 않음」을
        옮겼다. 끝난 단계에 이름을 넣어도 그대로였다. 설계 §3-1 「끝남은 코드가 판단」을 이 질문에도 적용한다 —
        카드 맨 위에 판정을 주고(build_card), LLM 이 반대로 말하면 그물이 이 「말」로 바꾼다(finalize).
     대상 = 공구 확인(렌치 확인·인식) → 단계(번호·레시피 이름) → 이번 단계 → 작업 전체. 못 찾으면 None(LLM 이 답한다).
+    `default_current` — 못 찾으면 이번 단계로 본다(그물이 대상 없는 긍정을 고칠 때만 · 카드는 쓰지 않는다).
     """
     if not question or not facts.get("세션") or not _DONE_Q.search(question):
         return None
@@ -738,6 +790,8 @@ def asked_progress(question, facts):
     else:
         n = next((k for w, k in _step_words() if w in q), None)
     if n is None and _CUR_ASK.search(q):
+        n = cur
+    if n is None and default_current and not _ALL_ASK.search(q):
         n = cur
     if n is not None and n in steps:
         name, sub, _ = steps[n]
@@ -778,6 +832,15 @@ def sensor_answer(question, facts):
     return None
 
 
+def _past_only(text, facts):
+    """끝났다는 말이 지난 단계에만 걸리나 — 나온 단계 번호가 모두 지금보다 앞이고, 지금 단계·서브 이름이나
+    작업 전체를 말하지 않는다(최종 리뷰 C2 · 「2단계와 3단계 모두 끝났습니다」가 면제로 통과했다)."""
+    cur = facts.get("단계")
+    names = [n for n in (facts.get("단계명"), (facts.get("서브") or {}).get("라벨")) if n]
+    return (isinstance(cur, int) and all(s < cur for s in mentioned_steps(text))
+            and not any(n in text for n in names) and not _ALL_SAID.search(text))
+
+
 def finalize(raw, facts, question=None):
     """LLM 원문 → 말할 문장 `(문장, 출처, 걸린 규칙)`.
 
@@ -785,10 +848,12 @@ def finalize(raw, facts, question=None):
     🔑 첫 문장이 `ANSWER_MAX_CHARS` 를 넘으면 자르지 않고 사실 문장으로 바꾼다 — 자르면 술어가 잘려
        「…버튼 B3를.」 같은 조각이 말해졌다(최종 리뷰 I1 · dev 실제 사례).
     """
-    if question and _DONE_Q.search(question) and facts.get("세션") and not facts.get("완료"):
+    ask = asked_progress(question, facts)
+    live = facts.get("세션") and not facts.get("완료")
+    if question and _DONE_Q.search(question) and live and not (ask and ask["상태"] == "끝남"):
         # 🔑 끝났냐는 질문에 작업이 진행 중이면 맨 앞 「네,」를 지운다 — temperature 때문에 무작위로 붙어
-        #    (같은 카드·질문 10회 중 2~3회) 「끝났다」로 들렸다(holdout 판 2 9번 · 2026-10-04). 내용은 그대로 —
-        #    지난 단계가 정말 끝났어도 「네」만 빠진다. 첫 문장을 자르기 전에 지워야 「예. 다음 문장」이 살아난다.
+        #    「끝났다」로 들렸다(holdout 판 2 9번 · 2026-10-04). 내용은 그대로. 첫 문장을 자르기 전에 지워야
+        #    「예. 다음 문장」이 살아난다. 🔑 물은 대상이 끝났으면 「네」가 맞는 답이라 두다(최종 리뷰 minor).
         raw = _YES_LEAD.sub("", raw or "", count=1)
     said = first_sentence(raw)
     if not re.search(r"[가-힣A-Za-z0-9]", said):
@@ -802,14 +867,22 @@ def finalize(raw, facts, question=None):
         bad = ["다른버튼"]
     if "비상정지억제" in bad:
         return EMO_SENTENCE, "대체-안전규칙", bad
-    ask = asked_progress(question, facts)
+    if "다른버튼" in bad:
+        return fallback_sentence(facts), "대체-안전규칙", bad
     if ask and ask["상태"] == "끝남" and _NOT_DONE.search(said):
         return ask["말"], "대체-안전규칙", ["끝남반대"]          # 끝났는데 안 끝났다고 함(판 2 45번)
     if ask and ask["상태"] != "끝남" and _DONE.search(said) and not _NOT_DONE.search(said):
         return ask["말"], "대체-안전규칙", ["진행단정"]          # 안 끝났는데 끝났다고 함
     if (ask and ask["상태"] == "끝남" and "진행단정" in bad and not _NOT_DONE.search(said)
-            and any(w in said.replace(" ", "") for w in ask["낱말"])):
-        bad.remove("진행단정")          # 끝난 대상(질문한 일)을 끝났다고 한 것 — 지금 단계 단정이 아니다
+            and any(w in said.replace(" ", "") for w in ask["낱말"]) and _past_only(said, facts)):
+        bad.remove("진행단정")          # 끝난 대상(질문한 일)만 끝났다고 한 것 — 지금 단계 단정이 아니다
+    if ask and bad == ["진행단정"]:
+        return ask["말"], "대체-안전규칙", bad                 # 물은 것에 코드가 답한다(일반 대체보다 정확)
+    if not ask and question and _DONE_Q.search(question) and live and _AFFIRM.search(said):
+        # 🔑 대상을 못 찾은 끝났냐 질문(「다 됐어?」)에 「(네,) 그렇습니다」 — 이번 단계로 보고 답한다(최종 리뷰 minor)
+        cur = asked_progress(question, facts, default_current=True)
+        if cur and cur["상태"] != "끝남":
+            return cur["말"], "대체-안전규칙", ["진행단정"]
     if bad == ["공구단정"]:
         return tool_sentence(facts["공구상황"]), "대체-안전규칙", bad
     if bad:

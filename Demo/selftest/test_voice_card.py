@@ -391,6 +391,8 @@ def test_verify_redesign():
     both = card_facts(run, [("wrench", 0.9, 0, 0, 9, 9), ("pliers", 0.4, 0, 0, 9, 9)], True, now=t0)
     ok, bad = verify_answer("렌치가 보입니다.", both, swapped)
     check(ok, "보이는 공구 점수 순서만 바뀌면 버리지 않는다")
+    ok, bad = verify_answer("렌치가 보입니다.", seen, both)
+    check(ok, f"🔑 곁의 공구가 나타나도 공구 상황이 같으면 버리지 않는다(최종 리뷰 minor) — {bad}")
 
 
 def test_alert_event_rules():
@@ -497,6 +499,66 @@ def test_dropped_sentence_net():
           "뒷문장은 「다른버튼」만 본다 — 허가 등은 말하지 않으니 첫 문장 기준")
 
 
+def test_final_review_net():
+    print("── 최종 리뷰(2026-10-04) — C2 면제 좁힘 · I1 단계로 가리키는 지시 · 「네」 · 비상정지·공구 오탐")
+    t0 = LIVE["쓴시각"]
+    l1 = dict(LIVE, 현재단계=1, 현재단계명="클린·가스차단", 현재버튼="B1", 다음단계=2, 다음단계명="펌프/퍼지",
+              다음버튼="B2", 서브작업={"label": "플라즈마 클린 진행", "sec": 10, "tool": None, "tool_name": None})
+    l3 = dict(LIVE, 현재단계=3, 현재단계명="전극 냉각", 현재버튼="B3", 다음단계=4, 다음단계명="챔버 벤트",
+              다음버튼="B4", 서브작업={"label": "전극 온도 하강", "sec": 10, "tool": None, "tool_name": None})
+    l4 = dict(LIVE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 다음단계명=None,
+              다음버튼=None, 서브작업=None)
+    wr = [("wrench", 0.62, 0, 0, 9, 9)]
+    sub = {"상태": "진행 중", "남은초": 6.0, "공구충족": False, "공구오답": None}
+    f1, f3, f4 = (card_facts(s, [], False, now=t0) for s in (l1, l3, l4))
+    fr = card_facts(dict(LIVE, 서브진행=sub), wr, True, now=t0)
+    fh = card_facts(dict(LIVE, 서브진행=dict(sub, 남은초=3.0, 공구충족=True)), wr, True, now=t0)
+    fp = card_facts(dict(LIVE, 서브진행=dict(sub, 공구오답="플라이어")), [("pliers", 0.71, 0, 0, 9, 9)], True, now=t0)
+
+    print("   C2 — 질문한 대상 낱말이 있어도 지금 단계·작업 전체 단정은 면제하지 않는다")
+    for f, q, raw, want in [
+            (f3, "2단계 끝났어?", "네, 2단계와 3단계 모두 끝났습니다.", "네, 2단계 「펌프/퍼지」는 이미 끝났습니다."),
+            (f3, "2단계 끝났어?", "네, 2단계까지 끝났으니 이제 4단계로 넘어가시면 됩니다.", "지금은 B3 차례입니다."),
+            (f4, "3단계 끝났어?", "3단계 전극 냉각이 끝나서 작업이 완료되었습니다.", "네, 3단계 「전극 냉각」은 이미 끝났습니다."),
+            (fh, "렌치 확인됐어?", "렌치는 확인됐고 2단계도 끝났습니다.", "네, 렌치는 이미 확인됐습니다.")]:
+        text, src, bad = finalize(raw, f, question=q)
+        check(src == "대체-안전규칙" and text == want, f"「{raw}」 → 「{text}」({bad})")
+    for f, q, raw in [(f4, "퍼지 이미 끝났지?", "2단계 「펌프/퍼지」(N2 퍼지)는 끝난 단계입니다."),
+                      (f4, "렌치 인식 완료된 거지?", "렌치 확인은 이미 끝났습니다."),
+                      (fh, "렌치 인식 완료된 거지?", "렌치 인식이 완료되었습니다."),
+                      (f3, "2단계 끝났어?", "네, 1단계와 2단계 모두 끝났습니다.")]:
+        check(finalize(raw, f, question=q)[1] == "LLM", f"끝난 대상만 끝났다 하면 그대로 — 「{raw}」")
+
+    print("   I1 — 허용되지 않은 단계·버튼을 번호·이름·「…시면 됩니다」로 가리키는 지시")
+    for f, t in [(f3, "가디언 다음에 4단계 「챔버 벤트」를 누르시면 됩니다."), (f3, "4단계로 넘어가시면 됩니다."),
+                 (fr, "3단계 전극 냉각을 진행하세요."), (f3, "챔버 벤트를 시작하세요."), (f3, "다음 버튼을 누르세요."),
+                 (f3, "4번을 누르세요."), (f1, "버튼 3을 누르세요."), (f1, "B3로 넘어가시면 됩니다."),
+                 (f1, "B3을 진행하시면 됩니다."), (fr, "1단계부터 진행하시면 됩니다."),
+                 (fr, "다음 단계를 진행해 주세요.")]:
+        check("다른버튼" in check_safety(t, f), f"다른버튼 — 「{t}」")
+    for f, t in [(f3, "지금은 B3 버튼을 누르시면 됩니다."), (f3, "3번을 누르세요."), (f1, "지금은 1단계를 진행하시면 됩니다."),
+                 (fr, "앞의 렌치를 손으로 쥐세요."), (fr, "쥐고 약 6초가 지나면 자동으로 3단계로 넘어갑니다."),
+                 (f3, "다음 단계는 4단계 「챔버 벤트」입니다."), (fr, "2단계 「펌프/퍼지」가 끝나면 다음 단계로 넘어갑니다."),
+                 (fr, "다음 단계로 넘어가려면 렌치를 쥐세요."), (f1, "B1 버튼을 누르셔야 다음 단계로 진행됩니다.")]:
+        check(check_safety(t, f) == [], f"통과 — 「{t}」")
+    for f, t in [(f4, "모든 단계를 마무리했습니다."), (fr, "퍼지는 마무리됐습니다.")]:
+        check("진행단정" in check_safety(t, f), f"진행단정 — 「{t}」(마무리)")
+
+    print("   「네」 — 대상이 끝났으면 살리고, 대상을 못 찾은 끝났냐 질문의 긍정은 이번 단계 답으로")
+    check(finalize("네.", f3, question="렌치 확인 끝났어?") == ("네.", "LLM", []), "끝난 대상의 「네.」는 맞는 답")
+    text, src, bad = finalize("네, 그렇습니다.", f4, question="다 됐어?")
+    check(src == "대체-안전규칙" and text == "아니요, 4단계 「챔버 벤트」는 아직 끝나지 않았습니다.",
+          f"대상 없는 「다 됐어?」에 「그렇습니다」 → {text}")
+
+    print("   비상정지억제 오탐 · 공구단정 오탐")
+    for t in ("비상정지 상태에서는 다른 버튼을 누르면 안 됩니다.", "비상정지 중에는 B3를 누르면 안 됩니다."):
+        check("비상정지억제" not in check_safety(t, f3), f"비상정지가 조건일 뿐 — 「{t}」")
+    check(check_safety("비상정지 버튼을 누르지 마세요.", f3) == ["비상정지억제"], "비상정지를 말리면 그대로 건다")
+    check("공구단정" not in check_safety("플라이어를 쥐셨으니 렌치로 바꿔 주셔야 합니다.", fp),
+          "오답 공구를 쥔 사실은 공구단정이 아니다(Task 12 minor)")
+    check("공구단정" in check_safety("렌치를 쥐셨으니 곧 넘어갑니다.", fp), "요구 공구를 쥐었다고 하면 그대로 건다")
+
+
 def main():
     test_v2_emo_block_card()
     test_shorten()
@@ -515,6 +577,7 @@ def main():
     test_yes_strip_and_done_names()
     test_asked_progress()
     test_dropped_sentence_net()
+    test_final_review_net()
     tmp = tempfile.mkdtemp(prefix="sop_card_test_")
     path = os.path.join(tmp, "state.json")
     try:

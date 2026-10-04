@@ -465,7 +465,7 @@ LLM_ENABLED      = os.environ.get("SOP_LLM", "1") != "0"
 LLM_URL          = os.environ.get("SOP_LLM_URL", "http://192.168.1.12:11434/api/generate")
 LLM_MODEL        = "gemma4:e2b-it-qat"
 # 🔴 넉넉히 준다 — 지연은 감수하기로 했고(설계 §3-5), 모자라면 문장이 잘린다.
-#    질문 세트 holdout p99 + 3초(조사/질문세트평가-20261004-v3/holdout/요약.json · p99 13.0초 → 17 · 2026-10-04 계획 Task 13).
+#    질문 세트 holdout 의 LLM 시간 p99 + 3초를 올림(원자료 = 조사/질문세트평가-20261004-v3/holdout/요약.json · 2026-10-04 계획 Task 13).
 LLM_TIMEOUT_SEC  = 17.0
 # 🔑 D2 「한 문장 + 최대 약 60자」의 시작값 — 질문 세트 dev 로 한 번까지 조정한다(계획 Task 13).
 #    길이는 voice_card.shorten 이 보장하므로 이 값은 지연·잘림의 균형이다.
