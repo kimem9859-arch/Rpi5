@@ -259,6 +259,31 @@ def test_작업_세션몫():
     check("채점_세션.json" in CLI.RECORD, "받기 RECORD 에 채점_세션.json")
 
 
+def test_세션_채점_판정():
+    print("[j2] 판정 --채점 세션 — 채점_세션.json 만 읽고, 하나라도 없으면 멈춤(1-3 Review Focus 3)")
+    sc = {"전체": {"precision": .9, "recall": .9}, "클래스": {n: {"recall": .9} for n in ("B1", "B2", "B3", "B4", "EMO")}}
+    base = ["E15-button-base", "E15-button-bases1", "E15-button-bases2"]
+    cand = ["E16-button-color", "E16-button-colors1", "E16-button-colors2"]
+    with tempfile.TemporaryDirectory() as t:
+        root = Path(t)
+        for i in base + cand:
+            d = root / i
+            d.mkdir()
+            (d / "요약.json").write_text(json.dumps({"id": i, "group": "button", "나눔": {"해시": "h"}, "conf": 0.65, "판": {}}), encoding="utf-8")
+            (d / "설정.json").write_text(json.dumps({"멈춤": {"포화_향상": 0}}), encoding="utf-8")
+            (d / "채점.json").write_text(json.dumps(sc), encoding="utf-8")
+            if i != cand[-1]:
+                (d / "채점_세션.json").write_text(json.dumps(sc), encoding="utf-8")
+        _, ok = CLI.judge_ids(CLI.ledger.load_results(root), cand, base)
+        check(ok is False, "기본 = 채점.json 으로 판정(같은 값 → 기각)")
+        try:
+            CLI.judge_ids(CLI.ledger.load_results(root, "채점_세션.json"), cand, base)
+            stopped = False
+        except SystemExit:
+            stopped = True
+        check(stopped, "세션 채점이 하나라도 없으면 멈춤")
+
+
 if __name__ == "__main__":
     test_작업()
     test_예상()
@@ -272,6 +297,7 @@ if __name__ == "__main__":
     test_탐색_설정()
     test_받기_검증채점()
     test_작업_세션몫()
+    test_세션_채점_판정()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

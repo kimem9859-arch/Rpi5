@@ -26,7 +26,16 @@ def check(cond, msg):
 def btn(i, P, R, bad=False):
     su = {"id": i, "group": "button", "입력": "늘리기640", "바꾼것": "없음", "종료이유": "점수0" if bad else "일찍멈춤",
           "이상": bad, "에폭": 40, "best_epoch": 20, "분": 12.0}
-    return su, (None if bad else {"전체": {"precision": P, "recall": R}, "오분류": 0, "오검출": 1, "클래스": {}})
+    return su, (None if bad else {"전체": {"precision": P, "recall": R}, "오분류": 0, "오검출": 1,
+                                  "클래스": {n: {"recall": R} for n in BN}})
+
+
+BN = ("B1", "B2", "B3", "B4", "EMO")
+
+
+def bj(r_mark, p_mark):
+    """버튼 판정 문자열 — 종류별 재현율 5개(모두 같은 표시) + 정밀도(1-3단계 지표)."""
+    return " ".join(f"{n}R{r_mark}" for n in BN) + f" P{p_mark}"
 
 
 def tool(i, d, w, p, P):
@@ -43,13 +52,13 @@ RES = [btn("E0-button-s0", 0.90, 0.80), btn("E0-button-s1", 0.92, 0.82), btn("E0
 def test_범위와_판정():
     print("[1] E0 범위 · ↑↓= · 기준 부족")
     r = L.baseline_ranges(RES, "button")
-    check(r == {"P": (0.90, 0.92), "R": (0.80, 0.82)}, f"버튼 범위 — {r}")
-    check(L.judge(RES[3][1], r, "button") == "P↑+0.0300 R=", f"E3 — 넘은 만큼 붙임 — {L.judge(RES[3][1], r, 'button')}")
-    check(L.judge(RES[4][1], r, "button") == "P↓-0.0100 R↓-0.0100", f"E4a — {L.judge(RES[4][1], r, 'button')}")
+    check(r == {**{f"{n}R": (0.80, 0.82) for n in BN}, "P": (0.90, 0.92)}, f"버튼 범위 — {r}")
+    check(L.judge(RES[3][1], r, "button") == bj("=", "↑+0.0300"), f"E3 — 넘은 만큼 붙임 — {L.judge(RES[3][1], r, 'button')}")
+    check(L.judge(RES[4][1], r, "button") == bj("↓-0.0100", "↓-0.0100"), f"E4a — {L.judge(RES[4][1], r, 'button')}")
     tiny = btn("E9-x", 0.8997, 0.81)[1]
-    check(L.judge(tiny, r, "button") == "P↓-0.0003 R=", f"0.0005 보다 작게 벗어나도 0 으로 보이지 않는다 — {L.judge(tiny, r, 'button')}")
+    check(L.judge(tiny, r, "button") == bj("=", "↓-0.0003"), f"0.0005 보다 작게 벗어나도 0 으로 보이지 않는다 — {L.judge(tiny, r, 'button')}")
     tinier = btn("E9-y", 0.89998, 0.81)[1]
-    check(L.judge(tinier, r, "button") == "P↓-0.00002 R=", f"0.0001 보다 작으면 다섯째 자리 — {L.judge(tinier, r, 'button')}")
+    check(L.judge(tinier, r, "button") == bj("=", "↓-0.00002"), f"0.0001 보다 작으면 다섯째 자리 — {L.judge(tinier, r, 'button')}")
     check(L.baseline_ranges(RES, "tool") is None, "공구 E0 2개 → 범위 없음")
     check(L.judge(RES[8][1], None, "tool") == "기준 부족", "기준 부족")
 
@@ -93,7 +102,7 @@ def test_기준_조건():
     md = L.render(e0 + e0b + [e1])
     rows = md.splitlines()
     row = [l for l in rows if l.startswith("| E1-button")][0]
-    check("P↑+0.0300 R=" in row, f"조건이 같은 E0b 3개로 판정 — {row.split('|')[-2]}")
+    check(bj("=", "↑+0.0300") in row, f"조건이 같은 E0b 3개로 판정 — {row.split('|')[-2]}")
     check(all("기준 |" in l for l in rows if l.startswith("| E0b-")), "E0b = 기준")
     check("후보 표시" in md and "함정⑤" in md, "머리말 — ↑↓ 는 후보 표시 · epochs 일정 함정")
     with tempfile.TemporaryDirectory() as t:
@@ -143,8 +152,16 @@ def test_채택():
     check(bad, "3회 미만이면 판정하지 않는다")
 
 
+def test_버튼_지표():
+    print("[j1] 버튼 판정 = 종류별 재현율 5개 + 정밀도(B3↔EMO 를 가린다 · 1-3단계 §4)")
+    check([k for k, _ in L.KEYS["button"]] == ["B1R", "B2R", "B3R", "B4R", "EMOR", "P"], "지표 이름")
+    sc = {"전체": {"precision": .9, "recall": .9}, "오분류": 2, "오검출": 1, "클래스": {n: {"recall": .9} for n in BN}}
+    check("B3" in L.metrics_text(sc, "button") and "EMO" in L.metrics_text(sc, "button"), "장부 줄도 종류별")
+
+
 if __name__ == "__main__":
     test_범위와_판정()
+    test_버튼_지표()
     test_렌더()
     test_다시_만들기()
     test_기준_조건()

@@ -13,7 +13,9 @@ import re
 from pathlib import Path
 
 KEYS = {
-    "button": [("P", lambda s: s["전체"]["precision"]), ("R", lambda s: s["전체"]["recall"])],
+    # 버튼 = 종류별 재현율 5개 + 정밀도(1-3단계 §4 — 전체 재현율 하나로는 B3↔EMO 착각이 묻힌다)
+    "button": [(f"{n}R", lambda s, n=n: s["클래스"][n]["recall"]) for n in ("B1", "B2", "B3", "B4", "EMO")]
+              + [("P", lambda s: s["전체"]["precision"])],
     "tool": [("dR", lambda s: s["클래스"]["driver"]["recall"]), ("wR", lambda s: s["클래스"]["wrench"]["recall"]),
              ("pR", lambda s: s["클래스"]["pliers"]["recall"]), ("P", lambda s: s["전체"]["precision"])],
 }
@@ -21,10 +23,11 @@ SKIP = ("E9-", "SPEED-")
 E0_RE = re.compile(r"^E0[a-z]?-")
 
 
-def load_results(root):
+def load_results(root, score_name="채점.json"):
+    """score_name = 판정에 쓸 채점 파일(기본 = 채점 292장 · 「채점_세션.json」 = 처음 보는 세션 · 1-3단계)."""
     out = []
     for d in sorted(Path(root).iterdir()) if Path(root).exists() else []:
-        s, c = d / "요약.json", d / "채점.json"
+        s, c = d / "요약.json", d / score_name
         if d.is_dir() and s.exists() and not d.name.startswith(SKIP):
             su = json.loads(s.read_text(encoding="utf-8"))
             cf = d / "설정.json"
@@ -75,7 +78,9 @@ def adopt(cands, bases, group):
 
 def metrics_text(sc, group):
     if group == "button":
-        return f"P {sc['전체']['precision']:.3f} · R {sc['전체']['recall']:.3f} · 오분류 {sc['오분류']} · 오검출 {sc['오검출']}"
+        c = sc["클래스"]
+        return ("R " + " · ".join(f"{n} {c[n]['recall']:.3f}" for n in ("B1", "B2", "B3", "B4", "EMO"))
+                + f" · P {sc['전체']['precision']:.3f} · 오분류 {sc['오분류']} · 오검출 {sc['오검출']}")
     c = sc["클래스"]
     return (f"R d {c['driver']['recall']:.3f} · w {c['wrench']['recall']:.3f} · p {c['pliers']['recall']:.3f}"
             f" · P {sc['전체']['precision']:.3f}")

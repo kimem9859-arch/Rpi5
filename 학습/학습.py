@@ -412,7 +412,7 @@ def judge_ids(results, cand_ids, base_ids):
 
 
 def cmd_judge(a):
-    v, ok = judge_ids(ledger.load_results(HERE / "결과"), a.후보, a.기준)
+    v, ok = judge_ids(ledger.load_results(HERE / "결과", "채점_세션.json" if a.채점 == "세션" else "채점.json"), a.후보, a.기준)
     for k, x in v.items():
         print(f"  {k}: {x}")
     print("✅ 채택" if ok else "— 기각(위로 갈린 지표 없음 또는 아래로 갈린 지표 있음)")
@@ -611,6 +611,7 @@ def main(argv=None):
     p = sub.add_parser("판정")
     p.add_argument("--후보", nargs="+", required=True)
     p.add_argument("--기준", nargs="+", required=True)
+    p.add_argument("--채점", choices=["기본", "세션"], default="기본", help="세션 = 처음 보는 세션 채점(채점_세션.json · 1-3단계)")
     a = ap.parse_args(argv)
     {"준비": cmd_prepare, "속도재기": cmd_speed, "걸기": cmd_launch, "상태": cmd_status,
      "받기": cmd_fetch, "재개": cmd_resume, "빼기": cmd_remove, "판정": cmd_judge, "탐색": cmd_tune, "탐색상태": cmd_tune_status, "변환": cmd_convert}[a.cmd](a)
