@@ -1,0 +1,9 @@
+# 탐색 본실행 — 공구 학습 방식(1-2단계 설계 §5 · 계획 Task 7) · 입력 640 늘리기 고정(§12.87 · 설계 §12)
+이름: T1
+group: tool
+틀: {train: {epochs: 120, patience: 0}, 멈춤: {포화_향상: 0}}
+범위: {lr0: [log, 0.0002, 0.003], lrf: [log, 0.01, 0.3], cos_lr: [cat, [false, true]], close_mosaic: [cat, [0, 10, 20]]}
+횟수: 30
+시작무작위: 10
+시드: 0
+기준: [E0c-tool-f120, E0c-tool-f120s1, E0c-tool-f120s2]
