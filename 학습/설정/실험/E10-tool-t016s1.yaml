@@ -1,0 +1,13 @@
+id: E10-tool-t016s1
+group: tool
+seed: 1
+train:
+  epochs: 120
+  patience: 0
+  lr0: 0.0012188959579953946
+  lrf: 0.046008224346731304
+  cos_lr: false
+  close_mosaic: 10
+멈춤:
+  포화_향상: 0
+메모: 탐색 T1 상위 확인 · 시도 16 · 시드 1 — 시드 0 = E8-tool-T1t016(1-2단계 §6)
