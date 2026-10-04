@@ -10,6 +10,7 @@
   받기                                         끝난 실험의 기록·best.pt 를 받아 해시를 맞추고 장부를 다시 만든다
   재개                                         대기열 멈춤을 풀고 실행기를 띄운다 — 멈춘 이유를 정한 뒤에만
   빼기 <id>                                    대기열에서 뺀다(건너뛰기)
+  변환 <id> [--수준 N]                         HEF 변환을 데스크톱에 띄운다 · 다시 치면 상태 · 끝났으면 받는다(1-2단계 §8.3)
 🔴 코드·설정이 커밋되지 않았으면 걸지 않는다 — 결과의 코드 해시가 저장소를 가리켜야 한다.
 🔴 대기열이 멈춰 있으면 걸기는 넣기만 하고 실행기를 띄우지 않는다.
 """
@@ -28,6 +29,7 @@ HERE = Path(__file__).resolve().parent
 RPI5 = HERE.parent
 for _p in (HERE, RPI5 / "Demo" / "test", RPI5 / "Demo"):
     sys.path.insert(0, str(_p))
+import hef_convert as H  # noqa: E402
 import ledger          # noqa: E402
 import split as SP     # noqa: E402
 import stoprules       # noqa: E402
@@ -38,12 +40,13 @@ REMOTE = "wsl-train"
 RROOT = "~/학습실험"
 SRC = Path.home() / "data" / "label_dataset"
 LOCAL = Path.home() / "data" / "학습실험"
-CODE_FILES = ["train_one.py", "runner.py", "stoprules.py", "scoring.py", "speedprobe.py", "tune.py"]
+CODE_FILES = ["train_one.py", "runner.py", "stoprules.py", "scoring.py", "speedprobe.py", "tune.py", "hef_convert.py"]
 DIRTY_PATHS = ["학습/*.py", "학습/설정", "학습/나눔", "Demo/test/score_lib.py", "Demo/test/tool_round.py"]
 RECORD = ["요약.json", "채점.json", "채점_검증.json", "설정.json", "args.yaml", "results.csv", "results.png",
           "confusion_matrix.png", "confusion_matrix_normalized.png"]
 SKIP = ("E9-", "SPEED-")
 DEFAULT_TEST = RPI5 / "조사" / "재학습확인-20261003" / "채점사진.txt"
+CONVERT_CFG = RPI5 / "조사" / "HEF변환-20261004" / "변환설정.json"
 
 
 # ── 순수 함수(시험 대상) ─────────────────────────────────────────────
@@ -88,6 +91,16 @@ def launch_problems(ids, local_done, remote_known, dirty):
     if seen:
         out.append(f"이미 있는 id: {seen} — 새 id 로")
     return out
+
+
+def convert_calib(d, group, cfg):
+    """HEF 보정 사진 = 그 무리의 학습 몫에서만(검증 몫 · 채점 사진 금지 · 설계 §8.3) · 시드 0."""
+    return H.pick_calib(SP.lists_for(d, group)[0], cfg["calib_n"][group], 0)
+
+
+def convert_dirname(i, level):
+    """최적화 수준을 바꿔 보는 변환은 따로 둔다 — 결정표대로 한 변환을 덮지 않게."""
+    return i if level is None else f"{i}_L{level}"
 
 
 def sanitize(text, home):
@@ -452,6 +465,80 @@ def cmd_remove(a):
     print(f"뺐다: {a.id}")
 
 
+def convert_fetch(a, name, wd, code):
+    """끝난 변환 받기 — HEF 해시를 맞추고 변환.json 은 홈 경로를 지워 결과 폴더에(가중치·HEF 는 저장소 밖)."""
+    if code != "0":
+        sys.exit(f"🔴 변환 {name} 실패(종료 {code}) — 로그 꼬리:\n" + sh(f"cd {wd} && tail -n 8 onnx.log hef.log 2>/dev/null || true"))
+    dst = LOCAL / a.id / ("" if a.수준 is None else f"L{a.수준}")
+    dst.mkdir(parents=True, exist_ok=True)
+    keep = ["변환.json", "model.hef", "model.alls", "nms_config.json", "onnx.log", "hef.log", "hailo_sdk.client.log"]
+    rsync([*(f"--include={f}" for f in keep), "--exclude=*", f"{REMOTE}:{wd}/", f"{dst}/"])
+    raw = (dst / "변환.json").read_text(encoding="utf-8")
+    rec = json.loads(raw)
+    if hashlib.sha256((dst / "model.hef").read_bytes()).hexdigest() != rec["해시"]["model.hef"]:
+        sys.exit(f"🔴 {name} model.hef 해시가 변환.json 과 다르다 — 다시 받는다")
+    text = sanitize(raw, sh("echo $HOME").strip())
+    bad = leaks(text)
+    if bad:
+        sys.exit(f"🔴 {name}/변환.json 에 개인 경로가 남았다 {sorted(set(bad))} — 받기를 멈춘다(공개 저장소)")
+    out = HERE / "결과" / a.id / ("변환.json" if a.수준 is None else f"변환_L{a.수준}.json")
+    out.write_text(text, encoding="utf-8")
+    t = rec["시간_s"]
+    print(f"받음 {name} — 수준 {rec['수준']['지정']} · 시간(초) {t} · HEF {dst / 'model.hef'} · 기록 {out}")
+    for l in rec["수준"]["DFC_로그"]:
+        print(f"  DFC: {l}")
+
+
+def cmd_convert(a):
+    if not TC.ID_RE.match(a.id):
+        sys.exit(f"🔴 실험 id 형식이 아니다: {a.id!r}")
+    name = convert_dirname(a.id, a.수준)
+    wd = f"{RROOT}/변환/{name}"
+    code = sh(f"cat {wd}/끝 2>/dev/null || true").strip()
+    if code:
+        return convert_fetch(a, name, wd, code)
+    running = sh("pgrep -af '[h]ef_convert.py' || true").strip()      # [h] = 이 명령을 부른 셸 자신은 걸리지 않게
+    if running:
+        print(f"변환 도는 중 — {running}\n  진행 = 데스크톱 {wd}/onnx.log · hef.log · 끝나면 같은 명령으로 받는다")
+        return
+    if sh(f"test -d {wd} && echo y || true").strip():
+        sys.exit(f"🔴 끊긴 변환(끝 표지도 프로세스도 없음) — 로그 확인 뒤 데스크톱 `rm -rf {wd}` 하고 다시:\n"
+                 + sh(f"cd {wd} && tail -n 5 onnx.log hef.log 2>/dev/null || true"))
+    head, dirty = code_state()
+    cfg_dirty = subprocess.run(["git", "-C", str(RPI5), "status", "--porcelain", "--", str(CONVERT_CFG)],
+                               capture_output=True, text=True).stdout.strip()
+    if dirty or cfg_dirty:
+        sys.exit("🔴 커밋 안 된 학습 코드·결정표가 있다 — 커밋한 뒤 변환한다(변환.json 의 코드 해시가 저장소를 가리키게)")
+    if sh("pgrep -af '[r]unner.py|[t]une.py|[s]peedprobe.py' || true").strip():
+        sys.exit("🔴 학습·탐색이 돌고 있다 — 변환은 학습이 없을 때(데스크톱 메모리·CPU · 계획 「병행 트랙」)")
+    res = HERE / "결과" / a.id
+    job_cfg = json.loads((res / "설정.json").read_text(encoding="utf-8"))
+    summ = json.loads((res / "요약.json").read_text(encoding="utf-8"))
+    cfg = json.loads(CONVERT_CFG.read_text(encoding="utf-8"))
+    g = job_cfg["group"]
+    d = SP.load_split(HERE / "나눔" / f"{job_cfg['나눔']['name']}.json")
+    if d["해시"] != job_cfg["나눔"]["해시"]:
+        sys.exit(f"🔴 나눔 해시가 그 실험과 다르다({d['해시']} ≠ {job_cfg['나눔']['해시']})")
+    calib = convert_calib(d, g, cfg)
+    if len(calib) != cfg["calib_n"][g]:
+        sys.exit(f"🔴 보정 {len(calib)}장 ≠ 결정표 calib_n {cfg['calib_n'][g]}(모델 스크립트의 장수와 같아야 한다)")
+    deploy_code(head)
+    sh(f"mkdir -p {wd} && cp {RROOT}/runs/{a.id}/weights/best.pt {wd}/best.pt")
+    if sh(f"sha256sum {wd}/best.pt").split()[0] != summ.get("best_sha256"):
+        sh(f"rm -rf {wd}")
+        sys.exit(f"🔴 데스크톱 runs/{a.id} 의 best.pt 해시가 요약과 다르다")
+    place = place_of(job_cfg["나눔"]["name"])
+    job = {"id": a.id, "group": g, "names": job_cfg["names"], "수준": a.수준, "코드해시": head,
+           "calib": [f"{RROOT}/원본/{place}/images/{n}.png" for n in calib]}
+    sh(atomic_write_cmd(f"{wd}/입력.json"), input=json.dumps(job, ensure_ascii=False))
+    rsync([str(CONVERT_CFG), f"{REMOTE}:{wd}/변환설정.json"])
+    py = f"{RROOT}/코드/{head}/hef_convert.py"
+    sh(f"cd {wd} && ( setsid nohup bash -c '{RROOT}/venv/bin/python {py} onnx {wd} > onnx.log 2>&1"
+       f" && ~/hailo-venv/bin/python {py} hef {wd} > hef.log 2>&1; echo $? > 끝' < /dev/null > /dev/null 2>&1 & )")
+    print(f"변환 {name} 띄움 — 보정 {len(calib)}장(학습 몫) · 수준 {'결정표' if a.수준 is None else a.수준}"
+          f" · 같은 명령을 다시 치면 상태 · 끝나면 받는다")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="학습 체계 파이 명령")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -476,12 +563,15 @@ def main(argv=None):
     p = sub.add_parser("탐색상태")
     p.add_argument("이름")
     p.add_argument("--저장", action="store_true")
+    p = sub.add_parser("변환")
+    p.add_argument("id")
+    p.add_argument("--수준", type=int, choices=[0, 1, 2, 3, 4])
     p = sub.add_parser("판정")
     p.add_argument("--후보", nargs="+", required=True)
     p.add_argument("--기준", nargs="+", required=True)
     a = ap.parse_args(argv)
     {"준비": cmd_prepare, "속도재기": cmd_speed, "걸기": cmd_launch, "상태": cmd_status,
-     "받기": cmd_fetch, "재개": cmd_resume, "빼기": cmd_remove, "판정": cmd_judge, "탐색": cmd_tune, "탐색상태": cmd_tune_status}[a.cmd](a)
+     "받기": cmd_fetch, "재개": cmd_resume, "빼기": cmd_remove, "판정": cmd_judge, "탐색": cmd_tune, "탐색상태": cmd_tune_status, "변환": cmd_convert}[a.cmd](a)
 
 
 if __name__ == "__main__":
