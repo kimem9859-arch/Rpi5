@@ -129,10 +129,14 @@ def test_system_rules_and_examples():
     import question_set as qs
     import voice_card
     s = voice_llm.SYSTEM
-    check("「지금 할 일」을 그대로 전한다" in s, "할 일 규칙")
+    check("「지금 할 일」의 내용을 전한다" in s and "그대로 전한다" not in s, "할 일 규칙 — 「그대로」를 빼 카드 문구 복사를 줄인다(dev 2026-10-04)")
+    check("항목 이름" in s and "존댓말" in s, "🔑 카드 항목 이름을 말하지 않고 존댓말로 바꿔 말한다(dev 2026-10-04 — 「지금 할 일은 앞의 렌치를 쥔다」 27%)")
     check("「끝난 단계」" in s and "「아직 끝나지 않음」" in s, "끝남 규칙")
     check("「지금 할 일」에 없는 버튼" in s, "버튼 규칙이 지금 할 일 기준")
-    check("[예시]" in s and len(voice_llm.EXAMPLES) == 6, "모범 문답 6쌍")
+    check("[예시]" in s and len(voice_llm.EXAMPLES) == 7, "모범 문답 7쌍")
+    labels = ("지금 할 일", "끝난 단계", "공구 상황", "순서 판정", "아직 끝나지 않음")
+    check(not any(w in a for _, _, a in voice_llm.EXAMPLES for w in labels), "모범 답은 카드 항목 이름·명사형 문구를 쓰지 않는다")
+    check(any(c.startswith("지금 할 일: 앞의 렌치를 쥔다") for c, _, _ in voice_llm.EXAMPLES), "「지금 할 일」을 존댓말로 바꾼 예시가 있다")
 
     def norm(q):
         return "".join(c for c in q if not c.isspace() and c not in ",.?!·")
