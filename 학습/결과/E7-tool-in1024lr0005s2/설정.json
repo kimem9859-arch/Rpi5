@@ -1,0 +1,83 @@
+{
+ "id": "E7-tool-in1024lr0005s2",
+ "group": "tool",
+ "입력": "원본768x1024",
+ "바꾼것": "입력=원본768x1024 · seed=2 · lr0=0.0005",
+ "names": [
+  "driver",
+  "wrench",
+  "pliers"
+ ],
+ "conf": 0.65,
+ "train_kwargs": {
+  "epochs": 200,
+  "patience": 20,
+  "batch": 16,
+  "workers": 2,
+  "cache": "disk",
+  "optimizer": "AdamW",
+  "lr0": 0.0005,
+  "momentum": 0.9,
+  "warmup_bias_lr": 0.0,
+  "deterministic": true,
+  "amp": true,
+  "plots": true,
+  "imgsz": 1024,
+  "seed": 2
+ },
+ "predict_imgsz": [
+  1024,
+  768
+ ],
+ "stretch": null,
+ "멈춤": {
+  "포화_에폭": 30,
+  "포화_향상": 0.002,
+  "점수0_에폭": 10,
+  "점수0_mAP50": 0.05,
+  "진행없음_분": 15,
+  "시간상한_배": 2
+ },
+ "출발": "~/학습실험/yolov8n.pt",
+ "원본": "~/학습실험/원본/place1",
+ "루트": "~/학습실험",
+ "나눔": {
+  "name": "place1_v1",
+  "해시": "0a3197afa1ddeac1"
+ },
+ "코드": "~/학습실험/코드/7597f7c73e",
+ "코드해시": "7597f7c73e",
+ "시간상한_s": 5260.06,
+ "설정": {
+  "나눔": "place1_v1",
+  "입력": "원본768x1024",
+  "출발": "yolov8n.pt",
+  "seed": 2,
+  "train": {
+   "epochs": 200,
+   "patience": 20,
+   "batch": 16,
+   "workers": 2,
+   "cache": "disk",
+   "optimizer": "AdamW",
+   "lr0": 0.0005,
+   "momentum": 0.9,
+   "warmup_bias_lr": 0.0,
+   "deterministic": true,
+   "amp": true,
+   "plots": true
+  },
+  "멈춤": {
+   "포화_에폭": 30,
+   "포화_향상": 0.002,
+   "점수0_에폭": 10,
+   "점수0_mAP50": 0.05,
+   "진행없음_분": 15,
+   "시간상한_배": 2
+  },
+  "메모": "조합 확인 · 시드 2 — E1(원본 768×1024) + E4a(학습률 0.0005) · 사용자 질문 2026-10-04",
+  "id": "E7-tool-in1024lr0005s2",
+  "group": "tool",
+  "바꾼것": "입력=원본768x1024 · seed=2 · lr0=0.0005"
+ }
+}
