@@ -316,7 +316,7 @@ _STATE_LINE = {"차단": "순서 판정: 🔴 차단 중 — 순서를 어겨 �
 UNKNOWN_LINE = "이 시스템이 모르는 것: 가스·압력·온도 같은 장비 센서 값 · 다른 작업자"
 
 
-def build_card(state, dets, fresh, now=None):
+def build_card(state, dets, fresh, now=None, question=None):
     """LLM 프롬프트에 붙일 `[사실]` 블록 — 맨 위가 코드가 정한 「지금 할 일」이다(설계 2026-10-04 §4.1).
 
     🔴 「지금 눌러야 할 버튼」 줄을 두지 않는다 — 비상정지 중에도 그 줄이 있어 모델이 「B3 를 누르세요」를
@@ -324,6 +324,9 @@ def build_card(state, dets, fresh, now=None):
     """
     act = next_action(state, dets, fresh, now)
     L = ["[사실]", f"지금 할 일: {act['카드']}"]
+    ask = asked_progress(question, card_facts(state, dets, fresh, now)) if question else None
+    if ask:
+        L.append(f"질문한 일: {ask['대상']} — {_ASK_STATE[ask['상태']]}")      # 🔑 끝남은 코드가 판단(§3-1 · 판 2 45번)
     st = state or {}
     emo = bool(st.get("비상정지"))
     if not state or not st.get("세션"):
@@ -466,7 +469,13 @@ _STEP_NUM = re.compile(r"(?<![A-Za-z])(\d+)\s*번?\s*째?\s*단계")
 _STEP_ORD = re.compile(r"(첫|두|세|네)\s*번째\s*단계")
 _ORD = {"첫": 1, "두": 2, "세": 3, "네": 4}
 _YES = re.compile(r"^\s*(?:네|예)(?![가-힣])")
-_DONE_Q = re.compile(r"끝났|끝난|끝냈|됐|완료|마쳤|다\s*했|끈났")              # 끝났냐는 질문
+_DONE_Q = re.compile(r"끝났|끝난|끝냈|됐|완료|마쳤|다\s*했|다\s*된|끈났|끈난")  # 끝났냐는 질문
+_NOT_DONE = re.compile(r"아직|안\s*끝|끝나지\s*않|않았|진행\s*중|시작\s*전")       # 안 끝났다는 말
+_TOOL_ASK = re.compile(r"(?:렌치|드라이버|플라이어|공구).*(?:확인|인식|쥐|잡)|(?:확인|인식).*(?:렌치|드라이버|플라이어|공구)")
+_CUR_ASK = re.compile(r"이번|이단계|지금단계")
+_ALL_ASK = re.compile(r"작업|전부|전체|모두")
+_STEP_NUM_ASK = re.compile(r"(\d)단계")
+_ASK_STATE = {"끝남": "이미 끝남", "진행 중": "아직 끝나지 않음", "시작 전": "아직 시작 전"}
 _YES_LEAD = re.compile(r"^\s*(?:네|예)(?![가-힣])[\s,.!]*")                   # 맨 앞 「네,」·「예.」
 _GRIP = re.compile(r"(?:쥐었|쥐셨)(?!으면)|쥔\s*것으로\s*확인|확인됐|확인되었|확인\s*완료")
 _SENSOR = re.compile(r"가스|압력|온도|누출|누설|진공도|유량")
@@ -636,7 +645,12 @@ def _recipe_steps(path=_RECIPE_PATH):
                 steps = json.load(f).get("steps", [])
         except (OSError, ValueError):
             steps = []
-        _steps_cache = {s.get("order"): (s.get("name") or "", (s.get("sub") or {}).get("label")) for s in steps}
+        _steps_cache = {}
+        for s in steps:
+            sub = s.get("sub") or {}
+            tool = sub.get("tool") if sub.get("type") == "wait_tool" else None
+            tool_name = ((sub.get("tool_names") or {}).get(tool) or TOOL_KO.get(tool, tool)) if tool else None
+            _steps_cache[s.get("order")] = (s.get("name") or "", sub.get("label"), tool_name)
     return _steps_cache
 
 
@@ -648,9 +662,90 @@ def _done_steps(cur):
     names = _recipe_steps()
     parts = []
     for n in range(1, cur):
-        name, sub = names.get(n, ("", None))
+        name, sub, _ = names.get(n, ("", None, None))
         parts.append(f"{n}단계 「{name}」" + (f"({sub})" if sub else "") if name else f"{n}단계")
     return " · ".join(parts)
+
+
+def _josa(word, with_final, without_final):
+    """받침이 있으면 앞 것(은·을), 없으면 뒤 것(는·를) — 마지막 한글 글자로 본다."""
+    for ch in reversed(word or ""):
+        if "가" <= ch <= "힣":
+            return with_final if (ord(ch) - 0xAC00) % 28 else without_final
+    return without_final
+
+
+def _step_words():
+    """질문에서 단계를 찾을 낱말 {공백 없앤 낱말: 단계 번호} — 레시피의 이름·조각·서브 작업 이름·그 어절(긴 것부터)."""
+    out = {}
+    for n, (name, sub, _) in _recipe_steps().items():
+        words = {name, *re.split(r"[·/\s]", name)}
+        if sub:
+            words |= {sub, *sub.split()}
+        for w in words:
+            w = w.replace(" ", "")
+            if len(w) >= 2 and w != "진행":          # 「진행」은 「진행 중이야?」 같은 질문에 늘 나온다
+                out.setdefault(w, n)
+    return sorted(out.items(), key=lambda kv: -len(kv[0]))
+
+
+def asked_progress(question, facts):
+    """끝났냐는 질문의 대상과 끝남을 코드가 정한다 → {"대상", "상태"(끝남|진행 중|시작 전), "말"} · 모르면 None.
+
+    🔴 holdout 판 2 45번(2026-10-04) — 4단계에서 「N2 퍼지 완료야?」에 LLM 이 지금 단계 줄의 「아직 끝나지 않음」을
+       옮겼다. 끝난 단계에 이름을 넣어도 그대로였다. 설계 §3-1 「끝남은 코드가 판단」을 이 질문에도 적용한다 —
+       카드 맨 위에 판정을 주고(build_card), LLM 이 반대로 말하면 그물이 이 「말」로 바꾼다(finalize).
+    대상 = 공구 확인(렌치 확인·인식) → 단계(번호·레시피 이름) → 이번 단계 → 작업 전체. 못 찾으면 None(LLM 이 답한다).
+    """
+    if not question or not facts.get("세션") or not _DONE_Q.search(question):
+        return None
+    q = question.replace(" ", "")
+    done_all = bool(facts.get("완료"))
+    cur = facts.get("단계")
+    steps = _recipe_steps()
+    if _TOOL_ASK.search(q):
+        tool_step = next(((n, tn) for n, (_, _, tn) in sorted(steps.items()) if tn), None)
+        if tool_step:
+            n, want = tool_step
+            tp = facts.get("공구상황")
+            if done_all or (isinstance(cur, int) and cur > n) or (tp and tp["상황"] == "쥠"):
+                st = "끝남"
+            elif cur == n and tp:
+                st = "진행 중"
+            else:
+                st = "시작 전"
+            j = _josa(want, "은", "는")
+            say = {"끝남": f"네, {want}{j} 이미 확인됐습니다.",
+                   "진행 중": f"아니요, {want}{j} 아직 확인되지 않았습니다.",
+                   "시작 전": f"아니요, {want} 확인은 아직 시작 전입니다."}[st]
+            return {"대상": f"{want} 확인", "상태": st, "말": say, "낱말": [want]}
+    n = None
+    m = _STEP_NUM_ASK.search(q)
+    if m:
+        n = int(m.group(1))
+    else:
+        n = next((k for w, k in _step_words() if w in q), None)
+    if n is None and _CUR_ASK.search(q):
+        n = cur
+    if n is not None and n in steps:
+        name, sub, _ = steps[n]
+        if done_all or (isinstance(cur, int) and n < cur):
+            st = "끝남"
+        elif n == cur:
+            st = "진행 중"
+        else:
+            st = "시작 전"
+        j = _josa(name, "은", "는")
+        say = {"끝남": f"네, {n}단계 「{name}」{j} 이미 끝났습니다.",
+               "진행 중": f"아니요, {n}단계 「{name}」{j} 아직 끝나지 않았습니다.",
+               "시작 전": f"아니요, {n}단계 「{name}」{j} 아직 시작 전입니다."}[st]
+        words = [w for w, k in _step_words() if k == n] + [f"{n}단계"]
+        return {"대상": f"{n}단계 「{name}」" + (f"({sub})" if sub else ""), "상태": st, "말": say, "낱말": words}
+    if _ALL_ASK.search(q):
+        st = "끝남" if done_all else "진행 중"
+        say = "네, 작업이 모두 끝났습니다." if done_all else "아니요, 작업은 아직 끝나지 않았습니다."
+        return {"대상": "작업 전체", "상태": st, "말": say, "낱말": ["작업"]}
+    return None
 
 
 def sensor_question(question):
@@ -691,6 +786,14 @@ def finalize(raw, facts, question=None):
     bad = check_safety(said, facts, question)
     if "비상정지억제" in bad:
         return EMO_SENTENCE, "대체-안전규칙", bad
+    ask = asked_progress(question, facts)
+    if ask and ask["상태"] == "끝남" and _NOT_DONE.search(said):
+        return ask["말"], "대체-안전규칙", ["끝남반대"]          # 끝났는데 안 끝났다고 함(판 2 45번)
+    if ask and ask["상태"] != "끝남" and _DONE.search(said) and not _NOT_DONE.search(said):
+        return ask["말"], "대체-안전규칙", ["진행단정"]          # 안 끝났는데 끝났다고 함
+    if (ask and ask["상태"] == "끝남" and "진행단정" in bad and not _NOT_DONE.search(said)
+            and any(w in said.replace(" ", "") for w in ask["낱말"])):
+        bad.remove("진행단정")          # 끝난 대상(질문한 일)을 끝났다고 한 것 — 지금 단계 단정이 아니다
     if bad == ["공구단정"]:
         return tool_sentence(facts["공구상황"]), "대체-안전규칙", bad
     if bad:

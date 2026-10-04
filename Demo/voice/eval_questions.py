@@ -85,7 +85,7 @@ def run_items(items, f, tts, pass_no=1):
             said = sensed
             row.update({"문장": said, "경로": "대체-센서질문", "안전규칙": ["센서질문"]})
         else:
-            card = voice_card.build_card(state, dets, fresh)
+            card = voice_card.build_card(state, dets, fresh, question=it["질문"])
             raw, m = voice_llm.ask(card, it["질문"])
             row.update(m)
             if raw is None:

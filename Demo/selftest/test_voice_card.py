@@ -441,6 +441,47 @@ def test_yes_strip_and_done_names():
           "3단계 「전극 냉각」(전극 온도 하강)" in c, f"🔑 끝난 단계에 이름·서브 작업(45번)\n{c}")
 
 
+def test_asked_progress():
+    print("── 끝났냐 질문의 대상·끝남은 코드가 판단(holdout 판 2 45번 · 설계 2026-10-04 §3-1)")
+    from voice_card import asked_progress
+    t0 = LIVE["쓴시각"]
+    s4 = dict(LIVE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None)
+    last = card_facts(s4, [], False)
+    a = asked_progress("N2 퍼지 완료야?", last)
+    check(a is not None and a["상태"] == "끝남" and a["말"] == "네, 2단계 「펌프/퍼지」는 이미 끝났습니다.",
+          f"🔑 4단계에서 N2 퍼지 = 끝남 — {a}")
+    check(asked_progress("벤트까지 다 했지?", last)["상태"] == "진행 중", "4단계 벤트 = 진행 중")
+    check(asked_progress("이번 단계 끝났어?", last)["상태"] == "진행 중", "이번 단계 = 지금 단계")
+    check(asked_progress("작업 다 끝났어?", last)["상태"] == "진행 중", "작업 전체 — 완료 전")
+    check(asked_progress("냉각다끈난거지", last)["상태"] == "끝남", "받아쓰기 오류(끈난)도 — 3단계 냉각 = 끝남")
+    s1 = card_facts(dict(LIVE, 현재단계=1, 현재단계명="클린·가스차단", 현재버튼="B1"), [], False)
+    a = asked_progress("냉각 끝난 거 맞지?", s1)
+    check(a["상태"] == "시작 전" and a["말"] == "아니요, 3단계 「전극 냉각」은 아직 시작 전입니다.", f"1단계에서 냉각 = 시작 전(조사 은) — {a}")
+    check(asked_progress("2단계 다 된 거 맞지?", s1)["상태"] == "시작 전", "번호로 묻기 · 「다 된」도 끝났냐 질문")
+    check(asked_progress("벤트까지 다 했지?", card_facts(DONE, [], False))["상태"] == "끝남", "완료면 모두 끝남")
+    run = dict(LIVE, 서브진행={"상태": "진행 중", "남은초": 6.0, "공구충족": False, "공구오답": None})
+    seen = card_facts(run, [("wrench", 0.62, 0, 0, 9, 9)], True, now=t0)
+    a = asked_progress("렌치 확인 끝났지?", seen)
+    check(a["상태"] == "진행 중" and a["말"] == "아니요, 렌치는 아직 확인되지 않았습니다.", f"렌치 확인 — 아직 {a}")
+    held = card_facts(dict(run, 서브진행=dict(run["서브진행"], 공구충족=True)), [], True, now=t0)
+    check(asked_progress("렌치 인식 완료된 거지?", held)["상태"] == "끝남", "쥠 = 렌치 확인 끝남")
+    check(asked_progress("렌치 확인 끝났지?", last)["상태"] == "끝남", "4단계면 렌치 확인(2단계)은 끝남")
+    check(asked_progress("렌치 확인 끝났지?", s1)["상태"] == "시작 전", "1단계면 렌치 확인은 시작 전")
+    check(asked_progress("지금 몇 단계야?", last) is None, "끝났냐 질문이 아니면 None")
+    check(asked_progress("다음 단계로 넘어갔어?", last) is None, "대상·끝남 말이 없으면 None(LLM 이 답한다)")
+    check(asked_progress("N2 퍼지 완료야?", card_facts(None, [], False)) is None, "작업 전에는 None")
+    c = build_card(s4, [], False, question="N2 퍼지 완료야?")
+    check(c.splitlines()[2] == "질문한 일: 2단계 「펌프/퍼지」(N2 퍼지) — 이미 끝남", f"카드 셋째 줄 = 질문한 일\n{c}")
+    check("질문한 일" not in build_card(s4, [], False, question="지금 몇 단계야?"), "끝났냐 질문이 아니면 줄이 없다")
+    t, src, bad = finalize("아직 끝나지 않았습니다.", last, question="N2 퍼지 완료야?")
+    check((t, src, bad) == ("네, 2단계 「펌프/퍼지」는 이미 끝났습니다.", "대체-안전규칙", ["끝남반대"]),
+          f"🔑 판정과 반대면 코드 문장 — {t}")
+    t, src, bad = finalize("N2 퍼지는 이미 끝났습니다.", last, question="N2 퍼지 완료야?")
+    check(src == "LLM", "판정과 맞으면 LLM 문장 그대로")
+    t, src, bad = finalize("네, 벤트까지 끝났습니다.", last, question="벤트까지 다 했지?")
+    check(src.startswith("대체") and t == "아니요, 4단계 「챔버 벤트」는 아직 끝나지 않았습니다.", f"진행 중인데 끝났다 → 코드 문장 — {t}")
+
+
 def main():
     test_v2_emo_block_card()
     test_shorten()
@@ -457,6 +498,7 @@ def main():
     test_verify_redesign()
     test_alert_event_rules()
     test_yes_strip_and_done_names()
+    test_asked_progress()
     tmp = tempfile.mkdtemp(prefix="sop_card_test_")
     path = os.path.join(tmp, "state.json")
     try:

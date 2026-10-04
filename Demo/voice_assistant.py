@@ -682,7 +682,7 @@ class Assistant:
             m["LLM오류"] = "예열 전" if not self.llm.ready else "건너뜀(연속 실패)"
             self._answer_fixed(tool_q, facts, "고정-LLM준비안됨", m)
             return
-        card = voice_card.build_card(state, dets, fresh)
+        card = voice_card.build_card(state, dets, fresh, question=text)   # 🔑 끝났냐 질문이면 「질문한 일」 줄
         m["카드줄수"] = card.count("\n")
         th, box = ask_async(self.llm.ask, card, text)
         if not self._preempted(m):

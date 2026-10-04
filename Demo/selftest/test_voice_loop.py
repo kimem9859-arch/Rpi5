@@ -171,7 +171,8 @@ def test_progress_claim_replaced():
     print("\n[안전] 진행 단정 → 대체(R3 I4)")
     b = bot(llm=FakeLlm("N2 퍼지가 끝났습니다."), state=RUNNING)
     ok, m = ask(b, "펌프 퍼지 끝났어")
-    check(b.tts.said == ["앞에 렌치가 보이니 손으로 쥐면 확인됩니다."], f"말한 것 = {b.tts.said}")
+    # 🔑 판 2 이후 — 끝났냐 질문은 코드가 판정한 「질문한 일」 문장으로 바꾼다(질문에 직접 답한다)
+    check(b.tts.said == ["아니요, 2단계 「펌프/퍼지」는 아직 끝나지 않았습니다."], f"말한 것 = {b.tts.said}")
 
 
 def test_long_answer_shortened():
@@ -407,6 +408,17 @@ def test_yes_stripped_in_answer():
     b = bot(llm=FakeLlm("네, 렌치를 손으로 쥐시면 확인됩니다."), state=RUNNING, tools=WRENCH)
     ok, m = ask(b, "렌치 확인 끝났지")
     check(b.tts.said == ["렌치를 손으로 쥐시면 확인됩니다."] and m["답변출처"] == "LLM", f"{b.tts.said} · {m.get('답변출처')}")
+
+
+def test_asked_progress_in_answer():
+    """holdout 판 2 45번 — 끝났냐 질문은 카드에 「질문한 일」을 넣고, LLM 이 반대로 말하면 코드 문장으로 바꾼다."""
+    print("\n[판단] 질문한 일")
+    s4 = dict(STATE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None)
+    b = bot(llm=FakeLlm("아직 끝나지 않았습니다."), state=s4, tools=([], False))
+    ok, m = ask(b, "N2 퍼지 완료야")
+    check(b.llm.asked and "질문한 일: 2단계 「펌프/퍼지」(N2 퍼지) — 이미 끝남" in b.llm.asked[0][0], "LLM 카드에 질문한 일")
+    check(b.tts.said == ["네, 2단계 「펌프/퍼지」는 이미 끝났습니다."] and m["답변출처"] == "대체-안전규칙",
+          f"{b.tts.said} · {m.get('답변출처')}")
 
 
 # ── 메인 루프(Task 9) ─────────────────────────────────────────────────────
