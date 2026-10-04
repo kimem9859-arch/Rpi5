@@ -20,7 +20,8 @@ sys.path.insert(0, _DEMO_DIR)
 from voice_card import (ANSWER_MAX_CHARS, build_card, card_facts, check_safety, fallback_sentence,
                         finalize, in_emergency, is_one_sentence, next_action, read_state, shorten,
                         tool_phase, tool_sentence, UNKNOWN_LINE, verify_answer,
-                        sensor_answer, sensor_question, SENSOR_SENTENCE)
+                        sensor_answer, sensor_question, SENSOR_SENTENCE, alert_event, alert_kind,
+                        alert_texts)
 
 _fails = []
 
@@ -390,6 +391,31 @@ def test_verify_redesign():
     check(ok, "보이는 공구 점수 순서만 바뀌면 버리지 않는다")
 
 
+def test_alert_event_rules():
+    print("── 알림 판정(설계 2026-10-04 §4.3 · Review Focus 3)")
+    P = os.getpid()
+    base = dict(LIVE, pid=P)
+    emo = dict(base, 상태="BLOCK", 비상정지=True)
+    warn = dict(base, 상태="WARNING")
+    blk = dict(base, 상태="BLOCK")
+    pre = {"세션": False, "비상정지": False, "EMO신호없음": False, "pid": P}
+    check(alert_event(None, emo) is None, "직전을 모르면 알리지 않는다")
+    check(alert_event(base, emo) == ("알림", "alert_emo"), "정상 → 비상정지")
+    check(alert_event(emo, emo) is None, "같은 상태가 이어지면 반복 안 함")
+    check(alert_event(emo, base) == ("멈춤", None), "풀리면 멈춤")
+    check(alert_event(base, warn) == ("알림", "alert_warn_B2"), "경고 — 지금 버튼별 소리")
+    check(alert_event(warn, blk) == ("알림", "alert_block_B2"), "경고 → 차단은 차단 알림")
+    check(alert_event(pre, dict(pre, 비상정지=True)) == ("알림", "alert_emo"), "🔑 작업 전 비상정지도 알림")
+    check(alert_event(dict(base, pid=P + 1), emo) is None, "🔑 GUI 가 새로 떴으면(pid 바뀜) 알리지 않는다")
+    check(alert_event(pre, dict(pre, 비상정지=True, EMO신호없음=True)) is None, "🔑 켤 때 EMO 신호 없음은 비상정지로 안 알림")
+    check(alert_kind(dict(DONE, 상태="BLOCK", 비상정지=True)) == "비상정지", "완료 뒤 비상정지도 알림 종류")
+    t = alert_texts()
+    check(len(t) == 9 and "alert_emo" in t and "alert_block_B4" in t and "alert_warn_B1" in t, f"알림 소리 9개 — {sorted(t)}")
+    for k, s in t.items():
+        check(is_one_sentence(s) and len(s) <= ANSWER_MAX_CHARS, f"{k} 한 문장 60자 — {s}")
+    check(t["alert_warn_B3"] == "순서가 다르니 손을 떼고 B3 버튼을 누르세요.", "알림 문장 = 지금 할 일의 말(한 곳)")
+
+
 def main():
     test_v2_emo_block_card()
     test_shorten()
@@ -404,6 +430,7 @@ def main():
     test_net_redesign()
     test_sensor_question()
     test_verify_redesign()
+    test_alert_event_rules()
     tmp = tempfile.mkdtemp(prefix="sop_card_test_")
     path = os.path.join(tmp, "state.json")
     try:

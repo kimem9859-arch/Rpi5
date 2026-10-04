@@ -18,6 +18,10 @@ import time
 import wave
 
 import sherpa_onnx
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import voice_card  # noqa: E402  — 알림 문장은 「지금 할 일」의 말 그대로(설계 2026-10-04 §4.3 · 한 곳)
 
 D = os.path.expanduser("~/env/tts/vits-mimic3-ko_KO-kss_low")
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wav")
@@ -38,6 +42,7 @@ ANSWERS = {
     "changed":     "상태가 바뀌었습니다. 다시 말씀해 주세요.",
     "unavailable": "지금은 답변할 수 없습니다.",
 }
+ANSWERS.update(voice_card.alert_texts())    # 🔔 알림 9개 — alert_emo · alert_block_B1~4 · alert_warn_B1~4
 
 
 def main():
@@ -68,7 +73,7 @@ def main():
             w.setframerate(a.sample_rate)
             w.writeframes(array.array(
                 "h", [int(max(-1, min(1, x)) * 32767) for x in a.samples]).tobytes())
-        print(f"  {k:8s} {len(text):2d}자 · 합성 {el:.2f}s · "
+        print(f"  {k:16s} {len(text):2d}자 · 합성 {el:.2f}s · "
               f"{len(a.samples) / a.sample_rate:.2f}초 · {a.sample_rate}Hz → {path}")
 
 

@@ -65,6 +65,10 @@ class FakeSpk:
     def reset(self):
         pass
 
+    def stop(self):
+        self.calls.append(("stop",))
+        return True
+
     def keys(self):
         return [c[1] for c in self.calls if c[0] == "play"]
 
@@ -99,7 +103,7 @@ class FakeLlm:
         return (self.answer, {"LLM_ms": 1}) if self.answer else (None, {"LLM오류": "가짜 실패"})
 
 
-def bot(spk=None, tts="기본", llm=None, state=STATE, tools=WRENCH, states=None):
+def bot(spk=None, tts="기본", llm=None, state=STATE, tools=WRENCH, states=None, alert_gen=None):
     spk = spk or FakeSpk()
     tts = FakeTts() if tts == "기본" else tts
     llm = llm or FakeLlm()
@@ -108,7 +112,8 @@ def bot(spk=None, tts="기본", llm=None, state=STATE, tools=WRENCH, states=None
         read_state = lambda: seq.pop(0) if len(seq) > 1 else seq[0]   # noqa: E731
     else:
         read_state = lambda: state                                     # noqa: E731
-    return va.Assistant(spk, tts, llm, read_state=read_state, read_tools=lambda: tools)
+    return va.Assistant(spk, tts, llm, read_state=read_state, read_tools=lambda: tools,
+                        alert_gen=alert_gen)
 
 
 def ask(b, text):
@@ -252,6 +257,104 @@ def test_answer_exception_falls_back():
         check(False, f"예외가 새어 나왔다 — {type(e).__name__}: {e}")
 
 
+EMO = dict(STATE, 상태="BLOCK", 비상정지=True)
+
+
+def test_alert_watcher_steps():
+    print("\n[알림] 감시 — 멈춤 먼저 · 알림 · 풀리면 멈춤")
+    seq = [STATE, STATE, EMO, EMO, STATE]
+    spk = FakeSpk()
+    w = va.AlertWatcher(spk, read_state=lambda: seq.pop(0))
+    evs = [w.step() for _ in range(5)]
+    check(evs == [None, None, ("알림", "alert_emo"), None, ("멈춤", None)], f"사건 — {evs}")
+    check(spk.calls == [("stop",), ("play", "alert_emo"), ("stop",)], f"멈춤 → 알림 → (풀림) 멈춤 — {spk.calls}")
+    check(w.gen == 1 and not w.speaking.is_set(), "알림 1회 · 재생 끝")
+
+
+def test_alert_hold():
+    """Review Focus 1 — 알림 동안·직후 소리는 버린다(알림을 질문으로 받아쓰지 않게 · 루프가 깨어남도 푼다)."""
+    print("\n[알림] 메인 루프가 소리를 버림")
+
+    class A:
+        def __init__(self):
+            self.speaking = threading.Event()
+            self.gen = 0
+
+    a = A()
+    check(va.alert_hold(None, 0) == (False, 0), "알림 끄면 아무 일 없음")
+    check(va.alert_hold(a, 0) == (False, 0), "평소")
+    a.speaking.set()
+    a.gen = 1
+    check(va.alert_hold(a, 0) == (True, 0), "재생 중 — 버림 · 아직 따라잡지 않음")
+    a.speaking.clear()
+    check(va.alert_hold(a, 0) == (True, 1), "끝난 직후 한 번 더 버리고 따라잡음")
+    check(va.alert_hold(a, 1) == (False, 1), "그다음은 평소")
+
+
+def test_answer_dropped_after_alert():
+    """Review Focus 2 — 질문을 받은 뒤 알림이 나갔으면 만들던 답을 조용히 버린다(「상태가 바뀌었습니다」 없음)."""
+    print("\n[알림] 답 버림")
+    g = [0]
+
+    class AlertDuringLlm(FakeLlm):
+        def ask(self, card, q):
+            g[0] = 1                                 # LLM 을 기다리는 동안 알림이 나갔다
+            return super().ask(card, q)
+
+    b = bot(llm=AlertDuringLlm("지금은 2단계입니다."), alert_gen=lambda: g[0])
+    ok, m = ask(b, "지금 몇 단계야")
+    check(b.spk.pcms() == [] and "changed" not in b.spk.keys(), f"답·「상태가 바뀌었습니다」 없음 — {b.spk.calls}")
+    check(m.get("답변출처") == "알림으로버림", f"출처 — {m.get('답변출처')}")
+    check(b.awake_until == 0.0, "🔑 대화창은 닫힌다 — 버린 답을 다시 말하지도, 대화창을 이어 주지도 않는다(사용자 2026-10-04)")
+
+
+def test_stopped_answer_no_fallback():
+    print("\n[알림] 멈춘 답은 실패가 아니다")
+
+    class StopSpk(FakeSpk):
+        def send(self, payload, expect=False):
+            self.calls.append(("pcm", len(payload)))
+            return ["[적재] ok", "[재생] 1샘플", "[재생 중단]"]
+
+    b = bot(spk=StopSpk())
+    ok, m = ask(b, "지금 몇 단계야")
+    check(b.spk.keys() == ["checking"] and m.get("재생중단") is True, f"A 갈래로 다시 말하지 않는다 — {b.spk.calls}")
+
+
+def test_loop_alert_plays_during_stt():
+    """설계 2026-10-04 §4.3 — 루프 전체: 받아쓰기(STT)가 메인 루프를 3초 막고 있어도 알림은 그동안 나간다."""
+    print("\n[루프] STT 중 알림")
+    va.WAV_DIR = _wavdir()
+    fg = FakeGlass([tone(0.8)], mic_port=0, cmd_port=0, lead_sec=0.5, tail_sec=6.0, play_speed=0.05,
+                   quiet=True).start()
+    busy = {}
+
+    def slow_stt(samples):
+        busy["start"] = time.time()
+        time.sleep(3.0)
+        busy["end"] = time.time()
+        return ""
+
+    seen = []
+    old = va.log
+    va.log = lambda m: (seen.append((time.time(), m)), old(m))
+    th, stop = _run_bg(fg, slow_stt, FakeLlm(), FakeTts(),
+                       read_state=lambda: EMO if busy.get("start") and time.time() > busy["start"] + 0.3 else STATE)
+    try:
+        end = time.time() + 12
+        while time.time() < end and "end" not in busy:
+            time.sleep(0.1)
+    finally:
+        stop.set()
+        th.join(5)
+        fg.stop()
+        va.log = old
+    t_alert = next((t for t, m in seen if "🔔 알림 → alert_emo" in m), None)
+    check(t_alert is not None and "end" in busy and t_alert < busy["end"],
+          f"🔑 STT 가 끝나기 전에 알림이 나갔다(메인 루프와 따로) — 알림 {t_alert} · STT 끝 {busy.get('end')}")
+    check(fg.count("play") >= 1, f"모의 글라스가 재생했다 — {fg.count('play')}")
+
+
 # ── 메인 루프(Task 9) ─────────────────────────────────────────────────────
 def tone(sec, amp=4000):
     return [int(amp * math.sin(i / 5)) for i in range(int(16000 * sec))]
@@ -260,7 +363,7 @@ def tone(sec, amp=4000):
 def _wavdir():
     d = tempfile.mkdtemp(prefix="sop_wav_")
     for k in ("checking", "notready", "unavailable", "changed", "wrench", "driver", "pliers",
-              "none", "notstep"):
+              "none", "notstep") + tuple(va.voice_card.alert_texts()):
         with wave.open(os.path.join(d, f"{k}.wav"), "w") as w:
             w.setnchannels(1)
             w.setsampwidth(2)
@@ -269,11 +372,11 @@ def _wavdir():
     return d
 
 
-def _run_bg(fg, stt, llm, tts):
+def _run_bg(fg, stt, llm, tts, read_state=lambda: STATE):
     stop = threading.Event()
     th = threading.Thread(target=va.run, daemon=True, kwargs=dict(
         get_ip=lambda: "127.0.0.1", mic_port=fg.mic_port, cmd_port=fg.cmd_port, stt=stt, tts=tts,
-        llm=llm, read_state=lambda: STATE, read_tools=lambda: WRENCH, stop=stop))
+        llm=llm, read_state=read_state, read_tools=lambda: WRENCH, stop=stop))
     th.start()
     return th, stop
 

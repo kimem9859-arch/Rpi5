@@ -232,6 +232,50 @@ def next_action(state, dets=(), fresh=False, now=None):
     return _act("누름", btn, (btn,), f"{btn} 를 누른다", f"지금은 {btn} 차례입니다.")
 
 
+def alert_kind(state):
+    """알림 종류 — "비상정지"|"차단"|"경고"|None(설계 2026-10-04 §4.3).
+
+    🔑 켤 때부터 EMO 가 HIGH(`EMO신호없음`)면 배선 끊김일 수 있어 「비상정지」로 알리지 않는다.
+    """
+    st = state or {}
+    if st.get("비상정지"):
+        return None if st.get("EMO신호없음") else "비상정지"
+    if not st.get("세션"):
+        return None
+    return {"BLOCK": "차단", "WARNING": "경고"}.get(st.get("상태"))
+
+
+def alert_key(kind, button=None):
+    """미리 합성한 알림 소리의 키(= wav 파일 이름)."""
+    if kind == "비상정지":
+        return "alert_emo"
+    return f"alert_{'block' if kind == '차단' else 'warn'}_{button}"
+
+
+def alert_texts():
+    """미리 합성할 알림 문장 9개 — 「지금 할 일」의 말 그대로(한 곳에서 만든다 · make_answers 가 쓴다)."""
+    out = {"alert_emo": next_action({"세션": True, "비상정지": True})["말"]}
+    for b in ("B1", "B2", "B3", "B4"):
+        out[alert_key("차단", b)] = next_action({"세션": True, "상태": "BLOCK", "현재버튼": b})["말"]
+        out[alert_key("경고", b)] = next_action({"세션": True, "상태": "WARNING", "현재버튼": b})["말"]
+    return out
+
+
+def alert_event(prev, cur):
+    """직전·지금 상태 → None | ("알림", 소리 키) | ("멈춤", None).
+
+    🔑 같은 GUI(pid) 안에서 바뀐 것만 본다 — 직전을 모르거나 GUI 가 새로 떴으면 알리지 않는다.
+    """
+    if not prev or not cur or prev.get("pid") != cur.get("pid"):
+        return None
+    pk, ck = alert_kind(prev), alert_kind(cur)
+    if ck and ck != pk:
+        return ("알림", alert_key(ck, cur.get("현재버튼")))
+    if pk and not ck:
+        return ("멈춤", None)
+    return None
+
+
 def card_facts(state, dets, fresh, now=None):
     """검산·안전 규칙이 대조할 사실 묶음 — 카드 문장이 아니라 값이다."""
     st = state or {}

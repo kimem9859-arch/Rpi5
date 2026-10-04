@@ -62,6 +62,7 @@ VAD_HOP_SEC = 0.25    # 🔑 새 소리가 이만큼 쌓였을 때만 판정한�
                       #    것이 무음 대기 CPU 의 원인이었다(설계 2026-10-03 §4.1 · Q7 · 10/03 실측)
 STALL_SEC  = 3.0      # 🔴 펌웨어는 접속 중 쉬지 않고 보낸다 — 이만큼 0바이트면 반열림으로 보고 다시 붙는다(P5)
 RETRY_SEC  = 3.0      # 다시 붙기 전 대기
+ALERT_POLL_SEC = 0.1    # 🔑 상태 감시 간격 — 알림 목표 0.3초(설계 2026-10-04 §4.3)의 한 몫
 
 # 🔑 한 대만 돈다 — 명령 채널(8890)은 손님 하나라 둘이 돌면 서로 끊는다(R2 통신 규약 대조표).
 LOCK_FILE = os.environ.get("SOP_VOICE_LOCK", "/tmp/sop_voice_assistant.lock")
@@ -506,6 +507,71 @@ def ask_async(ask_fn, card, question):
     return th, box
 
 
+class AlertWatcher:
+    """상태 감시 — 비상정지·차단·경고로 바뀌면 고정 알림, 풀리면 재생 멈춤(설계 2026-10-04 §4.3).
+
+    🔑 메인 루프와 따로 돈다 — 메인 루프는 STT·LLM 동안 수 초씩 멈춰 있다.
+    `gen` = 알림이 나간 횟수 — 답을 만들던 쪽(Assistant)이 이것이 바뀌었으면 답을 조용히 버린다.
+    `speaking` = 알림 재생 중 — 메인 루프가 그동안 들어온 소리를 버린다(G11 원칙 · alert_hold).
+    """
+
+    def __init__(self, spk, read_state=None, alog=None, poll_sec=ALERT_POLL_SEC):
+        self.spk = spk
+        self._read = read_state or voice_card.read_state
+        self.alog = alog
+        self.poll_sec = poll_sec
+        self.gen = 0
+        self.speaking = threading.Event()
+        self._prev = None
+
+    def step(self):
+        """한 번 본다 — 일어난 사건(없으면 None). 시험이 직접 부른다."""
+        cur = self._read()
+        ev = voice_card.alert_event(self._prev, cur)
+        self._prev = cur
+        if ev is None:
+            return None
+        self.spk.stop()                          # 재생 중이면 멈춘다(2단계 펌웨어 전에는 무시된다)
+        if ev[0] == "알림":
+            self.speaking.set()                  # 🔑 gen 보다 먼저 — 메인 루프가 재생 내내 버리게
+            self.gen += 1
+            try:
+                ok = self.spk.play(ev[1], self.alog)
+                lag = getattr(self.spk, "last_play_start", None)
+                t_pub = (cur or {}).get("쓴시각")
+                lag_txt = f" · 상태 공개→소리 시작 {lag - t_pub:.2f}초" if lag and t_pub and lag >= t_pub else ""
+                log(f"🔔 알림 → {ev[1]} · {'재생됨' if ok else '재생 확인 안 됨'}{lag_txt}")
+            finally:
+                self.speaking.clear()
+        else:
+            log("알림 상황이 풀렸다 — 재생 멈춤을 보냈다")
+        return ev
+
+    def run(self, stop):
+        while not stop.is_set():
+            try:
+                self.step()
+            except Exception as e:              # noqa: BLE001 — 감시가 죽으면 알림이 영영 없다
+                log(f"🔴 상태 감시 오류 — 계속한다: {type(e).__name__}: {e}")
+            stop.wait(self.poll_sec)
+
+    def start(self, stop):
+        th = threading.Thread(target=self.run, args=(stop,), daemon=True)
+        th.start()
+        return th
+
+
+def alert_hold(alerts, seen):
+    """메인 루프가 지금 소리를 버려야 하나 → `(버림, 새 seen)` — 알림 동안 · 끝난 직후 한 번(Review Focus 1)."""
+    if alerts is None:
+        return False, seen
+    if alerts.speaking.is_set():
+        return True, seen
+    if alerts.gen != seen:
+        return True, alerts.gen
+    return False, seen
+
+
 class Assistant:
     """발화 하나를 받아 답한다 — 스피커·합성·LLM·사실 출처는 밖에서 넣는다(selftest 가 가짜를 넣는다).
 
@@ -519,7 +585,7 @@ class Assistant:
     """
 
     def __init__(self, spk, tts=None, llm=None, alog=None, read_state=None, read_tools=None,
-                 clock=time.time):
+                 clock=time.time, alert_gen=None):
         self.spk = spk
         self.tts = tts
         self.llm = llm
@@ -528,6 +594,8 @@ class Assistant:
         self._read_tools = read_tools or read_tool_dets
         self._clock = clock
         self.awake_until = 0.0
+        self._alert_gen = alert_gen or (lambda: 0)   # 알림이 나간 횟수(AlertWatcher.gen) — 낡은 답을 버리는 기준
+        self._gen0 = 0
 
     def on_text(self, text, m):
         """STT 결과 하나. 질문에 답했으면 True — 호출부가 그동안 들어온 소리를 버린다(G11)."""
@@ -555,12 +623,21 @@ class Assistant:
 
     def _answer(self, text, tool_q, m):
         """🔴 무엇이 나도 침묵하지 않는다 — 예외면 고정 답(최종 리뷰 M2 · 예: 상태 파일의 값이 깨짐)."""
+        self._gen0 = self._alert_gen()
         try:
             self._answer_inner(text, tool_q, m)
         except Exception as e:                 # noqa: BLE001
             log(f"🔴 답을 만들다 예외 — 고정 답으로: {type(e).__name__}: {e}")
             m["답변오류"] = f"{type(e).__name__}: {e}"[:120]
             self._answer_a(tool_q, "고정-오류", m)
+
+    def _preempted(self, m):
+        """질문을 받은 뒤 알림이 나갔으면 이 답은 낡았다 — 조용히 버린다(설계 2026-10-04 §4.3)."""
+        if self._alert_gen() == self._gen0:
+            return False
+        m["답변출처"] = "알림으로버림"
+        log("알림이 먼저 나갔다 — 만들던 답을 버린다")
+        return True
 
     def _answer_inner(self, text, tool_q, m):
         dets, fresh = self._read_tools()
@@ -591,10 +668,13 @@ class Assistant:
         card = voice_card.build_card(state, dets, fresh)
         m["카드줄수"] = card.count("\n")
         th, box = ask_async(self.llm.ask, card, text)
-        self.spk.play("checking", self.alog)     # 🔑 LLM 과 겹쳐 돈다
+        if not self._preempted(m):
+            self.spk.play("checking", self.alog)     # 🔑 LLM 과 겹쳐 돈다
         th.join(timeout=config.LLM_TIMEOUT_SEC + 2.0)
         raw, lm = box.get("r", (None, {"LLM오류": "스레드 미완"}))
         m.update(lm)
+        if self._preempted(m):
+            return
         if not raw:
             self._answer_a(tool_q, "고정-폴백", m)
             return
@@ -634,14 +714,17 @@ class Assistant:
             key = answer_key(dets2, fresh2) if (tool_q and bad == ["공구"]) else "changed"
             self._play_key(key, "고정-검산불일치", m, 버린문장=said)
             return
+        if self._preempted(m):
+            return
         t_p = time.time()
         resp = self.spk.send(voice_tts.frame(pcm, rate), expect=True)
         ok = bool(resp) and any("재생 완료" in r for r in resp)
+        stopped = bool(resp) and any("재생 중단" in r for r in resp)     # 알림·해제가 멈췄다 — 실패가 아니다
         self.alog.played_pcm("llm", pcm, rate, said)
         m.update({"답변출처": src, "답변문장": said, "말하는초": round(sec, 2),
-                  "재생성공": ok, "재생_ms": round((time.time() - t_p) * 1000)})
-        if ok:
-            log(f"{src} 답변({sec:.1f}초 말함) → {said}")
+                  "재생성공": ok, "재생중단": stopped, "재생_ms": round((time.time() - t_p) * 1000)})
+        if ok or stopped:
+            log(f"{src} 답변({sec:.1f}초 말함{' · 도중에 멈춤' if stopped else ''}) → {said}")
             return
         log(f"🔴 답 재생이 확인되지 않았다 — A 갈래로 한 번 더: {said}")
         m["답변재생실패"] = said
@@ -654,6 +737,8 @@ class Assistant:
         self._play_key(key, src, m)
 
     def _play_key(self, key, src, m, **extra):
+        if self._preempted(m):
+            return
         t_p = time.time()
         ok = self.spk.play(key, self.alog)
         m.update({"답변출처": src, "답변": key, "재생성공": ok,
@@ -709,12 +794,18 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     # 🔑 명령 채널을 미리 붙여 둔다 — 첫 「띠링」이 연결 설정과 겹쳐 안 들렸다(2026-09-07).
     spk.send(b"")
     mic.start()                       # 🔑 데몬을 ESP32 보다 먼저 켜도 된다 — 붙을 때까지 다시 시도한다
-    bot = Assistant(spk, tts, llm, alog, read_state=read_state, read_tools=read_tools)
+    stop_ev = stop if stop is not None else threading.Event()
+    alerts = AlertWatcher(spk, read_state=read_state, alog=alog) if config.VOICE_ALERTS else None
+    if alerts is not None:
+        alerts.start(stop_ev)                    # 🔑 메인 루프와 따로(설계 2026-10-04 §4.3)
+    bot = Assistant(spk, tts, llm, alog, read_state=read_state, read_tools=read_tools,
+                    alert_gen=(lambda: alerts.gen) if alerts is not None else None)
+    seen_alert = 0
     buf = np.zeros(0, dtype=np.int16)
     since, gen = 0, 0
     hop = int(RATE * VAD_HOP_SEC)
     try:
-        while not (stop is not None and stop.is_set()):
+        while not stop_ev.is_set():
             try:
                 if mic.closed:
                     log("업링크 종료 — 리허설 끝")
@@ -731,6 +822,15 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                     gen = mic.generation
                     buf, since = np.zeros(0, dtype=np.int16), 0
                     log(ready_line(mic, spk, tts, llm))
+                hold, seen_alert = alert_hold(alerts, seen_alert)
+                if hold:
+                    # 🔑 알림을 내보내는 동안·직후 들어온 소리는 버리고 대화창을 닫는다 — 알림을 질문으로
+                    #    받아쓰지 않게 · 알림 뒤는 비상 상황이라 해제 전까지 질문을 받지 않는다(사용자 2026-10-04 · §4.7)
+                    mic.clear()
+                    buf, since = np.zeros(0, dtype=np.int16), 0
+                    bot.awake_until = 0.0
+                    time.sleep(0.02)
+                    continue
                 new = mic.pull()
                 if len(new) == 0:
                     time.sleep(0.02)
@@ -771,6 +871,7 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                 buf, since = np.zeros(0, dtype=np.int16), 0
                 time.sleep(0.5)
     finally:
+        stop_ev.set()                     # 상태 감시 스레드를 끝낸다
         mic.stop()
 
 

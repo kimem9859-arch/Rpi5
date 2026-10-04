@@ -460,6 +460,7 @@ STATE_SHM_DIR = "/dev/shm/sop_state"
 # 🔴 pi2 의 ollama 는 유선 주소에만 열려 있다(OLLAMA_HOST=192.168.1.12 · 2026-10-03 D4) —
 #    무선·Tailscale 로는 못 붙는다. 못 붙으면 음성비서는 고정 wav 로 폴백하고 계속 돈다.
 # =============================================================================
+VOICE_ALERTS     = os.environ.get("SOP_VOICE_ALERTS", "1") != "0"   # 비상정지·차단·경고 음성 알림(음성 설계 2026-10-04 §4.3) · 끄기 = SOP_VOICE_ALERTS=0
 LLM_ENABLED      = os.environ.get("SOP_LLM", "1") != "0"
 LLM_URL          = os.environ.get("SOP_LLM_URL", "http://192.168.1.12:11434/api/generate")
 LLM_MODEL        = "gemma4:e2b-it-qat"
