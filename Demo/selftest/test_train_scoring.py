@@ -46,9 +46,16 @@ def test_요약():
     check(s["사진"] == 3 and s["정답박스"] == 2 and s["conf"] == 0.5, "사진 3 · 정답 2 · conf")
 
 
+def test_목표값():
+    print("[4] 탐색 목표값 = 종류별 재현율 평균(같은 무게)")
+    sc = {"클래스": {"driver": {"recall": 0.5}, "wrench": {"recall": 0.8}, "pliers": {"recall": 0.2}}, "전체": {"precision": 0.9}}
+    check(abs(SC.objective(sc, ["driver", "wrench", "pliers"]) - 0.5) < 1e-9, "평균 0.5")
+
+
 if __name__ == "__main__":
     test_정답_예측_짝짓기()
     test_요약()
+    test_목표값()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

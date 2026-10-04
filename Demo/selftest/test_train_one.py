@@ -8,6 +8,7 @@ import fcntl
 import json
 import multiprocessing as mp
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -161,10 +162,24 @@ def test_덜_만든_바탕():
               f"원본 라벨이 바뀌면 멈추고 바탕은 그대로 둔다 — {stopped[:60]}")
 
 
+def test_검증_라벨():
+    print("[2-e] 검증 몫 8종 라벨 — 바탕에 labels8_val · 옛 바탕은 다시 만들지 않고 보탬(Review Focus 3)")
+    with tempfile.TemporaryDirectory() as t:
+        src, root = _src(t), Path(t) / "루트"
+        b = T1.prepare_base(_job(src, [5, 3]), root)
+        lv = b / "labels8_val" / "a__f00002.txt"
+        check(lv.exists() and lv.read_text().startswith("5 "), "검증 몫 = 8종 라벨")
+        shutil.rmtree(b / "labels8_val")
+        mark = (b / ".완료").read_text(encoding="utf-8")
+        T1.prepare_base(_job(src, [5, 3]), root)
+        check(lv.exists() and (b / ".완료").read_text(encoding="utf-8") == mark, "옛 바탕 = 보태기만(완료 표지 그대로)")
+
+
 if __name__ == "__main__":
     test_바탕_폴더()
     test_동시_준비()
     test_덜_만든_바탕()
+    test_검증_라벨()
     test_실험_폴더()
     test_종료_이유()
     test_고정_메모리_끄기()

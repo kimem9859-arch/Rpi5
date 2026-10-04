@@ -52,6 +52,11 @@ def summarize(per_image, names, conf):
     }
 
 
+def objective(sc, names):
+    """탐색 목표값(1-2단계 §5.2) — conf 운용점의 종류별 재현율 평균(같은 무게)."""
+    return sum(sc["클래스"][n]["recall"] for n in names) / len(names)
+
+
 def score_model(model_path, images_dir, labels_dir, names, conf, imgsz):
     """images_dir 의 사진(입력 방식대로 준비된 것)을 imgsz 로 추론 → summarize. labels_dir = 8종 라벨."""
     from ultralytics import YOLO

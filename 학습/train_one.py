@@ -57,6 +57,41 @@ def source_fingerprint(job):
     return _fingerprint(items)
 
 
+def ensure_val8(job, base):
+    """검증 몫 8종 라벨 — 채점(score_model)이 8종 번호로 이름을 읽는다. 없으면 임시 폴더에 쓴 뒤 이름 바꿈(1-2단계 §5.2)."""
+    lv = Path(base) / "labels8_val"
+    if lv.exists():
+        return
+    src = Path(job["원본"]).expanduser() / "labels8"
+    tmp = Path(base) / "labels8_val.tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir()
+    for n in job["나눔"]["val"]:
+        shutil.copyfile(src / f"{n}.txt", tmp / f"{n}.txt")
+    os.replace(tmp, lv)
+
+
+def score_val(job, base, best):
+    """best.pt 를 검증 몫으로 채점 — 탐색 목표값(채점 사진은 쓰지 않는다)."""
+    sv = scoring.score_model(best, Path(base) / "images" / "val", Path(base) / "labels8_val",
+                             job["names"], job["conf"], job["predict_imgsz"])
+    return sv, {"검증목표": round(scoring.objective(sv, job["names"]), 4), "검증P": round(sv["전체"]["precision"], 4)}
+
+
+def rescore_val(rd):
+    """다시 학습 없이 — 끝난 실험의 best.pt 를 검증 몫으로 채점해 채점_검증.json · 요약(검증목표 · 검증P)을 남긴다."""
+    rd = Path(rd).expanduser()
+    job = json.loads((rd / "작업.json").read_text(encoding="utf-8"))
+    base = prepare_base(job, Path(job["루트"]).expanduser())
+    sv, extra = score_val(job, base, rd / "weights" / "best.pt")
+    (rd / "채점_검증.json").write_text(json.dumps(sv, ensure_ascii=False, indent=1), encoding="utf-8")
+    sp = rd / "요약.json"
+    summ = json.loads(sp.read_text(encoding="utf-8"))
+    summ.update(extra)
+    sp.write_text(json.dumps(summ, ensure_ascii=False, indent=1), encoding="utf-8")
+    return extra
+
+
 def prepare_base(job, root):
     """바탕 폴더 — images/<몫>/(입력 방식대로) · labels/<몫>/(학습·검증 = 무리 번호 · 채점 = 8종) · 학습·검증 사진의 .npy.
     .npy = 8.4.171 data/base.py 의 cache='disk' 와 같은 저장(np.save(cv2.imread(사진)))이라 학습이 그대로 읽는다."""
@@ -70,6 +105,7 @@ def prepare_base(job, root):
         if (base / ".완료").exists():
             if label_fingerprint(base) != source_fingerprint(job):     # 준비로 원본 라벨을 고친 뒤 옛 바탕을 쓰지 않게
                 raise RuntimeError(f"바탕 {base.name} 의 라벨이 원본과 다르다 — 원본 라벨이 바뀌었다 · 도는 실험이 없을 때 바탕을 지우고 다시 건다")
+            ensure_val8(job, base)
             return base
         if base.exists():                       # 만들다 죽은 폴더 — 잘린 사진·.npy 를 그대로 쓰지 않게
             shutil.rmtree(base)
@@ -89,6 +125,7 @@ def prepare_base(job, root):
                 npy = out.with_suffix(".npy")
                 if part != "test" and not npy.exists():
                     np.save(str(npy), cv2.imread(str(out)), allow_pickle=False)
+        ensure_val8(job, base)
         (base / ".완료").write_text(json.dumps({"시각": time.strftime("%Y-%m-%d %H:%M:%S"), "라벨지문": label_fingerprint(base)},
                                                ensure_ascii=False), encoding="utf-8")
     return base
@@ -181,6 +218,9 @@ def versions():
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "--검증채점":
+        print(json.dumps(rescore_val(argv[1]), ensure_ascii=False))
+        return 0
     job = json.loads(Path(argv[0]).read_text(encoding="utf-8"))
     root = Path(job["루트"]).expanduser()
     rd = root / "runs" / job["id"]
@@ -207,6 +247,9 @@ def main(argv=None):
         sc = scoring.score_model(best, base / "images" / "test", base / "labels" / "test",
                                  job["names"], job["conf"], job["predict_imgsz"])
         (rd / "채점.json").write_text(json.dumps(sc, ensure_ascii=False, indent=1), encoding="utf-8")
+        sv, extra = score_val(job, base, best)
+        (rd / "채점_검증.json").write_text(json.dumps(sv, ensure_ascii=False, indent=1), encoding="utf-8")
+        summ.update(extra)
     (rd / "요약.json").write_text(json.dumps(summ, ensure_ascii=False, indent=1), encoding="utf-8")
     return EXIT_ABNORMAL if summ["이상"] else 0
 
