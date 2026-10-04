@@ -118,6 +118,23 @@ def test_클래스_순서():
     check(H.class_problems(names, CFG, "tool", ["driver", "pliers", "wrench"]) != [], "실험 설정과 다름 → 문제")
 
 
+def test_전처리_크기():
+    print("[8] 보정 전처리 크기 = 결정표 onnx.imgsz [세로, 가로] · BGR→RGB · NMS 크기 대조 · 학습 입력 = 변환 크기(학습=변환=보정=시연 한 묶음 · §8.6)")
+    import numpy as np
+    img = np.zeros((1024, 768, 3), np.uint8)
+    img[..., 0] = 255                                            # BGR 의 파랑
+    a, b = H.preprocess(img, [640, 640]), H.preprocess(img, [1024, 768])
+    check(a.shape == (640, 640, 3) and b.shape == (1024, 768, 3), "크기 = 결정표 값(세로, 가로)")
+    check(a[0, 0].tolist() == [0, 0, 255], "BGR → RGB")
+    check(H.preprocess(img, CFG["onnx"]["imgsz"]).shape == (640, 640, 3), "지금 결정표 = 640×640")
+    bad = json.loads(json.dumps(CFG))
+    bad["onnx"]["imgsz"] = [1024, 768]
+    check(raises(lambda: H.nms_config(bad, "button", OUTS, ["B1", "B2", "B3", "B4", "EMO"])), "NMS image_dims ≠ ONNX imgsz → 멈춤")
+    check(T.input_problems({"stretch": [640, 640], "predict_imgsz": 640}, CFG) == [], "늘리기640 으로 학습 = 결정표 640 → 문제 없음")
+    check(T.input_problems({"stretch": None, "predict_imgsz": [1024, 768]}, CFG) != [], "768×1024 원본으로 학습했는데 결정표 640 → 멈춤")
+    check(T.input_problems({"stretch": None, "predict_imgsz": [1024, 768]}, bad) == [], "결정표도 [1024, 768] 이면 → 문제 없음")
+
+
 def test_장수_대조():
     print("[9] 모델 스크립트의 보정·미세 학습 장수 = calib_n(크면 DFC 오류 · 작으면 조용히 덜 씀)")
     check(H.count_problems(CFG, "button") == [] and H.count_problems(CFG, "tool") == [], "결정표 두 무리 = calib_n")
@@ -150,6 +167,7 @@ if __name__ == "__main__":
     test_NMS_설정()
     test_끝_노드()
     test_클래스_순서()
+    test_전처리_크기()
     test_장수_대조()
     test_로그_증거()
     test_파이_명령()

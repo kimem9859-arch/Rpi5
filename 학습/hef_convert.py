@@ -5,7 +5,7 @@
   hef 단계  = ~/hailo-venv(DFC 3.33.1 · CPU)       : python hef_convert.py hef <작업폴더>
 작업 폴더 = best.pt · 입력.json(id · group · names · calib · 수준) · 변환설정.json → model.onnx · model.hef · 변환.json
 레시피 = ultralytics 8.4.171 export_hailo(끝 노드 6개 · 분류 시그모이드 · NMS json) — 바꾼 것은 조사보고서 §4:
-보정 = 학습 몫 · 런타임과 같은 늘리기 · 고정 시드 · 최적화 수준 명시(CPU 에서 빠뜨리면 0 으로 떨어진다).
+보정 = 학습 몫 · 런타임과 같은 늘리기(크기 = 결정표 onnx.imgsz) · 고정 시드 · 최적화 수준 명시(CPU 에서 빠뜨리면 0 으로 떨어진다).
 """
 import copy
 import hashlib
@@ -65,6 +65,8 @@ def model_script(cfg, group, outs, nms_path, level=None):
 
 def nms_config(cfg, group, outs, names):
     _need_six(outs)
+    if list(cfg["nms_config"][group]["image_dims"]) != list(cfg["onnx"]["imgsz"]):
+        raise ValueError(f"NMS image_dims {cfg['nms_config'][group]['image_dims']} ≠ ONNX imgsz {cfg['onnx']['imgsz']} — 결정표 안에서 크기가 어긋난다")
     n = copy.deepcopy(cfg["nms_config"][group])
     if n["classes"] != len(names):
         raise ValueError(f"NMS classes {n['classes']} ≠ 모델 클래스 {len(names)} — 다르면 DFC 가 조용히 빈 칸으로 둔다")
@@ -119,10 +121,11 @@ def export_args(cfg):
     return {k: o[k] for k in ("opset", "imgsz", "batch", "dynamic", "simplify", "device", "nms", "quantize") if o.get(k) is not None}
 
 
-def preprocess(bgr, size=640):
-    """런타임 HailoDetector.detect(Demo/detector.py)와 같은 늘리기 — 비율 무시 · 보간 기본 · RGB · uint8 0~255."""
+def preprocess(bgr, imgsz):
+    """런타임 HailoDetector.detect(Demo/detector.py)와 같은 늘리기 — imgsz = 결정표 onnx.imgsz [세로, 가로] · 비율 무시 · 보간 기본 · RGB · uint8 0~255."""
     import cv2
-    return cv2.cvtColor(cv2.resize(bgr, (size, size)), cv2.COLOR_BGR2RGB)
+    h, w = imgsz
+    return cv2.cvtColor(cv2.resize(bgr, (w, h)), cv2.COLOR_BGR2RGB)
 
 
 def _sha(p):
@@ -206,7 +209,7 @@ def stage_hef(work):
         im = cv2.imread(os.path.expanduser(p))
         if im is None:
             sys.exit(f"🔴 보정 사진을 못 읽음: {p}")
-        x = preprocess(im)
+        x = preprocess(im, cfg["onnx"]["imgsz"])
         if arr is None:
             arr = np.empty((len(job["calib"]), *x.shape), np.uint8)
         arr[k] = x

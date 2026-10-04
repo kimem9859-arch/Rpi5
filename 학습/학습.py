@@ -101,6 +101,17 @@ def convert_calib(d, group, cfg):
     return H.pick_calib(SP.lists_for(d, group)[0], cfg["calib_n"][group], CALIB_SEED)
 
 
+def input_problems(job_cfg, cfg):
+    """학습 입력 = 변환 입력 — 실험의 늘리기 크기([가로, 세로]) 또는 추론 크기([세로, 가로] · 숫자면 정사각)가 결정표 onnx.imgsz 와 같아야 한다(§8.6)."""
+    if job_cfg.get("stretch"):
+        want = [job_cfg["stretch"][1], job_cfg["stretch"][0]]
+    else:
+        p = job_cfg["predict_imgsz"]
+        want = [p, p] if isinstance(p, int) else list(p)
+    got = list(cfg["onnx"]["imgsz"])
+    return [] if want == got else [f"학습 입력 [세로, 가로] {want} ≠ 결정표 onnx.imgsz {got} — 학습과 다른 크기로 변환하면 조용히 나빠진다(§8.6)"]
+
+
 def convert_dirname(i, level):
     """최적화 수준을 바꿔 보는 변환은 따로 둔다 — 결정표대로 한 변환을 덮지 않게."""
     return i if level is None else f"{i}_L{level}"
@@ -532,6 +543,9 @@ def cmd_convert(a):
     d = SP.load_split(HERE / "나눔" / f"{job_cfg['나눔']['name']}.json")
     if d["해시"] != job_cfg["나눔"]["해시"]:
         sys.exit(f"🔴 나눔 해시가 그 실험과 다르다({d['해시']} ≠ {job_cfg['나눔']['해시']})")
+    bad = input_problems(job_cfg, cfg)
+    if bad:
+        sys.exit("🔴 " + " · ".join(bad))
     calib = convert_calib(d, g, cfg)
     bad = H.count_problems(cfg, g)
     if len(calib) != cfg["calib_n"][g] or bad:
