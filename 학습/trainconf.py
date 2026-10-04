@@ -25,7 +25,8 @@ TRAIN_KEYS = {
 }
 SYSTEM_KEYS = {"data", "imgsz", "seed", "project", "name", "exist_ok", "resume", "device", "val", "save"}
 STOP_KEYS = {"포화_에폭", "포화_향상", "점수0_에폭", "점수0_mAP50", "진행없음_분", "시간상한_배"}
-TOP_KEYS = {"id", "group", "나눔", "입력", "출발", "seed", "train", "멈춤", "메모"}
+TOP_KEYS = {"id", "group", "나눔", "입력", "출발", "seed", "train", "멈춤", "메모", "흐림"}
+BLUR_OK = {"Blur", "MotionBlur", "MedianBlur"}   # 흐림 증강(1-2단계 §7) — ToGray·CLAHE 등은 버튼 색 구별을 해칠 수 있어 막는다
 ID_RE = re.compile(r"^E\d+[a-z]?-(button|tool)-[A-Za-z0-9.]+\Z")   # \Z — $ 는 끝 줄바꿈 하나를 허용한다
 
 
@@ -36,6 +37,8 @@ def load_yaml(path):
 def changes(base, exp):
     """장부용 — 기본과 다른 것만 「키=값」(입력 · 출발 · seed · train · 멈춤 순)."""
     out = [f"{k}={exp[k]}" for k in ("입력", "출발", "seed") if k in exp and exp[k] != base.get(k)]
+    if exp.get("흐림"):
+        out.append("흐림=" + "+".join(exp["흐림"]))
     for sect in ("train", "멈춤"):
         out += [f"{k}={v}" for k, v in sorted((exp.get(sect) or {}).items()) if (base.get(sect) or {}).get(k) != v]
     return " · ".join(out) or "없음"
@@ -62,12 +65,15 @@ def resolve(base, exp, exp_stem=None):
             raise ValueError(f"train.{k} 는 체계가 정한다 — 실험에서 바꾸지 않는다")
         if k not in TRAIN_KEYS:
             raise ValueError(f"모르는 train 키(오타?): {k}")
+    blur = exp.get("흐림")
+    if blur is not None and (not isinstance(blur, list) or not set(blur) <= BLUR_OK):
+        raise ValueError(f"흐림 = {sorted(BLUR_OK)} 중에서 고른 목록 — {blur}")
     st = exp.get("멈춤") or {}
     bad = sorted(set(st) - STOP_KEYS)
     if bad:
         raise ValueError(f"모르는 멈춤 키: {bad}")
     cfg = copy.deepcopy(base)
-    for k in ("나눔", "입력", "출발", "seed", "메모"):
+    for k in ("나눔", "입력", "출발", "seed", "메모", "흐림"):
         if k in exp:
             cfg[k] = exp[k]
     cfg["train"] = {**(base.get("train") or {}), **tr}

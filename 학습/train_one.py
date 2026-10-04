@@ -177,6 +177,26 @@ def no_pin_memory(modules=None):
         mod.build_dataloader = wrapped
 
 
+BLUR_P = 0.1   # ✋ 흐림 변환마다 적용 확률 — 기본 Albumentations 묶음(각 0.01)보다 세게 · 가설 시험용(1-2단계 §7)
+
+
+def album_names(names):
+    return list(names or [])
+
+
+def album_list(names):
+    """학습 인자 augmentations 에 넘길 Albumentations 변환 — 빈 목록 = 기본 묶음(ToGray 포함) 끔(조사/학습체계구축-20261004/흐림증강.txt)."""
+    if not names:
+        return []
+    import albumentations as A
+    return [getattr(A, n)(p=BLUR_P) for n in album_names(names)]
+
+
+def album_kwargs(job, installed):
+    """albumentations 가 깔리면 모든 실험이 명시 목록을 넘긴다(빈 목록 포함) — 안 넘기면 기본 묶음이 끼어든다. 없으면 넘기지 않는다(1단계와 같음)."""
+    return {"augmentations": album_list(job.get("흐림"))} if installed else {}
+
+
 def train(job, ds_yaml, rd):
     from ultralytics import YOLO
     no_pin_memory()
@@ -204,7 +224,8 @@ def train(job, ds_yaml, rd):
     else:
         m = YOLO(str(Path(job["출발"]).expanduser()))
         m.add_callback("on_model_save", on_model_save)
-        m.train(data=str(ds_yaml), project=str(rd.parent), name=rd.name, exist_ok=True, **job["train_kwargs"])
+        m.train(data=str(ds_yaml), project=str(rd.parent), name=rd.name, exist_ok=True, **job["train_kwargs"],
+                **album_kwargs(job, importlib.util.find_spec("albumentations") is not None))
     return state
 
 

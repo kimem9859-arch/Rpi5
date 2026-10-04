@@ -65,7 +65,7 @@ def make_job(cfg, d, head, conf, time_limit):
             "predict_imgsz": mode["predict_imgsz"], "stretch": mode["stretch"], "멈춤": cfg["멈춤"],
             "출발": f"{RROOT}/{cfg['출발']}", "원본": f"{RROOT}/원본/{place_of(cfg['나눔'])}", "루트": RROOT,
             "나눔": {"name": d["나눔"], "해시": d["해시"], "train": tr, "val": va, "test": te},
-            "코드": f"{RROOT}/코드/{head}", "코드해시": head, "시간상한_s": time_limit, "설정": cfg}
+            "코드": f"{RROOT}/코드/{head}", "코드해시": head, "시간상한_s": time_limit, "설정": cfg, "흐림": cfg.get("흐림")}
 
 
 def estimate(jobs, speed):

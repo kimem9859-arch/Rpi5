@@ -1,0 +1,16 @@
+흐림 증강 API 확인 — ultralytics 8.4.171 설치본 원문(데스크톱 ~/학습실험/venv · 읽기만) · 2026-10-04 · 1-2단계 Task 10 Step 1
+
+1) 학습 인자로 Albumentations 변환 목록을 직접 주는 길 — 있다
+   - cfg/__init__.py:673-675  check_dict_alignment 가 기본 설정에 없는 키 중 {"augmentations", "save_dir"} 만 허용한다
+     ("Allow 'augmentations' as a valid custom parameter for custom Albumentations transforms")
+   - engine/trainer.py:143-151  args.augmentations 가 변환 객체 목록이면 A.to_dict 로 바꿔 저장한다(A.Lambda 는 거부)
+   - data/augment.py:2907  v8_transforms 가 Albumentations(p=1.0, transforms=getattr(hyp, "augmentations", None), ...) 로 넘긴다
+   - engine/model.py:828  train() 설명 「augmentations (list[Callable]): List of augmentation functions to apply during training」
+
+2) 빈 목록으로 기본 변환(Blur·MedianBlur·ToGray·CLAHE 각 p=0.01)을 끌 수 있는가 — 있다
+   - data/augment.py:2164-2176  기본 묶음은 `if transforms is None` 일 때만 · 아니면 받은 목록 그대로(빈 목록 = 변환 없음)
+   - engine/trainer.py:143  빈 목록은 거짓이라 변환·저장 단계를 건너뛴다(목록은 그대로 [])
+   - 주의: albumentations 를 깔고 augmentations 를 주지 않으면 기본 묶음(ToGray 1% 포함)이 켜진다 → 설치 뒤에는 모든 실험이 명시 목록(빈 목록 포함)을 넘긴다(계획 Task 10 Step 3)
+   - albumentations 가 없으면 Albumentations 는 ImportError 로 건너뛴다(augment.py:2197) — 1단계까지의 상태
+
+판정: 계획 Task 10 의 중단 규칙(둘 중 하나라도 없으면 멈춤)에 걸리지 않는다 → 계속.

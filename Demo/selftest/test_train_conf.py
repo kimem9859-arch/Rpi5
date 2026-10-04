@@ -109,6 +109,18 @@ def _try(b, p):
         return str(e)
 
 
+def test_흐림_키():
+    print("[10] 흐림 증강 목록 — Blur · MotionBlur · MedianBlur 만(흑백 변환 등은 막음)")
+    b = TC.load_yaml(CONF / "기본.yaml")
+    c = TC.resolve(b, {"id": "E14-tool-blur", "group": "tool", "흐림": ["Blur", "MotionBlur"]}, "E14-tool-blur")
+    check(c["흐림"] == ["Blur", "MotionBlur"] and "흐림=" in c["바꾼것"], f"{c.get('흐림')} · {c['바꾼것']}")
+    try:
+        TC.resolve(b, {"id": "E14-tool-gray", "group": "tool", "흐림": ["ToGray"]}, "E14-tool-gray"); bad = False
+    except ValueError:
+        bad = True
+    check(bad, "ToGray → ValueError")
+
+
 def test_id_끝_줄바꿈():
     print("[9] 실험 id 끝 줄바꿈은 형식이 아니다(빼기 · 이어서에 그대로 셸로 들어간다 · 2차 리뷰 사소)")
     check(TC.ID_RE.match("E4-button-x\n") is None and TC.ID_RE.match("E4-button-x") is not None, "끝 줄바꿈 거부 · 정상 id 통과")
@@ -120,6 +132,7 @@ if __name__ == "__main__":
     test_기본값()
     test_커밋된_설정()
     test_id_끝_줄바꿈()
+    test_흐림_키()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

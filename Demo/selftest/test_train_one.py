@@ -175,6 +175,13 @@ def test_검증_라벨():
         check(lv.exists() and (b / ".완료").read_text(encoding="utf-8") == mark, "옛 바탕 = 보태기만(완료 표지 그대로)")
 
 
+def test_흐림_목록():
+    print("[2-f] 흐림 목록 → 학습에 넘길 변환 이름 · 없으면 빈 목록(기본 변환 끔) · 설치 뒤엔 모든 실험이 명시 목록을 넘김")
+    check(T1.album_names(["Blur", "MotionBlur"]) == ["Blur", "MotionBlur"] and T1.album_names(None) == [], "목록 · 빈 목록")
+    check(T1.album_kwargs({}, installed=False) == {}, "albumentations 없음 → 넘기지 않음(1단계와 같음)")
+    check(T1.album_kwargs({}, installed=True) == {"augmentations": []}, "설치됨 · 흐림 없음 → 빈 목록(기본 묶음의 ToGray 가 끼어들지 않게)")
+
+
 if __name__ == "__main__":
     test_바탕_폴더()
     test_동시_준비()
@@ -183,6 +190,7 @@ if __name__ == "__main__":
     test_실험_폴더()
     test_종료_이유()
     test_고정_메모리_끄기()
+    test_흐림_목록()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
