@@ -33,6 +33,22 @@ def sha256(p):
     return h.hexdigest()
 
 
+def label_fingerprint(base):
+    """바탕 폴더 라벨 전체의 지문(이름 + 내용) — 나눔 해시는 이름만 덮으므로 라벨이 바뀐 바탕을 가린다."""
+    h = hashlib.sha256()
+    for f in sorted((Path(base) / "labels").rglob("*.txt")):
+        h.update(str(f.relative_to(base)).encode())
+        h.update(f.read_bytes())
+    return h.hexdigest()[:16]
+
+
+def read_fingerprint(base):
+    try:
+        return json.loads((Path(base) / ".완료").read_text(encoding="utf-8")).get("라벨지문")
+    except (OSError, ValueError, AttributeError):
+        return None                             # 옛 표지(시각 한 줄)
+
+
 def prepare_base(job, root):
     """바탕 폴더 — images/<몫>/(입력 방식대로) · labels/<몫>/(학습·검증 = 무리 번호 · 채점 = 8종) · 학습·검증 사진의 .npy.
     .npy = 8.4.171 data/base.py 의 cache='disk' 와 같은 저장(np.save(cv2.imread(사진)))이라 학습이 그대로 읽는다."""
@@ -45,6 +61,8 @@ def prepare_base(job, root):
         fcntl.flock(lk, fcntl.LOCK_EX)
         if (base / ".완료").exists():
             return base
+        if base.exists():                       # 만들다 죽은 폴더 — 잘린 사진·.npy 를 그대로 쓰지 않게
+            shutil.rmtree(base)
         for part in ("train", "val", "test"):
             (base / "images" / part).mkdir(parents=True, exist_ok=True)
             (base / "labels" / part).mkdir(parents=True, exist_ok=True)
@@ -61,7 +79,8 @@ def prepare_base(job, root):
                 npy = out.with_suffix(".npy")
                 if part != "test" and not npy.exists():
                     np.save(str(npy), cv2.imread(str(out)), allow_pickle=False)
-        (base / ".완료").write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+        (base / ".완료").write_text(json.dumps({"시각": time.strftime("%Y-%m-%d %H:%M:%S"), "라벨지문": label_fingerprint(base)},
+                                               ensure_ascii=False), encoding="utf-8")
     return base
 
 
@@ -172,6 +191,7 @@ def main(argv=None):
             "끝": datetime.now().astimezone().isoformat(timespec="seconds"), "판": versions(),
             "코드해시": job.get("코드해시"), "conf": job.get("conf"), "속도재기": bool(job.get("속도재기")),
             "출발_sha256": sha256(Path(job["출발"]).expanduser()) if not job.get("이어서") else None,
+            "이어서": bool(job.get("이어서")), "라벨지문": read_fingerprint(base),
             "best_sha256": sha256(best) if best.exists() else None}
     if not job.get("속도재기") and best.exists() and not summ["이상"]:
         sc = scoring.score_model(best, base / "images" / "test", base / "labels" / "test",

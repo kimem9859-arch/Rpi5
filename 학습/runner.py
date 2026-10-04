@@ -166,6 +166,29 @@ def finish(root, run, now, reason=None, rc=None):
     os.replace(run.path, Path(root) / "끝" / run.path.name)
 
 
+def is_job_proc(pid, name):
+    """pid 가 이 작업 파일(도는중/<name>)로 띄운 학습인가 — 명령줄 인자로 가린다."""
+    try:
+        args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+    except OSError:
+        return False
+    return any(x.decode(errors="replace").endswith(name) for x in args if x)
+
+
+def relock_if_queued(root, lock):
+    """끝내기 직전 — 잠금을 풀고 대기열을 한 번 더 본다. 그 사이 걸린 작업이 있고 잠금을 다시 잡으면 이어 돈다(True).
+    걸기가 띄운 새 실행기가 이미 잠금을 잡았으면 맡기고 끝낸다(False)."""
+    fcntl.flock(lock, fcntl.LOCK_UN)
+    root = Path(root)
+    if (root / "대기열멈춤").exists() or not any((root / "대기열").glob("*.json")):
+        return False
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except BlockingIOError:
+        return False
+
+
 def recover_orphans(root):
     """도는중/ 에 남은 작업 = 실행기가 학습 도중 죽었다(데스크톱·WSL 꺼짐 등) → 남은 학습을 끄고 「끊김」 · 대기열 멈춤."""
     for p in sorted((Path(root) / "도는중").glob("*.json")):
@@ -173,7 +196,9 @@ def recover_orphans(root):
         rd = run_dir(root, job)
         rd.mkdir(parents=True, exist_ok=True)
         try:
-            os.killpg(int((rd / "pid").read_text()), signal.SIGTERM)
+            pid = int((rd / "pid").read_text())
+            if is_job_proc(pid, p.name):          # 다시 뜬 뒤 그 번호를 다른 프로세스가 받았을 수 있다
+                os.killpg(pid, signal.SIGTERM)
         except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
             pass
         sp = rd / "요약.json"
@@ -285,6 +310,8 @@ def main(argv=None):
         idle = not runs and ((root / "대기열멈춤").exists() or not any((root / "대기열").glob("*.json")))
         status(root, runs, gpu, why, now, done=idle, win=win)
         if idle:
+            if relock_if_queued(root, lock):
+                continue
             return 0
         time.sleep(a.interval)
 

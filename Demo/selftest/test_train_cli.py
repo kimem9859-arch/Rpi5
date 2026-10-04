@@ -4,6 +4,7 @@
 정본 설계: 상위 docs/superpowers/specs/2026-10-03-학습파라미터-체계-design.md §10 · §11
 ⚠️ ssh·데스크톱이 필요 없다.
 """
+import argparse
 import importlib.util
 import os
 import sys
@@ -105,6 +106,46 @@ def test_걸기_직후_상태():
     check(CLI.finished(err, now) and "오류" in CLI.render_status(err, now).splitlines()[0], "실행기 오류 → 첫 줄에 오류 · 알림")
 
 
+def test_사소_고침():
+    print("[7] 2단계 전 사소 — 코드 완료 표지 · 나눔 dirty · 빼기 id 검사 · 재개 코드 · 홈 경로 자가 점검(최종 리뷰 M5~M8 · M10)")
+    calls, started = [], []
+    orig = (CLI.sh, CLI.rsync, CLI.code_state, CLI.start_runner)
+    try:
+        CLI.sh = lambda cmd, input=None, timeout=120: calls.append(("sh", cmd)) or ""
+        CLI.rsync = lambda args, timeout=3600: calls.append(("rsync", args))
+        CLI.deploy_code("abc")
+        check(any(k == "rsync" for k, _ in calls) and any(k == "sh" and "touch" in c and ".완료" in c for k, c in calls),
+              f"코드를 다 보낸 뒤 완료 표지 — {[c for k, c in calls if k == 'sh']}")
+        calls.clear()
+        CLI.sh = lambda cmd, input=None, timeout=120: calls.append(("sh", cmd)) or ("있음" if "test -f" in cmd and ".완료" in cmd else "")
+        CLI.deploy_code("abc")
+        check(not any(k == "rsync" for k, _ in calls), "완료 표지가 있으면 건너뜀(표지 없는 반쯤 보낸 폴더는 다시 보냄)")
+        calls.clear()
+        try:
+            CLI.cmd_remove(argparse.Namespace(id="E4*"))
+            stopped = False
+        except SystemExit:
+            stopped = True
+        check(stopped and not calls, f"빼기 — id 형식이 아니면 원격에 손대지 않고 멈춤 — {calls}")
+        CLI.code_state = lambda: ("h123", False)
+        CLI.start_runner = lambda c: started.append(c)
+        CLI.cmd_resume(argparse.Namespace())
+        check(started == ["h123"], f"재개 = 지금 커밋의 실행기 코드(가장 최근 폴더 아님) — {started}")
+        CLI.code_state = lambda: ("h123", True)
+        try:
+            CLI.cmd_resume(argparse.Namespace())
+            stopped = False
+        except SystemExit:
+            stopped = True
+        check(stopped and started == ["h123"], "커밋 안 된 학습 코드면 재개하지 않는다")
+    finally:
+        CLI.sh, CLI.rsync, CLI.code_state, CLI.start_runner = orig
+    check(any(x.startswith("학습/나눔") for x in CLI.DIRTY_PATHS), f"커밋 안 됨 검사에 학습/나눔 — {CLI.DIRTY_PATHS}")
+    lk = getattr(CLI, "leaks", lambda x: None)
+    check(lk("data: ~/학습실험/x") == [] and lk("a /home/kim/x b") == ["/home/kim"] and lk("p: /mnt/c/Users/kimem/D") == ["/mnt/c/Users/kimem"],
+          f"받기 홈 경로 자가 점검 — {lk('a /home/kim/x b')}")
+
+
 if __name__ == "__main__":
     test_작업()
     test_예상()
@@ -112,6 +153,7 @@ if __name__ == "__main__":
     test_홈_경로()
     test_상태()
     test_걸기_직후_상태()
+    test_사소_고침()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

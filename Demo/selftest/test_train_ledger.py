@@ -106,11 +106,23 @@ def test_기준_조건():
         check(su.get("조건") == {"멈춤": new, "나눔": "h", "conf": 0.65, "판": {"ultralytics": "8.4.171"}}, f"결과 폴더에서 조건 읽기 — {su.get('조건')}")
 
 
+def test_이어서():
+    print("[5] 끊겨서 이어 학습한 실험 — 장부에 🔁 표시 · 판정 안 함 · 기준(E0)으로 쓰지 않음(patience 를 처음부터 다시 셈 · 최종 리뷰 M1)")
+    e0 = [btn(f"E0-button-s{i}", 0.90 + i / 100, 0.80) for i in range(3)]
+    r0 = ({**e0[0][0], "이어서": True}, e0[0][1])
+    ex = ({**btn("E3-button-x", 0.99, 0.80)[0], "이어서": True}, btn("E3-button-x", 0.99, 0.80)[1])
+    md = L.render([r0, e0[1], e0[2], btn("E0-button-s3", 0.91, 0.80), ex])
+    row = [l for l in md.splitlines() if l.startswith("| E3-button-x")][0]
+    check("🔁" in row and row.rstrip().endswith("— |"), f"이어서 = 🔁 · 판정 — — {row.split('|')[5:10]}")
+    check(L.baseline_ranges([r0, e0[1], e0[2]], "button") is None, "이어서 한 E0 는 기준에서 뺀다(3개 미만)")
+
+
 if __name__ == "__main__":
     test_범위와_판정()
     test_렌더()
     test_다시_만들기()
     test_기준_조건()
+    test_이어서()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

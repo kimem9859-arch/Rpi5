@@ -16,6 +16,7 @@
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -38,7 +39,7 @@ RROOT = "~/학습실험"
 SRC = Path.home() / "data" / "label_dataset"
 LOCAL = Path.home() / "data" / "학습실험"
 CODE_FILES = ["train_one.py", "runner.py", "stoprules.py", "scoring.py", "speedprobe.py"]
-DIRTY_PATHS = ["학습/*.py", "학습/설정", "Demo/test/score_lib.py", "Demo/test/tool_round.py"]
+DIRTY_PATHS = ["학습/*.py", "학습/설정", "학습/나눔", "Demo/test/score_lib.py", "Demo/test/tool_round.py"]
 RECORD = ["요약.json", "채점.json", "설정.json", "args.yaml", "results.csv", "results.png",
           "confusion_matrix.png", "confusion_matrix_normalized.png"]
 SKIP = ("E9-", "SPEED-")
@@ -91,6 +92,14 @@ def launch_problems(ids, local_done, remote_known, dirty):
 
 def sanitize(text, home):
     return text.replace(home, "~") if home and home != "/" else text
+
+
+LEAK_RE = re.compile(r"/home/[A-Za-z0-9_.-]+|/mnt/[a-z]/Users/[^/\s\"']+")
+
+
+def leaks(text):
+    """홈 경로를 지운 뒤에도 남은 개인 경로(다른 계정 · Windows 사용자 폴더) — 공개 저장소로 새지 않게 받기가 멈춘다."""
+    return LEAK_RE.findall(text)
 
 
 def _age(st, now):
@@ -180,10 +189,12 @@ def remote_json(path, default):
 
 
 def deploy_code(head):
-    if sh(f"test -d {RROOT}/코드/{head} && echo 있음 || true").strip():
+    """코드 폴더는 다 보낸 뒤 완료 표지를 둔다 — 보내다 끊긴 폴더(표지 없음)는 다시 보낸다."""
+    if sh(f"test -f {RROOT}/코드/{head}/.완료 && echo 있음 || true").strip():
         return
     sh(f"mkdir -p {RROOT}/코드/{head}")
     rsync([*(str(HERE / f) for f in CODE_FILES), str(RPI5 / "Demo" / "test" / "score_lib.py"), f"{REMOTE}:{RROOT}/코드/{head}/"])
+    sh(f"touch {RROOT}/코드/{head}/.완료")
 
 
 def start_runner(code_dir):
@@ -311,7 +322,10 @@ def cmd_fetch(a):
             p = tmp / f
             if p.exists():
                 if p.suffix in (".json", ".yaml", ".csv"):
-                    (dst / f).write_text(sanitize(p.read_text(encoding="utf-8"), home), encoding="utf-8")
+                    text = sanitize(p.read_text(encoding="utf-8"), home)
+                    if leaks(text):
+                        sys.exit(f"🔴 {i}/{f} 에 개인 경로가 남았다 {sorted(set(leaks(text)))} — 받기를 멈춘다(공개 저장소)")
+                    (dst / f).write_text(text, encoding="utf-8")
                 else:
                     shutil.copyfile(p, dst / f)
         summ = json.loads((dst / "요약.json").read_text(encoding="utf-8"))
@@ -328,14 +342,19 @@ def cmd_fetch(a):
 
 
 def cmd_resume(a):
+    head, dirty = code_state()
+    if dirty:
+        sys.exit("🔴 커밋 안 된 학습 코드·설정·나눔이 있다 — 커밋한 뒤 재개한다(실행기는 지금 커밋의 코드로 뜬다)")
     stop = sh(f"cat {RROOT}/대기열멈춤 2>/dev/null || true").strip()
     print(f"멈춤 풀기: {stop or '(멈춰 있지 않음)'}")
     sh(f"rm -f {RROOT}/대기열멈춤")
-    code = sh(f"ls -t {RROOT}/코드 | head -1").strip()
-    start_runner(code)
+    deploy_code(head)
+    start_runner(head)
 
 
 def cmd_remove(a):
+    if not TC.ID_RE.match(a.id):
+        sys.exit(f"🔴 실험 id 형식이 아니다: {a.id} — 하나씩 정확한 id 로 뺀다")
     names = sh(f"cd {RROOT}/대기열 && ls *_{a.id}.json 2>/dev/null || true").split()
     if not names:
         sys.exit(f"대기열에 {a.id} 가 없다")

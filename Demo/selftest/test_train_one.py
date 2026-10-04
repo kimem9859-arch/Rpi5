@@ -131,9 +131,24 @@ def test_고정_메모리_끄기():
     check(t.build_dataloader("ds") == "loader" and seen[-1] is False and len(seen) == 3, "두 번 감싸지 않음 · 반환값 그대로")
 
 
+def test_덜_만든_바탕():
+    print("[2-c] 완료 표지 없이 남은 바탕 폴더(만들다 죽음)는 지우고 다시 만든다 · 완료 표지에 라벨 지문(최종 리뷰 M3 · M4)")
+    with tempfile.TemporaryDirectory() as t:
+        src, root = _src(t), Path(t) / "루트"
+        b = root / "data" / "place9_v1_button_늘리기640"
+        (b / "images" / "train").mkdir(parents=True)
+        (b / "images" / "train" / "a__f00001.png").write_bytes(b"\x89PNG broken")
+        T1.prepare_base(_job(src, [5, 3]), root)
+        im = cv2.imread(str(b / "images" / "train" / "a__f00001.png"))
+        check(im is not None and im.shape[:2] == (3, 5), f"잘린 사진을 다시 만듦 — {None if im is None else im.shape}")
+        fp = getattr(T1, "read_fingerprint", lambda x: None)(b)
+        check(bool(fp) and fp == getattr(T1, "label_fingerprint", lambda x: "x")(b), f"완료 표지의 라벨 지문 = 바탕 라벨로 다시 잰 값 — {fp}")
+
+
 if __name__ == "__main__":
     test_바탕_폴더()
     test_동시_준비()
+    test_덜_만든_바탕()
     test_실험_폴더()
     test_종료_이유()
     test_고정_메모리_끄기()

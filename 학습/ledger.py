@@ -40,7 +40,7 @@ def is_baseline(su):
 def baseline_ranges(results, group, cond=None):
     """cond = 판정할 실험의 조건 — 같은 조건의 E0 만 기준으로 쓴다(None = 조건을 보지 않음)."""
     base = [sc for su, sc in results if is_baseline(su) and su["group"] == group and sc and not su.get("이상")
-            and (cond is None or su.get("조건") == cond)]
+            and not su.get("이어서") and (cond is None or su.get("조건") == cond)]
     if len(base) < 3:
         return None
     return {name: (min(f(s) for s in base), max(f(s) for s in base)) for name, f in KEYS[group]}
@@ -84,14 +84,16 @@ def render(results):
     for su, sc in sorted(results, key=lambda r: r[0]["id"]):
         g = su["group"]
         ind = metrics_text(sc, g) if sc else "—"
-        if is_baseline(su):
+        if su.get("이어서"):                    # 이어 학습은 patience 를 처음부터 다시 세어 기준과 견줄 수 없다
+            jd = "—"
+        elif is_baseline(su):
             jd = "기준"
         elif sc and not su.get("이상"):
             other = any(is_baseline(b) and b["group"] == g for b, _ in results)
             jd = judge(sc, baseline_ranges(results, g, su.get("조건")), g, "기준 다름" if other else "기준 부족")
         else:
             jd = "—"
-        end = su.get("종료이유", "?") + (" 🔴" if su.get("이상") else "")
+        end = su.get("종료이유", "?") + (" 🔴" if su.get("이상") else "") + (" 🔁이어서" if su.get("이어서") else "")
         lines.append(f"| {su['id']} | {g} | {su.get('입력', '?')} | {su.get('바꾼것', '?')} | {end} | "
                      f"{su.get('best_epoch', '?')}/{su.get('에폭', '?')} | {su.get('분', 0):.0f} | {ind} | {jd} |")
     return "\n".join(lines) + "\n"

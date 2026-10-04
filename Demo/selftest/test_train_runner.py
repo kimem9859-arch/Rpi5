@@ -273,6 +273,65 @@ def test_실행기_오류_기록():
         check(r.returncode != 0 and st.get("오류"), f"종료 코드 ≠ 0 · 상태 오류 — {r.returncode} {st.get('오류')}")
 
 
+def test_끊김_복구_남의_프로세스():
+    print("[14] 끊김 복구 — pid 가 이 작업의 학습일 때만 끈다(번호를 다른 프로세스가 받았으면 살려 둔다 · 최종 리뷰 M2)")
+    with tempfile.TemporaryDirectory() as t:
+        root, fake, _ = _setup(t)
+        (root / "도는중").mkdir()
+        ps = []
+        for jid, mine in (("E0-button-mine", True), ("E0-button-other", False)):
+            name = f"20261004-000000-00_{jid}.json"
+            job = {"id": jid, "group": "button", "입력": "늘리기640", "바꾼것": "", "루트": str(root)}
+            (root / "도는중" / name).write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
+            args = [sys.executable, "-c", "import time; time.sleep(60)"] + ([str(root / "도는중" / name)] if mine else [])
+            pr = subprocess.Popen(args, start_new_session=True)
+            ps.append(pr)
+            (root / "runs" / jid).mkdir(parents=True)
+            (root / "runs" / jid / "pid").write_text(str(pr.pid))
+        _run(root)
+        time.sleep(0.3)
+        mine_dead, other_alive = ps[0].poll() is not None, ps[1].poll() is None
+        for pr in ps:
+            if pr.poll() is None:
+                pr.kill()
+            pr.wait(timeout=5)
+        check(mine_dead and other_alive, f"이 작업의 학습은 끔 · 남의 프로세스는 살림 — 끔 {mine_dead} · 살림 {other_alive}")
+        check(_summ(root, "E0-button-other")["종료이유"] == "끊김", "둘 다 끊김 기록")
+
+
+def test_끝내기_직전_대기열():
+    print("[15] 실행기가 끝내기 직전 — 잠금을 풀고 대기열을 한 번 더 본다(그 사이 걸린 작업이 고아가 되지 않게 · 최종 리뷰 M9)")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("runner_mod", RUNNER)
+    sys.path.insert(0, os.path.dirname(RUNNER))
+    R = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(R)
+    if not hasattr(R, "relock_if_queued"):
+        check(False, "relock_if_queued 없음")
+        return
+    with tempfile.TemporaryDirectory() as t:
+        root = Path(t)
+        (root / "대기열").mkdir()
+        lk = open(root / "실행기.lock", "w")
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        check(R.relock_if_queued(root, lk) is False, "대기열이 비면 끝낸다")
+        probe = open(root / "실행기.lock", "w")
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            released = True
+            fcntl.flock(probe, fcntl.LOCK_UN)
+        except BlockingIOError:
+            released = False
+        check(released, "끝낼 때 잠금을 푼다")
+        (root / "대기열" / "x_E0-button-a.json").write_text("{}", encoding="utf-8")
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        check(R.relock_if_queued(root, lk) is True, "그 사이 대기열에 들어왔고 잠금을 다시 잡으면 이어 돈다")
+        fcntl.flock(lk, fcntl.LOCK_UN)
+        fcntl.flock(probe, fcntl.LOCK_EX)
+        check(R.relock_if_queued(root, lk) is False, "새 실행기가 이미 잠금을 잡았으면 맡기고 끝낸다")
+        lk.close(); probe.close()
+
+
 if __name__ == "__main__":
     test_정상()
     test_진행없음()
@@ -287,6 +346,8 @@ if __name__ == "__main__":
     test_데스크톱_메모리_못_읽음()
     test_읽히지_않는_대기열_파일()
     test_실행기_오류_기록()
+    test_끊김_복구_남의_프로세스()
+    test_끝내기_직전_대기열()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
