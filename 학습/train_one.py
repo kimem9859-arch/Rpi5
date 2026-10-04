@@ -33,20 +33,28 @@ def sha256(p):
     return h.hexdigest()
 
 
-def label_fingerprint(base):
-    """바탕 폴더 라벨 전체의 지문(이름 + 내용) — 나눔 해시는 이름만 덮으므로 라벨이 바뀐 바탕을 가린다."""
+def _fingerprint(items):
     h = hashlib.sha256()
-    for f in sorted((Path(base) / "labels").rglob("*.txt")):
-        h.update(str(f.relative_to(base)).encode())
-        h.update(f.read_bytes())
+    for rel, f in sorted(items):
+        h.update(rel.encode())
+        h.update(Path(f).read_bytes())
     return h.hexdigest()[:16]
 
 
-def read_fingerprint(base):
-    try:
-        return json.loads((Path(base) / ".완료").read_text(encoding="utf-8")).get("라벨지문")
-    except (OSError, ValueError, AttributeError):
-        return None                             # 옛 표지(시각 한 줄)
+def label_fingerprint(base):
+    """바탕 폴더 라벨 전체의 지문(상대 경로 + 내용) — 나눔 해시는 이름만 덮으므로 라벨 내용을 따로 가린다."""
+    base = Path(base)
+    return _fingerprint([(str(f.relative_to(base)), f) for f in (base / "labels").rglob("*.txt")])
+
+
+def source_fingerprint(job):
+    """바탕이 원본에서 복사해 올 라벨의 지문 — label_fingerprint(바탕)과 같으면 바탕이 원본과 같다."""
+    src = Path(job["원본"]).expanduser()
+    items = []
+    for part in ("train", "val", "test"):
+        lab_dir = src / ("labels8" if part == "test" else f"labels_{job['group']}")
+        items += [(f"labels/{part}/{n}.txt", lab_dir / f"{n}.txt") for n in job["나눔"][part]]
+    return _fingerprint(items)
 
 
 def prepare_base(job, root):
@@ -60,6 +68,8 @@ def prepare_base(job, root):
     with open(f"{base}.lock", "w") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)
         if (base / ".완료").exists():
+            if label_fingerprint(base) != source_fingerprint(job):     # 준비로 원본 라벨을 고친 뒤 옛 바탕을 쓰지 않게
+                raise RuntimeError(f"바탕 {base.name} 의 라벨이 원본과 다르다 — 원본 라벨이 바뀌었다 · 도는 실험이 없을 때 바탕을 지우고 다시 건다")
             return base
         if base.exists():                       # 만들다 죽은 폴더 — 잘린 사진·.npy 를 그대로 쓰지 않게
             shutil.rmtree(base)
@@ -191,7 +201,7 @@ def main(argv=None):
             "끝": datetime.now().astimezone().isoformat(timespec="seconds"), "판": versions(),
             "코드해시": job.get("코드해시"), "conf": job.get("conf"), "속도재기": bool(job.get("속도재기")),
             "출발_sha256": sha256(Path(job["출발"]).expanduser()) if not job.get("이어서") else None,
-            "이어서": bool(job.get("이어서")), "라벨지문": read_fingerprint(base),
+            "이어서": bool(job.get("이어서")), "라벨지문": label_fingerprint(base),
             "best_sha256": sha256(best) if best.exists() else None}
     if not job.get("속도재기") and best.exists() and not summ["이상"]:
         sc = scoring.score_model(best, base / "images" / "test", base / "labels" / "test",

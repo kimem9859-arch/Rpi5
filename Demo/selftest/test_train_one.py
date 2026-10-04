@@ -5,6 +5,7 @@
 ⚠️ ultralytics·GPU 가 필요 없다(학습·채점은 Task 12·13 데스크톱 실제 실행에서 확인).
 """
 import fcntl
+import json
 import multiprocessing as mp
 import os
 import sys
@@ -141,8 +142,23 @@ def test_덜_만든_바탕():
         T1.prepare_base(_job(src, [5, 3]), root)
         im = cv2.imread(str(b / "images" / "train" / "a__f00001.png"))
         check(im is not None and im.shape[:2] == (3, 5), f"잘린 사진을 다시 만듦 — {None if im is None else im.shape}")
-        fp = getattr(T1, "read_fingerprint", lambda x: None)(b)
-        check(bool(fp) and fp == getattr(T1, "label_fingerprint", lambda x: "x")(b), f"완료 표지의 라벨 지문 = 바탕 라벨로 다시 잰 값 — {fp}")
+        fp = json.loads((b / ".완료").read_text(encoding="utf-8")).get("라벨지문")
+        check(bool(fp) and fp == T1.label_fingerprint(b), f"완료 표지의 라벨 지문 = 바탕 라벨로 다시 잰 값 — {fp}")
+    print("[2-d] 원본 라벨이 바뀐 뒤 옛 바탕을 쓰려 하면 멈춘다(다시 만들지 않는다 — 도는 실험이 그 바탕으로 채점) · 옛 표지 바탕도 지문(최종 리뷰 M4 보강)")
+    with tempfile.TemporaryDirectory() as t:
+        src, root = _src(t), Path(t) / "루트"
+        b = T1.prepare_base(_job(src, [5, 3]), root)
+        check(T1.prepare_base(_job(src, [5, 3]), root) == b, "원본 그대로면 그 바탕을 쓴다")
+        (b / ".완료").write_text("2026-10-03 12:00:00", encoding="utf-8")      # 옛 형식 표지
+        check(T1.prepare_base(_job(src, [5, 3]), root) == b and bool(T1.label_fingerprint(b)), "옛 형식 표지도 받아들이고 지문은 바탕에서 잰다")
+        (src / "labels_button" / "a__f00001.txt").write_text("1 0.5 0.5 0.1 0.1\n", encoding="utf-8")
+        try:
+            T1.prepare_base(_job(src, [5, 3]), root)
+            stopped = ""
+        except RuntimeError as e:
+            stopped = str(e)
+        check("원본과 다르다" in stopped and (b / "labels" / "train" / "a__f00001.txt").read_text().startswith("0 "),
+              f"원본 라벨이 바뀌면 멈추고 바탕은 그대로 둔다 — {stopped[:60]}")
 
 
 if __name__ == "__main__":
