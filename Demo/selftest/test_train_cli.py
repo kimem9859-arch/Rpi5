@@ -250,6 +250,15 @@ def test_받기_검증채점():
         check((dst / "채점_검증.json").exists(), f"가져옴 — {[x.name for x in dst.iterdir()]}")
 
 
+def test_작업_세션몫():
+    print("[w-s] 작업 — 나눔의 세션 보류 몫을 싣고, 없는 판은 빈 목록 · 받기가 채점_세션.json 도 가져옴")
+    check(CLI.make_job(_cfg(), SPLIT, "abc1234567", 0.65, 1.0)["나눔"]["test_session"] == [], "없는 판 → []")
+    sp2 = json.loads(json.dumps(SPLIT))
+    sp2[_cfg()["group"]]["test_session"] = ["s1"]
+    check(CLI.make_job(_cfg(), sp2, "abc1234567", 0.65, 1.0)["나눔"]["test_session"] == ["s1"], "있는 판 → 실림")
+    check("채점_세션.json" in CLI.RECORD, "받기 RECORD 에 채점_세션.json")
+
+
 if __name__ == "__main__":
     test_작업()
     test_예상()
@@ -262,6 +271,7 @@ if __name__ == "__main__":
     test_판정_조건()
     test_탐색_설정()
     test_받기_검증채점()
+    test_작업_세션몫()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

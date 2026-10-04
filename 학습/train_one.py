@@ -41,6 +41,10 @@ def _fingerprint(items):
     return h.hexdigest()[:16]
 
 
+PARTS = ("train", "val", "test", "test_session")   # test_session = 처음 보는 세션 채점(1-3단계 §4 · 없는 판은 빈 목록)
+SCORE_PARTS = ("test", "test_session")              # 채점 몫 = 8종 라벨 · .npy 없음
+
+
 def label_fingerprint(base):
     """바탕 폴더 라벨 전체의 지문(상대 경로 + 내용) — 나눔 해시는 이름만 덮으므로 라벨 내용을 따로 가린다."""
     base = Path(base)
@@ -51,9 +55,9 @@ def source_fingerprint(job):
     """바탕이 원본에서 복사해 올 라벨의 지문 — label_fingerprint(바탕)과 같으면 바탕이 원본과 같다."""
     src = Path(job["원본"]).expanduser()
     items = []
-    for part in ("train", "val", "test"):
-        lab_dir = src / ("labels8" if part == "test" else f"labels_{job['group']}")
-        items += [(f"labels/{part}/{n}.txt", lab_dir / f"{n}.txt") for n in job["나눔"][part]]
+    for part in PARTS:
+        lab_dir = src / ("labels8" if part in SCORE_PARTS else f"labels_{job['group']}")
+        items += [(f"labels/{part}/{n}.txt", lab_dir / f"{n}.txt") for n in job["나눔"].get(part, [])]
     return _fingerprint(items)
 
 
@@ -109,11 +113,14 @@ def prepare_base(job, root):
             return base
         if base.exists():                       # 만들다 죽은 폴더 — 잘린 사진·.npy 를 그대로 쓰지 않게
             shutil.rmtree(base)
-        for part in ("train", "val", "test"):
+        for part in PARTS:
+            names = job["나눔"].get(part, [])
+            if not names and part == "test_session":
+                continue
             (base / "images" / part).mkdir(parents=True, exist_ok=True)
             (base / "labels" / part).mkdir(parents=True, exist_ok=True)
-            lab_dir = src / ("labels8" if part == "test" else f"labels_{job['group']}")
-            for n in job["나눔"][part]:
+            lab_dir = src / ("labels8" if part in SCORE_PARTS else f"labels_{job['group']}")
+            for n in names:
                 out = base / "images" / part / f"{n}.png"
                 if not out.exists():
                     if job["stretch"]:
@@ -123,7 +130,7 @@ def prepare_base(job, root):
                         os.link(src / "images" / f"{n}.png", out)
                 shutil.copyfile(lab_dir / f"{n}.txt", base / "labels" / part / f"{n}.txt")
                 npy = out.with_suffix(".npy")
-                if part != "test" and not npy.exists():
+                if part not in SCORE_PARTS and not npy.exists():
                     np.save(str(npy), cv2.imread(str(out)), allow_pickle=False)
         ensure_val8(job, base)
         (base / ".완료").write_text(json.dumps({"시각": time.strftime("%Y-%m-%d %H:%M:%S"), "라벨지문": label_fingerprint(base)},
@@ -268,6 +275,10 @@ def main(argv=None):
         sc = scoring.score_model(best, base / "images" / "test", base / "labels" / "test",
                                  job["names"], job["conf"], job["predict_imgsz"])
         (rd / "채점.json").write_text(json.dumps(sc, ensure_ascii=False, indent=1), encoding="utf-8")
+        if job["나눔"].get("test_session"):
+            ss = scoring.score_model(best, base / "images" / "test_session", base / "labels" / "test_session",
+                                     job["names"], job["conf"], job["predict_imgsz"])
+            (rd / "채점_세션.json").write_text(json.dumps(ss, ensure_ascii=False, indent=1), encoding="utf-8")
         sv, extra = score_val(job, base, best)
         (rd / "채점_검증.json").write_text(json.dumps(sv, ensure_ascii=False, indent=1), encoding="utf-8")
         summ.update(extra)

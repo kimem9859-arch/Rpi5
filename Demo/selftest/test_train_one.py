@@ -182,6 +182,24 @@ def test_흐림_목록():
     check(T1.album_kwargs({}, installed=True) == {"augmentations": []}, "설치됨 · 흐림 없음 → 빈 목록(기본 묶음의 ToGray 가 끼어들지 않게)")
 
 
+def test_세션_바탕():
+    print("[b-s] 바탕 — 세션 보류 몫은 images/test_session 에만(8종 라벨 · .npy 없음) · 학습·검증 몫에 없음 · 지문이 그 몫까지(1-3 Review Focus 1·2)")
+    with tempfile.TemporaryDirectory() as t:
+        src, root = _src(t), Path(t) / "루트"
+        cv2.imwrite(str(src / "images" / "b__f00001.png"), np.full((8, 6, 3), 100, np.uint8))
+        (src / "labels8" / "b__f00001.txt").write_text("4 0.5 0.5 0.1 0.1\n", encoding="utf-8")
+        (src / "labels_button" / "b__f00001.txt").write_text("4 0.5 0.5 0.1 0.1\n", encoding="utf-8")
+        job = _job(src, [5, 3])
+        job["나눔"]["name"], job["나눔"]["test_session"] = "place9_v2b", ["b__f00001"]
+        b = T1.prepare_base(job, root)
+        check((b / "images" / "test_session" / "b__f00001.png").exists()
+              and (b / "labels" / "test_session" / "b__f00001.txt").read_text().startswith("4 "), "세션 몫 = 사진 + 8종 라벨")
+        check(not (b / "images" / "test_session" / "b__f00001.npy").exists(), "세션 몫 .npy 없음")
+        check(not any(p.name.startswith("b__") for part in ("train", "val") for p in (b / "images" / part).iterdir()), "학습·검증 몫에 세션 사진 없음")
+        check(T1.source_fingerprint(job) == T1.label_fingerprint(b), "라벨 지문 = 원본(세션 몫 포함)")
+        check(T1.prepare_base(_job(src, [5, 3]), root) != b, "옛 판(세션 몫 없음)은 다른 바탕 폴더")
+
+
 if __name__ == "__main__":
     test_바탕_폴더()
     test_동시_준비()
@@ -191,6 +209,7 @@ if __name__ == "__main__":
     test_종료_이유()
     test_고정_메모리_끄기()
     test_흐림_목록()
+    test_세션_바탕()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

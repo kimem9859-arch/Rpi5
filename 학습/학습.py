@@ -43,7 +43,7 @@ SRC = Path.home() / "data" / "label_dataset"
 LOCAL = Path.home() / "data" / "학습실험"
 CODE_FILES = ["train_one.py", "runner.py", "stoprules.py", "scoring.py", "speedprobe.py", "tune.py", "hef_convert.py"]
 DIRTY_PATHS = ["학습/*.py", "학습/설정", "학습/나눔", "Demo/test/score_lib.py", "Demo/test/tool_round.py"]
-RECORD = ["요약.json", "채점.json", "채점_검증.json", "설정.json", "args.yaml", "results.csv", "results.png",
+RECORD = ["요약.json", "채점.json", "채점_검증.json", "채점_세션.json", "설정.json", "args.yaml", "results.csv", "results.png",
           "confusion_matrix.png", "confusion_matrix_normalized.png"]
 SKIP = ("E9-", "SPEED-")
 DEFAULT_TEST = RPI5 / "조사" / "재학습확인-20261003" / "채점사진.txt"
@@ -65,7 +65,8 @@ def make_job(cfg, d, head, conf, time_limit):
             "names": TC.GROUP_NAMES[cfg["group"]], "conf": conf, "train_kwargs": TC.train_kwargs(cfg),
             "predict_imgsz": mode["predict_imgsz"], "stretch": mode["stretch"], "멈춤": cfg["멈춤"],
             "출발": f"{RROOT}/{cfg['출발']}", "원본": f"{RROOT}/원본/{place_of(cfg['나눔'])}", "루트": RROOT,
-            "나눔": {"name": d["나눔"], "해시": d["해시"], "train": tr, "val": va, "test": te},
+            "나눔": {"name": d["나눔"], "해시": d["해시"], "train": tr, "val": va, "test": te,
+                   "test_session": SP.session_test(d, cfg["group"])},
             "코드": f"{RROOT}/코드/{head}", "코드해시": head, "시간상한_s": time_limit, "설정": cfg, "흐림": cfg.get("흐림")}
 
 
