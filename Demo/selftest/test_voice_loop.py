@@ -166,7 +166,7 @@ def test_progress_claim_replaced():
     print("\n[안전] 진행 단정 → 대체(R3 I4)")
     b = bot(llm=FakeLlm("N2 퍼지가 끝났습니다."), state=RUNNING)
     ok, m = ask(b, "펌프 퍼지 끝났어")
-    check(b.tts.said and b.tts.said[0].startswith("지금은 「N2 퍼지」 작업 중"), f"말한 것 = {b.tts.said}")
+    check(b.tts.said == ["앞에 렌치가 보이니 손으로 쥐면 확인됩니다."], f"말한 것 = {b.tts.said}")
 
 
 def test_long_answer_shortened():

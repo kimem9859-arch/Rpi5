@@ -19,7 +19,8 @@ sys.path.insert(0, _DEMO_DIR)
 
 from voice_card import (ANSWER_MAX_CHARS, build_card, card_facts, check_safety, fallback_sentence,
                         finalize, in_emergency, is_one_sentence, next_action, read_state, shorten,
-                        tool_phase, tool_sentence, UNKNOWN_LINE, verify_answer)
+                        tool_phase, tool_sentence, UNKNOWN_LINE, verify_answer,
+                        sensor_answer, sensor_question, SENSOR_SENTENCE)
 
 _fails = []
 
@@ -156,11 +157,12 @@ def test_fallback_and_finalize():
     print("── 대체 문장 · finalize(Review Focus 2·3)")
     cases = {
         "지금 버튼": (card_facts(LIVE, [], False), "지금은 B2 차례입니다."),
-        "서브 진행": (card_facts(RUN, [], False), "지금은 「N2 퍼지」 작업 중이며 끝나면 다음 단계로 넘어갑니다."),
+        "서브 진행": (card_facts(RUN, [], False), "렌치를 찾아 손으로 쥐세요."),
         "서브 멈춤": (card_facts(dict(LIVE, 상태="WARNING", 서브진행={"상태": "멈춤", "남은초": 4.0,
                                                                   "공구충족": False}), [], False),
-                    "지금은 경고로 「N2 퍼지」 작업이 멈춰 있습니다."),
-        "위반 차단": (card_facts(dict(LIVE, 상태="BLOCK"), [], False), "차단 중이니 먼저 차단 해제를 누르세요."),
+                    "순서가 다르니 손을 떼고 B2 버튼을 누르세요."),
+        "위반 차단": (card_facts(dict(LIVE, 상태="BLOCK"), [], False),
+                    "차단 중이니 차단 해제를 누른 뒤 B2 버튼부터 다시 누르세요."),
         "EMO": (card_facts(dict(LIVE, 상태="BLOCK", 비상정지=True), [], False),
                 "비상정지 중이니 EMO를 복귀한 뒤 차단 해제를 누르세요."),
         "완료": (card_facts(DONE, [], False), "작업은 이미 완료됐습니다."),
@@ -312,6 +314,82 @@ def cases_card():
     return next_action(dict(LIVE, 상태="WARNING", 서브진행={"상태": "멈춤", "남은초": 4.0, "공구충족": False}))["카드"]
 
 
+def test_net_redesign():
+    print("── 그물 재설계(설계 2026-10-04 §4.5)")
+    emo = card_facts(dict(LIVE, 현재단계=3, 현재버튼="B3", 상태="BLOCK", 비상정지=True), [], False)
+    check(check_safety("현재 단계는 3단계이며, 지금 눌러야 할 버튼은 B3입니다.", emo) == ["다른버튼"],
+          "🔴 비상정지 중 「B3 누르라」 — holdout 34·35 를 잡는다")
+    check(check_safety("EMO를 복귀하고 차단 해제부터 누르세요.", emo) == [], "EMO 복귀 안내는 통과")
+    done_emo = card_facts(dict(DONE, 상태="BLOCK", 비상정지=True), [], False)
+    check(check_safety("B1을 누르세요.", done_emo) == ["다른버튼"], "완료 뒤 비상정지도 버튼을 본다")
+    blk = card_facts(dict(LIVE, 상태="BLOCK"), [], False)
+    check(check_safety("버튼 B2를 눌러야 합니다.", blk) == ["다른버튼"],
+          "차단 중 버튼 안내는 걸림(이중 방어 — 비상 상황엔 LLM 이 답하지 않는다 · §4.7)")
+    warn = card_facts(dict(LIVE, 상태="WARNING"), [], False)
+    check(check_safety("손을 떼고 B2를 누르세요.", warn) == [], "경고 — 지금 버튼은 통과")
+    check(check_safety("B3를 누르세요.", warn) == ["다른버튼"], "경고 — 다른 버튼은 걸림")
+    t0 = LIVE["쓴시각"]
+    run = dict(LIVE, 서브진행={"상태": "진행 중", "남은초": 6.0, "공구충족": False, "공구오답": None})
+    seen = card_facts(run, [("wrench", 0.62, 0, 0, 9, 9)], True, now=t0)
+    check(check_safety("렌치가 확인됐습니다.", seen) == ["공구단정"], "🔑 쥐기 전 「확인됐습니다」 → 공구단정")
+    check(check_safety("렌치를 쥐면 확인됩니다.", seen) == [], "쥐면 확인된다(조건)는 통과")
+    check(check_safety("렌치를 쥐었으면 넘어갑니다.", seen) == [], "「쥐었으면」(조건)은 통과")
+    held = card_facts(dict(run, 서브진행=dict(run["서브진행"], 공구충족=True)), [], True, now=t0)
+    check(check_safety("렌치를 쥐었습니다.", held) == [], "쥠이면 통과")
+    last = card_facts(dict(LIVE, 현재단계=4, 현재버튼="B4", 다음단계=None, 서브작업=None), [], False)
+    check(check_safety("네, 현재 4단계가 진행 중이며 마지막 단계입니다.", last, question="이번 단계 끝났어?")
+          == ["진행단정"], "🔴 끝났냐는 질문에 「네 … 진행 중」 — holdout 25")
+    check(check_safety("네, 4단계가 진행 중입니다.", last, question="지금 진행 중이야?") == [],
+          "진행 중이냐는 질문의 「네, 진행 중」은 맞는 답")
+    check(check_safety("네, 4단계가 진행 중입니다.", last) == [], "질문을 모르면 이 규칙은 안 건다")
+    text, src, bad = finalize("렌치가 확인됐습니다.", seen)
+    check((text, src) == ("앞에 렌치가 보이니 손으로 쥐면 확인됩니다.", "대체-안전규칙"), f"공구단정 → 공구 문장 — {text}")
+    text, src, bad = finalize("지금 눌러야 할 버튼은 B3입니다.", emo)
+    check(text == "비상정지 중이니 EMO를 복귀한 뒤 차단 해제를 누르세요.", f"비상정지 → 지금 할 일 — {text}")
+    check(fallback_sentence(seen, tool_q=True) == "앞에 렌치가 보이니 손으로 쥐면 확인됩니다.", "공구 질문 → 공구 문장")
+    check(fallback_sentence(card_facts(LIVE, [], False), tool_q=True) == "지금은 B2 차례입니다.",
+          "공구 상황이 없으면 지금 할 일")
+
+
+def test_sensor_question():
+    print("── 센서 질문 관문(설계 2026-10-04 §4.5-나 · Review Focus 4)")
+    for q in ("가스 누출 없어?", "챔버 온도 지금 몇 도야?", "이 장비 압력 몇이야?", "가스 냄새 나는데 괜찮아?",
+              "온도 올라가고 있어?", "챔버압력정상이야"):
+        check(sensor_question(q), f"센서 질문 「{q}」")
+    for q in ("가스차단 단계야?", "클린·가스차단 끝났어?", "온도 하강 얼마나 남았어?", "온도하강얼마남았어",
+              "전극 온도 하강 몇 초 남았어?", "지금 몇 단계야?", "렌치어디이써", "RF 파워 몇 와트야?"):
+        check(not sensor_question(q), f"센서 아님 「{q}」")
+    f = card_facts(LIVE, [], False)
+    check(sensor_answer("가스 누출 없어?", f) == SENSOR_SENTENCE, "세션 중 센서 질문 → 고정 문장")
+    check(sensor_answer("가스 누출 없어?", card_facts(None, [], False)) is None, "작업 전에는 관문을 안 건다")
+    check(is_one_sentence(SENSOR_SENTENCE) and len(SENSOR_SENTENCE) <= ANSWER_MAX_CHARS, "한 문장 60자")
+
+
+def test_verify_redesign():
+    print("── 검산 재설계(설계 2026-10-04 §4.5-다)")
+    t0 = LIVE["쓴시각"]
+    base = card_facts(LIVE, [], False)
+    emo = card_facts(dict(LIVE, 상태="BLOCK", 비상정지=True), [], False)
+    ok, bad = verify_answer("렌치가 필요합니다.", base, emo)
+    check(not ok and "할일" in bad, "🔑 비상정지가 끼면 문장과 무관하게 버린다")
+    run = dict(LIVE, 서브진행={"상태": "진행 중", "남은초": 6.0, "공구충족": False, "공구오답": None})
+    a = card_facts(run, [], False, now=t0)
+    b = card_facts(run, [], False, now=t0 + 3)
+    ok, bad = verify_answer("N2 퍼지 진행 중입니다.", a, b)
+    check(ok, f"🔴 남은 초만 바뀌면 버리지 않는다 — {bad}")
+    stepped = card_facts(dict(LIVE, 현재단계=3, 현재버튼="B3", 서브작업=None), [], False)
+    ok, bad = verify_answer("N2 퍼지 진행 중입니다.", a, stepped)
+    check(ok, "정상 단계 넘어감은 문장에 나온 사실만 본다(서브 10초 · LLM 10초)")
+    seen = card_facts(run, [("wrench", 0.62, 0, 0, 9, 9)], True, now=t0)
+    held = card_facts(dict(run, 서브진행=dict(run["서브진행"], 공구충족=True)), [("wrench", 0.62, 0, 0, 9, 9)], True, now=t0)
+    ok, bad = verify_answer("앞에 렌치가 보이니 쥐세요.", seen, held)
+    check(not ok and "공구" in bad, "공구를 말했는데 공구 상황이 바뀌면 버린다")
+    swapped = card_facts(run, [("wrench", 0.4, 0, 0, 9, 9), ("pliers", 0.9, 0, 0, 9, 9)], True, now=t0)
+    both = card_facts(run, [("wrench", 0.9, 0, 0, 9, 9), ("pliers", 0.4, 0, 0, 9, 9)], True, now=t0)
+    ok, bad = verify_answer("렌치가 보입니다.", both, swapped)
+    check(ok, "보이는 공구 점수 순서만 바뀌면 버리지 않는다")
+
+
 def main():
     test_v2_emo_block_card()
     test_shorten()
@@ -323,6 +401,9 @@ def main():
     test_card_redesign()
     test_verify_ordinal_step()
     test_next_action_and_tool_phase()
+    test_net_redesign()
+    test_sensor_question()
+    test_verify_redesign()
     tmp = tempfile.mkdtemp(prefix="sop_card_test_")
     path = os.path.join(tmp, "state.json")
     try:

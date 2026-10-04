@@ -346,6 +346,15 @@ def build_card(state, dets, fresh, now=None):
 _STATE_WORDS = ("차단", "경고", "중지", "멈춰", "멈추")
 
 
+def _tool_changed(then, now):
+    """공구 사실이 바뀌었나 — 공구 상황이 있으면 (상황, 보이는 공구 집합) · 없으면 점수 최고 공구(종전)."""
+    ta, tb = then.get("공구상황"), now.get("공구상황")
+    if ta or tb:
+        sig = lambda x: ((x or {}).get("상황"), tuple(sorted((x or {}).get("보이는") or ())))  # noqa: E731
+        return sig(ta) != sig(tb)
+    return then.get("공구") != now.get("공구")
+
+
 def verify_answer(text, then, now):
     """생성 문장이 아직 사실인가 — `(통과, 어긋난 항목들)`.
 
@@ -360,7 +369,7 @@ def verify_answer(text, then, now):
     """
     t = text or ""
     bad = []
-    if any(ko in t for ko in TOOL_KO.values()) and then.get("공구") != now.get("공구"):
+    if any(ko in t for ko in TOOL_KO.values()) and _tool_changed(then, now):
         bad.append("공구")
     if mentioned_steps(t) and then.get("단계") != now.get("단계"):
         bad.append("단계")
@@ -370,6 +379,12 @@ def verify_answer(text, then, now):
         bad.append("상태")
     if then.get("세션") != now.get("세션"):
         bad.append("세션")
+    # 🔑 비상정지·차단·경고가 끼면 문장과 무관하게 버린다 — 그 사이 알림이 나갔거나 할 일이 뒤집혔다.
+    #    그 밖의 넘어감은 문장에 나온 사실만 본다(서브 10초 · LLM 10초 — 무조건 비교하면 답이 매번 버려진다).
+    a, b = then.get("할일") or {}, now.get("할일") or {}
+    if ({a.get("종류"), b.get("종류")} & set(ALERT_KINDS)
+            and (a.get("종류"), a.get("버튼")) != (b.get("종류"), b.get("버튼"))):
+        bad.append("할일")
     return (not bad), bad
 
 
@@ -407,6 +422,13 @@ _DONE = re.compile(r"(?:끝났|완료됐|완료되었|완료했|마쳤|끝냈|�
 _STEP_NUM = re.compile(r"(?<![A-Za-z])(\d+)\s*번?\s*째?\s*단계")
 _STEP_ORD = re.compile(r"(첫|두|세|네)\s*번째\s*단계")
 _ORD = {"첫": 1, "두": 2, "세": 3, "네": 4}
+_YES = re.compile(r"^\s*(?:네|예)(?![가-힣])")
+_DONE_Q = re.compile(r"끝났|끝난|끝냈|됐|완료|마쳤|다\s*했|끈났")              # 끝났냐는 질문
+_GRIP = re.compile(r"(?:쥐었|쥐셨)(?!으면)|쥔\s*것으로\s*확인|확인됐|확인되었|확인\s*완료")
+_SENSOR = re.compile(r"가스|압력|온도|누출|누설|진공도|유량")
+SENSOR_SENTENCE = "그 정보는 이 시스템이 확인할 수 없습니다."
+_RECIPE_PATH = os.path.join(_DEMO_DIR, "recipe.json")
+_names_cache = None
 
 
 def _buttons(t):
@@ -459,18 +481,17 @@ def shorten(text, limit=ANSWER_MAX_CHARS):
     return t
 
 
-def check_safety(text, facts):
-    """말해도 되는 문장인가 — 걸린 규칙 이름들(빈 목록 = 통과). 설계 §4.4 C3.
+def check_safety(text, facts, question=None):
+    """말해도 되는 문장인가 — 걸린 규칙 이름들(빈 목록 = 통과). 설계 §4.4 C3 · 2026-10-04 §4.5.
 
     「허가」     스스로 허가하는 말(§10.53-(4) 유형 ⑤)
-    「다른버튼」 지금 눌러야 할 버튼이 아닌 B1~B4 를 「누르」 계열 동사와 함께 말함(R3 C3)
-    「진행단정」 지금 단계·서브 작업이 끝났다고 말함 — 지금 단계는 끝나는 순간 다음 단계로 바뀌므로
-                지금 단계에 대한 「끝났다」는 늘 거짓이다(R3 I4 「N2 퍼지 끝났습니다」). 지난 단계만
-                밝힌 완료(「1단계는 끝났습니다」)는 통과한다.
-    🔑 EMO 는 「다른버튼」에서 뺀다 — EMO 차단 안내(「EMO 를 복귀한 뒤 차단 해제를 눌러야」)가 걸리고,
-       EMO 를 누르라는 말은 순서 위반이 아니라 안전 조작이다.
+    「다른버튼」 「지금 할 일」의 허용 버튼이 아닌 B1~B4 를 「누르」 계열 동사와 함께 말함(R3 C3 ·
+                2026-10-04 — 비상정지 중 「B3 누르세요」는 종전 「현재 버튼」 기준을 통과했다)
+    「진행단정」 지금 단계·서브 작업이 끝났다고 말함 · 끝났냐는 질문에 「네」로 받고 「진행 중」이라 함(모순)
+    「공구단정」 쥠 확정 전에 「쥐었다·확인됐다」
+    🔑 EMO 는 버튼 검사에서 뺀다 — EMO 를 누르라는 말은 순서 위반이 아니라 안전 조작이다.
     「비상정지억제」 비상정지(EMO)를 누르지 말라거나 안 눌러도 된다고 함 — 언제나 틀렸다(상태와 무관 · dev 2026-10-03)
-    🔑 작업 전·완료 뒤에는 「허가」·「비상정지억제」만 본다 — 누를 버튼이 없고, 완료 요약은 사실이다.
+    🔑 작업 전·완료 뒤(비상정지가 아닐 때)는 「허가」·「비상정지억제」만 본다.
     """
     t = text or ""
     bad = []
@@ -478,10 +499,13 @@ def check_safety(text, facts):
         bad.append("허가")
     if _EMO_WORD.search(t) and _DONT_PRESS.search(t):
         bad.append("비상정지억제")
-    if not facts.get("세션") or facts.get("완료"):
+    if not facts.get("세션") or (facts.get("완료") and not facts.get("비상정지")):
         return bad
-    others = _buttons(t) - {facts.get("버튼")}
-    if (others and _PRESS.search(t)) or _MOVE_ON.search(t):
+    act = facts.get("할일") or {"허용": (facts.get("버튼"),)}
+    said = _buttons(t)
+    if said and _PRESS.search(t) and said - set(act.get("허용") or ()):
+        bad.append("다른버튼")
+    if _MOVE_ON.search(t) and "다른버튼" not in bad:
         bad.append("다른버튼")
     if _DONE.search(t):
         cur = facts.get("단계")
@@ -490,24 +514,28 @@ def check_safety(text, facts):
         past_only = bool(steps) and cur is not None and all(s < cur for s in steps)
         if not past_only or any(n in t for n in names):
             bad.append("진행단정")
+    if (question and _DONE_Q.search(question) and _YES.search(t) and "진행 중" in t
+            and "진행단정" not in bad):
+        bad.append("진행단정")
+    tp = facts.get("공구상황")
+    if tp and tp["상황"] != "쥠" and _GRIP.search(t) and (tp["요구"] in t or "공구" in t):
+        bad.append("공구단정")
     return bad
 
 
-def fallback_sentence(facts):
-    """안전 규칙에 걸린 답 대신 말할 한 문장 — 카드의 사실로만 만든다(지어낼 것이 없다)."""
+def fallback_sentence(facts, tool_q=False):
+    """안전 규칙에 걸린 답·LLM 이 못 낸 답 대신 말할 한 문장 — 「지금 할 일」의 말(설계 2026-10-04 §4.2·§4.6).
+
+    공구를 물었고 공구 상황이 있으면 공구 문장. 작업 전이면 None(답 경로가 따로 있다).
+    """
     if not facts.get("세션"):
         return None
-    if facts.get("완료"):
-        return "작업은 이미 완료됐습니다."
-    if facts.get("상태") == "차단":
-        if facts.get("비상정지"):
-            return "비상정지 중이니 EMO를 복귀한 뒤 차단 해제를 누르세요."
-        return "차단 중이니 먼저 차단 해제를 누르세요."
-    sub = facts.get("서브") or {}
-    if sub.get("상태") == "진행 중":
-        return f"지금은 「{sub['라벨']}」 작업 중이며 끝나면 다음 단계로 넘어갑니다."
-    if sub.get("상태") == "멈춤":
-        return f"지금은 경고로 「{sub['라벨']}」 작업이 멈춰 있습니다."
+    tp = facts.get("공구상황")
+    if tool_q and tp:
+        return tool_sentence(tp)
+    act = facts.get("할일")
+    if act and act.get("말"):
+        return act["말"]
     return f"지금은 {facts.get('버튼')} 차례입니다."
 
 
@@ -530,7 +558,47 @@ def gate_answer(question, facts):
     return None
 
 
-def finalize(raw, facts):
+def _recipe_names(path=_RECIPE_PATH):
+    """질문에서 지울 레시피 이름들(공백 없앤 꼴 · 긴 것부터) — 단계 이름과 그 조각 · 서브 작업 이름과 뒤쪽 어절 묶음."""
+    global _names_cache
+    if _names_cache is None:
+        out = set()
+        try:
+            with open(path, encoding="utf-8") as f:
+                steps = json.load(f).get("steps", [])
+        except (OSError, ValueError):
+            steps = []
+        for s in steps:
+            name = s.get("name") or ""
+            out.add(name)
+            out.update(re.split(r"[·/]", name))
+            words = ((s.get("sub") or {}).get("label") or "").split()
+            for k in range(len(words) - 1):            # 「전극 온도 하강」 → 전체 · 「온도 하강」
+                out.add("".join(words[k:]))
+        _names_cache = sorted({w.replace(" ", "") for w in out if len(w.replace(" ", "")) >= 2},
+                              key=len, reverse=True)
+    return _names_cache
+
+
+def sensor_question(question):
+    """장비 센서(가스·압력·온도…)를 묻나 — 🔑 레시피 이름을 지운 뒤 본다(「클린·가스차단」·「전극 온도 하강」).
+
+    이름은 recipe.json 에서 읽는다 — 손으로 적은 예외 목록을 두지 않는다(설계 2026-10-04 §4.5-나).
+    """
+    q = (question or "").replace(" ", "")
+    for w in _recipe_names():
+        q = q.replace(w, "")
+    return bool(_SENSOR.search(q))
+
+
+def sensor_answer(question, facts):
+    """장비 센서 질문이면 LLM 없이 말할 문장 · 아니면(또는 작업 전이면) None — 이 시스템은 센서를 보지 않는다."""
+    if facts.get("세션") and sensor_question(question):
+        return SENSOR_SENTENCE
+    return None
+
+
+def finalize(raw, facts, question=None):
     """LLM 원문 → 말할 문장 `(문장, 출처, 걸린 규칙)`.
 
     출처 = "LLM" · "대체-안전규칙" · "대체-길이" · "빈답"(문장 None).
@@ -542,9 +610,11 @@ def finalize(raw, facts):
         return None, "빈답", []
     if said[-1] not in ".?!":
         said += "."
-    bad = check_safety(said, facts)
+    bad = check_safety(said, facts, question)
     if "비상정지억제" in bad:
         return EMO_SENTENCE, "대체-안전규칙", bad
+    if bad == ["공구단정"]:
+        return tool_sentence(facts["공구상황"]), "대체-안전규칙", bad
     if bad:
         return fallback_sentence(facts), "대체-안전규칙", bad
     if len(said) > ANSWER_MAX_CHARS:
