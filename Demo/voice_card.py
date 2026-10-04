@@ -502,16 +502,28 @@ def is_one_sentence(text):
     return bool(t) and len(_SENT_END.findall(t)) == 1 and t[-1] in ".?!"
 
 
-def first_sentence(text):
-    """카드 표기·그림 글자를 지우고 첫 문장만 — 길이는 자르지 않는다(끝 부호가 없으면 그대로)."""
+def _clean(text):
+    """카드 표기·그림 글자를 지우고 띄어쓰기를 하나로."""
     t = text or ""
     for a, b in _REPLACE:
         t = t.replace(a, b)
-    t = " ".join(_EMOJI.sub("", t).split())
+    return " ".join(_EMOJI.sub("", t).split())
+
+
+def first_sentence(text):
+    """카드 표기·그림 글자를 지우고 첫 문장만 — 길이는 자르지 않는다(끝 부호가 없으면 그대로)."""
+    t = _clean(text)
     m = _SENT_END.search(t)
     if m:
         t = t[:m.end()]
     return t.strip()
+
+
+def rest_sentences(text):
+    """첫 문장 뒤 — 말하지 않고 버리는 부분."""
+    t = _clean(text)
+    m = _SENT_END.search(t)
+    return t[m.end():].strip() if m else ""
 
 
 def shorten(text, limit=ANSWER_MAX_CHARS):
@@ -784,6 +796,10 @@ def finalize(raw, facts, question=None):
     if said[-1] not in ".?!":
         said += "."
     bad = check_safety(said, facts, question)
+    if not bad and "다른버튼" in check_safety(rest_sentences(raw), facts, question):
+        # 🔑 버리는 뒷문장이 다른 버튼을 누르라 하면 첫 문장도 그 뜻이다 — 「다음 단계는 4단계 「챔버 벤트」입니다.
+        #    버튼 B4를 누르시면 됩니다.」가 첫 문장만 남아 그물을 피했다(판 3 holdout H3-S5-q31 · 2026-10-04).
+        bad = ["다른버튼"]
     if "비상정지억제" in bad:
         return EMO_SENTENCE, "대체-안전규칙", bad
     ask = asked_progress(question, facts)

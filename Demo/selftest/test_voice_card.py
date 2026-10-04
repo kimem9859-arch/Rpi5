@@ -482,6 +482,21 @@ def test_asked_progress():
     check(src.startswith("대체") and t == "아니요, 4단계 「챔버 벤트」는 아직 끝나지 않았습니다.", f"진행 중인데 끝났다 → 코드 문장 — {t}")
 
 
+def test_dropped_sentence_net():
+    print("── 🔑 잘려 말하지 않는 뒷문장의 다른 버튼 지시도 본다(판 3 holdout H3-S5-q31 · 2026-10-04)")
+    f = card_facts(LIVE, [], False)          # 2단계 · 할 일 B2
+    text, src, bad = finalize('다음 단계는 3단계인 "전극 냉각"입니다. 버튼 B3를 누르시면 됩니다.', f, question="다음동작뭐야")
+    check((text, src, bad) == ("지금은 B2 차례입니다.", "대체-안전규칙", ["다른버튼"]),
+          f"첫 문장이 멀쩡해도 뒷문장이 다른 버튼을 누르라면 대체 — {text}")
+    check(finalize("지금은 B2 차례입니다. B2를 누르시면 됩니다.", f) == ("지금은 B2 차례입니다.", "LLM", []),
+          "뒷문장이 허용 버튼이면 그대로")
+    check(finalize("지금은 2단계입니다. 쥐고 약 6초가 지나면 자동으로 3단계로 넘어갑니다.", f)[1] == "LLM",
+          "뒷문장의 자동 전환 안내는 걸지 않는다")
+    check(finalize("작업이 이미 끝난 단계입니다. 더 누를 버튼이 없으니 다른 작업을 진행하셔도 됩니다.",
+                   card_facts(DONE, [], False))[1] == "LLM",
+          "뒷문장은 「다른버튼」만 본다 — 허가 등은 말하지 않으니 첫 문장 기준")
+
+
 def main():
     test_v2_emo_block_card()
     test_shorten()
@@ -499,6 +514,7 @@ def main():
     test_alert_event_rules()
     test_yes_strip_and_done_names()
     test_asked_progress()
+    test_dropped_sentence_net()
     tmp = tempfile.mkdtemp(prefix="sop_card_test_")
     path = os.path.join(tmp, "state.json")
     try:
