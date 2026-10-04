@@ -239,6 +239,17 @@ def test_탐색_설정():
         check(stopped, f"막음 — {bad.get('이름')} {bad.get('범위')} {bad.get('기준')}")
 
 
+def test_받기_검증채점():
+    print("[11] 받기 — 검증 몫 채점(채점_검증.json)도 가져온다(탐색 목표값의 근거)")
+    with tempfile.TemporaryDirectory() as t:
+        tmp, dst = Path(t) / "tmp", Path(t) / "dst"
+        tmp.mkdir()
+        (tmp / "요약.json").write_text('{"id": "x"}', encoding="utf-8")
+        (tmp / "채점_검증.json").write_text('{"전체": {}}', encoding="utf-8")
+        CLI.write_record(tmp, dst, "/home/abc", "x")
+        check((dst / "채점_검증.json").exists(), f"가져옴 — {[x.name for x in dst.iterdir()]}")
+
+
 if __name__ == "__main__":
     test_작업()
     test_예상()
@@ -250,6 +261,7 @@ if __name__ == "__main__":
     test_사소_2차()
     test_판정_조건()
     test_탐색_설정()
+    test_받기_검증채점()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

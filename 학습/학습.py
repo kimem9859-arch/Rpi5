@@ -40,7 +40,7 @@ SRC = Path.home() / "data" / "label_dataset"
 LOCAL = Path.home() / "data" / "학습실험"
 CODE_FILES = ["train_one.py", "runner.py", "stoprules.py", "scoring.py", "speedprobe.py", "tune.py"]
 DIRTY_PATHS = ["학습/*.py", "학습/설정", "학습/나눔", "Demo/test/score_lib.py", "Demo/test/tool_round.py"]
-RECORD = ["요약.json", "채점.json", "설정.json", "args.yaml", "results.csv", "results.png",
+RECORD = ["요약.json", "채점.json", "채점_검증.json", "설정.json", "args.yaml", "results.csv", "results.png",
           "confusion_matrix.png", "confusion_matrix_normalized.png"]
 SKIP = ("E9-", "SPEED-")
 DEFAULT_TEST = RPI5 / "조사" / "재학습확인-20261003" / "채점사진.txt"
