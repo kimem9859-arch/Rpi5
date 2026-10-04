@@ -1,4 +1,4 @@
-"""학습 설정(학습/trainconf.py)과 커밋된 설정 파일을 고정한다 — 합치기 · 오타·함정 막기 · 시작값(설계 §6) · 실험 25(E0b 6 = 최종 리뷰 C1).
+"""학습 설정(학습/trainconf.py)과 커밋된 설정 파일을 고정한다 — 합치기 · 오타·함정 막기 · 시작값(설계 §6) · 실험 29(E0b 6 = 최종 리뷰 C1 · 후보 시드 4).
 
 실행: python3 Demo/selftest/test_train_conf.py
 정본 설계: 상위 docs/superpowers/specs/2026-10-03-학습파라미터-체계-design.md §6 · §9
@@ -82,7 +82,7 @@ def test_기본값():
 
 
 def test_커밋된_설정():
-    print("[4] 실험 25(E0b 6 포함) · 점검 4 — 전부 읽히고 id 가 겹치지 않는다")
+    print("[4] 실험 29(E0b 6 · 후보 시드 4 포함) · 점검 4 — 전부 읽히고 id 가 겹치지 않는다")
     b = TC.load_yaml(CONF / "기본.yaml")
     ids = []
     for sub in ("실험", "점검"):
@@ -92,7 +92,7 @@ def test_커밋된_설정():
                 check(False, f"{p.name}: {e}")
             ids.append(p.stem)
     exp = [i for i in ids if not i.startswith("E9-")]
-    check(len(exp) == 25, f"실험 25 — {len(exp)}")
+    check(len(exp) == 29, f"실험 29 — {len(exp)}")
     check(len([i for i in ids if i.startswith("E9-")]) == 4, "점검 4")
     check(len(ids) == len(set(ids)), "id 겹침 없음")
     for e0 in ("E0", "E0b"):

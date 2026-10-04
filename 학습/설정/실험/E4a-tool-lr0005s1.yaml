@@ -1,0 +1,6 @@
+id: E4a-tool-lr0005s1
+group: tool
+seed: 1
+train:
+  lr0: 0.0005
+메모: 후보 확인 · 시드 1 — E4a 공구가 시드 0 에서 driver·wrench 기준 범위 위(§12.85)
