@@ -109,11 +109,17 @@ def _try(b, p):
         return str(e)
 
 
+def test_id_끝_줄바꿈():
+    print("[9] 실험 id 끝 줄바꿈은 형식이 아니다(빼기 · 이어서에 그대로 셸로 들어간다 · 2차 리뷰 사소)")
+    check(TC.ID_RE.match("E4-button-x\n") is None and TC.ID_RE.match("E4-button-x") is not None, "끝 줄바꿈 거부 · 정상 id 통과")
+
+
 if __name__ == "__main__":
     test_합치기()
     test_막기()
     test_기본값()
     test_커밋된_설정()
+    test_id_끝_줄바꿈()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

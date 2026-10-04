@@ -332,6 +332,47 @@ def test_끝내기_직전_대기열():
         lk.close(); probe.close()
 
 
+def test_사소_2차():
+    print("[16] 2차 리뷰 사소 — 이어 돌 때는 「끝」을 쓰지 않음 · 이어 학습이 이상 종료해도 🔁 유지 · 끌지 판정은 도는중/ 경로만")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("runner_mod2", RUNNER)
+    sys.path.insert(0, os.path.dirname(RUNNER))
+    R = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(R)
+    with tempfile.TemporaryDirectory() as t:
+        root = Path(t)
+        for d in ("대기열", "끝", "도는중", "runs"):
+            (root / d).mkdir()
+        lk = open(root / "실행기.lock", "w")
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        fi = getattr(R, "finish_idle", None)
+        (root / "대기열" / "x_E0-button-a.json").write_text("{}", encoding="utf-8")
+        go = fi(root, lk, [], None, None, time.time(), None) if fi else None
+        st = json.loads((root / "상태.json").read_text(encoding="utf-8")) if (root / "상태.json").exists() else {}
+        check(go is True and st.get("끝") is False, f"대기열에 들어와 다시 잡으면 이어 돔 · 상태 「끝」 아님 — {go} · {st.get('끝')}")
+        (root / "대기열" / "x_E0-button-a.json").unlink()
+        go = fi(root, lk, [], None, None, time.time(), None) if fi else None
+        st = json.loads((root / "상태.json").read_text(encoding="utf-8")) if (root / "상태.json").exists() else {}
+        check(go is False and st.get("끝") is True, f"비었으면 끝 · 상태 「끝」 — {go} · {st.get('끝')}")
+        lk.close()
+        job = {"id": "E4a-tool-r", "group": "tool", "입력": "늘리기640", "바꾼것": "", "루트": str(root), "이어서": True, "멈춤": {}}
+        jp = root / "도는중" / "x_E4a-tool-r.json"
+        jp.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
+        (root / "runs" / "E4a-tool-r").mkdir()
+        (root / "runs" / "E4a-tool-r" / "요약.json").write_text('{"id": "E4a-tool-r", "종료이유": "끊김"}', encoding="utf-8")
+        R.finish(root, R.Run(jp, job, None, time.time()), time.time(), reason="진행없음")
+        su = json.loads((root / "runs" / "E4a-tool-r" / "요약.json").read_text(encoding="utf-8"))
+        check(su.get("이어서") is True and su.get("종료이유") == "진행없음", f"이어 학습이 진행없음으로 끝나도 이어서 표시 — {su}")
+        name = "20261004-000000-00_E0-button-z.json"
+        here = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", str(root / "도는중" / name)], start_new_session=True)
+        else_ = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", f"/tmp/다른곳/{name}"], start_new_session=True)
+        time.sleep(0.3)
+        a, b = R.is_job_proc(here.pid, name), R.is_job_proc(else_.pid, name)
+        for pr in (here, else_):
+            pr.kill(); pr.wait(timeout=5)
+        check(a is True and b is False, f"도는중/ 의 그 파일로 띄운 학습만 — 도는중 {a} · 다른 곳 같은 이름 {b}")
+
+
 if __name__ == "__main__":
     test_정상()
     test_진행없음()
@@ -348,6 +389,7 @@ if __name__ == "__main__":
     test_실행기_오류_기록()
     test_끊김_복구_남의_프로세스()
     test_끝내기_직전_대기열()
+    test_사소_2차()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

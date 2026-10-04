@@ -5,10 +5,13 @@
 ⚠️ ssh·데스크톱이 필요 없다.
 """
 import argparse
+import json
 import importlib.util
 import os
 import sys
+import tempfile
 import time
+from pathlib import Path
 from datetime import datetime, timedelta
 
 _RPI5 = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -146,6 +149,68 @@ def test_사소_고침():
           f"받기 홈 경로 자가 점검 — {lk('a /home/kim/x b')}")
 
 
+def test_사소_2차():
+    print("[8] 2차 리뷰 사소 — 이어서 걸기(id 검사 · 커밋 확인 · 지금 커밋 실행기) · 재개(배포 뒤에 멈춤 해제) · 받기(한 실험 통째 검사 뒤 씀)")
+    calls, started, sent = [], [], []
+    orig = (CLI.sh, CLI.rsync, CLI.code_state, CLI.start_runner)
+    def fake(cmd, input=None, timeout=120):
+        calls.append(cmd)
+        if cmd.startswith("cat") and "작업.json" in cmd:
+            return json.dumps({"id": "E4a-tool-x", "입력": "늘리기640", "코드해시": "old", "코드": "~/학습실험/코드/old"})
+        return ""
+    try:
+        CLI.sh, CLI.rsync = fake, (lambda args, timeout=3600: sent.append(args))
+        CLI.start_runner = lambda c: started.append(c)
+        CLI.code_state = lambda: ("h123", False)
+        try:
+            CLI.cmd_launch(argparse.Namespace(이어서="E4*", 설정=[], 확인=False))
+            stopped = False
+        except SystemExit:
+            stopped = True
+        check(stopped and not calls, f"이어서 — id 형식이 아니면 원격에 손대지 않고 멈춤 — {calls}")
+        CLI.code_state = lambda: ("h123", True)
+        try:
+            CLI.cmd_launch(argparse.Namespace(이어서="E4a-tool-x", 설정=[], 확인=False))
+            stopped = False
+        except SystemExit:
+            stopped = True
+        check(stopped and not started, "이어서 — 커밋 안 된 학습 코드면 걸지 않음")
+        CLI.code_state = lambda: ("h123", False)
+        calls.clear(); sent.clear()
+        CLI.cmd_launch(argparse.Namespace(이어서="E4a-tool-x", 설정=[], 확인=False))
+        check(started == ["h123"] and sent, f"이어서 — 실행기는 지금 커밋 코드(배포 뒤) — {started} · 보냄 {len(sent)}")
+        calls.clear(); sent.clear(); started.clear()
+        CLI.cmd_resume(argparse.Namespace())
+        check(started == ["h123"] and sent, f"재개 — 완료 표지가 없으면 코드를 보낸 뒤 실행기 — {started} · 보냄 {len(sent)}")
+        calls.clear()
+        def boom(args, timeout=3600):
+            raise RuntimeError("rsync 실패")
+        CLI.rsync = boom
+        try:
+            CLI.cmd_resume(argparse.Namespace())
+        except RuntimeError:
+            pass
+        check(not any("rm -f" in c and "대기열멈춤" in c for c in calls), f"재개 — 배포가 실패하면 멈춤을 풀지 않음 — {calls}")
+    finally:
+        CLI.sh, CLI.rsync, CLI.code_state, CLI.start_runner = orig
+    wr = getattr(CLI, "write_record", None)
+    with tempfile.TemporaryDirectory() as t:
+        tmp, dst = Path(t) / "tmp", Path(t) / "dst"
+        tmp.mkdir(); dst.mkdir()
+        (tmp / "요약.json").write_text('{"id": "x", "save": "/home/abc/학습실험/x"}', encoding="utf-8")
+        (tmp / "args.yaml").write_text("project: /mnt/c/Users/kim/runs\n", encoding="utf-8")
+        try:
+            wr(tmp, dst, "/home/abc", "x") if wr else None
+            stopped = False
+        except SystemExit:
+            stopped = True
+        check(wr is not None and stopped and not list(dst.iterdir()), f"받기 — 한 파일이라도 개인 경로가 남으면 그 실험은 아무것도 쓰지 않음 — {[x.name for x in dst.iterdir()]}")
+        (tmp / "args.yaml").write_text("project: /home/abc/학습실험/runs\n", encoding="utf-8")
+        if wr:
+            wr(tmp, dst, "/home/abc", "x")
+        check(wr is not None and (dst / "args.yaml").read_text(encoding="utf-8") == "project: ~/학습실험/runs\n" and (dst / "요약.json").exists(), "깨끗하면 홈을 ~ 로 바꿔 씀")
+
+
 if __name__ == "__main__":
     test_작업()
     test_예상()
@@ -154,6 +219,7 @@ if __name__ == "__main__":
     test_상태()
     test_걸기_직후_상태()
     test_사소_고침()
+    test_사소_2차()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

@@ -160,7 +160,8 @@ def finish(root, run, now, reason=None, rc=None):
         if rc != EXIT_ABNORMAL or not summ:
             summ.update({"id": run.job["id"], "group": run.job["group"], "입력": run.job["입력"],
                          "바꾼것": run.job.get("바꾼것", ""), "종료이유": reason, "이상": True,
-                         "에폭": run.epochs, "분": round((now - run.started) / 60, 1)})
+                         "에폭": run.epochs, "분": round((now - run.started) / 60, 1),
+                         **({"이어서": True} if run.job.get("이어서") else {})})
             write_json(sp, summ)
         set_stop(root, f"{reason}: {run.job['id']}")
     os.replace(run.path, Path(root) / "끝" / run.path.name)
@@ -172,7 +173,7 @@ def is_job_proc(pid, name):
         args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
     except OSError:
         return False
-    return any(x.decode(errors="replace").endswith(name) for x in args if x)
+    return any(x.decode(errors="replace").endswith(f"/도는중/{name}") for x in args if x)
 
 
 def relock_if_queued(root, lock):
@@ -187,6 +188,15 @@ def relock_if_queued(root, lock):
         return True
     except BlockingIOError:
         return False
+
+
+def finish_idle(root, lock, runs, gpu, why, now, win):
+    """할 일이 없을 때 — 대기열을 한 번 더 보고 이어 돌면 「끝」을 쓰지 않는다(True). 끝낼 때만 「끝」을 쓴다(False)."""
+    if relock_if_queued(root, lock):
+        status(root, runs, gpu, why, now, done=False, win=win)
+        return True
+    status(root, runs, gpu, why, now, done=True, win=win)
+    return False
 
 
 def recover_orphans(root):
@@ -204,7 +214,7 @@ def recover_orphans(root):
         sp = rd / "요약.json"
         summ = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
         summ.update({"id": job["id"], "group": job["group"], "입력": job["입력"], "바꾼것": job.get("바꾼것", ""),
-                     "종료이유": "끊김", "이상": True})
+                     "종료이유": "끊김", "이상": True, **({"이어서": True} if job.get("이어서") else {})})
         write_json(sp, summ)
         set_stop(root, f"끊김: {job['id']} — 학습 도중 실행기가 멈췄다(데스크톱·WSL 꺼짐?) · 이어서/건너뛰기를 정한다")
         os.replace(p, Path(root) / "끝" / p.name)
@@ -308,11 +318,11 @@ def main(argv=None):
             status(root, runs, None, None, now, done=True, err=f"{type(e).__name__}: {e}")
             raise
         idle = not runs and ((root / "대기열멈춤").exists() or not any((root / "대기열").glob("*.json")))
-        status(root, runs, gpu, why, now, done=idle, win=win)
         if idle:
-            if relock_if_queued(root, lock):
+            if finish_idle(root, lock, runs, gpu, why, now, win):
                 continue
             return 0
+        status(root, runs, gpu, why, now, done=False, win=win)
         time.sleep(a.interval)
 
 

@@ -117,12 +117,22 @@ def test_이어서():
     check(L.baseline_ranges([r0, e0[1], e0[2]], "button") is None, "이어서 한 E0 는 기준에서 뺀다(3개 미만)")
 
 
+def test_사소_2차():
+    print("[6] 2차 리뷰 사소 — 기준이 모두 이어서면 「기준 부족」 · 머리말에 🔁 설명")
+    e0 = [({**btn(f"E0-button-s{i}", 0.90 + i / 100, 0.80)[0], "이어서": True}, btn(f"E0-button-s{i}", 0.9, 0.8)[1]) for i in range(3)]
+    md = L.render(e0 + [btn("E3-button-x", 0.95, 0.80)])
+    row = [l for l in md.splitlines() if l.startswith("| E3-button-x")][0]
+    check("기준 부족" in row, f"이어서 E0 만 있으면 기준 부족 — {row.split('|')[-2]}")
+    check(any(l.startswith(">") and "🔁" in l for l in md.splitlines()), "머리말에 🔁 = 이어 학습 설명")
+
+
 if __name__ == "__main__":
     test_범위와_판정()
     test_렌더()
     test_다시_만들기()
     test_기준_조건()
     test_이어서()
+    test_사소_2차()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

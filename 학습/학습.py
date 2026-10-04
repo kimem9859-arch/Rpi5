@@ -258,9 +258,14 @@ def cmd_speed(a):
 def cmd_launch(a):
     head, dirty = code_state()
     if a.이어서:
+        if not TC.ID_RE.match(a.이어서):
+            sys.exit(f"🔴 실험 id 형식이 아니다: {a.이어서!r}")
+        if dirty:
+            sys.exit("🔴 커밋 안 된 학습 코드·설정·나눔이 있다 — 커밋한 뒤 건다(실행기는 지금 커밋의 코드로 뜬다)")
         job = json.loads(sh(f"cat {RROOT}/runs/{a.이어서}/작업.json"))
         job["이어서"] = True
         jobs = [job]
+        deploy_code(head)                         # 학습은 그 실험의 코드 그대로 · 실행기만 지금 커밋
     else:
         base = TC.load_yaml(HERE / "설정" / "기본.yaml")
         cfgs = [TC.resolve(base, TC.load_yaml(p), Path(p).stem) for p in a.설정]
@@ -292,7 +297,7 @@ def cmd_launch(a):
     st = launch_state(remote_json(f"{RROOT}/상태.json", {}), time.time())
     if st:
         sh(atomic_write_cmd(f"{RROOT}/상태.json"), input=json.dumps(st, ensure_ascii=False))
-    start_runner(jobs[0]["코드해시"])
+    start_runner(head)
 
 
 def cmd_status(a):
@@ -303,6 +308,29 @@ def cmd_status(a):
         if not a.끝까지 or finished(st, now):
             return
         time.sleep(a.끝까지 * 60)
+
+
+def write_record(tmp, dst, home, i):
+    """한 실험의 기록을 모두 홈 경로 정리·개인 경로 검사한 뒤에 쓴다 — 하나라도 남으면 그 실험은 아무것도 쓰지 않는다."""
+    texts, bins = {}, []
+    for f in RECORD:
+        p = Path(tmp) / f
+        if not p.exists():
+            continue
+        if p.suffix in (".json", ".yaml", ".csv"):
+            text = sanitize(p.read_text(encoding="utf-8"), home)
+            bad = leaks(text)
+            if bad:
+                sys.exit(f"🔴 {i}/{f} 에 개인 경로가 남았다 {sorted(set(bad))} — 받기를 멈춘다(공개 저장소)")
+            texts[f] = text
+        else:
+            bins.append(p)
+    dst = Path(dst)
+    dst.mkdir(parents=True, exist_ok=True)
+    for f, text in texts.items():
+        (dst / f).write_text(text, encoding="utf-8")
+    for p in bins:
+        shutil.copyfile(p, dst / p.name)
 
 
 def cmd_fetch(a):
@@ -317,17 +345,11 @@ def cmd_fetch(a):
         filt = [f"--include={f}" for f in RECORD] + ["--include=weights/", "--include=weights/best.pt", "--exclude=*"]
         rsync([*filt, f"{REMOTE}:{RROOT}/runs/{i}/", f"{tmp}/"])
         dst = HERE / "결과" / i
-        dst.mkdir(parents=True, exist_ok=True)
-        for f in RECORD:
-            p = tmp / f
-            if p.exists():
-                if p.suffix in (".json", ".yaml", ".csv"):
-                    text = sanitize(p.read_text(encoding="utf-8"), home)
-                    if leaks(text):
-                        sys.exit(f"🔴 {i}/{f} 에 개인 경로가 남았다 {sorted(set(leaks(text)))} — 받기를 멈춘다(공개 저장소)")
-                    (dst / f).write_text(text, encoding="utf-8")
-                else:
-                    shutil.copyfile(p, dst / f)
+        try:
+            write_record(tmp, dst, home, i)
+        except SystemExit:
+            ledger.rebuild(HERE / "결과", HERE / "장부.md")      # 앞서 받은 실험은 장부에 남긴다
+            raise
         summ = json.loads((dst / "요약.json").read_text(encoding="utf-8"))
         b = tmp / "weights" / "best.pt"
         if summ.get("best_sha256") and b.exists():
@@ -346,9 +368,9 @@ def cmd_resume(a):
     if dirty:
         sys.exit("🔴 커밋 안 된 학습 코드·설정·나눔이 있다 — 커밋한 뒤 재개한다(실행기는 지금 커밋의 코드로 뜬다)")
     stop = sh(f"cat {RROOT}/대기열멈춤 2>/dev/null || true").strip()
+    deploy_code(head)                             # 배포가 실패하면 멈춤을 풀지 않는다
     print(f"멈춤 풀기: {stop or '(멈춰 있지 않음)'}")
     sh(f"rm -f {RROOT}/대기열멈춤")
-    deploy_code(head)
     start_runner(head)
 
 

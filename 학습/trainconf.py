@@ -26,7 +26,7 @@ TRAIN_KEYS = {
 SYSTEM_KEYS = {"data", "imgsz", "seed", "project", "name", "exist_ok", "resume", "device", "val", "save"}
 STOP_KEYS = {"포화_에폭", "포화_향상", "점수0_에폭", "점수0_mAP50", "진행없음_분", "시간상한_배"}
 TOP_KEYS = {"id", "group", "나눔", "입력", "출발", "seed", "train", "멈춤", "메모"}
-ID_RE = re.compile(r"^E\d+[a-z]?-(button|tool)-[A-Za-z0-9.]+$")
+ID_RE = re.compile(r"^E\d+[a-z]?-(button|tool)-[A-Za-z0-9.]+\Z")   # \Z — $ 는 끝 줄바꿈 하나를 허용한다
 
 
 def load_yaml(path):
