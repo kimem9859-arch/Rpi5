@@ -96,8 +96,28 @@ def test_나눔_파일():
             check(True, "고친 파일 → ValueError")
 
 
+def test_세션_보류():
+    print("[h1] 세션 보류 — 그 세션은 버튼 학습·검증에서 빠지고 세션 채점에만 · 기존 채점은 그대로(1-3 Review Focus 1)")
+    names = [f"s{s}__f{i:05d}" for s in (1, 2) for i in range(0, 300, 3)]
+    test = [n for n in names if int(n.split("__f")[1]) >= 240]
+    d = SP.make_split("t_v1", names, test, lambda n, g: ["0 0.5 0.5 0.1 0.1"])
+    h = SP.hold_session(d, "s2", names, "t_v2b")
+    tr, va, te = SP.lists_for(h, "button")
+    st = SP.session_test(h, "button")
+    check(not any(n.startswith("s2__") for n in tr + va), "보류 세션이 학습·검증에 없음")
+    check(st == sorted(n for n in names if n.startswith("s2__")), "세션 채점 = 그 세션 전부")
+    check(te == d["공통"]["test"] and h["tool"] == d["tool"], "기존 채점·공구 몫은 그대로")
+    check(h["나눔"] == "t_v2b" and h["규칙"]["세션보류"] == "s2" and SP.split_hash(h) == h["해시"], "이름·규칙·해시")
+    check(SP.session_test(d, "button") == [], "보류 없는 판 → 빈 목록")
+    check(SP.names_of(d) == sorted(names), "바탕판의 이름 전부(몫 · 빈 구간 · 안 씀 · 뺀 배경)")
+    h2 = SP.hold_session(d, "s2", SP.names_of(d) + ["s2__f99999"], "t_v2c")
+    check("s2__f99999" not in SP.session_test(SP.hold_session(d, "s2", SP.names_of(d), "t_v2d"), "button")
+          and "s2__f99999" in SP.session_test(h2, "button"), "세션 채점 = 넘긴 목록 기준(바탕판 이름만 넘기면 새 묶음이 안 섞임 — 사용자 A)")
+
+
 if __name__ == "__main__":
     test_세_몫과_빈_구간()
+    test_세션_보류()
     test_채점_목록_검사()
     test_배경_줄이기()
     test_나눔_파일()

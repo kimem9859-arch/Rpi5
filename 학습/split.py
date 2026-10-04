@@ -7,6 +7,7 @@
 - 빈 구간 = 다음 몫의 첫 프레임 번호보다 GAP 이내로 앞선 사진을 앞 몫에서 뺀다(gap).
 - 배경 줄이기 = 무리마다 학습 몫에서만(학습 중 검증·채점은 그대로).
 - 나눔 파일은 덮어쓰지 않는다 — 사진이 늘면 새 판.
+- 세션 보류 판(hold_session) = 한 세션을 버튼 학습·검증에서 통째로 빼 「처음 보는 세션」으로 채점(1-3단계 §4).
 시스템 python3 로 돈다.
 """
 import hashlib
@@ -105,6 +106,36 @@ def load_split(path):
     if split_hash(d) != d.get("해시"):
         raise ValueError(f"나눔 파일 해시가 다르다(손으로 고쳤나?): {path}")
     return d
+
+
+def hold_session(d, session, all_names, name):
+    """버튼 전용 새 판 — 세션 하나를 버튼 학습·공통 검증에서 빼고 「처음 보는 세션」 채점 몫으로(1-3단계 설계 §4).
+    공구 몫·기존 채점은 그대로(공구는 이 판을 쓰지 않는다). all_names = 원본 목록 전체(그 세션의 빈 구간·안 쓴 사진도 채점에)."""
+    import copy
+    h = copy.deepcopy(d)
+    h["나눔"] = name
+    h["규칙"] = {**d["규칙"], "세션보류": session, "바탕판": d["나눔"]}
+    h["button"]["train"] = [n for n in d["button"]["train"] if session_of(n) != session]
+    h["공통"]["val"] = [n for n in d["공통"]["val"] if session_of(n) != session]
+    h["button"]["test_session"] = sorted(n for n in all_names if session_of(n) == session)
+    h["해시"] = split_hash(h)
+    return h
+
+
+def names_of(d):
+    """나눔 판에 나오는 이름 전부(몫 · 빈 구간 · 안 씀 · 뺀 배경 · 세션 채점) — 그 판의 사진 범위."""
+    out = set()
+    for k in ("val", "test", "gap", "unused"):
+        out |= set(d["공통"][k])
+    for g in GROUPS:
+        for k in ("train", "bg_dropped", "test_session"):
+            out |= set(d.get(g, {}).get(k, []))
+    return sorted(out)
+
+
+def session_test(d, group):
+    """→ 세션 보류 채점 몫(없는 판 = 빈 목록)."""
+    return list(d.get(group, {}).get("test_session", []))
 
 
 def lists_for(d, group):

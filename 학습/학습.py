@@ -3,6 +3,7 @@
 정본 설계 = 상위 docs/superpowers/specs/2026-10-03-학습파라미터-체계-design.md §10 · §11
 실행(Rpi5 에서 · 시스템 python3): python3 학습/학습.py <명령> …
   준비 --나눔 place1_v1 [--채점 <목록>]     나눔 파일(없으면 만들기 · 있으면 그대로) → 원본 사진·라벨을 데스크톱으로(바뀐 것만)
+  준비 --나눔 place1_v2b --보류 <세션> --바탕판 place1_v1   세션 보류 판(버튼 전용 · 1-3단계)
   속도재기 --입력 늘리기640|원본768x1024     첫 속도 측정을 데스크톱에 띄운다(실험이 없을 때)
   걸기 <설정.yaml …> [--확인]                대기열에 넣고 실행기를 띄운다(예상 24시간 넘으면 --확인 필요)
   걸기 --이어서 <id>                          끊긴 실험을 last.pt 에서 이어서
@@ -238,12 +239,19 @@ def cmd_prepare(a):
     def labels_of(n, g):
         return TR.group_lines((src / "labels" / f"{n}.txt").read_text(encoding="utf-8").splitlines(), g)
 
-    if not sp_path.exists():
+    if not sp_path.exists() and a.보류:
+        if not a.바탕판:
+            sys.exit("🔴 --보류 는 --바탕판(세션을 뺄 기존 나눔)과 함께 준다")
+        base = SP.load_split(HERE / "나눔" / f"{a.바탕판}.json")
+        SP.save_split(SP.hold_session(base, a.보류, SP.names_of(base), a.나눔), sp_path)   # 바탕판의 사진만(새 묶음 안 섞음 · 사용자 A)
+        print(f"나눔 {a.나눔} 을 만들었다 — {a.바탕판} 에서 세션 {a.보류} 를 버튼 학습·검증에서 빼고 세션 채점으로")
+    elif not sp_path.exists():
         test = [l.strip() for l in Path(a.채점).read_text(encoding="utf-8").splitlines() if l.strip()]
         SP.save_split(SP.make_split(a.나눔, sorted(idx), test, labels_of), sp_path)
         print(f"나눔 {a.나눔} 을 만들었다")
     d = SP.load_split(sp_path)
-    need = sorted(set(d["button"]["train"]) | set(d["tool"]["train"]) | set(d["공통"]["val"]) | set(d["공통"]["test"]))
+    need = sorted(set(d["button"]["train"]) | set(d["tool"]["train"]) | set(d["공통"]["val"]) | set(d["공통"]["test"])
+                  | set(SP.session_test(d, "button")))
     stage = LOCAL / "stage" / place
     for sub in ("images", "labels8", "labels_button", "labels_tool"):
         (stage / sub).mkdir(parents=True, exist_ok=True)
@@ -576,6 +584,8 @@ def main(argv=None):
     p = sub.add_parser("준비")
     p.add_argument("--나눔", required=True)
     p.add_argument("--채점", default=str(DEFAULT_TEST))
+    p.add_argument("--보류", help="이 세션을 버튼 학습·검증에서 빼고 세션 채점으로(1-3단계 §4)")
+    p.add_argument("--바탕판", help="--보류 로 만들 때 세션을 뺄 기존 나눔")
     p = sub.add_parser("속도재기")
     p.add_argument("--입력", required=True, choices=sorted(TC.INPUT_MODES))
     p.add_argument("--에폭", type=int, default=3)
