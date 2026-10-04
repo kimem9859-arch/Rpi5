@@ -25,6 +25,7 @@ def check(cond, msg):
 items = qs.build_items()
 v1 = [i for i in items if i["판"] == 1]
 v2 = [i for i in items if i["판"] == 2]
+v3 = [i for i in items if i["판"] == 3]
 
 
 def norm(q):
@@ -36,18 +37,20 @@ check(len(qs.QUESTIONS2) == 31 and len({norm(q) for _, q in qs.QUESTIONS2}) == 3
 check(not ({norm(q) for _, q in qs.QUESTIONS} & {norm(q) for _, q in qs.QUESTIONS2}),
       "🔒 판 2 질문은 판 1 과 겹치지 않는다(띄어쓰기·문장부호 무시)")
 check(len(qs.STATES) == 9 and len(qs.STATES2_EXTRA) == 7, "상태 = 옛 9 + 새 7")
-check(len(v1) == 60 * 16 and len(v2) == 31 * 16, f"판 1 {len(v1)} · 판 2 {len(v2)}")
+check(len(v1) == 60 * 16 and len(v2) == 31 * 16 and len(v3) == 31 * 16, f"판 1 {len(v1)} · 판 2 {len(v2)} · 판 3 {len(v3)}")
+check(len(qs.QUESTIONS3) == 31 and len({norm(q) for _, q in qs.QUESTIONS3}) == 31, "판 3 질문 31개 · 띄어쓰기를 빼도 중복 없음")
+check(not ({norm(q) for _, q in qs.QUESTIONS3} & ({norm(q) for _, q in qs.QUESTIONS} | {norm(q) for _, q in qs.QUESTIONS2})),
+      "🔒 판 3 질문은 판 1·판 2 와 겹치지 않는다")
 check(len({i["id"] for i in items}) == len(items), "id 중복 없음")
 check([i["id"] for i in v1][:2] == ["S1-작업전-q01", "S1-작업전-q02"], "🔒 판 1 의 id 는 그대로")
 old = [i for i in v1 if i["상태키"] in {k for k, _, _ in qs.STATES}]
 check(all(i["옛분할"] == ("dev" if zlib.crc32(i["id"].encode()) % 3 == 0 else "holdout") for i in old),
       "🔒 옛 분할 = crc32 % 3 규칙 그대로(기록용)")
-check(all(i["분할"] == ("dev" if i["옛분할"] == "holdout" else "쉼") for i in old),
-      "🔒 옛 holdout(이미 봄) → dev · 옛 dev → 쉼")
-new1 = [i for i in v1 if i not in old]
-check(all(i["분할"] == ("dev" if zlib.crc32(i["id"].encode()) % 3 == 0 else "쉼") for i in new1),
-      "판 1 × 새 상태 = crc32 몫만 dev")
-check(all(i["분할"] == "holdout" and i["id"].startswith("H2-") for i in v2), "🔒 판 2 는 전부 holdout · id 앞 H2-")
+check(all(i["분할"] == "쉼" for i in v1), "🔒 판 1 은 쉼(dev·dev2 로 조정에 썼다 · 2026-10-04)")
+check(all(i["분할"] == "dev" and i["id"].startswith("H2-") for i in v2), "🔒 판 2(이미 본 holdout) → dev · id 앞 H2-")
+check(all(i["분할"] == "holdout" and i["id"].startswith("H3-") for i in v3), "🔒 판 3 은 전부 holdout · id 앞 H3-")
+check({i["유형"] for i in v3} == {"할일", "공구", "범위", "진행단정유도", "허가유도", "카드밖", "STT오류"},
+      f"판 3 유형 7종 — {sorted({i['유형'] for i in v3})}")
 check({i["유형"] for i in v2} == {"할일", "공구", "범위", "진행단정유도", "허가유도", "카드밖", "STT오류"},
       f"판 2 유형 7종 — {sorted({i['유형'] for i in v2})}")
 check(len({i["상태키"] for i in v2}) == 16, "판 2 는 상태 16 전부")

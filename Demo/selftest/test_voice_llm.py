@@ -141,7 +141,8 @@ def test_system_rules_and_examples():
     def norm(q):
         return "".join(c for c in q if not c.isspace() and c not in ",.?!·")
 
-    used = {norm(q) for _, q in qs.QUESTIONS} | {norm(q) for _, q in qs.QUESTIONS2}
+    used = ({norm(q) for _, q in qs.QUESTIONS} | {norm(q) for _, q in qs.QUESTIONS2}
+            | {norm(q) for _, q in qs.QUESTIONS3})
     for q in voice_llm.EXAMPLE_QUESTIONS:
         check(norm(q) not in used, f"🔒 모범 질문 「{q}」 는 질문 세트와 겹치지 않는다")
     for _, _, a in voice_llm.EXAMPLES:
