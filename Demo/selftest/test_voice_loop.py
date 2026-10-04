@@ -51,11 +51,17 @@ class FakeSpk:
         self.calls.append(("chime",))
         return True
 
-    def play(self, key, alog=None):
+    def play(self, key, alog=None, still_valid=None):
+        if still_valid is not None and not still_valid():
+            self.calls.append(("dropped",))
+            return False
         self.calls.append(("play", key))
         return True
 
-    def send(self, payload, expect=False):
+    def send(self, payload, expect=False, still_valid=None):
+        if still_valid is not None and not still_valid():
+            self.calls.append(("dropped",))
+            return va.DROPPED
         self.calls.append(("pcm", len(payload)))
         if self.fail_pcm:
             self.fail_pcm -= 1
@@ -316,7 +322,7 @@ def test_stopped_answer_no_fallback():
     print("\n[알림] 멈춘 답은 실패가 아니다")
 
     class StopSpk(FakeSpk):
-        def send(self, payload, expect=False):
+        def send(self, payload, expect=False, still_valid=None):
             self.calls.append(("pcm", len(payload)))
             return ["[적재] ok", "[재생] 1샘플", "[재생 중단]"]
 
@@ -651,6 +657,113 @@ def test_esp_ip_camera_ip_only():
     finally:
         va.IP_FILE = old
     check(not hasattr(va, "AUDIO_IP_FILE"), ".audio_ip 상수가 없다")
+
+
+def _long_alerts(sec):
+    d = _wavdir()
+    for k in va.voice_card.alert_texts():
+        with wave.open(os.path.join(d, f"{k}.wav"), "w") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(b"\x00\x00" * int(16000 * sec))
+    return d
+
+
+def _watch_live(fg, plan):
+    """plan = [(경과초, 상태) …] — 시간 따라 바뀌는 상태로 실제 Speaker·감시를 돌린다. 사건은 (경과초, 종류)."""
+    t0 = time.time()
+    stamped = []
+    orig = fg._event
+    fg._event = lambda *e: (stamped.append((round(time.time() - t0, 2), e[0])), orig(*e))
+
+    def read():
+        el = time.time() - t0
+        return [st for at, st in plan if el >= at][-1]
+
+    w = va.AlertWatcher(va.Speaker("127.0.0.1", fg.cmd_port), read_state=read, poll_sec=0.05)
+    stop = threading.Event()
+    w.start(stop)
+    return stamped, stop, w
+
+
+def test_alert_release_stops_at_once():
+    """최종 리뷰 C1 — 알림이 나가는 도중 해제하면 곧바로 멈춘다(사용자 「해제 버튼을 누르면 바로 … 멈추는 것」).
+
+    🔴 종전에는 감시가 알림 재생(확인 대기)을 마칠 때까지 멈춰 있어 해제를 재생이 끝난 뒤에야 봤다.
+    """
+    print("\n[알림] 재생 중 해제 → 곧바로 멈춤(실제 Speaker · 모의 글라스 실시간)")
+    va.WAV_DIR = _long_alerts(3.0)
+    fg = FakeGlass([], mic_port=0, cmd_port=0, play_speed=1.0, quiet=True).start()
+    warn = dict(STATE, 상태="WARNING")
+    ev, stop, w = _watch_live(fg, [(0, STATE), (0.2, warn), (1.5, STATE)])
+    try:
+        time.sleep(3.0)
+    finally:
+        stop.set()
+        fg.stop()
+    t_stop = next((t for t, k in ev if k == "stop"), None)
+    check(t_stop is not None and t_stop < 2.0, f"해제(1.5초) 뒤 곧바로 멈춤 — {ev}")
+    check(not any(k == "play" for _, k in ev), "알림이 끝까지 나가지 않았다")
+    check(not w.speaking.is_set(), "멈춘 뒤 「알림 중」 표시가 풀린다")
+
+
+def test_emo_cuts_warning_alert():
+    """최종 리뷰 C1 — 경고 알림 도중 비상정지 → 경고를 멈추고 비상정지 알림이 곧바로 나간다."""
+    print("\n[알림] 경고 알림 도중 비상정지 → 곧바로 비상정지 알림")
+    va.WAV_DIR = _long_alerts(3.0)
+    fg = FakeGlass([], mic_port=0, cmd_port=0, play_speed=1.0, quiet=True).start()
+    warn = dict(STATE, 상태="WARNING")
+    ev, stop, w = _watch_live(fg, [(0, STATE), (0.2, warn), (1.5, EMO)])
+    try:
+        time.sleep(3.0)
+    finally:
+        stop.set()
+        fg.stop()
+    writes = [t for t, k in ev if k == "write"]
+    t_stop = next((t for t, k in ev if k == "stop"), None)
+    check(t_stop is not None and t_stop < 2.0, f"경고 알림이 비상정지(1.5초) 뒤 곧바로 멈춤 — {ev}")
+    check(len(writes) == 2 and writes[1] < 2.0, f"비상정지 알림을 곧바로 올렸다(0.5초 안) — {ev}")
+    check(w.gen == 2, f"알림 2회 — {w.gen}")
+
+
+def test_stale_answer_dropped_at_send():
+    """최종 리뷰 I2(a) — 「알림으로 버림」 확인 뒤·전송 전에 알림이 나가도 낡은 답은 나가지 않는다(전송 잠금 안에서 다시 본다)."""
+    print("\n[알림] 전송 직전 알림 → 낡은 답 버림")
+    g = [0]
+    orig = va.voice_tts.frame
+    va.voice_tts.frame = lambda pcm, rate: (g.__setitem__(0, 1), orig(pcm, rate))[1]   # 프레임을 만드는 사이 알림
+    try:
+        b = bot(alert_gen=lambda: g[0])
+        ok, m = ask(b, "지금 몇 단계야")
+    finally:
+        va.voice_tts.frame = orig
+    check(b.spk.pcms() == [] and ("dropped",) in b.spk.calls, f"답이 나가지 않았다 — {b.spk.calls}")
+    check(m.get("답변출처") == "알림으로버림" and "답변재생실패" not in m, f"실패로 세지 않고 조용히 — {m.get('답변출처')}")
+
+
+def test_emergency_before_poll_no_changed():
+    """최종 리뷰 I2(b) — 감시가 아직 못 본 사이(또는 알림을 끈 채) 비상 상황이 되면 「상태가 바뀌었습니다」 없이 버린다."""
+    print("\n[비상] 답을 만드는 사이 비상 상황 → 조용히 버림")
+    b = bot(llm=FakeLlm("지금 눌러야 할 버튼은 B2입니다."), states=[STATE, STATE, EMO])
+    ok, m = ask(b, "뭐 눌러야 돼")
+    check("changed" not in b.spk.keys() and b.spk.pcms() == [], f"「상태가 바뀌었습니다」·답 없음 — {b.spk.calls}")
+
+
+def test_alert_during_stt_drops_answer():
+    """최종 리뷰 minor — 받아쓰는 동안 알림이 나갔으면(질문 → 알림 → 해제) 그 질문에 답하지 않는다."""
+    print("\n[알림] 받아쓰는 사이 알림 → 그 질문은 버림")
+    import numpy as np
+    g = [0]
+    b = bot(alert_gen=lambda: g[0])
+    b.awake_until = time.time() + 20
+
+    def stt(samples):
+        g[0] = 1                                     # 받아쓰는 동안 알림이 나갔다(그 뒤 해제)
+        return "지금 몇 단계야"
+
+    va.handle_utterance(b, stt, va.AudioLog(None), np.zeros(1600, dtype=np.int16))
+    check(b.spk.pcms() == [] and b.tts.said == [], f"답하지 않았다 — {b.spk.calls} · {b.tts.said}")
 
 
 if __name__ == "__main__":

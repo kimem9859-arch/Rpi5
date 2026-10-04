@@ -357,16 +357,21 @@ class FakeGlass:
     def _stop_requested(c, f):
         """다음 글자가 S 면 읽고 True — 펌웨어 play() 의 peek 흉내(설계 2026-10-04 §4.3).
 
-        ⚠️ 이미 버퍼에 들어온 글자는 소켓이 「읽기 가능」으로 안 보일 수 있다 — 시험은 S 를 따로 보낸다.
+        🔑 소켓을 잠깐 논블로킹으로 두고 읽기 버퍼부터 본다 — S 가 재생 명령과 한 덩어리로 와 이미 버퍼에
+           들어 있으면 소켓은 「읽기 가능」으로 안 보인다(최종 리뷰 minor · 펌웨어 io->peek 와 같게).
         """
-        r, _, _ = select.select([c], [], [], 0)
-        if not r:
-            return False
-        if f.peek(1)[:1] == b"S":
+        old = c.gettimeout()
+        c.settimeout(0)
+        try:
+            head = f.peek(1)[:1]
+        except OSError:
+            head = b""
+        finally:
+            c.settimeout(old)
+        if head == b"S":
             f.read(1)
             return True
         return False
-
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,

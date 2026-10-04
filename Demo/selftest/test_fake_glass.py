@@ -195,6 +195,19 @@ def test_fake_glass_old_firmware_ignores_stop():
     finally:
         g.stop()
 
+
+def test_fake_glass_stop_already_buffered():
+    """최종 리뷰 minor — S 가 재생 명령과 한 덩어리로 와서 이미 읽기 버퍼에 있어도 멈춘다(펌웨어 peek 와 같게)."""
+    print("\n[명령 채널] 버퍼에 든 S")
+    g = FakeGlass([tone(0.2)], mic_port=0, cmd_port=0, play_speed=1.0, quiet=True).start()
+    try:
+        s = socket.create_connection(("127.0.0.1", g.cmd_port), 2)
+        s.sendall(frame(tone(2.0), 16000) + b"S")
+        got = read_until(s, "중단", timeout=1.5)
+        check("[재생 중단]" in got and g.count("play") == 0, f"곧바로 중단 — {got[-3:]}")
+    finally:
+        g.stop()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

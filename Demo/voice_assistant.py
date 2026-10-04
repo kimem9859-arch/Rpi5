@@ -240,6 +240,12 @@ def wav_payload(path):
             + struct.pack("<I", chk) + b"P\n"), len(a) / rate
 
 
+def wav_shape(body):
+    """`wav_payload` 가 만든 프레임의 (샘플 수, 레이트) — 머리줄 「W <n> <rate>」."""
+    _, n, rate = body.split(b"\n", 1)[0].split()
+    return int(n), int(rate)
+
+
 def load_tts():
     """런타임 합성기 — 못 올리면 None(고정 wav 로만 답한다)."""
     if not config.LLM_ENABLED:
@@ -284,6 +290,9 @@ def ready_line(mic, spk, tts, llm):
             f"STT ✓ · TTS {w(tts is not None)} · LLM {llm_s}")
 
 
+DROPPED = ["[버림]"]      # 보내기 직전에 낡은 것으로 판정돼 보내지 않았다(최종 리뷰 I2) — 실패가 아니다
+
+
 class Speaker:
     """명령 채널(8890) — 한 번 붙여 두고 계속 쓴다.
 
@@ -305,6 +314,7 @@ class Speaker:
         self._io = threading.RLock()
         self._tx = threading.Lock()
         self.last_play_start = None   # 펌웨어 「[재생] …」 을 받은 시각 — 알림 지연을 잰다
+        self.last_stopped = False     # 마지막 play 가 「[재생 중단]」으로 끝났나(정상 멈춤 — 실패가 아니다)
 
     def _ensure(self):
         if self.s is not None:
@@ -424,12 +434,19 @@ class Speaker:
         line, _, self._rbuf = self._rbuf.partition(b"\n")
         return line + b"\n"
 
-    def send(self, payload, expect=False):
+    def send(self, payload, expect=False, still_valid=None):
+        """보낸다 — `still_valid` 가 거짓이면 보내지 않고 `DROPPED`.
+
+        🔑 그 확인은 보내기 잠금(`_tx`) 안에서 한다 — 알림 감시는 gen 을 올린 **뒤** 멈춤 S 를 보내므로(같은 잠금),
+           확인과 전송 사이에 알림이 끼어 낡은 답이 알림 뒤에 이어 나가는 창이 없다(최종 리뷰 I2).
+        """
         with self._io:
             for attempt in (1, 2):
                 try:
                     self._ensure()
                     with self._tx:
+                        if still_valid is not None and not still_valid():
+                            return DROPPED
                         self.s.sendall(payload)
                     if expect:
                         return self._drain()
@@ -468,7 +485,9 @@ class Speaker:
     def chime(self):
         return self.send(b"B\n")
 
-    def play(self, key, alog=None):
+    def play(self, key, alog=None, still_valid=None):
+        """고정 wav 를 낸다 → 끝까지 나갔거나 도중에 멈췄으면 True(멈춤은 `last_stopped`) · 못 냈으면 False."""
+        self.last_stopped = False
         path = os.path.join(WAV_DIR, f"{key}.wav")
         try:
             body, sec = wav_payload(path)
@@ -479,15 +498,25 @@ class Speaker:
             #    새 클론·sop-pi-2) 첫 답변에서 **데몬 전체가 죽었다**(검토 C20).
             log(f"🔴 재생 파일을 못 읽었다 → {key} · {e}")
             return False
+        n, rate = wav_shape(body)
+        if not voice_tts.fits(n, rate):
+            # 🔴 LLM 답과 같은 이중 방어 — 펌웨어가 본문을 안 읽고 거절하면 남은 바이트가 명령으로 실행된다(1단계 M7)
+            log(f"🔴 고정 소리가 펌웨어 한도를 넘는다 → {key} ({n}샘플 · {rate}Hz) — 보내지 않는다")
+            return False
         if alog:
             alog.played(key, path)
-        resp = self.send(body, expect=True)
+        resp = self.send(body, expect=True, still_valid=still_valid)
+        if resp is DROPPED:
+            return False
         ok = bool(resp) and any("재생 완료" in r for r in resp)
+        self.last_stopped = bool(resp) and any("재생 중단" in r for r in resp)
         if ok:
             log(f"재생 → {key} ({sec:.1f}초) · ESP32 확인됨")
+        elif self.last_stopped:
+            log(f"재생 → {key} · 도중에 멈춤(알림·해제)")
         else:
             log(f"🔴 재생이 확인되지 않았다 → {key} · 응답={resp}")
-        return ok
+        return ok or self.last_stopped
 
 
 def ask_async(ask_fn, card, question):
@@ -511,6 +540,9 @@ class AlertWatcher:
     """상태 감시 — 비상정지·차단·경고로 바뀌면 고정 알림, 풀리면 재생 멈춤(설계 2026-10-04 §4.3).
 
     🔑 메인 루프와 따로 돈다 — 메인 루프는 STT·LLM 동안 수 초씩 멈춰 있다.
+    🔑 **감시와 재생도 따로 돈다**(`start`) — 재생 확인을 기다리는 3~4초 동안 감시가 멈춰 있으면 해제를 못 보고
+       멈춤을 못 보내며, 경고 알림 도중 비상정지 알림이 끼어들지 못했다(최종 리뷰 C1 · 사용자 「해제 버튼을 누르면
+       바로 음성비서 안내 출력이 멈추는 것」). 재생은 가장 최근 알림 하나만 기다린다.
     `gen` = 알림이 나간 횟수 — 답을 만들던 쪽(Assistant)이 이것이 바뀌었으면 답을 조용히 버린다.
     `speaking` = 알림 재생 중 — 메인 루프가 그동안 들어온 소리를 버린다(G11 원칙 · alert_hold).
     """
@@ -523,29 +555,58 @@ class AlertWatcher:
         self.gen = 0
         self.speaking = threading.Event()
         self._prev = None
+        self._want = None                        # 재생을 기다리는 알림 (키, 상태) — 가장 최근 것 하나
+        self._cv = threading.Condition()
+        self._player_on = False                  # start() 뒤에만 재생을 따로 돌린다(시험은 step() 을 바로 부른다)
 
     def step(self):
-        """한 번 본다 — 일어난 사건(없으면 None). 시험이 직접 부른다."""
+        """한 번 본다 — 일어난 사건(없으면 None). 시험이 직접 부른다(재생 스레드가 없으면 그 자리에서 낸다)."""
         cur = self._read()
         ev = voice_card.alert_event(self._prev, cur)
         self._prev = cur
         if ev is None:
             return None
-        self.spk.stop()                          # 재생 중이면 멈춘다(2단계 펌웨어 전에는 무시된다)
         if ev[0] == "알림":
             self.speaking.set()                  # 🔑 gen 보다 먼저 — 메인 루프가 재생 내내 버리게
-            self.gen += 1
-            try:
-                ok = self.spk.play(ev[1], self.alog)
-                lag = getattr(self.spk, "last_play_start", None)
-                t_pub = (cur or {}).get("쓴시각")
-                lag_txt = f" · 상태 공개→소리 시작 {lag - t_pub:.2f}초" if lag and t_pub and lag >= t_pub else ""
-                log(f"🔔 알림 → {ev[1]} · {'재생됨' if ok else '재생 확인 안 됨'}{lag_txt}")
-            finally:
-                self.speaking.clear()
+            self.gen += 1                        # 🔑 멈춤보다 먼저 — 만들던 답이 보내기 잠금 안에서 이것을 본다(I2)
+            self.spk.stop()                      # 재생 중이면 멈춘다(2단계 펌웨어 전에는 무시된다)
+            if self._player_on:
+                with self._cv:
+                    self._want = (ev[1], cur)
+                    self._cv.notify()
+            else:
+                self._play(ev[1], cur)
         else:
+            with self._cv:
+                self._want = None                # 아직 안 나간 알림도 거둔다
+            self.spk.stop()
             log("알림 상황이 풀렸다 — 재생 멈춤을 보냈다")
         return ev
+
+    def _play(self, key, cur):
+        try:
+            ok = self.spk.play(key, self.alog)
+            lag = getattr(self.spk, "last_play_start", None)
+            t_pub = (cur or {}).get("쓴시각")
+            lag_txt = f" · 상태 공개→소리 시작 {lag - t_pub:.2f}초" if lag and t_pub and lag >= t_pub else ""
+            log(f"🔔 알림 → {key} · {'재생됨' if ok else '재생 확인 안 됨'}{lag_txt}")
+        finally:
+            with self._cv:
+                if self._want is None:           # 뒤이은 알림이 없을 때만 「알림 중」을 푼다
+                    self.speaking.clear()
+
+    def _player(self, stop):
+        while not stop.is_set():
+            with self._cv:
+                if self._want is None:
+                    self._cv.wait(0.2)
+                    continue
+                key, cur = self._want
+                self._want = None
+            try:
+                self._play(key, cur)
+            except Exception as e:              # noqa: BLE001 — 재생이 죽으면 알림이 영영 없다
+                log(f"🔴 알림 재생 오류 — 계속한다: {type(e).__name__}: {e}")
 
     def run(self, stop):
         while not stop.is_set():
@@ -556,6 +617,8 @@ class AlertWatcher:
             stop.wait(self.poll_sec)
 
     def start(self, stop):
+        self._player_on = True
+        threading.Thread(target=self._player, args=(stop,), daemon=True).start()
         th = threading.Thread(target=self.run, args=(stop,), daemon=True)
         th.start()
         return th
@@ -600,8 +663,16 @@ class Assistant:
         self._alert_gen = alert_gen or (lambda: 0)   # 알림이 나간 횟수(AlertWatcher.gen) — 낡은 답을 버리는 기준
         self._gen0 = 0
 
-    def on_text(self, text, m):
-        """STT 결과 하나. 질문에 답했으면 True — 호출부가 그동안 들어온 소리를 버린다(G11)."""
+    def alert_gen(self):
+        return self._alert_gen()
+
+    def on_text(self, text, m, gen0=None):
+        """STT 결과 하나. 질문에 답했으면 True — 호출부가 그동안 들어온 소리를 버린다(G11).
+
+        `gen0` = 발화가 끝난 때(받아쓰기 전)의 알림 횟수 — 받아쓰는 사이 알림이 나갔으면 그 질문의 답은 낡았다
+        (최종 리뷰 minor). 없으면 지금 값.
+        """
+        self._gen0 = self._alert_gen() if gen0 is None else gen0
         # 🔑 비상 상황(비상정지·차단·경고 — 해제 버튼을 누르기 전까지)에는 「가디언」에도 질문에도 반응하지
         #    않는다(사용자 2026-10-04 · 설계 §4.7). 알림이 이미 할 일을 말했다. 되돌리기 = 여기서 알림 문장을 한 번 더.
         if voice_card.in_emergency(self._read_state()):
@@ -634,7 +705,6 @@ class Assistant:
 
     def _answer(self, text, tool_q, m):
         """🔴 무엇이 나도 침묵하지 않는다 — 예외면 고정 답(최종 리뷰 M2 · 예: 상태 파일의 값이 깨짐)."""
-        self._gen0 = self._alert_gen()
         try:
             self._answer_inner(text, tool_q, m)
         except Exception as e:                 # noqa: BLE001
@@ -642,9 +712,17 @@ class Assistant:
             m["답변오류"] = f"{type(e).__name__}: {e}"[:120]
             self._answer_a(tool_q, "고정-오류", m)
 
+    def _stale(self):
+        """질문을 받은 뒤 알림이 나갔거나 비상 상황이 됐나 — 그러면 만들던 답은 낡았다.
+
+        🔑 비상 상황도 본다 — 감시가 아직 못 본 0.1초 사이나 알림을 끈 채(SOP_VOICE_ALERTS=0)면 gen 이 그대로라
+           「상태가 바뀌었습니다」가 나갔다(최종 리뷰 I2 · 설계 §4.7 비상 상황엔 무반응).
+        """
+        return self._alert_gen() != self._gen0 or voice_card.in_emergency(self._read_state())
+
     def _preempted(self, m):
-        """질문을 받은 뒤 알림이 나갔으면 이 답은 낡았다 — 조용히 버린다(설계 2026-10-04 §4.3)."""
-        if self._alert_gen() == self._gen0:
+        """낡은 답은 조용히 버린다(설계 2026-10-04 §4.3)."""
+        if not self._stale():
             return False
         m["답변출처"] = "알림으로버림"
         log("알림이 먼저 나갔다 — 만들던 답을 버린다")
@@ -734,7 +812,11 @@ class Assistant:
         if self._preempted(m):
             return
         t_p = time.time()
-        resp = self.spk.send(voice_tts.frame(pcm, rate), expect=True)
+        resp = self.spk.send(voice_tts.frame(pcm, rate), expect=True, still_valid=lambda: not self._stale())
+        if resp is DROPPED:
+            m["답변출처"] = "알림으로버림"
+            log("보내기 직전에 알림·비상 상황 — 만들던 답을 버린다")
+            return
         ok = bool(resp) and any("재생 완료" in r for r in resp)
         stopped = bool(resp) and any("재생 중단" in r for r in resp)     # 알림·해제가 멈췄다 — 실패가 아니다
         self.alog.played_pcm("llm", pcm, rate, said)
@@ -772,14 +854,16 @@ class Assistant:
         if self._preempted(m):
             return
         t_p = time.time()
-        ok = self.spk.play(key, self.alog)
+        ok = self.spk.play(key, self.alog, still_valid=lambda: not self._stale())
         m.update({"답변출처": src, "답변": key, "재생성공": ok,
+                  "재생중단": bool(getattr(self.spk, "last_stopped", False)),
                   "재생_ms": round((time.time() - t_p) * 1000), **extra})
 
 
 def handle_utterance(bot, stt, alog, seg):
     """잘라낸 발화 하나 — STT · 계측 · 판단. 질문에 답했으면 True."""
     samples = seg.tolist()
+    gen0 = bot.alert_gen()                 # 🔑 받아쓰기 전 — 받아쓰는 사이 알림이 나갔으면 이 질문은 낡았다
     t_stt = time.time()
     text = stt(samples)
     m = {
@@ -796,7 +880,7 @@ def handle_utterance(bot, stt, alog, seg):
         metric(m)
         return False
     log(f"들림: {text}")
-    answered = bot.on_text(text, m)
+    answered = bot.on_text(text, m, gen0=gen0)
     metric(m)
     return answered
 

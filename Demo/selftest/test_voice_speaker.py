@@ -275,6 +275,54 @@ def test_stop_never_splits_upload():
     check(data.count(b"S") == 20, f"멈춤 20번은 본문 밖으로 갔다 — {data.count(b'S')}")
     b.close()
 
+
+def _one_wav(rate=16000, n=1600):
+    d = tempfile.mkdtemp(prefix="sop_wav1_")
+    import wave
+    with wave.open(os.path.join(d, "k.wav"), "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"\x00\x00" * n)
+    return d
+
+
+def test_play_stopped_is_not_failure():
+    """최종 리뷰 minor — 「[재생 중단]」은 정상 멈춤이다(「재생이 확인되지 않았다」로 적지 않는다)."""
+    print("\n[멈춤] 고정 소리의 중단은 실패가 아니다")
+    old_dir, old_log = va.WAV_DIR, va.log
+    logs = []
+    va.WAV_DIR, va.log = _one_wav(), (lambda m: logs.append(m))
+    try:
+        spk, b = _speaker_pair()
+        _send_later(b, [0.1, "[준비] chunk=4096 total=3200\n", "[적재] n=1600 rate=16000 sum=0 ok\n",
+                        "[재생] 1600샘플\n", 0.1, "[재생 중단]\n"])
+        ok = spk.play("k")
+        check(ok is True and spk.last_stopped is True, f"중단도 끝 · 멈춤 표시 — {ok}")
+        check(not any("확인되지 않았다" in m for m in logs), f"실패 로그 없음 — {logs[-2:]}")
+        b.close()
+    finally:
+        va.WAV_DIR, va.log = old_dir, old_log
+
+
+def test_m7_fixed_wav_checked_against_firmware_limits():
+    """1단계 최종 리뷰 M7 — 고정 wav 도 펌웨어 한도를 넘으면 보내지 않는다(LLM 답과 같은 이중 방어)."""
+    print("\n[한도] 고정 wav")
+    old_dir = va.WAV_DIR
+    va.WAV_DIR = _one_wav(rate=48000)
+    try:
+        spk, b = _speaker_pair()
+        b.settimeout(0.3)
+        ok = spk.play("k")
+        try:
+            got = b.recv(100)
+        except socket.timeout:
+            got = b""
+        check(ok is False and got == b"", f"보내지 않았다 — {ok} · {got[:20]}")
+        b.close()
+    finally:
+        va.WAV_DIR = old_dir
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
