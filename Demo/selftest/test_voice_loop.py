@@ -393,11 +393,20 @@ def test_tool_question_llm_down_uses_tool_phase():
 
 
 def test_question_passed_to_net():
-    print("\n[그물] 질문을 함께 넘긴다 — 끝났냐는 질문의 「네 … 진행 중」")
+    print("\n[그물] 질문을 함께 넘긴다 — 끝났냐는 질문의 「네,」를 지운다")
     last = dict(STATE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None)
     b = bot(llm=FakeLlm("네, 현재 4단계가 진행 중이며 마지막 단계입니다."), state=last, tools=([], False))
     ok, m = ask(b, "이번 단계 끝났어")
-    check(m["답변출처"] == "대체-안전규칙" and "진행단정" in m.get("안전규칙", []), f"{m.get('안전규칙')}")
+    # 🔑 2026-10-04 판 2 이후 — 「네,」는 지우고 내용은 말한다(질문이 넘어와야 지울 수 있다)
+    check(m["답변출처"] == "LLM" and b.tts.said == ["현재 4단계가 진행 중이며 마지막 단계입니다."], f"{b.tts.said} · {m.get('답변출처')}")
+
+
+def test_yes_stripped_in_answer():
+    """holdout 판 2 9번 — 진행 중 「렌치 확인 끝났지」에 LLM 이 「네,」로 시작해도 말할 때는 지운다."""
+    print("\n[다듬기] 끝났냐 질문의 「네,」")
+    b = bot(llm=FakeLlm("네, 렌치를 손으로 쥐시면 확인됩니다."), state=RUNNING, tools=WRENCH)
+    ok, m = ask(b, "렌치 확인 끝났지")
+    check(b.tts.said == ["렌치를 손으로 쥐시면 확인됩니다."] and m["답변출처"] == "LLM", f"{b.tts.said} · {m.get('답변출처')}")
 
 
 # ── 메인 루프(Task 9) ─────────────────────────────────────────────────────

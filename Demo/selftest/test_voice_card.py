@@ -209,11 +209,13 @@ def test_card_redesign():
     lines = emo.splitlines()
     check(lines[1].startswith("지금 할 일: EMO 를 복귀한 뒤"), f"맨 위(둘째 줄) = 지금 할 일 — {lines[1]}")
     check("지금 눌러야 할 버튼" not in emo, "🔴 비상정지 카드에 「지금 눌러야 할 버튼」이 없다")
-    check("멈춘 자리: 3단계" in emo and "끝난 단계: 1·2단계 (해제하면 1단계부터 다시)" in emo, "멈춘 자리 · 끝난 단계")
+    check("멈춘 자리: 3단계" in emo and "끝난 단계: 1단계 「클린·가스차단」(플라즈마 클린 진행) · 2단계 「펌프/퍼지」(N2 퍼지) (해제하면 1단계부터 다시)" in emo,
+          "멈춘 자리 · 끝난 단계(이름)")
     last = build_card(dict(LIVE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None),
                       [], False)
     check("4단계 「챔버 벤트」 (마지막 단계) — 아직 끝나지 않음" in last, "🔑 마지막 단계 = 아직 끝나지 않음")
-    check("끝난 단계: 1·2·3단계" in last and "이번이 마지막 단계다" not in last, "끝난 단계 · 옛 「마지막 단계다」 문구 없음")
+    check("끝난 단계: 1단계 「클린·가스차단」" in last and "3단계 「전극 냉각」" in last and "이번이 마지막 단계다" not in last,
+          "끝난 단계 · 옛 「마지막 단계다」 문구 없음")
     check("순서 판정: 정상 (경고·차단 없음)" in build_card(LIVE, [], False), "「상태: 정상」 → 「순서 판정: 정상」")
     check(UNKNOWN_LINE in build_card(LIVE, [], False), "이 시스템이 모르는 것 줄")
     check("끝난 단계: 없음" in build_card(dict(LIVE, 현재단계=1, 현재버튼="B1"), [], False), "1단계 — 끝난 단계 없음")
@@ -416,6 +418,29 @@ def test_alert_event_rules():
     check(t["alert_warn_B3"] == "순서가 다르니 손을 떼고 B3 버튼을 누르세요.", "알림 문장 = 지금 할 일의 말(한 곳)")
 
 
+def test_yes_strip_and_done_names():
+    print("── 「네,」 지우기 · 끝난 단계 이름(holdout 판 2 의 9·45 · 2026-10-04)")
+    t0 = LIVE["쓴시각"]
+    run = dict(LIVE, 서브진행={"상태": "진행 중", "남은초": 6.0, "공구충족": False, "공구오답": None})
+    seen = card_facts(run, [("wrench", 0.62, 0, 0, 9, 9)], True, now=t0)
+    check(finalize("네, 렌치를 손으로 쥐시면 확인됩니다.", seen, question="렌치 확인 끝났지?")
+          == ("렌치를 손으로 쥐시면 확인됩니다.", "LLM", []), "🔑 진행 중 · 끝났냐 질문 → 맨 앞 「네,」만 지운다(9번)")
+    last = card_facts(dict(LIVE, 현재단계=4, 현재버튼="B4", 다음단계=None, 서브작업=None), [], False)
+    check(finalize("네, 4단계가 아직 진행 중입니다.", last, question="이번 단계 끝났어?")[0] == "4단계가 아직 진행 중입니다.",
+          "「네 … 진행 중」도 「네」만 지우고 내용은 살린다")
+    check(finalize("예. 지금은 B4 차례입니다.", last, question="벤트까지 다 했지?")[0] == "지금은 B4 차례입니다.",
+          "「예.」 뒤 문장도 살린다(첫 문장 자르기 전에 지운다)")
+    check(finalize("네.", last, question="이번 단계 끝났어?") == (None, "빈답", []), "「네.」만 남으면 빈답(대체 문장 경로)")
+    check(finalize("네, 작업이 끝났습니다.", card_facts(DONE, [], False), question="작업 다 끝났어?")[0]
+          == "네, 작업이 끝났습니다.", "완료 상태의 「네」는 그대로")
+    check(finalize("네, 2단계가 진행 중입니다.", last, question="지금 진행 중이야?")[0] == "네, 2단계가 진행 중입니다.",
+          "끝났냐는 질문이 아니면 그대로")
+    check(finalize("네, 렌치를 손으로 쥐시면 확인됩니다.", seen)[0] == "네, 렌치를 손으로 쥐시면 확인됩니다.", "질문을 모르면 그대로")
+    c = build_card(dict(LIVE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None), [], False)
+    check("끝난 단계: 1단계 「클린·가스차단」(플라즈마 클린 진행) · 2단계 「펌프/퍼지」(N2 퍼지) · "
+          "3단계 「전극 냉각」(전극 온도 하강)" in c, f"🔑 끝난 단계에 이름·서브 작업(45번)\n{c}")
+
+
 def main():
     test_v2_emo_block_card()
     test_shorten()
@@ -431,6 +456,7 @@ def main():
     test_sensor_question()
     test_verify_redesign()
     test_alert_event_rules()
+    test_yes_strip_and_done_names()
     tmp = tempfile.mkdtemp(prefix="sop_card_test_")
     path = os.path.join(tmp, "state.json")
     try:

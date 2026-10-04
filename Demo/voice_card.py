@@ -342,9 +342,8 @@ def build_card(state, dets, fresh, now=None):
         label = "멈춘 자리" if emo else "현재 진행 중인 단계"
         L.append(f"{label}: {cur}단계 「{st.get('현재단계명', '')}」{last} — 아직 끝나지 않음 · "
                  f"이 단계의 버튼: {st.get('현재버튼', '')}")
-        done = "·".join(str(n) for n in range(1, cur)) if isinstance(cur, int) and cur > 1 else ""
         again = " (해제하면 1단계부터 다시)" if emo else ""
-        L.append(f"끝난 단계: {done + '단계' if done else '없음'}{again}")
+        L.append(f"끝난 단계: {_done_steps(cur)}{again}")
         if emo:
             # 🔴 EMO 는 순서 위반이 아니다 — 화면 문구(G5)와 같은 말을 해야 한다(V2)
             L.append("멈춘 이유: 🔴 비상정지(EMO) — 순서 위반이 아니다")
@@ -468,6 +467,7 @@ _STEP_ORD = re.compile(r"(첫|두|세|네)\s*번째\s*단계")
 _ORD = {"첫": 1, "두": 2, "세": 3, "네": 4}
 _YES = re.compile(r"^\s*(?:네|예)(?![가-힣])")
 _DONE_Q = re.compile(r"끝났|끝난|끝냈|됐|완료|마쳤|다\s*했|끈났")              # 끝났냐는 질문
+_YES_LEAD = re.compile(r"^\s*(?:네|예)(?![가-힣])[\s,.!]*")                   # 맨 앞 「네,」·「예.」
 _GRIP = re.compile(r"(?:쥐었|쥐셨)(?!으면)|쥔\s*것으로\s*확인|확인됐|확인되었|확인\s*완료")
 _SENSOR = re.compile(r"가스|압력|온도|누출|누설|진공도|유량")
 SENSOR_SENTENCE = "그 정보는 이 시스템이 확인할 수 없습니다."
@@ -624,6 +624,35 @@ def _recipe_names(path=_RECIPE_PATH):
     return _names_cache
 
 
+_steps_cache = None
+
+
+def _recipe_steps(path=_RECIPE_PATH):
+    """레시피 단계 {번호: (이름, 서브 작업 이름|None)} — 카드의 「끝난 단계」가 쓴다."""
+    global _steps_cache
+    if _steps_cache is None:
+        try:
+            with open(path, encoding="utf-8") as f:
+                steps = json.load(f).get("steps", [])
+        except (OSError, ValueError):
+            steps = []
+        _steps_cache = {s.get("order"): (s.get("name") or "", (s.get("sub") or {}).get("label")) for s in steps}
+    return _steps_cache
+
+
+def _done_steps(cur):
+    """끝난 단계를 이름·서브 작업 이름과 함께 — 🔴 번호만 적으면 「N2 퍼지 완료야?」에 근거가 없어 LLM 이
+    「아직 끝나지 않았습니다」로 추측했다(holdout 판 2 45번 · 2026-10-04). 레시피가 없으면 번호만."""
+    if not isinstance(cur, int) or cur <= 1:
+        return "없음"
+    names = _recipe_steps()
+    parts = []
+    for n in range(1, cur):
+        name, sub = names.get(n, ("", None))
+        parts.append(f"{n}단계 「{name}」" + (f"({sub})" if sub else "") if name else f"{n}단계")
+    return " · ".join(parts)
+
+
 def sensor_question(question):
     """장비 센서(가스·압력·온도…)를 묻나 — 🔑 레시피 이름을 지운 뒤 본다(「클린·가스차단」·「전극 온도 하강」).
 
@@ -649,6 +678,11 @@ def finalize(raw, facts, question=None):
     🔑 첫 문장이 `ANSWER_MAX_CHARS` 를 넘으면 자르지 않고 사실 문장으로 바꾼다 — 자르면 술어가 잘려
        「…버튼 B3를.」 같은 조각이 말해졌다(최종 리뷰 I1 · dev 실제 사례).
     """
+    if question and _DONE_Q.search(question) and facts.get("세션") and not facts.get("완료"):
+        # 🔑 끝났냐는 질문에 작업이 진행 중이면 맨 앞 「네,」를 지운다 — temperature 때문에 무작위로 붙어
+        #    (같은 카드·질문 10회 중 2~3회) 「끝났다」로 들렸다(holdout 판 2 9번 · 2026-10-04). 내용은 그대로 —
+        #    지난 단계가 정말 끝났어도 「네」만 빠진다. 첫 문장을 자르기 전에 지워야 「예. 다음 문장」이 살아난다.
+        raw = _YES_LEAD.sub("", raw or "", count=1)
     said = first_sentence(raw)
     if not re.search(r"[가-힣A-Za-z0-9]", said):
         return None, "빈답", []
