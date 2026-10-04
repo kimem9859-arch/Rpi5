@@ -1,25 +1,29 @@
 # 학습 기준 설정 — 정본 설계 = 상위 docs/superpowers/specs/2026-10-03-학습파라미터-체계-design.md §6 · §7
 # 실험 설정(설정/실험/<id>.yaml)은 이 위에 「바꾼 것만」 적는다. 바꾸면 기준(E0)을 다시 돈다.
-나눔: place1_v1
+# 1-3단계 개정 2026-10(설계 2026-10-05-학습파라미터-체계-1-3단계-design.md §3 표 2) — 120 에폭 끝까지 · 일찍 멈춤·포화 끔.
+#   E0 · E0b · E1~E6 은 옛 기본(epochs 200 · patience 20 · 포화_향상 0.002)으로 돌았다 — 옛 설정 파일을 다시 걸지 않는다.
+#   그 실험들의 조건 정본 = 결과 폴더의 설정.json.
+# 출처 표시 — 공식 기본(ultralytics 8.4.171 default.yaml) · 함정(설계 §3.2) · 사용자 결정 · 환경(데스크톱 WSL).
+나눔: place1_v1          # 체계 — 장소1 나눔 첫 판(버튼 1-3단계 실험은 place1_v2b 를 따로 적는다)
 입력: 늘리기640          # 시연 Hailo 경로와 같은 640×640 늘리기(detector.py 110행)
-출발: yolov8n.pt         # 데스크톱 ~/학습실험/yolov8n.pt (COCO · 사용자 결정 = yolov8n 고정)
-seed: 0
+출발: yolov8n.pt         # 사용자 결정 = yolov8n 고정 · 데스크톱 ~/학습실험/yolov8n.pt (COCO)
+seed: 0                  # 공식 기본 0 · 반복은 실험 설정에서 1·2
 train:
-  epochs: 200            # 최대 — 일찍 멈춤·포화가 먼저 끝낸다
-  patience: 20           # 함정② — 기본 100 은 사실상 꺼짐 · 공식 권고 10~20
-  batch: 16
-  workers: 2             # WSL 필수(console_v2 학습 가이드 — 8 이면 pinned 메모리 오류)
-  cache: disk            # ram 은 재현성 경고(8.4.171 data/base.py) · 바탕 폴더가 .npy 를 미리 만든다
+  epochs: 120            # 함정⑤ — 학습률 감소·close_mosaic 이 epochs 에 묶여 일정의 기준 · 끝까지 학습(1-3단계 표 2 · 사용자 승인)
+  patience: 0            # 일찍 멈춤 끔(1-3단계 표 2) — 일찍 멈춘 조건의 우세가 끝까지 학습하면 사라짐(저널 §12.87)
+  batch: 16              # 공식 기본 16
+  workers: 2             # 환경 — WSL 필수(console_v2 학습 가이드 — 8 이면 pinned 메모리 오류)
+  cache: disk            # 환경 — ram 은 재현성 경고(8.4.171 data/base.py) · 바탕 폴더가 .npy 를 미리 만든다
   optimizer: AdamW       # 함정① — auto 는 lr0 를 무시
   lr0: 0.001             # 공식 파인튜닝 예시 · auto 값(버튼 0.00111 · 공구 0.00143)과 비슷
   momentum: 0.9          # auto 와 같게(AdamW beta1)
   warmup_bias_lr: 0.0    # 함정④ — 직접 적으면 0.1 로 돌아간다(trainer.py 529 · 1177)
-  deterministic: true
-  amp: true
-  plots: true
+  deterministic: true    # 공식 기본 true
+  amp: true              # 공식 기본 true
+  plots: true            # 공식 기본 true
 멈춤:
   포화_에폭: 30          # 최근 30 에폭 동안
-  포화_향상: 0.002       # 최고점 향상이 이 미만이면 정상 종료(포화) — E0 시드 폭 ÷ 2 · 0.002~0.02 · Task 14
+  포화_향상: 0           # 포화 멈춤 끔(1-3단계 표 2 · 사용자 승인) — 옛 값 0.002(E0 시드 폭 ÷ 2 · Task 14)
   점수0_에폭: 10
   점수0_mAP50: 0.05      # 10 에폭 뒤 학습 중 검증 mAP50 이 이 미만이면 이상 종료
   진행없음_분: 15

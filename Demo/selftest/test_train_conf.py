@@ -69,20 +69,25 @@ def test_막기():
 
 
 def test_기본값():
-    print("[3] 기본.yaml = 설계 §6 시작값")
+    print("[3] 기본.yaml = 설계 §6 시작값 · 1-3단계 표 2(120 에폭 끝까지 · 일찍 멈춤·포화 끔) · 공통 기준 = 공구 E0c 설정")
     b = TC.load_yaml(CONF / "기본.yaml")
     t = b["train"]
-    want = {"epochs": 200, "patience": 20, "batch": 16, "workers": 2, "cache": "disk", "optimizer": "AdamW",
+    want = {"epochs": 120, "patience": 0, "batch": 16, "workers": 2, "cache": "disk", "optimizer": "AdamW",
             "lr0": 0.001, "momentum": 0.9, "warmup_bias_lr": 0.0, "deterministic": True}
     for k, v in want.items():
         check(t.get(k) == v, f"{k} = {v} — {t.get(k)}")
     check(b["입력"] == "늘리기640" and b["출발"] == "yolov8n.pt" and b["seed"] == 0, "입력 · 출발 · seed")
     m = b["멈춤"]
     check((m["포화_에폭"], m["점수0_에폭"], m["점수0_mAP50"], m["진행없음_분"], m["시간상한_배"]) == (30, 10, 0.05, 15, 2), "멈춤 조건(설계 §7)")
+    check(m["포화_향상"] == 0, f"포화 멈춤 끔(포화_향상 0) — {m['포화_향상']}")
+    e0c = TC.resolve(b, TC.load_yaml(CONF / "실험" / "E0c-tool-f120.yaml"), "E0c-tool-f120")
+    bare = TC.resolve(b, {"id": "E99-tool-bare", "group": "tool"}, "E99-tool-bare")
+    check(TC.train_kwargs(e0c) == TC.train_kwargs(bare) and e0c["멈춤"] == bare["멈춤"],
+          "새 기본으로 푼 공구 E0c = 아무것도 안 바꾼 공구 실험(학습 인자 · 멈춤)")
 
 
 def test_커밋된_설정():
-    print("[4] 실험 62(E0b 6 · 후보 시드 4 · 조합 E7 3 · 에폭 고정 12 · 탐색 확인 E10 6 · 가설 E11·E12 6 · 흐림 E13·E14 6 포함) · 점검 4 — 전부 읽히고 id 가 겹치지 않는다")
+    print("[4] 실험 65(E0b 6 · 후보 시드 4 · 조합 E7 3 · 에폭 고정 12 · 탐색 확인 E10 6 · 가설 E11·E12 6 · 흐림 E13·E14 6 · 버튼 기준 B0 E15 3 포함) · 점검 4 — 전부 읽히고 id 가 겹치지 않는다")
     b = TC.load_yaml(CONF / "기본.yaml")
     ids = []
     for sub in ("실험", "점검"):
@@ -92,7 +97,7 @@ def test_커밋된_설정():
                 check(False, f"{p.name}: {e}")
             ids.append(p.stem)
     exp = [i for i in ids if not i.startswith("E9-")]
-    check(len(exp) == 62, f"실험 62 — {len(exp)}")
+    check(len(exp) == 65, f"실험 65 — {len(exp)}")
     check(len([i for i in ids if i.startswith("E9-")]) == 4, "점검 4")
     check(len(ids) == len(set(ids)), "id 겹침 없음")
     for e0 in ("E0", "E0b"):
