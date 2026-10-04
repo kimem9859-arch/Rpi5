@@ -47,6 +47,9 @@ RECORD = ["요약.json", "채점.json", "채점_검증.json", "설정.json", "ar
 SKIP = ("E9-", "SPEED-")
 DEFAULT_TEST = RPI5 / "조사" / "재학습확인-20261003" / "채점사진.txt"
 CONVERT_CFG = RPI5 / "조사" / "HEF변환-20261004" / "변환설정.json"
+CALIB_SEED = 0
+CONVERT_PROC = r"python[^ ]* [^ ]*/[h]ef_convert\.py (onnx|hef) "           # [h] = 이 명령을 부른 셸 자신은 걸리지 않게
+TRAIN_PROC = r"python[^ ]* [^ ]*/([r]unner|[t]une|[s]peedprobe)\.py"         # client_runner.py · finetune.py 를 읽는 명령은 안 걸림
 
 
 # ── 순수 함수(시험 대상) ─────────────────────────────────────────────
@@ -94,8 +97,8 @@ def launch_problems(ids, local_done, remote_known, dirty):
 
 
 def convert_calib(d, group, cfg):
-    """HEF 보정 사진 = 그 무리의 학습 몫에서만(검증 몫 · 채점 사진 금지 · 설계 §8.3) · 시드 0."""
-    return H.pick_calib(SP.lists_for(d, group)[0], cfg["calib_n"][group], 0)
+    """HEF 보정 사진 = 그 무리의 학습 몫에서만(검증 몫 · 채점 사진 금지 · 설계 §8.3) · 시드 CALIB_SEED 로 섞은 순서."""
+    return H.pick_calib(SP.lists_for(d, group)[0], cfg["calib_n"][group], CALIB_SEED)
 
 
 def convert_dirname(i, level):
@@ -467,11 +470,13 @@ def cmd_remove(a):
 
 def convert_fetch(a, name, wd, code):
     """끝난 변환 받기 — HEF 해시를 맞추고 변환.json 은 홈 경로를 지워 결과 폴더에(가중치·HEF 는 저장소 밖)."""
-    if code != "0":
-        sys.exit(f"🔴 변환 {name} 실패(종료 {code}) — 로그 꼬리:\n" + sh(f"cd {wd} && tail -n 8 onnx.log hef.log 2>/dev/null || true"))
     dst = LOCAL / a.id / ("" if a.수준 is None else f"L{a.수준}")
     dst.mkdir(parents=True, exist_ok=True)
-    keep = ["변환.json", "model.hef", "model.alls", "nms_config.json", "onnx.log", "hef.log", "hailo_sdk.client.log"]
+    logs = ["onnx.log", "hef.log", "hailo_sdk.client.log"]
+    if code != "0":                                      # 실패해도 로그는 받는다(중단 규칙 = 로그로 원인 확인)
+        rsync([*(f"--include={f}" for f in logs), "--exclude=*", f"{REMOTE}:{wd}/", f"{dst}/"])
+        sys.exit(f"🔴 변환 {name} 실패(종료 {code}) — 로그 = {dst} · 꼬리:\n" + sh(f"cd {wd} && tail -n 8 onnx.log hef.log 2>/dev/null || true"))
+    keep = ["변환.json", "model.hef", "model.alls", "nms_config.json", *logs]
     rsync([*(f"--include={f}" for f in keep), "--exclude=*", f"{REMOTE}:{wd}/", f"{dst}/"])
     raw = (dst / "변환.json").read_text(encoding="utf-8")
     rec = json.loads(raw)
@@ -484,7 +489,7 @@ def convert_fetch(a, name, wd, code):
     out = HERE / "결과" / a.id / ("변환.json" if a.수준 is None else f"변환_L{a.수준}.json")
     out.write_text(text, encoding="utf-8")
     t = rec["시간_s"]
-    print(f"받음 {name} — 수준 {rec['수준']['지정']} · 시간(초) {t} · HEF {dst / 'model.hef'} · 기록 {out}")
+    print(f"받음 {name} — 수준 {rec['수준']['지정']} · 미세 학습 {rec['수준']['미세학습']} · 시간(초) {t} · HEF {dst / 'model.hef'} · 기록 {out}")
     for l in rec["수준"]["DFC_로그"]:
         print(f"  DFC: {l}")
 
@@ -497,10 +502,16 @@ def cmd_convert(a):
     code = sh(f"cat {wd}/끝 2>/dev/null || true").strip()
     if code:
         return convert_fetch(a, name, wd, code)
-    running = sh("pgrep -af '[h]ef_convert.py' || true").strip()      # [h] = 이 명령을 부른 셸 자신은 걸리지 않게
+    running = sh(f"pgrep -af '{CONVERT_PROC}' || true").strip()
     if running:
-        print(f"변환 도는 중 — {running}\n  진행 = 데스크톱 {wd}/onnx.log · hef.log · 끝나면 같은 명령으로 받는다")
+        mine = any(l.rstrip().endswith(f"/변환/{name}") for l in running.splitlines())
+        print(f"{'이 변환' if mine else '다른 변환'} 도는 중 — {running}"
+              + (f"\n  진행 = 데스크톱 {wd}/onnx.log · hef.log 끝 줄: " + sh(f"tail -n 1 {wd}/hef.log {wd}/onnx.log 2>/dev/null | tail -n 1 || true").strip()
+                 if mine else " · 그 변환이 끝난 뒤 다시 친다(메모리 · 한 번에 하나)"))
         return
+    code = sh(f"cat {wd}/끝 2>/dev/null || true").strip()     # 위 두 확인 사이에 끝났을 수 있다 — 끝난 결과를 지우라고 하지 않게
+    if code:
+        return convert_fetch(a, name, wd, code)
     if sh(f"test -d {wd} && echo y || true").strip():
         sys.exit(f"🔴 끊긴 변환(끝 표지도 프로세스도 없음) — 로그 확인 뒤 데스크톱 `rm -rf {wd}` 하고 다시:\n"
                  + sh(f"cd {wd} && tail -n 5 onnx.log hef.log 2>/dev/null || true"))
@@ -509,9 +520,11 @@ def cmd_convert(a):
                                capture_output=True, text=True).stdout.strip()
     if dirty or cfg_dirty:
         sys.exit("🔴 커밋 안 된 학습 코드·결정표가 있다 — 커밋한 뒤 변환한다(변환.json 의 코드 해시가 저장소를 가리키게)")
-    if sh("pgrep -af '[r]unner.py|[t]une.py|[s]peedprobe.py' || true").strip():
+    if sh(f"pgrep -af '{TRAIN_PROC}' || true").strip():
         sys.exit("🔴 학습·탐색이 돌고 있다 — 변환은 학습이 없을 때(데스크톱 메모리·CPU · 계획 「병행 트랙」)")
     res = HERE / "결과" / a.id
+    if not (res / "설정.json").exists() or not (res / "요약.json").exists():
+        sys.exit(f"🔴 {res} 에 설정.json·요약.json 이 없다 — 먼저 `받기`")
     job_cfg = json.loads((res / "설정.json").read_text(encoding="utf-8"))
     summ = json.loads((res / "요약.json").read_text(encoding="utf-8"))
     cfg = json.loads(CONVERT_CFG.read_text(encoding="utf-8"))
@@ -520,15 +533,19 @@ def cmd_convert(a):
     if d["해시"] != job_cfg["나눔"]["해시"]:
         sys.exit(f"🔴 나눔 해시가 그 실험과 다르다({d['해시']} ≠ {job_cfg['나눔']['해시']})")
     calib = convert_calib(d, g, cfg)
-    if len(calib) != cfg["calib_n"][g]:
-        sys.exit(f"🔴 보정 {len(calib)}장 ≠ 결정표 calib_n {cfg['calib_n'][g]}(모델 스크립트의 장수와 같아야 한다)")
+    bad = H.count_problems(cfg, g)
+    if len(calib) != cfg["calib_n"][g] or bad:
+        sys.exit(f"🔴 보정 {len(calib)}장 · 결정표 calib_n {cfg['calib_n'][g]} · {bad} — 셋이 같아야 한다")
     deploy_code(head)
-    sh(f"mkdir -p {wd} && cp {RROOT}/runs/{a.id}/weights/best.pt {wd}/best.pt")
+    if sh(f"mkdir -p {RROOT}/변환 && mkdir {wd} 2>/dev/null && echo 새로 || echo 있음").strip() != "새로":   # 폴더 = 잠금(두 번 동시에 쳐도 하나만)
+        sys.exit(f"🔴 {wd} 가 이미 있다 — 다른 창에서 막 띄웠는지 확인한다")
+    sh(f"cp {RROOT}/runs/{a.id}/weights/best.pt {wd}/best.pt")
     if sh(f"sha256sum {wd}/best.pt").split()[0] != summ.get("best_sha256"):
         sh(f"rm -rf {wd}")
         sys.exit(f"🔴 데스크톱 runs/{a.id} 의 best.pt 해시가 요약과 다르다")
     place = place_of(job_cfg["나눔"]["name"])
     job = {"id": a.id, "group": g, "names": job_cfg["names"], "수준": a.수준, "코드해시": head,
+           "보정출처": {"나눔": d["나눔"], "나눔해시": d["해시"], "몫": "train", "시드": CALIB_SEED},
            "calib": [f"{RROOT}/원본/{place}/images/{n}.png" for n in calib]}
     sh(atomic_write_cmd(f"{wd}/입력.json"), input=json.dumps(job, ensure_ascii=False))
     rsync([str(CONVERT_CFG), f"{REMOTE}:{wd}/변환설정.json"])
@@ -565,7 +582,7 @@ def main(argv=None):
     p.add_argument("--저장", action="store_true")
     p = sub.add_parser("변환")
     p.add_argument("id")
-    p.add_argument("--수준", type=int, choices=[0, 1, 2, 3, 4])
+    p.add_argument("--수준", type=int, choices=[1, 2])        # 3·4(adaround)는 정한 적 없다
     p = sub.add_parser("판정")
     p.add_argument("--후보", nargs="+", required=True)
     p.add_argument("--기준", nargs="+", required=True)

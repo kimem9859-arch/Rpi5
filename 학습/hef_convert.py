@@ -21,15 +21,18 @@ from pathlib import Path
 CLS_SLOTS = {"<cls_s8>": 1, "<cls_s16>": 3, "<cls_s32>": 5}     # HN 출력층 순서 = 끝 노드 순서(reg8 cls8 reg16 cls16 reg32 cls32)
 STRIDES = (8, 16, 32)
 REG_CH = 64                                                     # 4 × reg_max 16
-LEVEL_RE = re.compile(r"optimization_level=\d")
+LEVEL_RE = re.compile(r"(?<![A-Za-z_])optimization_level=\d")         # compiler_optimization_level 은 건드리지 않는다
+FINETUNE_ON_RE = re.compile(r"post_quantization_optimization\(finetune,\s*policy=enabled[^)]*\)")
+EVIDENCE_RE = re.compile(r"optimization level|compression level|entries for|Starting |skipped|is done \(completion", re.I)
 
 
 # ── 순수 함수(시험 대상) ─────────────────────────────────────────────
 def pick_calib(train_names, n, seed):
+    """학습 몫을 시드로 섞어 앞 n장 — **섞인 순서 그대로** 돌려준다. DFC 는 받은 순서로 통계 앞 N장·미세 학습 배치를 만들고
+    (셔플 버퍼 기본 1 · qft.py), 파일 이름은 세션순이다. 모자라면 전부를 섞는다."""
     names = sorted(train_names)
-    if n >= len(names):
-        return names
-    return sorted(random.Random(seed).sample(names, n))
+    random.Random(seed).shuffle(names)
+    return names[:n]
 
 
 def alls_text(cfg, group):
@@ -49,6 +52,8 @@ def model_script(cfg, group, outs, nms_path, level=None):
         raise ValueError("모델 스크립트에 optimization_level 줄이 없다 — CPU 에서는 조용히 수준 0 이 된다")
     if level is not None:
         s = LEVEL_RE.sub(f"optimization_level={int(level)}", s)
+        if int(level) < 2:                                   # 명시한 미세 학습 줄은 수준 기본값을 덮는다(mo_script_parser deep_update)
+            s = FINETUNE_ON_RE.sub("post_quantization_optimization(finetune, policy=disabled)", s)
     for slot, i in CLS_SLOTS.items():
         s = s.replace(slot, outs[i])
     s = re.sub(r'nms_postprocess\("[^"]*"', f'nms_postprocess("{nms_path}"', s)
@@ -66,6 +71,18 @@ def nms_config(cfg, group, outs, names):
     n["bbox_decoders"] = [{"name": f"bbox_decoder_{s}", "stride": s, "reg_layer": outs[2 * i], "cls_layer": outs[2 * i + 1]}
                           for i, s in enumerate(STRIDES)]
     return n
+
+
+def count_problems(cfg, group):
+    """모델 스크립트의 보정·미세 학습 장수 = calib_n — 크면 DFC 가 오류, 작으면 조용히 덜 쓴다."""
+    n = cfg["calib_n"][group]
+    got = [int(x) for x in re.findall(r"(?:calibset_size|dataset_size)=(\d+)", alls_text(cfg, group))]
+    return [] if got and all(x == n for x in got) else [f"모델 스크립트 장수 {got} ≠ calib_n {n}"]
+
+
+def evidence_lines(text):
+    """DFC 로그에서 실제로 돈 최적화의 증거 줄 — 수준을 명시하면 「optimization level」 문구는 안 나온다(기본값을 고르는 경로에서만)."""
+    return [l.strip() for l in text.splitlines() if EVIDENCE_RE.search(l)]
 
 
 def end_node_problems(conv_out, end_nodes, nc):
@@ -149,7 +166,9 @@ def stage_onnx(work):
     bad = end_node_problems(conv_channels(onnx.load(str(work / "model.onnx"))), cfg["end_nodes"][job["group"]], len(job["names"]))
     if bad:
         sys.exit("🔴 " + " · ".join(bad))
-    _dump(work / "onnx.json", {"판": {"ultralytics": ultralytics.__version__, "torch": torch.__version__, "onnx": onnx.__version__},
+    import onnxslim
+    _dump(work / "onnx.json", {"판": {"ultralytics": ultralytics.__version__, "torch": torch.__version__, "onnx": onnx.__version__,
+                                       "onnxslim": onnxslim.__version__},
                                 "클래스": [m.names[i] for i in sorted(m.names)], "내보내기_인자": args,
                                 "해시": {"best.pt": _sha(work / "best.pt"), "model.onnx": _sha(work / "model.onnx")},
                                 "시간_s": {"onnx": round(time.time() - t0, 1)}})
@@ -182,13 +201,15 @@ def stage_hef(work):
     script = model_script(cfg, g, outs, str((work / "nms_config.json").resolve()), job.get("수준"))
     (work / "model.alls").write_text(script, encoding="utf-8")
     r.load_model_script(script)
-    imgs = []
-    for p in job["calib"]:
+    arr = None                                               # 목록 + 쌓은 배열을 함께 들지 않는다(데스크톱 메모리)
+    for k, p in enumerate(job["calib"]):
         im = cv2.imread(os.path.expanduser(p))
         if im is None:
             sys.exit(f"🔴 보정 사진을 못 읽음: {p}")
-        imgs.append(preprocess(im))
-    arr = np.stack(imgs)
+        x = preprocess(im)
+        if arr is None:
+            arr = np.empty((len(job["calib"]), *x.shape), np.uint8)
+        arr[k] = x
     ds = tf.data.Dataset.from_generator(lambda: ((x.astype(np.float32), {}) for x in arr),
                                         output_signature=(tf.TensorSpec(shape=arr.shape[1:], dtype=tf.float32), {}))
     t0 = time.time()
@@ -198,22 +219,24 @@ def stage_hef(work):
     t0 = time.time()
     (work / "model.hef").write_bytes(r.compile())
     t["컴파일"] = round(time.time() - t0, 1)
-    log = work / "hailo_sdk.client.log"
-    lv = [l.strip() for l in (log.read_text(encoding="utf-8", errors="replace").splitlines() if log.exists() else [])
-          if "optimization level" in l.lower()]
+    sys.stdout.flush()
+    logs = "\n".join(f.read_text(encoding="utf-8", errors="replace") for f in (work / "hef.log", work / "hailo_sdk.client.log") if f.exists())
+    lv = list(dict.fromkeys(evidence_lines(logs)))
     o = _load(work / "onnx.json")
     _dump(work / "변환.json", {
         "id": job["id"], "group": g, "시각": _now(), "코드해시": job["코드해시"],
-        "판": {**o["판"], "dfc": hailo_sdk_client.__version__, "hailort_요구": cfg["hailort_target"]},
+        "판": {**o["판"], "dfc": hailo_sdk_client.__version__, "tensorflow": tf.__version__, "numpy": np.__version__, "cv2": cv2.__version__,
+              "hailort_요구": cfg["hailort_target"]},
         "결정표": {"파일": "조사/HEF변환-20261004/변환설정.json", "sha256": _sha(work / "변환설정.json")},
         "수준": {"지정": int(LEVEL_RE.search(script).group(0)[-1]), "결정표와_다름": job.get("수준") is not None,
-                 "DFC_로그": lv},
+                 "미세학습": "enabled" if FINETUNE_ON_RE.search(script) else "disabled", "DFC_로그": lv},
         "클래스": o["클래스"], "내보내기_인자": o["내보내기_인자"], "hw_arch": cfg["hw_arch"],
         "끝_노드": cfg["end_nodes"][g], "HN_출력층": [{"이름": a, "채널": c} for a, c in zip(outs, chs)],
         "모델_스크립트": script, "NMS": nms,
-        "보정": {"장수": len(job["calib"]), "시드": 0, "몫": "train", "목록_sha256": hashlib.sha256("\n".join(job["calib"]).encode()).hexdigest(),
+        "보정": {"장수": len(job["calib"]), **job["보정출처"],
+                 "목록_sha256": hashlib.sha256("\n".join(Path(c).stem for c in job["calib"]).encode()).hexdigest(),
                  "전처리": inspect.getsource(preprocess)},
-        "해시": {**o["해시"], "model.hef": _sha(work / "model.hef")},
+        "해시": {**o["해시"], "model.har": _sha(work / "model.har"), "model.hef": _sha(work / "model.hef")},
         "시간_s": {**o["시간_s"], **t},
         "출력_vstream": "파이 hailortcli parse-hef 로 확인(관문 2 · 데스크톱엔 HailoRT 없음)"})
     print(f"hef 끝 — {work / 'model.hef'}")

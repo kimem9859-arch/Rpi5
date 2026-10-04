@@ -41,12 +41,14 @@ def raises(fn, exc=ValueError):
 
 
 def test_캘리브():
-    print("[1] 캘리브레이션 = 학습 몫에서만 · 같은 시드면 같은 목록(Review Focus 5)")
+    print("[1] 캘리브레이션 = 학습 몫에서만 · 시드로 섞은 순서 그대로(DFC 는 받은 순서로 배치 · 셔플 버퍼 1) · 같은 시드면 같은 목록(Review Focus 5)")
     d = {"train": [f"a__f{i:05d}" for i in range(100)], "val": ["v1"], "test": ["t1"]}
     c = H.pick_calib(d["train"], 20, 0)
     check(len(c) == 20 and set(c) <= set(d["train"]) and not set(c) & {"v1", "t1"}, "학습 몫만 20장")
     check(c == H.pick_calib(d["train"], 20, 0) and c != H.pick_calib(d["train"], 20, 1), "시드로 재현")
-    check(H.pick_calib(d["train"], 500, 0) == sorted(d["train"]), "모자라면 전부")
+    a = H.pick_calib(d["train"], 500, 0)
+    check(sorted(a) == sorted(d["train"]) and a != sorted(d["train"]), "모자라면 전부 · 그래도 섞는다(이름순 = 세션순이 아님)")
+    check(c != sorted(c), "고른 것도 섞인 순서 그대로(다시 정렬하지 않음)")
     sp = SP.load_split(Path(_RPI5) / "학습" / "나눔" / "place1_v1.json")
     for g in ("button", "tool"):
         tr, va, te = SP.lists_for(sp, g)
@@ -71,6 +73,11 @@ def test_자리_채우기():
     check("optimization_level=2" in s and "calibset_size=634" in s, "결정표 수준·캘리브 장수 그대로")
     s1 = H.model_script(CFG, "tool", OUTS, "/x/n.json", level=1)
     check("optimization_level=1" in s1 and "optimization_level=2" not in s1, "수준 바꿔 시험(1 대 2)")
+    check("post_quantization_optimization(finetune, policy=disabled)" in s1 and "policy=enabled" not in s1,
+          "수준 1 은 미세 학습을 끈다(명시 줄이 수준 기본값을 덮는다 · mo_script_parser deep_update)")
+    check("post_quantization_optimization(finetune, policy=enabled, dataset_size=634)" in s, "수준 2(결정표)는 미세 학습 그대로")
+    comp = {"alls": {"tool": CFG["alls"]["tool"] + ["performance_param(compiler_optimization_level=2)"]}}
+    check("compiler_optimization_level=2" in H.model_script(comp, "tool", OUTS, "/x/n.json", level=1), "컴파일러 수준 줄은 건드리지 않음")
     check(raises(lambda: H.model_script(CFG, "tool", OUTS[:5], "/x/n.json")), "출력층이 6개가 아니면 멈춤")
     no_flavor = {"alls": {"tool": [l for l in CFG["alls"]["tool"] if "optimization_flavor" not in l]}}
     check(raises(lambda: H.model_script(no_flavor, "tool", OUTS, "/x/n.json")),
@@ -111,11 +118,29 @@ def test_클래스_순서():
     check(H.class_problems(names, CFG, "tool", ["driver", "pliers", "wrench"]) != [], "실험 설정과 다름 → 문제")
 
 
+def test_장수_대조():
+    print("[9] 모델 스크립트의 보정·미세 학습 장수 = calib_n(크면 DFC 오류 · 작으면 조용히 덜 씀)")
+    check(H.count_problems(CFG, "button") == [] and H.count_problems(CFG, "tool") == [], "결정표 두 무리 = calib_n")
+    bad = json.loads(json.dumps(CFG))
+    bad["calib_n"]["tool"] = 600
+    check(H.count_problems(bad, "tool") != [], "calib_n 만 바꾸면 → 문제")
+
+
+def test_로그_증거():
+    print("[10] DFC 로그의 증거 줄 — 수준을 명시하면 「optimization level」 문구가 안 나온다 → 알고리즘 줄을 남긴다")
+    log = ("[info] Starting Finetune\n잡음 줄\n[info] Using dataset with 1024 entries for finetune\n"
+           "[info] Model Optimization Algorithm Finetune is done (completion time is 01:02:03.4)\n"
+           "[info] Bias Correction skipped\n[warning] Reducing compression level to 0 because requested optimization level equal or less than 1")
+    got = H.evidence_lines(log)
+    check(len(got) == 5 and "잡음 줄" not in got, "알고리즘 시작·끝·건너뜀·장수·수준 문구만")
+
+
 def test_파이_명령():
     print("[7] 파이 명령 — 원격 폴더 이름 · CODE_FILES")
     check("hef_convert.py" in T.CODE_FILES, "데스크톱 코드 폴더로 보냄")
     check(T.convert_dirname("E0b-button-s0", None) == "E0b-button-s0" and T.convert_dirname("E0b-button-s0", 1) == "E0b-button-s0_L1",
           "수준을 바꾼 시험은 따로(결정표 변환을 덮지 않음)")
+    check(T.CALIB_SEED == 0, "보정 시드는 한 곳(CALIB_SEED)")
 
 
 if __name__ == "__main__":
@@ -125,6 +150,8 @@ if __name__ == "__main__":
     test_NMS_설정()
     test_끝_노드()
     test_클래스_순서()
+    test_장수_대조()
+    test_로그_증거()
     test_파이_명령()
     print()
     if _fails:
