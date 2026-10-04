@@ -1,0 +1,30 @@
+{
+ "id": "E4c-tool-f120lr0005",
+ "group": "tool",
+ "입력": "늘리기640",
+ "바꾼것": "epochs=120 · lr0=0.0005 · patience=0 · 포화_향상=0",
+ "나눔": {
+  "name": "place1_v1",
+  "해시": "0a3197afa1ddeac1"
+ },
+ "종료이유": "최대에폭",
+ "이상": false,
+ "에폭": 120,
+ "best_epoch": 72,
+ "분": 10.7,
+ "끝": "2026-10-04T17:26:15+09:00",
+ "판": {
+  "ultralytics": "8.4.171",
+  "torch": "2.12.1+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 5060",
+  "albumentations": false
+ },
+ "코드해시": "ea128e3193",
+ "conf": 0.65,
+ "속도재기": false,
+ "출발_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+ "이어서": false,
+ "라벨지문": "5dbfae1750e40812",
+ "best_sha256": "334be6f0e4ee75a0e6c8ec3d3492eecd76813c307b669584289a21bb055aab88"
+}
