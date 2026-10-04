@@ -1,0 +1,10 @@
+id: E14-tool-blurs1
+group: tool
+seed: 1
+흐림: [Blur, MotionBlur]
+train:
+  epochs: 120
+  patience: 0
+멈춤:
+  포화_향상: 0
+메모: ③ 가설 흐림 — Blur · MotionBlur 각 p 0.1(흑백 변환 없음 · 설계 §7) · 기준 = E13 · 시드 1

@@ -13,3 +13,15 @@
 5. 원격 백그라운드 띄우기 — `( setsid nohup … > 로그 2>&1 < /dev/null & )` 형태면 ssh 가 1초 안에 돌아오고 프로그램은 산다(2026-10-03 확인 · 설치에도 이 형태를 썼다).
 
 5. optuna — 2026-10-04 · 세션 f36f2e90 · 1-2단계 계획 Task 5 · ~/학습실험/venv 에 optuna 4.9.0 (최신 5.0.0 은 막 나온 주 판이라 계획대로 4.x 최신) · `pip install optuna==4.9.0 -c <설치 전 pip freeze>` 로 기존 판 고정 → 새로 들어온 것 = alembic 1.20.0 · colorlog 6.12.0 · Mako 1.4.3 · optuna 4.9.0 · SQLAlchemy 2.1.3 · tqdm 4.70.1 · 기존 패키지 변화 0(freeze diff) · ultralytics 8.4.171 · torch 2.12.1+cu130 · numpy 2.5.3 그대로 · TPESampler 인자 multivariate · constant_liar · n_startup_trials · seed 있음. 결과 요약 「판」에는 들어가지 않는다(학습에 영향 없음).
+
+## 2026-10-05 00:2x — albumentations 설치(1-2단계 Task 10 Step 4 · 흐림 증강)
+- 학습 venv 에 판 고정 설치: albumentations 2.0.8 · albucore 0.0.24 · opencv-python-headless 5.0.0.93 · pydantic 2.13.5 · pydantic_core 2.46.5 · annotated-types 0.8.0 · scipy 1.18.1 · simsimd 6.5.16 · stringzilla 5.2.0 · typing-inspection 0.4.4
+- 설치 전후 pip freeze 비교 = 새 10개만 · 기존 패키지 판 변화 0 · pip check 통과 · cv2 5.0.0 · numpy 2.5.3 · ultralytics 8.4.171 그대로
+- ⚠️ opencv-python-headless 는 이미 있는 opencv-python(같은 판 5.0.0.93)과 cv2 파일을 함께 쓴다(화면 기능 없는 판) — 학습은 화면 기능을 안 쓴다
+- 되돌리기: `venv/bin/pip uninstall albumentations albucore opencv-python-headless pydantic pydantic_core annotated-types scipy simsimd stringzilla typing-inspection` 뒤 `venv/bin/pip install --force-reinstall --no-deps opencv-python==5.0.0.93`(headless 를 지우면 공유한 cv2 파일이 빠진다) · 전후 목록 = 데스크톱 ~/학습실험/freeze_before_albu.txt · freeze_after_albu.txt
+- 효과: 요약 「판」의 albumentations 가 True 가 되고, 학습은 augmentations 명시 목록(빈 목록 포함)을 넘긴다(train_one.album_kwargs) → 이후 실험은 E0c(False)와 판정 조건이 다르다 → 기준을 같은 판으로 다시(E13)
+
+## 2026-10-04 19:40 — onnx 설치(1-2단계 Task 14 · HEF 변환 onnx 단계)
+- 학습 venv 에 판 고정 설치: onnx 1.23.1 · onnxslim 0.1.97 · onnxruntime 1.30.0 (+ colorama 0.4.6 · flatbuffers 25.12.19 · ml_dtypes 0.6.0 · protobuf 7.36.2)
+- 설치 전 dry-run 과 전후 pip freeze 비교 = 새 7개만 · 기존 판 변화 0 · pip check 통과 · 학습은 onnx 를 쓰지 않는다(요약 「판」에 안 들어감)
+- 되돌리기 = 위 7개 pip uninstall

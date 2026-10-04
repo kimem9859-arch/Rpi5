@@ -1,0 +1,9 @@
+id: E13-tool-bases1
+group: tool
+seed: 1
+train:
+  epochs: 120
+  patience: 0
+멈춤:
+  포화_향상: 0
+메모: 흐림 실험의 기준 — E0c 와 같은 설정을 albumentations 설치 뒤 같은 판으로 다시(빈 목록 = 기본 묶음 끔 · 1-2단계 Task 10) · 시드 1
