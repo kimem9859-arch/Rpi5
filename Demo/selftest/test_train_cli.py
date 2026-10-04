@@ -223,6 +223,22 @@ def test_판정_조건():
     check(stopped, "조건 다름 → 멈춤")
 
 
+def test_탐색_설정():
+    print("[10] 탐색 설정 — 이름 형식 · 범위 종류 · 동시 개수 · 기준 id")
+    tmpl = {"id": "E8-tool-T1t000", "group": "tool", "train_kwargs": {}, "설정": {}}
+    tc = {"이름": "T1", "group": "tool", "범위": {"lr0": ["log", 0.0002, 0.003]}, "횟수": 30, "기준": ["E0c-tool-f120"]}
+    c = CLI.tune_config(tc, tmpl, "abc123", 2)
+    check(c["이름"] == "T1" and c["동시"] == 2 and c["코드"].endswith("/코드/abc123") and c["시작무작위"] == 10
+          and c["기준"] == ["E0c-tool-f120"], f"{c}")
+    for bad in ({**tc, "이름": "T 1"}, {**tc, "범위": {"lr0": ["lin", 0, 1]}}, {**tc, "기준": []}):
+        try:
+            CLI.tune_config(bad, tmpl, "abc123", 2)
+            stopped = False
+        except SystemExit:
+            stopped = True
+        check(stopped, f"막음 — {bad.get('이름')} {bad.get('범위')} {bad.get('기준')}")
+
+
 if __name__ == "__main__":
     test_작업()
     test_예상()
@@ -233,6 +249,7 @@ if __name__ == "__main__":
     test_사소_고침()
     test_사소_2차()
     test_판정_조건()
+    test_탐색_설정()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

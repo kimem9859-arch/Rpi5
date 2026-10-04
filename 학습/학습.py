@@ -38,7 +38,7 @@ REMOTE = "wsl-train"
 RROOT = "~/학습실험"
 SRC = Path.home() / "data" / "label_dataset"
 LOCAL = Path.home() / "data" / "학습실험"
-CODE_FILES = ["train_one.py", "runner.py", "stoprules.py", "scoring.py", "speedprobe.py"]
+CODE_FILES = ["train_one.py", "runner.py", "stoprules.py", "scoring.py", "speedprobe.py", "tune.py"]
 DIRTY_PATHS = ["학습/*.py", "학습/설정", "학습/나눔", "Demo/test/score_lib.py", "Demo/test/tool_round.py"]
 RECORD = ["요약.json", "채점.json", "설정.json", "args.yaml", "results.csv", "results.png",
           "confusion_matrix.png", "confusion_matrix_normalized.png"]
@@ -382,6 +382,55 @@ def cmd_judge(a):
     print("✅ 채택" if ok else "— 기각(위로 갈린 지표 없음 또는 아래로 갈린 지표 있음)")
 
 
+def tune_config(tc, tmpl, head, conc):
+    """탐색기 설정(1-2단계 §5.3) — 이름 · 범위 종류 · 기준 id 를 검사하고 데스크톱 탐색기가 읽을 꼴로."""
+    name = str(tc.get("이름", ""))
+    if not re.fullmatch(r"[A-Za-z0-9]+", name):
+        sys.exit(f"🔴 탐색 이름은 영문·숫자만: {name!r}")
+    for k, spec in tc["범위"].items():
+        if spec[0] not in ("log", "cat"):
+            sys.exit(f"🔴 범위 종류는 log·cat 만: {k} {spec}")
+    if not tc.get("기준"):
+        sys.exit("🔴 기준 실험 id(검증 채점이 있는 E0c 등)를 적는다")
+    return {"이름": name, "루트": RROOT, "코드": f"{RROOT}/코드/{head}", "틀": tmpl, "범위": tc["범위"],
+            "횟수": int(tc["횟수"]), "시작무작위": int(tc.get("시작무작위", 10)), "시드": int(tc.get("시드", 0)),
+            "동시": conc, "기준": list(tc["기준"]), "간격": 30}
+
+
+def cmd_tune(a):
+    head, dirty = code_state()
+    if dirty:
+        sys.exit("🔴 커밋 안 된 학습 코드·설정·나눔이 있다 — 커밋한 뒤 건다")
+    tc = TC.load_yaml(Path(a.설정))
+    sid = f"E8-{tc['group']}-{tc['이름']}t000"
+    cfg = TC.resolve(TC.load_yaml(HERE / "설정" / "기본.yaml"), {"id": sid, "group": tc["group"], **tc.get("틀", {})}, sid)
+    tmpl = make_job(cfg, SP.load_split(HERE / "나눔" / f"{cfg['나눔']}.json"), head, op_conf(cfg["group"]), None)
+    speed = remote_json(f"{RROOT}/속도.json", {})
+    _, limits = estimate([tmpl], speed)
+    tmpl["시간상한_s"] = limits[0]
+    c = tune_config(tc, tmpl, head, speed[cfg["입력"]]["동시"])
+    deploy_code(head)
+    d = f"{RROOT}/탐색/{c['이름']}"
+    sh(f"mkdir -p {d}")
+    sh(atomic_write_cmd(f"{d}/설정.json"), input=json.dumps(c, ensure_ascii=False))
+    sh(f"cd {RROOT} && ( setsid nohup venv/bin/python 코드/{head}/tune.py --설정 {d}/설정.json >> {d}/탐색.log 2>&1 < /dev/null & )")
+    print(f"탐색 {c['이름']} 시작 — {c['횟수']}회 · 동시 {c['동시']} · 상태 = 학습.py 탐색상태 {c['이름']}")
+
+
+def cmd_tune_status(a):
+    if not re.fullmatch(r"[A-Za-z0-9]+", a.이름):
+        sys.exit(f"🔴 탐색 이름은 영문·숫자만: {a.이름!r}")
+    s = remote_json(f"{RROOT}/탐색/{a.이름}/요약.json", {})
+    if not s:
+        sys.exit("요약 없음 — 아직 시작 전이거나 이름이 다르다")
+    print(f"탐색 {a.이름} · {s.get('상태')} · 끝 {s.get('끝')}/{s.get('횟수')} · 이상 {s.get('이상')} · 도는 중 {s.get('도는중')}")
+    for r in s.get("상위", []):
+        print(f"  {r['id']} 목표 {r['목표']:.4f} · 검증P {r['검증P']:.3f} · {r.get('바꾼것', '')}")
+    if a.저장:
+        (HERE / "탐색").mkdir(exist_ok=True)
+        (HERE / "탐색" / f"{a.이름}.json").write_text(json.dumps(s, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def cmd_resume(a):
     head, dirty = code_state()
     if dirty:
@@ -422,12 +471,17 @@ def main(argv=None):
     sub.add_parser("재개")
     p = sub.add_parser("빼기")
     p.add_argument("id")
+    p = sub.add_parser("탐색")
+    p.add_argument("설정")
+    p = sub.add_parser("탐색상태")
+    p.add_argument("이름")
+    p.add_argument("--저장", action="store_true")
     p = sub.add_parser("판정")
     p.add_argument("--후보", nargs="+", required=True)
     p.add_argument("--기준", nargs="+", required=True)
     a = ap.parse_args(argv)
     {"준비": cmd_prepare, "속도재기": cmd_speed, "걸기": cmd_launch, "상태": cmd_status,
-     "받기": cmd_fetch, "재개": cmd_resume, "빼기": cmd_remove, "판정": cmd_judge}[a.cmd](a)
+     "받기": cmd_fetch, "재개": cmd_resume, "빼기": cmd_remove, "판정": cmd_judge, "탐색": cmd_tune, "탐색상태": cmd_tune_status}[a.cmd](a)
 
 
 if __name__ == "__main__":
