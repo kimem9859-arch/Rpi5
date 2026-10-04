@@ -18,7 +18,8 @@ _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
 
 from voice_card import (ANSWER_MAX_CHARS, build_card, card_facts, check_safety, fallback_sentence,
-                        finalize, is_one_sentence, read_state, shorten, verify_answer)
+                        finalize, in_emergency, is_one_sentence, next_action, read_state, shorten,
+                        tool_phase, tool_sentence, verify_answer)
 
 _fails = []
 
@@ -207,6 +208,79 @@ def test_verify_ordinal_step():
         check(not ok and "단계" in bad, f"「{t}」 도 단계 언급으로 읽는다")
 
 
+def test_next_action_and_tool_phase():
+    print("── 지금 할 일 · 공구 상황(설계 2026-10-04 §4.2)")
+    t0 = LIVE["쓴시각"]
+
+    def run(**p):
+        prog = {"상태": "진행 중", "남은초": 6.0, "공구충족": False, "공구오답": None}
+        prog.update(p)
+        return dict(LIVE, 서브진행=prog)
+
+    W = [("wrench", 0.62, 0, 0, 9, 9)]
+    P = [("pliers", 0.71, 0, 0, 9, 9)]
+    WH = [("wrench-in-hand", 0.5, 0, 0, 9, 9)]
+    EMO = dict(LIVE, 상태="BLOCK", 비상정지=True)
+    cases = [
+        ("작업 전", None, [], False, "작업전", None),
+        ("정상", LIVE, [], False, "누름", "지금은 B2 차례입니다."),
+        ("비상정지", EMO, [], False, "비상정지", "비상정지 중이니 EMO를 복귀한 뒤 차단 해제를 누르세요."),
+        ("🔑 완료 뒤 비상정지 = 비상정지", dict(DONE, 상태="BLOCK", 비상정지=True), [], False, "비상정지", None),
+        ("완료", DONE, [], False, "완료", "작업은 이미 완료됐습니다."),
+        ("위반 차단", dict(LIVE, 상태="BLOCK"), [], False, "차단",
+         "차단 중이니 차단 해제를 누른 뒤 B2 버튼부터 다시 누르세요."),
+        ("경고·서브 멈춤", dict(LIVE, 상태="WARNING", 서브진행={"상태": "멈춤", "남은초": 4.0, "공구충족": False}),
+         [], False, "경고", "순서가 다르니 손을 떼고 B2 버튼을 누르세요."),
+        ("공구 찾는 중(정보 없음)", run(), [], False, "공구", "렌치를 찾아 손으로 쥐세요."),
+        ("공구 찾는 중(플라이어만)", run(), P, True, "공구", "렌치를 찾아 손으로 쥐세요."),
+        ("공구 보임", run(), W, True, "공구", "앞에 렌치가 보이니 손으로 쥐면 확인됩니다."),
+        ("🔑 둘 보임·플라이어 점수 높음", run(), P + [("wrench", 0.55, 20, 0, 29, 9)], True, "공구",
+         "앞에 렌치가 보이니 손으로 쥐면 확인됩니다."),
+        ("쥔 공구 클래스(-in-hand)도 보임", run(), WH, True, "공구", "앞에 렌치가 보이니 손으로 쥐면 확인됩니다."),
+        ("다른 공구 쥠", run(공구오답="플라이어"), P, True, "공구", "플라이어를 쥐고 있으니 렌치로 바꿔 쥐세요."),
+        ("쥠 → 기다림", run(남은초=3.0, 공구충족=True), W, True, "대기",
+         "지금은 「N2 퍼지」 작업 중이며 끝나면 다음 단계로 넘어갑니다."),
+        ("4단계(서브 없음)", dict(LIVE, 현재단계=4, 현재버튼="B4", 다음단계=None, 서브작업=None), [], False,
+         "누름", "지금은 B4 차례입니다."),
+    ]
+    for name, st, dets, fresh, kind, say in cases:
+        a = next_action(st, dets, fresh, now=t0)
+        check(a["종류"] == kind, f"{name} → 종류 {a['종류']}")
+        if say is not None:
+            check(a["말"] == say, f"{name} → 말 「{a['말']}」")
+        if a["말"]:
+            check(is_one_sentence(a["말"]) and len(a["말"]) <= ANSWER_MAX_CHARS,
+                  f"{name} — 말은 한 문장 · {len(a['말'])}자")
+    check(next_action(EMO)["허용"] == () and "작업 시작」부터 다시" in next_action(EMO)["카드"],
+          "비상정지 — 누를 버튼 없음 · 해제 뒤 작업 시작부터")
+    blk = next_action(dict(LIVE, 상태="BLOCK"))
+    check(blk["허용"] == (), "차단 — 누를 버튼 없음(해제가 먼저)")
+    check(in_emergency(EMO) and in_emergency(dict(LIVE, 상태="BLOCK")) and in_emergency(dict(LIVE, 상태="WARNING")),
+          "비상 상황 = 비상정지·차단·경고")
+    check(in_emergency({"세션": False, "비상정지": True}) and in_emergency(dict(EMO, EMO신호없음=True)),
+          "🔑 작업 전 EMO · 켤 때 EMO 신호 없음도 비상 상황(상태로 판정)")
+    check(not in_emergency(LIVE) and not in_emergency(None) and not in_emergency(DONE), "평상시 · 작업 전 · 완료는 아님")
+    check(next_action(LIVE)["허용"] == ("B2",), "정상 — 지금 버튼만")
+    check(next_action(run(), [], False, now=t0)["허용"] == (), "서브 진행 중 — 누를 버튼 없음")
+    check("렌치를 찾아 쥔다 — 쥐고 약 6초가 지나면 자동으로 3단계로" in next_action(run(), [], False, now=t0)["카드"],
+          "공구 카드 줄 — 찾아 쥔다 · 남은 시간 · 자동 진행")
+    c = next_action(run(남은초=0.0), W, True, now=t0)["카드"]
+    check("시간은 다 됐고 렌치만 쥐면 바로 3단계로" in c, f"🔑 시간 끝·안 쥠 — {c}")
+    check("렌치는 확인됐고" in next_action(run(남은초=3.0, 공구충족=True), W, True, now=t0)["카드"], "쥠 — 확인됨")
+    check("멈춘 「N2 퍼지」가 이어진다" in cases_card(), "경고 — 멈춘 서브가 이어진다")
+    check(tool_phase(LIVE, W, True) is None, "서브 시작 전에는 공구 상황 없음")
+    tp = tool_phase(run(), P + [("wrench", 0.55, 20, 0, 29, 9)], True, now=t0)
+    check(tp["상황"] == "보임" and tp["보이는"] == ["플라이어", "렌치"], f"보이는 공구는 점수 순 — {tp}")
+    check(tool_phase(run(), W, False, now=t0)["상황"] == "찾는중", "🔑 낡은 검출 = 찾는 중(부재를 단정하지 않는다)")
+    check(tool_sentence({"상황": "쥠", "요구": "렌치", "보이는": [], "쥔오답": None}) == "렌치를 쥐었습니다.", "쥠 문장")
+    f = card_facts(run(), W, True, now=t0)
+    check(f["할일"]["종류"] == "공구" and f["공구상황"]["상황"] == "보임", "card_facts 에 할일 · 공구상황")
+
+
+def cases_card():
+    return next_action(dict(LIVE, 상태="WARNING", 서브진행={"상태": "멈춤", "남은초": 4.0, "공구충족": False}))["카드"]
+
+
 def main():
     test_v2_emo_block_card()
     test_shorten()
@@ -216,6 +290,7 @@ def main():
     test_fallback_and_finalize()
     test_card_progress_and_next_warning()
     test_verify_ordinal_step()
+    test_next_action_and_tool_phase()
     tmp = tempfile.mkdtemp(prefix="sop_card_test_")
     path = os.path.join(tmp, "state.json")
     try:
@@ -265,11 +340,13 @@ def main():
 
         print("── card_facts (검산이 쓸 재료)")
         f1 = card_facts(LIVE, [("wrench", 0.44, 0, 0, 9, 9)], True)
-        check(f1 == {"공구": "wrench", "단계": 2, "버튼": "B2", "상태": "정상", "세션": True,
-                     "완료": False, "비상정지": False, "단계명": "펌프/퍼지",
-                     "서브": {"라벨": "N2 퍼지", "공구": "렌치", "상태": "시작 전",
-                              "남은초": None, "공구충족": False}},
+        keep = ("공구", "단계", "버튼", "상태", "세션", "완료", "비상정지", "단계명", "서브")
+        check({k: f1[k] for k in keep} == {"공구": "wrench", "단계": 2, "버튼": "B2", "상태": "정상", "세션": True,
+                                         "완료": False, "비상정지": False, "단계명": "펌프/퍼지",
+                                         "서브": {"라벨": "N2 퍼지", "공구": "렌치", "상태": "시작 전",
+                                                  "남은초": None, "공구충족": False}},
               f"정상 상태의 사실 묶음 — {f1}")
+        check(f1["할일"]["종류"] == "누름" and f1["공구상황"] is None, "새 키 — 할일 · 공구상황")
         f2 = card_facts(None, [], False)
         check(f2["세션"] is False and f2["공구"] is None, "상태가 없으면 전부 비어 있다")
         check(card_facts(dict(LIVE, 상태="MONITOR"), [], False)["상태"] == "정상",

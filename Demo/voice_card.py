@@ -119,6 +119,119 @@ def sub_progress(state, now=None):
             "남은초": max(0, math.ceil(left)), "공구충족": bool(prog.get("공구충족"))}
 
 
+# =============================================================================
+# 지금 할 일 · 공구 상황 — 설계 2026-10-04 §4.2(통역사 재설계)
+# 🔑 판단은 여기 한 곳이다 — 카드 · 대체 문장 · 그물 · 알림이 모두 이것만 쓴다(재구현 금지).
+#    내용은 화면 문구·판정기 동작에서 가져온다(화면과 음성이 같은 말을 한다).
+# 🔴 조사(를·가·로·는)는 공구 이름이 모음으로 끝난다고 본다 — TOOL_KO(드라이버·렌치·플라이어)가 전부 그렇다.
+# =============================================================================
+ALERT_KINDS = ("비상정지", "차단", "경고")
+
+
+def _seen_tools(dets, fresh):
+    """카메라에 지금 보이는 공구들의 한글 이름 — 점수 높은 순 · 중복 없음. 낡았으면 빈 목록."""
+    if not fresh:
+        return []
+    best = {}
+    for d in dets or []:
+        key = str(d[0]).split("-in-hand")[0].strip()
+        if key in TOOL_KO:
+            best[key] = max(best.get(key, -1.0), float(d[1]))
+    return [TOOL_KO[k] for k in sorted(best, key=lambda k: -best[k])]
+
+
+def tool_phase(state, dets, fresh, now=None):
+    """공구가 필요한 서브 작업이 시작된 뒤의 공구 상황 · 아니면 None(설계 2026-10-04 §4.2-나).
+
+    🔑 「보임」 = 요구 공구가 검출 목록에 **있느냐**다 — 점수 최고 하나를 고르면 3종이 함께 보일 때(정상)
+       렌치가 가려진다. 🔑 검출이 없거나 낡았으면 「찾는중」 — 부재를 단정하지 않는다(tool_state 원칙).
+    """
+    p = sub_progress(state, now)
+    if not p or not p["공구"] or p["상태"] == "시작 전":
+        return None
+    seen = _seen_tools(dets, fresh)
+    wrong = ((state or {}).get("서브진행") or {}).get("공구오답") or None
+    if p["공구충족"]:
+        kind = "쥠"
+    elif wrong:
+        kind = "다른공구"
+    elif p["공구"] in seen:
+        kind = "보임"
+    else:
+        kind = "찾는중"
+    return {"상황": kind, "요구": p["공구"], "보이는": seen, "쥔오답": wrong}
+
+
+def tool_sentence(tp):
+    """공구 상황을 말할 한 문장 — 대체 문장·공구 질문 폴백이 쓴다."""
+    want = tp["요구"]
+    if tp["상황"] == "쥠":
+        return f"{want}를 쥐었습니다."
+    if tp["상황"] == "다른공구":
+        return f"{tp['쥔오답']}를 쥐고 있으니 {want}로 바꿔 쥐세요."
+    if tp["상황"] == "보임":
+        return f"앞에 {want}가 보이니 손으로 쥐면 확인됩니다."
+    return f"{want}를 찾아 손으로 쥐세요."
+
+
+def _act(kind, btn, allow, card, say):
+    return {"종류": kind, "버튼": btn, "허용": tuple(b for b in allow if b), "카드": card, "말": say}
+
+
+def in_emergency(state):
+    """비상 상황인가 — 비상정지 또는 위반 차단·순서 경고, **해제 버튼을 누르기 전까지**(설계 2026-10-04 §4.7).
+
+    🔑 EMO 를 풀었어도 「차단 해제」 전이면 `비상정지`·BLOCK 이 남는다(fsm.emo_active 는 해제 때 꺼진다).
+    🔑 알림이 나갔는지가 아니라 **상태로** 본다 — 켤 때 EMO 신호 없음 · 작업 전 EMO 도 비상 상황이다.
+    """
+    st = state or {}
+    return bool(st.get("비상정지")) or st.get("상태") in ("BLOCK", "WARNING")
+
+
+def next_action(state, dets=(), fresh=False, now=None):
+    """「지금 할 일」 — 우선순위 표(설계 2026-10-04 §4.2-가)의 위에서 처음 맞는 하나.
+
+    돌려주는 것 = {"종류", "버튼"(지금 단계 버튼|None), "허용"(누르라고 말해도 되는 버튼), "카드"(카드 줄), "말"(한 문장|None)}
+    🔑 비상정지가 완료보다 앞이다 — 완료 뒤에 눌러도 차단은 실제로 걸려 있다.
+    🔑 비상 상황(비상정지·차단·경고)의 「말」은 알림·대체 문장이 쓴다 — 그때 LLM 은 답하지 않는다(§4.7).
+    """
+    st = state or {}
+    btn = st.get("현재버튼")
+    if not state or not st.get("세션"):
+        return _act("작업전", None, (), "「작업 시작」을 누른다", None)
+    if st.get("비상정지"):
+        return _act("비상정지", btn, (),
+                    "EMO 를 복귀한 뒤 「차단 해제」를 누른다 — 그 뒤 「작업 시작」부터 다시 한다",
+                    "비상정지 중이니 EMO를 복귀한 뒤 차단 해제를 누르세요.")
+    if st.get("결과"):
+        return _act("완료", None, (), "할 일 없음 — 작업이 끝났다", "작업은 이미 완료됐습니다.")
+    s = st.get("상태")
+    if s == "BLOCK":
+        return _act("차단", btn, (),
+                    f"「차단 해제」를 누른 뒤 {btn} 부터 다시 누른다",
+                    f"차단 중이니 차단 해제를 누른 뒤 {btn} 버튼부터 다시 누르세요.")
+    p = sub_progress(state, now)
+    if s == "WARNING":
+        tail = f" — 멈춘 「{p['라벨']}」가 이어진다" if p and p["상태"] == "멈춤" else ""
+        return _act("경고", btn, (btn,), f"손을 뗀 뒤 {btn} 를 누른다{tail}",
+                    f"순서가 다르니 손을 떼고 {btn} 버튼을 누르세요.")
+    if p and p["상태"] == "진행 중":
+        nxt = st.get("다음단계")
+        go = f"{nxt}단계로" if nxt else "다음으로"
+        left = p["남은초"] or 0
+        tp = tool_phase(state, dets, fresh, now)
+        if tp and tp["상황"] != "쥠":
+            grab = {"찾는중": f"{tp['요구']}를 찾아 쥔다", "보임": f"앞의 {tp['요구']}를 쥔다",
+                    "다른공구": f"{tp['요구']}로 바꿔 쥔다"}[tp["상황"]]
+            when = (f"시간은 다 됐고 {tp['요구']}만 쥐면 바로 {go} 넘어간다" if left <= 0
+                    else f"쥐고 약 {left}초가 지나면 자동으로 {go} 넘어간다")
+            return _act("공구", btn, (), f"{grab} — {when}", tool_sentence(tp))
+        ok = f"{tp['요구']}는 확인됐고 " if tp else ""
+        return _act("대기", btn, (), f"기다린다 — {ok}약 {left}초 뒤 자동으로 {go} 넘어간다",
+                    f"지금은 「{p['라벨']}」 작업 중이며 끝나면 다음 단계로 넘어갑니다.")
+    return _act("누름", btn, (btn,), f"{btn} 를 누른다", f"지금은 {btn} 차례입니다.")
+
+
 def card_facts(state, dets, fresh, now=None):
     """검산·안전 규칙이 대조할 사실 묶음 — 카드 문장이 아니라 값이다."""
     st = state or {}
@@ -132,6 +245,8 @@ def card_facts(state, dets, fresh, now=None):
         "비상정지": bool(st.get("비상정지")),
         "단계명": st.get("현재단계명"),
         "서브": sub_progress(state, now),
+        "할일": next_action(state, dets, fresh, now),
+        "공구상황": tool_phase(state, dets, fresh, now),
     }
 
 
