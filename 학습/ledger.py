@@ -6,11 +6,13 @@
   최소~최대 범위 밖이면 ↑/↓ + 넘은 만큼, 안이면 =. 조건이 같은 E0 가 3개 미만이면 「기준 다름」(다른 조건의 E0 만 있음) · 「기준 부족」.
   조건 = 실험 변수(설정의 입력·학습 인자)가 아닌데 결과를 바꾸는 것 — E0 뒤 포화 문턱을 바꾼 경우를 막는다(최종 리뷰 C1).
 - 이어 학습(요약 「이어서」)은 🔁 · 판정 「—」 · 기준에서 뺀다(patience 를 처음부터 다시 센다).
-- E9-(점검) · SPEED-(속도 측정)은 넣지 않는다.
+- 점검(E9 · check) · 속도 측정 · 탐색 스모크는 넣지 않는다(이름.skipped).
 """
 import json
 import re
 from pathlib import Path
+
+import 이름  # noqa: E402  (같은 폴더)
 
 KEYS = {
     # 버튼 = 종류별 재현율 5개 + 정밀도(1-3단계 §4 — 전체 재현율 하나로는 B3↔EMO 착각이 묻힌다)
@@ -19,7 +21,6 @@ KEYS = {
     "tool": [("dR", lambda s: s["클래스"]["driver"]["recall"]), ("wR", lambda s: s["클래스"]["wrench"]["recall"]),
              ("pR", lambda s: s["클래스"]["pliers"]["recall"]), ("P", lambda s: s["전체"]["precision"])],
 }
-SKIP = ("E9-", "SPEED-")
 E0_RE = re.compile(r"^E0[a-z]?-")
 
 
@@ -28,7 +29,7 @@ def load_results(root, score_name="채점.json"):
     out = []
     for d in sorted(Path(root).iterdir()) if Path(root).exists() else []:
         s, c = d / "요약.json", d / score_name
-        if d.is_dir() and s.exists() and not d.name.startswith(SKIP):
+        if d.is_dir() and s.exists() and not 이름.skipped(d.name):
             su = json.loads(s.read_text(encoding="utf-8"))
             cf = d / "설정.json"
             stop = json.loads(cf.read_text(encoding="utf-8")).get("멈춤") if cf.exists() else None

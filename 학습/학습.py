@@ -12,6 +12,7 @@
   재개                                         대기열 멈춤을 풀고 실행기를 띄운다 — 멈춘 이유를 정한 뒤에만
   빼기 <id>                                    대기열에서 뺀다(건너뛰기)
   변환 <id> [--수준 N]                         HEF 변환을 데스크톱에 띄운다 · 다시 치면 상태 · 끝났으면 받는다(1-2단계 §8.3)
+  이름표                                      옛 이름 → 새 이름 대조표(학습/이름대조표.md)를 다시 만든다
 🔴 코드·설정이 커밋되지 않았으면 걸지 않는다 — 결과의 코드 해시가 저장소를 가리켜야 한다.
 🔴 대기열이 멈춰 있으면 걸기는 넣기만 하고 실행기를 띄우지 않는다.
 """
@@ -31,6 +32,7 @@ RPI5 = HERE.parent
 for _p in (HERE, RPI5 / "Demo" / "test", RPI5 / "Demo"):
     sys.path.insert(0, str(_p))
 import hef_convert as H  # noqa: E402
+import 이름            # noqa: E402
 import ledger          # noqa: E402
 import split as SP     # noqa: E402
 import stoprules       # noqa: E402
@@ -45,7 +47,6 @@ CODE_FILES = ["train_one.py", "runner.py", "stoprules.py", "scoring.py", "speedp
 DIRTY_PATHS = ["학습/*.py", "학습/설정", "학습/나눔", "Demo/test/score_lib.py", "Demo/test/tool_round.py"]
 RECORD = ["요약.json", "채점.json", "채점_검증.json", "채점_세션.json", "설정.json", "args.yaml", "results.csv", "results.png",
           "confusion_matrix.png", "confusion_matrix_normalized.png"]
-SKIP = ("E9-", "SPEED-")
 DEFAULT_TEST = RPI5 / "조사" / "재학습확인-20261003" / "채점사진.txt"
 CONVERT_CFG = RPI5 / "조사" / "HEF변환-20261004" / "변환설정.json"
 CALIB_SEED = 0
@@ -374,7 +375,7 @@ def cmd_fetch(a):
     ids = [x.rstrip("/") for x in sh(f"cd {RROOT}/runs 2>/dev/null && ls -d */ 2>/dev/null || true").split()]
     got = []
     for i in ids:
-        if i.startswith(SKIP) or not sh(f"test -f {RROOT}/runs/{i}/요약.json && echo y || true").strip():
+        if 이름.skipped(i) or not sh(f"test -f {RROOT}/runs/{i}/요약.json && echo y || true").strip():
             continue
         tmp = LOCAL / "받기" / i
         tmp.mkdir(parents=True, exist_ok=True)
@@ -579,6 +580,39 @@ def cmd_convert(a):
           f" · 같은 명령을 다시 치면 상태 · 끝나면 받는다")
 
 
+def names_table():
+    """대조표 본문 — 옛 꼴 id(설정 파일 · 결과 폴더) → 새 이름. 학습 방식 근거 = 멈춤 조건(설계 모델이름 §4)."""
+    base = TC.load_yaml(HERE / "설정" / "기본.yaml")
+    rows = {}
+    for sub in ("실험", "점검"):
+        for p in sorted((HERE / "설정" / sub).glob("E*.yaml")):
+            c = TC.resolve(base, TC.load_yaml(p), p.stem)
+            rows[p.stem] = (c["멈춤"]["포화_향상"], int(c["seed"]), c["train"].get("epochs"), c["train"].get("patience"))
+    for d in sorted((HERE / "결과").iterdir()):
+        s = d / "설정.json"
+        if d.name.startswith("E") and s.exists():
+            c = json.loads(s.read_text(encoding="utf-8"))
+            tk = c["train_kwargs"]
+            rows[d.name] = (c["멈춤"]["포화_향상"], int(tk["seed"]), tk.get("epochs"), tk.get("patience"))
+    key = lambda i: (int(re.match(r"E(\d+)", i).group(1)), i)
+    out = ["# 이름 대조표 — 옛 이름 → 새 이름", "",
+           "> 자동 생성 — `python3 학습/학습.py 이름표` 가 설정 파일·결과 폴더에서 다시 만든다. 손으로 고치지 않는다.",
+           "> 규칙·모델 설명 정본 = 상위 `docs/통합문서.md` §6.4. 보고·대화에서는 **새 이름**으로 부른다 — 옛 이름은 파일·폴더·기록에만 남는다.",
+           "> 다른 머신의 git 밖 공구 모델 사본 이름 바꾸기(Demo/ 에서): `for f in models/tool_*.pt; do mv \"$f\" \"models/T_${f#models/tool_}\"; done`",
+           "", "| 옛 이름 | 새 이름 | 결과 폴더 | 근거(에폭 · patience · 포화_향상) |", "|---|---|---|---|"]
+    for i in sorted(rows, key=key):
+        sat, seed, ep, pat = rows[i]
+        has = "있음" if (HERE / "결과" / i / "설정.json").exists() else "—"
+        out.append(f"| {i} | {이름.new_name(i, sat, seed)} | {has} | {ep} · {pat} · {sat} |")
+    return "\n".join(out) + "\n"
+
+
+def cmd_names(a):
+    p = HERE / "이름대조표.md"
+    p.write_text(names_table(), encoding="utf-8")
+    print(f"대조표 = {p}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="학습 체계 파이 명령")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -612,9 +646,11 @@ def main(argv=None):
     p.add_argument("--후보", nargs="+", required=True)
     p.add_argument("--기준", nargs="+", required=True)
     p.add_argument("--채점", choices=["기본", "세션"], default="기본", help="세션 = 처음 보는 세션 채점(채점_세션.json · 1-3단계)")
+    sub.add_parser("이름표")
     a = ap.parse_args(argv)
     {"준비": cmd_prepare, "속도재기": cmd_speed, "걸기": cmd_launch, "상태": cmd_status,
-     "받기": cmd_fetch, "재개": cmd_resume, "빼기": cmd_remove, "판정": cmd_judge, "탐색": cmd_tune, "탐색상태": cmd_tune_status, "변환": cmd_convert}[a.cmd](a)
+     "받기": cmd_fetch, "재개": cmd_resume, "빼기": cmd_remove, "판정": cmd_judge, "탐색": cmd_tune, "탐색상태": cmd_tune_status, "변환": cmd_convert,
+     "이름표": cmd_names}[a.cmd](a)
 
 
 if __name__ == "__main__":

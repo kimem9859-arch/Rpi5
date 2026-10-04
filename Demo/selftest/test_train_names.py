@@ -92,12 +92,26 @@ def test_변환이름():
     check(N.name_for("B-full-color-s0", RES) == "B-full-color-s0", "새 꼴은 결과 없이도 그대로")
 
 
+def test_대조표():
+    print("[n6] 학습/이름대조표.md = `학습.py 이름표` 가 지금 만드는 내용(설정·결과가 늘면 다시 만든다 — Review Focus 3)")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("hakseup_cli", os.path.join(_RPI5, "학습", "학습.py"))
+    T = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(T)
+    f = Path(_RPI5) / "학습" / "이름대조표.md"
+    body = T.names_table()
+    check(f.exists() and f.read_text(encoding="utf-8") == body, "대조표가 최신 — 아니면 `python3 학습/학습.py 이름표`")
+    for old, new in (("E0b-button-s0", "B-early-base-s0"), ("E0c-tool-f120", "T-full-base-s0"), ("E9-button-sat", "B-check-sat-s0")):
+        check(f"| {old} | {new} |" in body, f"{old} → {new} 줄")
+
+
 if __name__ == "__main__":
     test_대표()
     test_전체()
     test_꼴()
     test_건너뛰기()
     test_변환이름()
+    test_대조표()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

@@ -1,16 +1,18 @@
 """학습 설정 — 기본.yaml 위에 실험 설정(바꾼 것만)을 합쳐 검사하고 ultralytics 학습 인자를 만든다.
 
 정본 설계 = 상위 docs/superpowers/specs/2026-10-03-학습파라미터-체계-design.md §6 · §9
-- 실험 설정 파일 이름 = id(`E<번호>[a-z]-<button|tool>-<이름>`) · `E9-` = 점검 예약(받기·장부 제외).
+- 실험 설정 파일 이름 = id — 새 꼴 `<B|T>-<early|full|check>-<바꾼 것>[-<꼬리>]-s<시드>`(규칙 = 이름.py · 통합문서 §6.4) ·
+  옛 꼴 `E<번호>[a-z]-<button|tool>-<이름>` 은 지금 있는 설정만 · 점검(E9 · check)은 받기·장부 제외.
 - 체계가 정하는 인자(data · imgsz · seed · 저장 위치 등)는 실험에서 바꾸지 않는다.
 - optimizer auto 는 적은 lr0 를 무시한다(함정① · 8.4.171 trainer.py 1175~1177) — 금지.
 시스템 python3(PyYAML)로 돈다 — ultralytics 를 import 하지 않는다.
 """
 import copy
-import re
 from pathlib import Path
 
 import yaml
+
+from 이름 import ID_RE, group_of, regime_of, seed_of  # noqa: E402  (같은 폴더)
 
 GROUP_NAMES = {"button": ["B1", "B2", "B3", "B4", "EMO"], "tool": ["driver", "wrench", "pliers"]}
 INPUT_MODES = {
@@ -27,7 +29,6 @@ SYSTEM_KEYS = {"data", "imgsz", "seed", "project", "name", "exist_ok", "resume",
 STOP_KEYS = {"포화_에폭", "포화_향상", "점수0_에폭", "점수0_mAP50", "진행없음_분", "시간상한_배"}
 TOP_KEYS = {"id", "group", "나눔", "입력", "출발", "seed", "train", "멈춤", "메모", "흐림"}
 BLUR_OK = {"Blur", "MotionBlur", "MedianBlur"}   # 흐림 증강(1-2단계 §7) — ToGray·CLAHE 등은 버튼 색 구별을 해칠 수 있어 막는다
-ID_RE = re.compile(r"^E\d+[a-z]?-(button|tool)-[A-Za-z0-9.]+\Z")   # \Z — $ 는 끝 줄바꿈 하나를 허용한다
 
 
 def load_yaml(path):
@@ -54,10 +55,9 @@ def resolve(base, exp, exp_stem=None):
             raise ValueError(f"실험 설정에 {k} 가 없다")
     if exp_stem is not None and exp["id"] != exp_stem:
         raise ValueError(f"id({exp['id']})와 파일 이름({exp_stem})이 다르다")
-    m = ID_RE.match(exp["id"])
-    if not m:
-        raise ValueError(f"id 형식 = E<번호>[a-z]-<button|tool>-<영문·숫자> — {exp['id']}")
-    if exp["group"] not in GROUP_NAMES or m.group(1) != exp["group"]:
+    if not ID_RE.match(exp["id"]):
+        raise ValueError(f"id 형식 = <B|T>-<early|full|check>-<바꾼 것>[-<꼬리>]-s<시드>(이름.py) — {exp['id']}")
+    if exp["group"] not in GROUP_NAMES or group_of(exp["id"]) != exp["group"]:
         raise ValueError(f"group({exp['group']})이 없거나 id 의 무리와 다르다")
     tr = exp.get("train") or {}
     for k in tr:
@@ -85,6 +85,14 @@ def resolve(base, exp, exp_stem=None):
         raise ValueError("optimizer auto 는 적은 lr0 를 무시한다(함정①) — 직접 적는다")
     if set(cfg["멈춤"]) != STOP_KEYS:
         raise ValueError(f"멈춤 키가 빠졌다: {sorted(STOP_KEYS - set(cfg['멈춤']))}")
+    reg, sd = regime_of(cfg["id"]), seed_of(cfg["id"])
+    pat, sat = cfg["train"].get("patience"), cfg["멈춤"]["포화_향상"]
+    if sd is not None and sd != int(cfg.get("seed", 0)):
+        raise ValueError(f"이름의 시드 s{sd} ≠ 설정 seed {cfg.get('seed', 0)}")
+    if reg == "full" and (pat or sat):
+        raise ValueError(f"이름이 full(120 끝까지)인데 일찍 멈춤이 켜져 있다 — patience {pat} · 포화_향상 {sat}")
+    if reg == "early" and not pat:
+        raise ValueError(f"이름이 early(일찍 멈춤)인데 patience {pat}")
     cfg["바꾼것"] = changes(base, exp)
     return cfg
 

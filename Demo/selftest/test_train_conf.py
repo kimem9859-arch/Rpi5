@@ -131,6 +131,34 @@ def test_id_끝_줄바꿈():
     check(TC.ID_RE.match("E4-button-x\n") is None and TC.ID_RE.match("E4-button-x") is not None, "끝 줄바꿈 거부 · 정상 id 통과")
 
 
+def test_새꼴():
+    print("[c5] 새 꼴 id — 접두↔group · 시드 · 학습 방식이 설정과 맞아야 통과(설계 모델이름 §2.2 · 실제 기본.yaml 위에서)")
+    b = TC.load_yaml(CONF / "기본.yaml")
+
+    def err(exp):
+        try:
+            TC.resolve(b, exp, exp["id"])
+            return None
+        except ValueError as e:
+            return str(e)
+
+    check(err({"id": "B-full-color-s0", "group": "button", "train": {"hsv_s": 0.3}}) is None, "B-full-color-s0 통과")
+    check(TC.resolve(b, {"id": "T-full-base-s1", "group": "tool", "seed": 1}, "T-full-base-s1")["seed"] == 1, "시드 1 통과")
+    check("무리" in (err({"id": "B-full-color-s0", "group": "tool"}) or ""), "접두 B ↔ group tool → 거부")
+    check("시드" in (err({"id": "B-full-color-s1", "group": "button"}) or ""), "이름 -s1 ↔ seed 0 → 거부")
+    check("full" in (err({"id": "B-full-color-s0", "group": "button", "train": {"patience": 20}}) or ""), "full 인데 patience 20 → 거부")
+    check("full" in (err({"id": "B-full-color-s0", "group": "button", "멈춤": {"포화_향상": 0.002}}) or ""), "full 인데 포화 멈춤 → 거부")
+    check("early" in (err({"id": "B-early-color-s0", "group": "button"}) or ""), "early 인데 patience 0 → 거부")
+    check(err({"id": "B-early-color-s0", "group": "button", "train": {"patience": 20}}) is None, "early + patience 20 → 통과")
+    check("형식" in (err({"id": "B1-full-color-s0", "group": "button"}) or ""), "B 뒤 숫자 → 거부")
+
+
+def test_옛꼴_묶음():
+    print("[c6] 옛 꼴 설정 파일은 지금 수에서 늘지 않는다 — 새 실험은 새 꼴로만(Review Focus 1)")
+    old = [p.stem for sub in ("실험", "점검") for p in (CONF / sub).glob("*.yaml") if p.stem.startswith("E")]
+    check(len(old) == 69, f"옛 꼴 설정 69(실험 65 · 점검 4) — {len(old)}")
+
+
 if __name__ == "__main__":
     test_합치기()
     test_막기()
@@ -138,6 +166,8 @@ if __name__ == "__main__":
     test_커밋된_설정()
     test_id_끝_줄바꿈()
     test_흐림_키()
+    test_새꼴()
+    test_옛꼴_묶음()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
