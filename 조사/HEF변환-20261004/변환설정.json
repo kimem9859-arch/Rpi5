@@ -1,0 +1,193 @@
+{
+ "_설명": "HEF 변환 결정표 초안 (2026-10-04). 실행·검증 전 값이다. 문자열이 '규칙:'으로 시작하면 우리 ONNX/HN 을 파싱해야 확정된다. 각 값의 근거 = 조사보고서.md 해당 절.",
+ "작성일": "2026-10-04",
+ "dfc_version": "3.33.1 (현행 · 3.34.0 여부는 사용자 결정 §6)",
+ "hailort_target": "4.23.0 (파이 python3-hailort 4.23.0-1 · hailo-all 5.1.1)",
+ "hw_arch": "hailo8",
+ "onnx": {
+  "exporter": "ultralytics 8.4.171 model.export(format='onnx', ...)",
+  "opset": 11,
+  "imgsz": [
+   640,
+   640
+  ],
+  "batch": 1,
+  "dynamic": false,
+  "simplify": true,
+  "nms": null,
+  "quantize": null,
+  "device": "cpu",
+  "_비고": "imgsz 는 기본값이 학습 imgsz 라 반드시 명시(§1). nms=null(기본)=원시 출력, NMS 는 HEF 의 nms_postprocess 가 붙인다. quantize/half 금지(FP32). 학습 venv 에 onnx 가 없어 첫 export 때 AUTOINSTALL 로 설치를 시도한다(환경 변경, 사용자 승인)."
+ },
+ "start_nodes": [],
+ "_start_nodes_비고": "ultralytics ONNX 입력 이름(exporter.py:1152). 생략해도 파서는 그래프 입력부터 시작한다.",
+ "end_nodes": {
+  "button": [
+   "/model.22/cv2.0/cv2.0.2/Conv",
+   "/model.22/cv3.0/cv3.0.2/Conv",
+   "/model.22/cv2.1/cv2.1.2/Conv",
+   "/model.22/cv3.1/cv3.1.2/Conv",
+   "/model.22/cv2.2/cv2.2.2/Conv",
+   "/model.22/cv3.2/cv3.2.2/Conv"
+  ],
+  "tool": [
+   "/model.22/cv2.0/cv2.0.2/Conv",
+   "/model.22/cv3.0/cv3.0.2/Conv",
+   "/model.22/cv2.1/cv2.1.2/Conv",
+   "/model.22/cv3.1/cv3.1.2/Conv",
+   "/model.22/cv2.2/cv2.2.2/Conv",
+   "/model.22/cv3.2/cv3.2.2/Conv"
+  ],
+  "_확인규칙": "규칙: 위 이름은 ultralytics 8.4.171 export_hailo 의 이름 규칙(exporter.py:1714-1717, head_index=len(model.model)-1=22)에서 나온 예상값이다. 우리 ONNX 를 onnx.load 해 op_type=='Conv' 노드 중 이 6개가 실제로 있는지, 출력 채널이 cv2.* = 64(4×reg_max 16), cv3.* = nc(버튼 5·공구 3)인지 확인한 뒤 쓴다. 순서 = (stride8 reg, stride8 cls, stride16 reg, stride16 cls, stride32 reg, stride32 cls) — 이 순서가 HN 출력층 순서가 된다(client_runner.py translate_onnx_model docstring)."
+ },
+ "hn_output_layers": {
+  "_규칙": "규칙: 파싱 후 [layer.inputs[0].rsplit('/',1)[-1] for layer in runner.get_hn_model().get_output_layers()] (exporter.py:1740) 로 6개 이름을 얻는다. 0·2·4번 = reg(stride 8·16·32), 1·3·5번 = cls. 아래 alls 의 <cls_s8>·<cls_s16>·<cls_s32> 와 NMS json 의 reg_layer/cls_layer 를 이 이름으로 채운다. Model Zoo 의 conv41/42·52/53·62/63 은 Model Zoo ONNX 기준이라 그대로 쓰지 않는다."
+ },
+ "nms_config": {
+  "button": {
+   "nms_scores_th": 0.25,
+   "nms_iou_th": 0.7,
+   "image_dims": [
+    640,
+    640
+   ],
+   "max_proposals_per_class": 100,
+   "classes": 5,
+   "regression_length": 16,
+   "background_removal": false,
+   "background_removal_index": 0,
+   "bbox_decoders": [
+    {
+     "name": "bbox_decoder_8",
+     "stride": 8,
+     "reg_layer": "규칙: HN 출력층 0번",
+     "cls_layer": "규칙: HN 출력층 1번"
+    },
+    {
+     "name": "bbox_decoder_16",
+     "stride": 16,
+     "reg_layer": "규칙: HN 출력층 2번",
+     "cls_layer": "규칙: HN 출력층 3번"
+    },
+    {
+     "name": "bbox_decoder_32",
+     "stride": 32,
+     "reg_layer": "규칙: HN 출력층 4번",
+     "cls_layer": "규칙: HN 출력층 5번"
+    }
+   ]
+  },
+  "tool": {
+   "nms_scores_th": 0.25,
+   "nms_iou_th": 0.7,
+   "image_dims": [
+    640,
+    640
+   ],
+   "max_proposals_per_class": 100,
+   "classes": 3,
+   "regression_length": 16,
+   "background_removal": false,
+   "background_removal_index": 0,
+   "bbox_decoders": [
+    {
+     "name": "bbox_decoder_8",
+     "stride": 8,
+     "reg_layer": "규칙: HN 출력층 0번",
+     "cls_layer": "규칙: HN 출력층 1번"
+    },
+    {
+     "name": "bbox_decoder_16",
+     "stride": 16,
+     "reg_layer": "규칙: HN 출력층 2번",
+     "cls_layer": "규칙: HN 출력층 3번"
+    },
+    {
+     "name": "bbox_decoder_32",
+     "stride": 32,
+     "reg_layer": "규칙: HN 출력층 4번",
+     "cls_layer": "규칙: HN 출력층 5번"
+    }
+   ]
+  },
+  "_비고": "구조 = ultralytics exporter.py:1748-1767 과 Model Zoo yolov8n_nms_config.json. nms_scores_th 0.25 = ultralytics 기본(사용자 결정): 런타임 하한 YOLO_CONF_LOW 0.50·TOOL_CONF 0.65 보다 낮아야 하고, HEF 로 오프라인 PR·mAP 를 재려면 더 낮춘다. iou 0.7·max 100 = Model Zoo·ultralytics·DFC CPU 기본과 같다."
+ },
+ "alls": {
+  "button": [
+   "normalization1 = normalization([0.0, 0.0, 0.0], [255.0, 255.0, 255.0])",
+   "model_optimization_flavor(optimization_level=2, compression_level=0)",
+   "model_optimization_config(calibration, batch_size=8, calibset_size=1024)",
+   "post_quantization_optimization(finetune, policy=enabled, dataset_size=1024)",
+   "change_output_activation(<cls_s8>, sigmoid)",
+   "change_output_activation(<cls_s16>, sigmoid)",
+   "change_output_activation(<cls_s32>, sigmoid)",
+   "nms_postprocess(\"nms_config_button.json\", meta_arch=yolov8, engine=cpu)",
+   "allocator_param(width_splitter_defuse=disabled)"
+  ],
+  "tool": [
+   "normalization1 = normalization([0.0, 0.0, 0.0], [255.0, 255.0, 255.0])",
+   "model_optimization_flavor(optimization_level=2, compression_level=0)",
+   "model_optimization_config(calibration, batch_size=8, calibset_size=634)",
+   "post_quantization_optimization(finetune, policy=enabled, dataset_size=634)",
+   "change_output_activation(<cls_s8>, sigmoid)",
+   "change_output_activation(<cls_s16>, sigmoid)",
+   "change_output_activation(<cls_s32>, sigmoid)",
+   "nms_postprocess(\"nms_config_tool.json\", meta_arch=yolov8, engine=cpu)",
+   "allocator_param(width_splitter_defuse=disabled)"
+  ],
+  "_비고": "<cls_s*> = 규칙: hn_output_layers 1·3·5번. NMS json 경로는 .alls 파일 기준 상대경로(nms_postprocess_command.py:292-309). optimization_level=2 는 CPU 에서 지정하지 않으면 0으로 떨어지는 것을 막는 명시값(초안, CPU 소요 미측정 → 사용자 결정 · 후보 1). compression_level=0 은 yolov8n(3.2M<20M) 기본과 같다. calibset_size·finetune dataset_size 는 calib_n 과 같게 둔다(명시값이 데이터보다 크면 ValueError). 16비트 출력(quantization_param(..., precision_mode=a16_w16))은 정확도가 모자랄 때 시험할 후보이고 초안에는 넣지 않았다."
+ },
+ "calib_n": {
+  "button": 1024,
+  "tool": 634
+ },
+ "calib_source": {
+  "split": "train 만 (val·test 금지 — test 는 평가 전용, CLAUDE.md §3)",
+  "button": "규칙: 최종 학습에 쓴 데이터셋의 train 분할 원본 프레임(데스크톱 ~/학습실험/data/place1_v1_button_원본768x1024/images/train, png 1213장)에서 고정 시드로 섞어 1024장",
+  "tool": "규칙: 같은 방식으로 공구 train 분할 png 634장 전부",
+  "섞기": "고정 시드로 섞고 파일 목록·시드를 기록한다. DFC 는 받은 순서의 앞 N장을 쓰고(stats_collection.py:84), 파일 이름이 세션순이다."
+ },
+ "preprocess": "런타임(detector.py:110-114)과 같은 함수로 만든다: BGR 원본 프레임(cv2.imread PNG = BGR) → cv2.resize(img, (640, 640)) (보간 기본값 INTER_LINEAR, 비율 무시 늘리기, 패딩 없음) → cv2.cvtColor(BGR2RGB) → uint8 0~255, HWC. /255 정규화는 하지 않는다(alls normalization 이 HEF 안에서 한다). letterbox(Model Zoo yolo_v5 · ultralytics LetterBox) 금지. 기존 '늘리기640' png 를 쓰려면 같은 원본에 이 함수를 적용한 결과와 바이트 단위로 같은지 먼저 대조한다.",
+ "class_order": {
+  "button": [
+   "B1",
+   "B2",
+   "B3",
+   "B4",
+   "EMO"
+  ],
+  "tool": [
+   "driver",
+   "wrench",
+   "pliers"
+  ],
+  "_규칙": "규칙: best.pt 의 model.names 순서를 기록하고 위 순서·detector.py:103 의 고정 표와 대조한다. 공구 순서는 조사 요청서 기준이며 model.names 로 확인해야 한다."
+ },
+ "기록": [
+  "DFC·ultralytics·torch·onnx 판",
+  ".pt·.onnx·.hef sha256",
+  "끝 노드 6개와 HN 출력층 이름 대응",
+  "alls 전문·NMS json 전문",
+  "보정 파일 목록·시드·전처리 함수",
+  "DFC 로그에서 실제 적용된 최적화 수준 문구('Using default optimization level' / 'Reducing optimization level')",
+  "컴파일 로그",
+  "HEF 출력 vstream 정보(개수 1·HAILO_NMS_BY_CLASS·클래스 수 5/3·클래스당 최대 상자 100)"
+ ],
+ "검증관문": [
+  "① 에뮬레이터 SDK_NATIVE ↔ 원본 ONNX 일치",
+  "② SDK_QUANTIZED ↔ SDK_FP_OPTIMIZED 를 val 분할에서 비교(int8 손실)",
+  "③ 파이 HailoRT 4.23 에서 HEF 로드 · 출력 1개 · 클래스 수 확인 (실HW ⏸)",
+  "④ 같은 프레임에서 .pt(늘린 입력) ↔ .hef 대조 (실HW ⏸)"
+ ],
+ "사용자결정": [
+  "DFC 판: 3.33.1 유지 / 3.34 + HailoRT 4.23 호환 시험 / 3.34 + 4.24(파이 저장소에 없음) — 조사보고서.md §6",
+  "DFC GPU: CPU+수준 명시 / 비공식 GPU 시도(환경 변경) / 공식 지원 대기 — §7",
+  "NMS 점수 문턱(초안 0.25) — §4",
+  "CPU 최적화 수준(초안 2, 후보 1) — §4·§7",
+  "학습 venv 에 onnx·onnxslim 자동 설치 허용 여부 — §1"
+ ],
+ "근거": "조사보고서.md §1(onnx) · §2(start/end_nodes·alls·정규화·보정 크기) · §3(Model Zoo 기준값) · §4(바꾼 값·함정) · §5(자체 스크립트 범위) · §6(DFC 판) · §7(GPU)",
+ "원문대조": "원문대조.md — start_nodes 비움(입력 텐서 이름은 노드가 아님) · NMS json 은 절대경로(문자열 load_model_script 는 현재 폴더 기준) · 클래스 수 명시 · 자동 설치 목록에 onnxruntime 포함",
+ "DFC판": "3.33.1(사용자 2026-10-04)",
+ "engine": "cpu · 최적화 수준 명시(사용자 2026-10-04)"
+}
