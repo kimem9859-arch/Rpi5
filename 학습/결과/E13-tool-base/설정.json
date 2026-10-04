@@ -1,0 +1,84 @@
+{
+ "id": "E13-tool-base",
+ "group": "tool",
+ "입력": "늘리기640",
+ "바꾼것": "epochs=120 · patience=0 · 포화_향상=0",
+ "names": [
+  "driver",
+  "wrench",
+  "pliers"
+ ],
+ "conf": 0.65,
+ "train_kwargs": {
+  "epochs": 120,
+  "patience": 0,
+  "batch": 16,
+  "workers": 2,
+  "cache": "disk",
+  "optimizer": "AdamW",
+  "lr0": 0.001,
+  "momentum": 0.9,
+  "warmup_bias_lr": 0.0,
+  "deterministic": true,
+  "amp": true,
+  "plots": true,
+  "imgsz": 640,
+  "seed": 0
+ },
+ "predict_imgsz": 640,
+ "stretch": [
+  640,
+  640
+ ],
+ "멈춤": {
+  "포화_에폭": 30,
+  "포화_향상": 0,
+  "점수0_에폭": 10,
+  "점수0_mAP50": 0.05,
+  "진행없음_분": 15,
+  "시간상한_배": 2
+ },
+ "출발": "~/학습실험/yolov8n.pt",
+ "원본": "~/학습실험/원본/place1",
+ "루트": "~/학습실험",
+ "나눔": {
+  "name": "place1_v1",
+  "해시": "0a3197afa1ddeac1"
+ },
+ "코드": "~/학습실험/코드/6844e6d39a",
+ "코드해시": "6844e6d39a",
+ "시간상한_s": 2441.832,
+ "설정": {
+  "나눔": "place1_v1",
+  "입력": "늘리기640",
+  "출발": "yolov8n.pt",
+  "seed": 0,
+  "train": {
+   "epochs": 120,
+   "patience": 0,
+   "batch": 16,
+   "workers": 2,
+   "cache": "disk",
+   "optimizer": "AdamW",
+   "lr0": 0.001,
+   "momentum": 0.9,
+   "warmup_bias_lr": 0.0,
+   "deterministic": true,
+   "amp": true,
+   "plots": true
+  },
+  "멈춤": {
+   "포화_에폭": 30,
+   "포화_향상": 0,
+   "점수0_에폭": 10,
+   "점수0_mAP50": 0.05,
+   "진행없음_분": 15,
+   "시간상한_배": 2
+  },
+  "메모": "흐림 실험의 기준 — E0c 와 같은 설정을 albumentations 설치 뒤 같은 판으로 다시(빈 목록 = 기본 묶음 끔 · 1-2단계 Task 10) · 시드 0",
+  "id": "E13-tool-base",
+  "group": "tool",
+  "바꾼것": "epochs=120 · patience=0 · 포화_향상=0"
+ },
+ "흐림": null
+}
