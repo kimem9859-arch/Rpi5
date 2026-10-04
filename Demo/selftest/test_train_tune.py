@@ -44,12 +44,13 @@ def test_제안과_작업():
     tr = FakeTrial()
     p = TU.suggest(tr, sp)
     check(p == {"lr0": 0.0002, "cos_lr": True} and ("lr0", "float", True) in tr.calls, f"{p}")
-    tmpl = {"id": "E8-tool-T1t000", "group": "tool", "train_kwargs": {"lr0": 0.001, "epochs": 120}, "바꾼것": "",
+    tmpl = {"id": "E8-tool-T1t000", "group": "tool", "train_kwargs": {"lr0": 0.001, "epochs": 120}, "바꾼것": "epochs=120 · lr0=0.001",
             "설정": {"id": "E8-tool-T1t000", "train": {}}}
     j = TU.job_for(tmpl, "T1", 7, p)
     check(j["id"] == "E8-tool-T1t007" and j["train_kwargs"]["lr0"] == 0.0002 and j["train_kwargs"]["epochs"] == 120
           and tmpl["train_kwargs"]["lr0"] == 0.001, "틀은 그대로 · 사본만 바꿈")
     check(TC.ID_RE.match(j["id"]) is not None and "lr0=0.0002" in j["바꾼것"], f"id 형식 · 바꾼것 — {j['바꾼것']}")
+    check("epochs=120" in j["바꾼것"] and "lr0=0.001" not in j["바꾼것"], f"틀의 바꾼것(epochs)은 남기고 탐색 값으로 덮인 것만 바꿈 — {j['바꾼것']}")
     try:
         TU.suggest(FakeTrial(), {"x": ["lin", 0, 1]})
         bad = False

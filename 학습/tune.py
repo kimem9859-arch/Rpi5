@@ -36,7 +36,8 @@ def job_for(template, study, n, params):
     job = json.loads(json.dumps(template, ensure_ascii=False))
     job["id"] = trial_id(job["group"], study, n)
     job["train_kwargs"].update(params)
-    job["바꾼것"] = " · ".join(f"{k}={_fmt(v)}" for k, v in params.items())
+    keep = [x for x in str(template.get("바꾼것", "")).split(" · ") if x and x.split("=", 1)[0] not in params]
+    job["바꾼것"] = " · ".join(keep + [f"{k}={_fmt(v)}" for k, v in params.items()])   # 틀(에폭 고정 등)은 남긴다
     job["설정"]["id"] = job["id"]
     job["설정"].setdefault("train", {}).update(params)
     job["탐색"] = {"이름": study, "번호": n}
