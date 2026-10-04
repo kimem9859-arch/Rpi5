@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
+sys.path.insert(0, os.path.join(_DEMO_DIR, "voice"))
 
 import config
 import voice_llm
@@ -123,8 +124,30 @@ def test_client_skip_and_rewarm():
     check(c.ask("카드", "질문")[0] == "다시 답", "skip_sec 뒤에는 다시 묻는다")
 
 
+def test_system_rules_and_examples():
+    print("\n[설계 2026-10-04 §4.4] 지시문 · 모범 문답")
+    import question_set as qs
+    import voice_card
+    s = voice_llm.SYSTEM
+    check("「지금 할 일」을 그대로 전한다" in s, "할 일 규칙")
+    check("「끝난 단계」" in s and "「아직 끝나지 않음」" in s, "끝남 규칙")
+    check("「지금 할 일」에 없는 버튼" in s, "버튼 규칙이 지금 할 일 기준")
+    check("[예시]" in s and len(voice_llm.EXAMPLES) == 6, "모범 문답 6쌍")
+
+    def norm(q):
+        return "".join(c for c in q if not c.isspace() and c not in ",.?!·")
+
+    used = {norm(q) for _, q in qs.QUESTIONS} | {norm(q) for _, q in qs.QUESTIONS2}
+    for q in voice_llm.EXAMPLE_QUESTIONS:
+        check(norm(q) not in used, f"🔒 모범 질문 「{q}」 는 질문 세트와 겹치지 않는다")
+    for _, _, a in voice_llm.EXAMPLES:
+        check(voice_card.is_one_sentence(a) and len(a) <= voice_card.ANSWER_MAX_CHARS, f"모범 답 한 문장 60자 — {a}")
+    check(voice_card.first_sentence("[예시] 지금은 B2 차례입니다.") == "지금은 B2 차례입니다.", "말할 문장에서 [예시] 표기를 지운다")
+
+
 def main():
     test_client_skip_and_rewarm()
+    test_system_rules_and_examples()
     srv = HTTPServer(("127.0.0.1", 0), Fake)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_port}/api/generate"
