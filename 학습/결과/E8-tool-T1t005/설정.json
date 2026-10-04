@@ -1,0 +1,92 @@
+{
+ "id": "E8-tool-T1t005",
+ "group": "tool",
+ "입력": "늘리기640",
+ "바꾼것": "epochs=120 · patience=0 · 포화_향상=0 · lr0=0.00107 · lrf=0.0802 · cos_lr=True · close_mosaic=0",
+ "names": [
+  "driver",
+  "wrench",
+  "pliers"
+ ],
+ "conf": 0.65,
+ "train_kwargs": {
+  "epochs": 120,
+  "patience": 0,
+  "batch": 16,
+  "workers": 2,
+  "cache": "disk",
+  "optimizer": "AdamW",
+  "lr0": 0.0010651866261490522,
+  "momentum": 0.9,
+  "warmup_bias_lr": 0.0,
+  "deterministic": true,
+  "amp": true,
+  "plots": true,
+  "imgsz": 640,
+  "seed": 0,
+  "lrf": 0.0801935800522185,
+  "cos_lr": true,
+  "close_mosaic": 0
+ },
+ "predict_imgsz": 640,
+ "stretch": [
+  640,
+  640
+ ],
+ "멈춤": {
+  "포화_에폭": 30,
+  "포화_향상": 0,
+  "점수0_에폭": 10,
+  "점수0_mAP50": 0.05,
+  "진행없음_분": 15,
+  "시간상한_배": 2
+ },
+ "출발": "~/학습실험/yolov8n.pt",
+ "원본": "~/학습실험/원본/place1",
+ "루트": "~/학습실험",
+ "나눔": {
+  "name": "place1_v1",
+  "해시": "0a3197afa1ddeac1"
+ },
+ "코드": "~/학습실험/코드/00f16a6042",
+ "코드해시": "00f16a6042",
+ "시간상한_s": 2441.832,
+ "설정": {
+  "나눔": "place1_v1",
+  "입력": "늘리기640",
+  "출발": "yolov8n.pt",
+  "seed": 0,
+  "train": {
+   "epochs": 120,
+   "patience": 0,
+   "batch": 16,
+   "workers": 2,
+   "cache": "disk",
+   "optimizer": "AdamW",
+   "lr0": 0.0010651866261490522,
+   "momentum": 0.9,
+   "warmup_bias_lr": 0.0,
+   "deterministic": true,
+   "amp": true,
+   "plots": true,
+   "lrf": 0.0801935800522185,
+   "cos_lr": true,
+   "close_mosaic": 0
+  },
+  "멈춤": {
+   "포화_에폭": 30,
+   "포화_향상": 0,
+   "점수0_에폭": 10,
+   "점수0_mAP50": 0.05,
+   "진행없음_분": 15,
+   "시간상한_배": 2
+  },
+  "id": "E8-tool-T1t005",
+  "group": "tool",
+  "바꾼것": "epochs=120 · patience=0 · 포화_향상=0"
+ },
+ "탐색": {
+  "이름": "T1",
+  "번호": 5
+ }
+}
