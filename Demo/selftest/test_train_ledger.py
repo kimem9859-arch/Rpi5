@@ -126,6 +126,23 @@ def test_사소_2차():
     check(any(l.startswith(">") and "🔁" in l for l in md.splitlines()), "머리말에 🔁 = 이어 학습 설명")
 
 
+def test_채택():
+    print("[7] 채택 판정 규칙 — 후보 최저 > 기준 최고 · 아래로 갈림 없음(1-2단계 설계 §3)")
+    base = [tool(f"E0-tool-s{i}", d, w, p, P)[1] for i, (d, w, p, P) in enumerate([(36/47, 31/49, 25/30, .86), (32/47, 33/49, 19/30, .884), (33/47, 30/49, 23/30, .915)])]
+    good = [tool(f"E4-tool-s{i}", d, w, p, P)[1] for i, (d, w, p, P) in enumerate([(38/47, 34/49, 24/30, .897), (32/47, 35/49, 24/30, .892), (35/47, 34/49, 22/30, .919)])]
+    v, ok = L.adopt(good, base, "tool")
+    check(ok and v["wR"] == "위로 갈림" and v["dR"] == "겹침", f"렌치만 위로 갈림 → 채택 — {v}")
+    worse = [tool(f"E5-tool-s{i}", .5, w, .5, .9)[1] for i, w in enumerate([20/49, 21/49, 22/49])]
+    v, ok = L.adopt(worse, base, "tool")
+    check(not ok and v["wR"] == "아래로 갈림", f"아래로 갈린 지표 → 기각 — {v}")
+    try:
+        L.adopt(good[:2], base, "tool")
+        bad = False
+    except ValueError:
+        bad = True
+    check(bad, "3회 미만이면 판정하지 않는다")
+
+
 if __name__ == "__main__":
     test_범위와_판정()
     test_렌더()
@@ -133,6 +150,7 @@ if __name__ == "__main__":
     test_기준_조건()
     test_이어서()
     test_사소_2차()
+    test_채택()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

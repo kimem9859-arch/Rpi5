@@ -363,6 +363,25 @@ def cmd_fetch(a):
     print(f"받음 {len(got)}: {', '.join(got)} · 장부 = {HERE / '장부.md'}")
 
 
+def judge_ids(results, cand_ids, base_ids):
+    by = {su["id"]: (su, sc) for su, sc in results}
+    miss = [i for i in cand_ids + base_ids if i not in by or by[i][1] is None]
+    if miss:
+        sys.exit(f"🔴 결과(채점) 없음: {miss}")
+    conds = {json.dumps(by[i][0].get("조건"), sort_keys=True, ensure_ascii=False) for i in cand_ids + base_ids}
+    groups = {by[i][0]["group"] for i in cand_ids + base_ids}
+    if len(conds) > 1 or len(groups) > 1:
+        sys.exit("🔴 후보·기준의 운용 조건(멈춤 · 나눔 · conf · 판) 또는 무리가 다르다 — 같은 조건의 기준으로 판정한다")
+    return ledger.adopt([by[i][1] for i in cand_ids], [by[i][1] for i in base_ids], groups.pop())
+
+
+def cmd_judge(a):
+    v, ok = judge_ids(ledger.load_results(HERE / "결과"), a.후보, a.기준)
+    for k, x in v.items():
+        print(f"  {k}: {x}")
+    print("✅ 채택" if ok else "— 기각(위로 갈린 지표 없음 또는 아래로 갈린 지표 있음)")
+
+
 def cmd_resume(a):
     head, dirty = code_state()
     if dirty:
@@ -403,9 +422,12 @@ def main(argv=None):
     sub.add_parser("재개")
     p = sub.add_parser("빼기")
     p.add_argument("id")
+    p = sub.add_parser("판정")
+    p.add_argument("--후보", nargs="+", required=True)
+    p.add_argument("--기준", nargs="+", required=True)
     a = ap.parse_args(argv)
     {"준비": cmd_prepare, "속도재기": cmd_speed, "걸기": cmd_launch, "상태": cmd_status,
-     "받기": cmd_fetch, "재개": cmd_resume, "빼기": cmd_remove}[a.cmd](a)
+     "받기": cmd_fetch, "재개": cmd_resume, "빼기": cmd_remove, "판정": cmd_judge}[a.cmd](a)
 
 
 if __name__ == "__main__":

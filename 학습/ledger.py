@@ -62,6 +62,17 @@ def judge(score, ranges, group, why="기준 부족"):
     return " ".join(marks)
 
 
+def adopt(cands, bases, group):
+    """채택 판정 규칙(1-2단계 설계 §3 · 1단계 §15) — 지표마다 위로/아래로 갈림·겹침 · 채택 = 위로 갈림 하나 이상 · 아래로 갈림 없음."""
+    if len(cands) < 3 or len(bases) < 3:
+        raise ValueError("채택 판정은 후보·기준 각 3회 이상")
+    out = {}
+    for name, f in KEYS[group]:
+        c, b = [f(s) for s in cands], [f(s) for s in bases]
+        out[name] = "위로 갈림" if min(c) > max(b) else "아래로 갈림" if max(c) < min(b) else "겹침"
+    return out, any(v == "위로 갈림" for v in out.values()) and "아래로 갈림" not in out.values()
+
+
 def metrics_text(sc, group):
     if group == "button":
         return f"P {sc['전체']['precision']:.3f} · R {sc['전체']['recall']:.3f} · 오분류 {sc['오분류']} · 오검출 {sc['오검출']}"

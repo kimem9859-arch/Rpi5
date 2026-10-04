@@ -211,6 +211,18 @@ def test_사소_2차():
         check(wr is not None and (dst / "args.yaml").read_text(encoding="utf-8") == "project: ~/학습실험/runs\n" and (dst / "요약.json").exists(), "깨끗하면 홈을 ~ 로 바꿔 씀")
 
 
+def test_판정_조건():
+    print("[9] 판정 — 후보·기준의 운용 조건이 다르면 거부(1-2단계 Review Focus 4)")
+    mk = lambda i, stop: ({"id": i, "group": "tool", "조건": {"멈춤": stop}}, {"전체": {"precision": .9}, "클래스": {n: {"recall": .7} for n in ("driver", "wrench", "pliers")}})
+    res = [mk(f"E0c-tool-x{i}", {"포화_향상": 0}) for i in range(3)] + [mk(f"E4-tool-y{i}", {"포화_향상": 0.002}) for i in range(3)]
+    try:
+        CLI.judge_ids(res, [f"E4-tool-y{i}" for i in range(3)], [f"E0c-tool-x{i}" for i in range(3)])
+        stopped = False
+    except SystemExit:
+        stopped = True
+    check(stopped, "조건 다름 → 멈춤")
+
+
 if __name__ == "__main__":
     test_작업()
     test_예상()
@@ -220,6 +232,7 @@ if __name__ == "__main__":
     test_걸기_직후_상태()
     test_사소_고침()
     test_사소_2차()
+    test_판정_조건()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
