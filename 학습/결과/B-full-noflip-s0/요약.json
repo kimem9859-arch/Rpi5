@@ -1,0 +1,32 @@
+{
+ "id": "B-full-noflip-s0",
+ "group": "button",
+ "입력": "늘리기640",
+ "바꾼것": "fliplr=0.0",
+ "나눔": {
+  "name": "place1_v2b",
+  "해시": "53da43672db6a5a7"
+ },
+ "종료이유": "최대에폭",
+ "이상": false,
+ "에폭": 120,
+ "best_epoch": 120,
+ "분": 14.5,
+ "끝": "2026-10-05T04:06:21+09:00",
+ "판": {
+  "ultralytics": "8.4.171",
+  "torch": "2.12.1+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 5060",
+  "albumentations": true
+ },
+ "코드해시": "3e5eac8856",
+ "conf": 0.65,
+ "속도재기": false,
+ "출발_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+ "이어서": false,
+ "라벨지문": "0f0547f618311fb8",
+ "best_sha256": "57df27f38d5b41303a2ddcf071f2fcca4cc91cf2da15a887982bc4e78babc571",
+ "검증목표": 0.9859,
+ "검증P": 0.9919
+}

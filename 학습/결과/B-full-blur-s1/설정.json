@@ -1,0 +1,93 @@
+{
+ "id": "B-full-blur-s1",
+ "group": "button",
+ "입력": "늘리기640",
+ "바꾼것": "seed=1 · 흐림=Blur+MotionBlur",
+ "names": [
+  "B1",
+  "B2",
+  "B3",
+  "B4",
+  "EMO"
+ ],
+ "conf": 0.65,
+ "train_kwargs": {
+  "epochs": 120,
+  "patience": 0,
+  "batch": 16,
+  "workers": 2,
+  "cache": "disk",
+  "optimizer": "AdamW",
+  "lr0": 0.001,
+  "momentum": 0.9,
+  "warmup_bias_lr": 0.0,
+  "deterministic": true,
+  "amp": true,
+  "plots": true,
+  "imgsz": 640,
+  "seed": 1
+ },
+ "predict_imgsz": 640,
+ "stretch": [
+  640,
+  640
+ ],
+ "멈춤": {
+  "포화_에폭": 30,
+  "포화_향상": 0,
+  "점수0_에폭": 10,
+  "점수0_mAP50": 0.05,
+  "진행없음_분": 15,
+  "시간상한_배": 2
+ },
+ "출발": "~/학습실험/yolov8n.pt",
+ "원본": "~/학습실험/원본/place1",
+ "루트": "~/학습실험",
+ "나눔": {
+  "name": "place1_v2b",
+  "해시": "53da43672db6a5a7"
+ },
+ "코드": "~/학습실험/코드/3e5eac8856",
+ "코드해시": "3e5eac8856",
+ "시간상한_s": 2441.832,
+ "설정": {
+  "나눔": "place1_v2b",
+  "입력": "늘리기640",
+  "출발": "yolov8n.pt",
+  "seed": 1,
+  "train": {
+   "epochs": 120,
+   "patience": 0,
+   "batch": 16,
+   "workers": 2,
+   "cache": "disk",
+   "optimizer": "AdamW",
+   "lr0": 0.001,
+   "momentum": 0.9,
+   "warmup_bias_lr": 0.0,
+   "deterministic": true,
+   "amp": true,
+   "plots": true
+  },
+  "멈춤": {
+   "포화_에폭": 30,
+   "포화_향상": 0,
+   "점수0_에폭": 10,
+   "점수0_mAP50": 0.05,
+   "진행없음_분": 15,
+   "시간상한_배": 2
+  },
+  "메모": "1-3단계 버튼 후보 흐림 — Blur · MotionBlur 각 p 0.1(1인칭 흔들림 · 공구 T-full-blur 와 같은 값) · 기준 = B-full-base(옛 E15-button-base) · 시드 1",
+  "흐림": [
+   "Blur",
+   "MotionBlur"
+  ],
+  "id": "B-full-blur-s1",
+  "group": "button",
+  "바꾼것": "seed=1 · 흐림=Blur+MotionBlur"
+ },
+ "흐림": [
+  "Blur",
+  "MotionBlur"
+ ]
+}

@@ -1,0 +1,32 @@
+{
+ "id": "B-full-cutmix03-s1",
+ "group": "button",
+ "입력": "늘리기640",
+ "바꾼것": "seed=1 · cutmix=0.3",
+ "나눔": {
+  "name": "place1_v2b",
+  "해시": "53da43672db6a5a7"
+ },
+ "종료이유": "최대에폭",
+ "이상": false,
+ "에폭": 120,
+ "best_epoch": 110,
+ "분": 14.7,
+ "끝": "2026-10-05T04:36:44+09:00",
+ "판": {
+  "ultralytics": "8.4.171",
+  "torch": "2.12.1+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 5060",
+  "albumentations": true
+ },
+ "코드해시": "3e5eac8856",
+ "conf": 0.65,
+ "속도재기": false,
+ "출발_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+ "이어서": false,
+ "라벨지문": "0f0547f618311fb8",
+ "best_sha256": "6c81759f5911b12d25581f2ec55cb0d2422b2d0ac4ecd5c9b8887c5a3d65bb1c",
+ "검증목표": 0.9913,
+ "검증P": 0.9946
+}
