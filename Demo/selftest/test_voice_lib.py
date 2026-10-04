@@ -185,6 +185,19 @@ check(is_question("가디언 지금 몇 단계야", True), "호출어 + 말 = �
 check(not is_question("아", True), "🔑 1글자(띠링 반향 「아」)는 질문이 아니다")
 check(is_question("몇 단계", True), "깨어 있으면 호출어 없이도 질문")
 
+print("[호출어 지우기] strip_wake — LLM 이 「가디언」을 주어로 따라 말하지 않게(판 3 holdout 9·32 · 사용자 2026-10-04)")
+from voice_lib import strip_wake
+for t, want in [("가디언 다음동작뭐야", "다음동작뭐야"),
+                ("가디언, 지금 몇 단계야?", "지금 몇 단계야?"),
+                ("가디건이공구맞아", "이공구맞아"),                 # 붙여 쓴 것
+                ("가디 지금 몇 단계야", "지금 몇 단계야"),
+                ("카디언 다음에뭐눌러", "다음에뭐눌러"),
+                ("아 저기 가디언 지금 몇 단계야", "아 저기 지금 몇 단계야"),
+                ("지금 몇 단계야", "지금 몇 단계야"),               # 호출어 없으면 그대로
+                ("가디언", "")]:
+    got = strip_wake(t)
+    check(got == want, f"「{t}」 → 「{got}」(기대 「{want}」)")
+
 print()
 if _fails:
     print(f"🔴 실패 {len(_fails)}건")

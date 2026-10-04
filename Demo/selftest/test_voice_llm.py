@@ -171,6 +171,10 @@ def main():
         check(b["system"] == voice_llm.SYSTEM, "시스템 프롬프트는 모듈 상수 그대로(고정)")
         check("[사실]" in b["prompt"] and "[질문]" in b["prompt"],
               "카드와 질문이 한 프롬프트에 담긴다")
+        voice_llm.ask(card, "가디언 다음동작뭐야", url=url)
+        p = _seen["body"]["prompt"]
+        check(p.endswith("[질문] 다음동작뭐야") and "가디" not in p,
+              "🔑 호출어는 LLM 에 넘기지 않는다 — 「가디언 다음 동작은 …」처럼 주어로 따라 말했다(판 3 holdout 9·32)")
 
         print("── 🔴 실패는 None 으로 (예외로 새지 않는다)")
         Fake.MODE = "500"

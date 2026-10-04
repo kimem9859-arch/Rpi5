@@ -9,6 +9,7 @@
 import json
 import math
 import os
+import re
 import time
 
 try:
@@ -56,6 +57,18 @@ def is_wake(text):
     """
     n = _norm(text)
     return any(w in n for w in WAKE_PREFIXES)
+
+
+# 🔑 접두 뒤 한 음절까지가 호출어다(「가디언」·「가디건」·「가디야」 — is_wake 시험의 변형들) + 뒤따르는 쉼표·공백
+_WAKE_RE = re.compile(r"(?:(?:가디|카디)[가-힣]?|가지언|아디언)[\s,.!·~]*")
+
+
+def strip_wake(text):
+    """질문에서 호출어를 지운다 — LLM 이 「가디언 다음 동작은 …」처럼 주어로 따라 말했다(판 3 holdout 9·32).
+
+    ⚠️ 붙여 쓴 「가디지금」은 「금」이 된다 — 뒤 음절은 매번 다르게 들려 목록으로 못 가른다(is_wake 와 같은 이유).
+    """
+    return _WAKE_RE.sub("", text or "").strip()
 
 
 def is_tool_question(text):

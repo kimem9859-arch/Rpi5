@@ -26,6 +26,7 @@ if _DEMO_DIR not in sys.path:
     sys.path.insert(0, _DEMO_DIR)
 
 import config  # noqa: E402
+from voice_lib import strip_wake  # noqa: E402
 
 # 🔑 규칙마다 막는 것이 있다(§10.53-(4) · 2026-10-03 설계 §4.3·§4.4):
 #      ①수치 지어냄·②모르는 상태를 안다고 함  ← 사실에만 근거 / 지어내지 않는다
@@ -83,7 +84,7 @@ def ask(card, question, url=None, model=None, timeout=None, num_predict=None):
     body = json.dumps({
         "model": model or config.LLM_MODEL,
         "system": SYSTEM,
-        "prompt": f"{card}\n[질문] {question}",
+        "prompt": f"{card}\n[질문] {strip_wake(question) or question}",   # 🔑 호출어는 넘기지 않는다(판 3 holdout 9·32)
         "stream": False,
         "think": False,
         "keep_alive": config.LLM_KEEP_ALIVE,
