@@ -1,0 +1,32 @@
+{
+ "id": "E11-tool-cutmix03s2",
+ "group": "tool",
+ "입력": "늘리기640",
+ "바꾼것": "seed=2 · cutmix=0.3 · epochs=120 · patience=0 · 포화_향상=0",
+ "나눔": {
+  "name": "place1_v1",
+  "해시": "0a3197afa1ddeac1"
+ },
+ "종료이유": "최대에폭",
+ "이상": false,
+ "에폭": 120,
+ "best_epoch": 120,
+ "분": 10.1,
+ "끝": "2026-10-05T00:06:11+09:00",
+ "판": {
+  "ultralytics": "8.4.171",
+  "torch": "2.12.1+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 5060",
+  "albumentations": false
+ },
+ "코드해시": "d253720fa7",
+ "conf": 0.65,
+ "속도재기": false,
+ "출발_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+ "이어서": false,
+ "라벨지문": "5dbfae1750e40812",
+ "best_sha256": "7ab45c47c24ab33e8250b96149df3ccf11420f76e397d51bcfc695e34dab3e5b",
+ "검증목표": 0.8981,
+ "검증P": 0.9219
+}
