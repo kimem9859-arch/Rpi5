@@ -1,0 +1,32 @@
+{
+ "id": "E10-tool-t002s2",
+ "group": "tool",
+ "입력": "늘리기640",
+ "바꾼것": "seed=2 · close_mosaic=20 · cos_lr=True · epochs=120 · lr0=0.0002424235924956202 · lrf=0.013449326615130807 · patience=0 · 포화_향상=0",
+ "나눔": {
+  "name": "place1_v1",
+  "해시": "0a3197afa1ddeac1"
+ },
+ "종료이유": "최대에폭",
+ "이상": false,
+ "에폭": 120,
+ "best_epoch": 63,
+ "분": 11.0,
+ "끝": "2026-10-04T22:35:40+09:00",
+ "판": {
+  "ultralytics": "8.4.171",
+  "torch": "2.12.1+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 5060",
+  "albumentations": false
+ },
+ "코드해시": "e7c0de5933",
+ "conf": 0.65,
+ "속도재기": false,
+ "출발_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+ "이어서": false,
+ "라벨지문": "5dbfae1750e40812",
+ "best_sha256": "ba81f05ba81bb45092c4ec8ba17666f019e3dde23fb851a818f790cb94a24f73",
+ "검증목표": 0.8831,
+ "검증P": 0.8929
+}
