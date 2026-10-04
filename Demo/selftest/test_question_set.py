@@ -23,19 +23,35 @@ def check(cond, msg):
 
 
 items = qs.build_items()
-check(len(qs.QUESTIONS) == 60 and len({q for _, q in qs.QUESTIONS}) == 60, "질문 60개 · 중복 없음")
-check(len(items) == 540 and len({i["id"] for i in items}) == 540, f"540문항 · id 중복 없음 · {len(items)}")
-check([i["id"] for i in items if i["번호"] <= 33][:2] == ["S1-작업전-q01", "S1-작업전-q02"],
-      "🔒 기존 1~33 의 id 는 그대로(이미 돈 dev 결과와 이어진다)")
-check(all(i["분할"] == ("dev" if zlib.crc32(i["id"].encode()) % 3 == 0 else "holdout") for i in items),
-      "🔒 분할 = crc32 % 3 규칙 그대로")
-dev = [i for i in items if i["분할"] == "dev"]
-check(0.25 <= len(dev) / len(items) <= 0.42, f"dev 비율 {len(dev) / len(items):.2f}")
-for part in ("dev", "holdout"):
-    keys = {i["상태키"] for i in items if i["분할"] == part}
-    kinds = {i["유형"] for i in items if i["분할"] == part}
-    check(len(keys) == 9 and len(kinds) == 5, f"{part} 에 상태 9 · 유형 5 가 모두 있다({len(keys)}·{len(kinds)})")
-for key, state, tools in qs.STATES:
+v1 = [i for i in items if i["판"] == 1]
+v2 = [i for i in items if i["판"] == 2]
+
+
+def norm(q):
+    return "".join(c for c in q if not c.isspace() and c not in ",.?!·")
+
+
+check(len(qs.QUESTIONS) == 60 and len({q for _, q in qs.QUESTIONS}) == 60, "판 1 질문 60개 · 중복 없음")
+check(len(qs.QUESTIONS2) == 31 and len({norm(q) for _, q in qs.QUESTIONS2}) == 31, "판 2 질문 31개 · 띄어쓰기를 빼도 중복 없음")
+check(not ({norm(q) for _, q in qs.QUESTIONS} & {norm(q) for _, q in qs.QUESTIONS2}),
+      "🔒 판 2 질문은 판 1 과 겹치지 않는다(띄어쓰기·문장부호 무시)")
+check(len(qs.STATES) == 9 and len(qs.STATES2_EXTRA) == 7, "상태 = 옛 9 + 새 7")
+check(len(v1) == 60 * 16 and len(v2) == 31 * 16, f"판 1 {len(v1)} · 판 2 {len(v2)}")
+check(len({i["id"] for i in items}) == len(items), "id 중복 없음")
+check([i["id"] for i in v1][:2] == ["S1-작업전-q01", "S1-작업전-q02"], "🔒 판 1 의 id 는 그대로")
+old = [i for i in v1 if i["상태키"] in {k for k, _, _ in qs.STATES}]
+check(all(i["옛분할"] == ("dev" if zlib.crc32(i["id"].encode()) % 3 == 0 else "holdout") for i in old),
+      "🔒 옛 분할 = crc32 % 3 규칙 그대로(기록용)")
+check(all(i["분할"] == ("dev" if i["옛분할"] == "holdout" else "쉼") for i in old),
+      "🔒 옛 holdout(이미 봄) → dev · 옛 dev → 쉼")
+new1 = [i for i in v1 if i not in old]
+check(all(i["분할"] == ("dev" if zlib.crc32(i["id"].encode()) % 3 == 0 else "쉼") for i in new1),
+      "판 1 × 새 상태 = crc32 몫만 dev")
+check(all(i["분할"] == "holdout" and i["id"].startswith("H2-") for i in v2), "🔒 판 2 는 전부 holdout · id 앞 H2-")
+check({i["유형"] for i in v2} == {"할일", "공구", "범위", "진행단정유도", "허가유도", "카드밖", "STT오류"},
+      f"판 2 유형 7종 — {sorted({i['유형'] for i in v2})}")
+check(len({i["상태키"] for i in v2}) == 16, "판 2 는 상태 16 전부")
+for key, state, tools in qs.STATES + qs.STATES2_EXTRA:
     card = voice_card.build_card(state, *tools)
     check(card.startswith("[사실]"), f"{key} 카드가 만들어진다")
 
