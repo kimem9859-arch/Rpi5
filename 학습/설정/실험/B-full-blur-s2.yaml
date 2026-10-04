@@ -1,0 +1,6 @@
+id: B-full-blur-s2
+group: button
+seed: 2
+나눔: place1_v2b
+흐림: [Blur, MotionBlur]
+메모: 1-3단계 버튼 후보 흐림 — Blur · MotionBlur 각 p 0.1(1인칭 흔들림 · 공구 T-full-blur 와 같은 값) · 기준 = B-full-base(옛 E15-button-base) · 시드 2

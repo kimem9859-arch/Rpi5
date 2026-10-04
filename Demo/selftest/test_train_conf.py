@@ -87,7 +87,7 @@ def test_기본값():
 
 
 def test_커밋된_설정():
-    print("[4] 실험 65(E0b 6 · 후보 시드 4 · 조합 E7 3 · 에폭 고정 12 · 탐색 확인 E10 6 · 가설 E11·E12 6 · 흐림 E13·E14 6 · 버튼 기준 B0 E15 3 포함) · 점검 4 — 전부 읽히고 id 가 겹치지 않는다")
+    print("[4] 실험 77(E0b 6 · 후보 시드 4 · 조합 E7 3 · 에폭 고정 12 · 탐색 확인 E10 6 · 가설 E11·E12 6 · 흐림 E13·E14 6 · 버튼 기준 B0 E15 3 · 1-3 버튼 후보 B-full-* 12 포함) · 점검 4 — 전부 읽히고 id 가 겹치지 않는다")
     b = TC.load_yaml(CONF / "기본.yaml")
     ids = []
     for sub in ("실험", "점검"):
@@ -97,7 +97,7 @@ def test_커밋된_설정():
                 check(False, f"{p.name}: {e}")
             ids.append(p.stem)
     exp = [i for i in ids if not i.startswith("E9-")]
-    check(len(exp) == 65, f"실험 65 — {len(exp)}")
+    check(len(exp) == 77, f"실험 77 — {len(exp)}")
     check(len([i for i in ids if i.startswith("E9-")]) == 4, "점검 4")
     check(len(ids) == len(set(ids)), "id 겹침 없음")
     for e0 in ("E0", "E0b"):
@@ -159,6 +159,27 @@ def test_옛꼴_묶음():
     check(len(old) == 69, f"옛 꼴 설정 69(실험 65 · 점검 4) — {len(old)}")
 
 
+def test_버튼후보():
+    print("[c7] 1-3 버튼 후보 4 × 3 — 기준 B0(E15-button-base*)와 바꾼 것만 다르다 · 나눔 place1_v2b(1-3 설계 §5)")
+    b = TC.load_yaml(CONF / "기본.yaml")
+    want = {"color": {"hsv_h", "hsv_s"}, "noflip": {"fliplr"}, "cutmix03": {"cutmix"}, "blur": set()}
+    for name, keys in want.items():
+        for s in range(3):
+            base_id = "E15-button-base" + ("" if s == 0 else f"s{s}")
+            cid = f"B-full-{name}-s{s}"
+            p = CONF / "실험" / f"{cid}.yaml"
+            if not p.exists():
+                check(False, f"{cid}.yaml 없음")
+                continue
+            c = TC.resolve(b, TC.load_yaml(p), cid)
+            r = TC.resolve(b, TC.load_yaml(CONF / "실험" / f"{base_id}.yaml"), base_id)
+            ck, rk = TC.train_kwargs(c), TC.train_kwargs(r)
+            diff = {k for k in set(ck) | set(rk) if ck.get(k) != rk.get(k)}
+            blur_ok = (c.get("흐림") == ["Blur", "MotionBlur"]) if name == "blur" else not c.get("흐림")
+            check(diff == keys and blur_ok and c["나눔"] == "place1_v2b" and c["멈춤"] == r["멈춤"],
+                  f"{cid} — 다른 키 {sorted(diff)} · 흐림 {c.get('흐림')}")
+
+
 if __name__ == "__main__":
     test_합치기()
     test_막기()
@@ -168,6 +189,7 @@ if __name__ == "__main__":
     test_흐림_키()
     test_새꼴()
     test_옛꼴_묶음()
+    test_버튼후보()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

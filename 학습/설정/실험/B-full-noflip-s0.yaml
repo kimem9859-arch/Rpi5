@@ -1,0 +1,6 @@
+id: B-full-noflip-s0
+group: button
+나눔: place1_v2b
+train:
+  fliplr: 0.0
+메모: 1-3단계 버튼 후보 좌우 — 좌우 뒤집기 끔(B3 ↔ EMO 는 자리로 구분 · 뒤집은 사진은 실제 콘솔에 없는 배치) · 기준 = B-full-base(옛 E15-button-base) · 시드 0

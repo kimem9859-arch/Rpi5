@@ -1,0 +1,6 @@
+id: B-full-cutmix03-s0
+group: button
+나눔: place1_v2b
+train:
+  cutmix: 0.3
+메모: 1-3단계 버튼 후보 가림 — cutmix 0.3(누를 때 손이 버튼을 가림 · 공구 T-full-cutmix03 과 같은 값) · 기준 = B-full-base(옛 E15-button-base) · 시드 0

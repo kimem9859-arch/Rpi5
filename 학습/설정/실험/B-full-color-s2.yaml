@@ -1,0 +1,8 @@
+id: B-full-color-s2
+group: button
+seed: 2
+나눔: place1_v2b
+train:
+  hsv_h: 0.0
+  hsv_s: 0.3
+메모: 1-3단계 버튼 후보 색 — 색상 흔들기 끔 · 채도 흔들기 0.3(1단계 E2 와 같은 값 · 버튼은 색이 곧 종류 B3 분홍 ↔ EMO 빨강) · 기준 = B-full-base(옛 E15-button-base) · 시드 2
