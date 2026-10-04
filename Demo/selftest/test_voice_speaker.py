@@ -228,6 +228,53 @@ def test_peer_closed_reconnects_before_send():
         srv.close()
 
 
+
+def test_stop_ends_drain():
+    """설계 2026-10-04 §4.3 — 「[재생 중단]」도 재생 끝이다 · 채널은 버리지 않는다 · 소리 시작 시각을 남긴다."""
+    print("\n[멈춤] 재생 중단")
+    spk, b = _speaker_pair()
+    _send_later(b, ["[적재] ok\n", "[재생] 3200샘플\n", 0.2, "[재생 중단]\n"])
+    out = spk._drain(wait=3.0)
+    check(out[-1:] == ["[재생 중단]"] and spk.s is not None, f"중단으로 끝 · 채널 유지 — {out}")
+    check(spk.last_play_start is not None, "[재생] 줄을 받은 시각이 남는다")
+    _send_later(b, ["[재생 중단]\n", 0.1, "[적재] ok\n", 0.1, "[재생 완료]\n"])
+    out = spk._drain(wait=3.0)
+    check(out[-1:] == ["[재생 완료]"], f"적재 전 늦은 「중단」은 이번 것이 아니다 — {out}")
+    b.close()
+
+
+def test_stop_never_splits_upload():
+    """🔴 소리 파일을 올리는 도중에 S 가 끼면 본문이 깨진다 — 보내기 잠금이 막는다."""
+    print("\n[멈춤] 올리는 도중에 안 끼임")
+    spk, b = _speaker_pair()
+    payload = b"W 100000 16000\n" + b"\x00" * 200000 + b"\x00\x00\x00\x00P\n"
+    got = bytearray()
+
+    def reader():
+        b.settimeout(2.0)
+        try:
+            while True:
+                chunk = b.recv(65536)
+                if not chunk:
+                    return
+                got.extend(chunk)
+        except OSError:
+            return
+
+    th = threading.Thread(target=reader, daemon=True)
+    th.start()
+    sender = threading.Thread(target=lambda: spk.send(payload), daemon=True)
+    sender.start()
+    for _ in range(20):
+        spk.stop()
+        time.sleep(0.001)
+    sender.join(5)
+    time.sleep(0.3)
+    data = bytes(got)
+    check(payload in data, "본문이 한 덩어리로 갔다(S 가 안 끼었다)")
+    check(data.count(b"S") == 20, f"멈춤 20번은 본문 밖으로 갔다 — {data.count(b'S')}")
+    b.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

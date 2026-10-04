@@ -13,6 +13,8 @@
     8890  명령/스피커 — 펌웨어와 **같은 응답 줄**:
           W → `[준비] …` · 2048바이트마다 `[다음]` · `[적재] … ok` / `[FAIL] …`
           P → `[재생] …` · (재생 시간) · `[재생 완료]`   B → 띠링(응답 없음)   1~5 → 음량(응답 없음)
+          S → 재생 중이면 `[재생 중단]`(2단계 펌웨어 · 설계 2026-10-04 §4.3) · 아니면 그냥 지나감
+              (`supports_stop=False` = 옛 펌웨어 — 재생을 끝까지 하고 S 는 뒤에 그냥 지나감)
           새 손님이 오면 옛 손님을 끊고 갈아탄다(펌웨어 규칙).
 
 🔴 범위 밖 `W`(샘플 수 1~240,000 · 레이트 8,000~24,000)는 `[FAIL]` 뒤 **본문을 읽어 버린다** —
@@ -27,6 +29,7 @@ import argparse
 import array
 import os
 import random
+import select
 import socket
 import struct
 import tempfile
@@ -80,12 +83,13 @@ class FakeGlass:
     def __init__(self, clips, mic_port=8889, cmd_port=8890, host="127.0.0.1",
                  lead_sec=1.2, gap_sec=1.2, tail_sec=2.0, burst_sec=0.0,
                  stall_sec=0.0, vanish=False, noise_rms=150.0, play_speed=1.0,
-                 write_block_sec=10.0, out=None, seed=1, quiet=False):
+                 write_block_sec=10.0, out=None, seed=1, quiet=False, supports_stop=True):
         self.clips = [load_16k(c) if isinstance(c, str) else array.array("h", c) for c in clips]
         self.lead_sec, self.gap_sec, self.tail_sec = lead_sec, gap_sec, tail_sec
         self.burst_sec, self.stall_sec, self.vanish = burst_sec, stall_sec, vanish
         self.noise_rms, self.play_speed = noise_rms, play_speed
         self.write_block_sec, self.out = write_block_sec, out
+        self.supports_stop = supports_stop
         self._rng = random.Random(seed)
         self._log = (lambda m: None) if quiet else log
         self.events = []
@@ -267,7 +271,9 @@ class FakeGlass:
                     held = self._cmd_write(f, say)
                 elif ch == b"P":
                     f.readline()
-                    self._cmd_play(held, say)
+                    self._cmd_play(held, say, c, f)
+                elif ch == b"S":
+                    self._event("stop_idle")            # 재생 중이 아닐 때의 S — 펌웨어처럼 그냥 지나간다
                 elif ch in b"12345":
                     self._event("volume", int(ch))
                 # 그 밖의 글자는 펌웨어처럼 그냥 넘긴다(줄을 읽지 않는다)
@@ -322,7 +328,7 @@ class FakeGlass:
         self._log(f"적재 n={n} rate={rate} 체크섬 ok")
         return (a, rate)
 
-    def _cmd_play(self, held, say):
+    def _cmd_play(self, held, say, c=None, f=None):
         if not held:
             say("[재생] 담긴 것이 없다. 먼저 r 또는 W 를 쓰라.")
             return
@@ -335,10 +341,31 @@ class FakeGlass:
                 w.setsampwidth(2)
                 w.setframerate(rate)
                 w.writeframes(a.tobytes())
-        time.sleep(sec * self.play_speed)
+        end = time.time() + sec * self.play_speed
+        while time.time() < end:
+            if self.supports_stop and c is not None and self._stop_requested(c, f):
+                self._event("stop", round(sec, 2))
+                self._log(f"■ 재생 중단 ({sec:.1f}초 중)")
+                say("[재생 중단]")
+                return
+            time.sleep(0.01)
         self._event("play", round(sec, 2))
         self._log(f"▶ 재생 {sec:.1f}초" + (f" → {self.out}" if self.out else ""))
         say("[재생 완료]")
+
+    @staticmethod
+    def _stop_requested(c, f):
+        """다음 글자가 S 면 읽고 True — 펌웨어 play() 의 peek 흉내(설계 2026-10-04 §4.3).
+
+        ⚠️ 이미 버퍼에 들어온 글자는 소켓이 「읽기 가능」으로 안 보일 수 있다 — 시험은 S 를 따로 보낸다.
+        """
+        r, _, _ = select.select([c], [], [], 0)
+        if not r:
+            return False
+        if f.peek(1)[:1] == b"S":
+            f.read(1)
+            return True
+        return False
 
 
 def main():
@@ -354,10 +381,11 @@ def main():
     ap.add_argument("--cmd-port", type=int, default=8890)
     ap.add_argument("--play-speed", type=float, default=1.0, help="재생 대기 배율(1 = 실제 길이)")
     ap.add_argument("--noise-rms", type=float, default=150.0, help="무음 구간 잡음 크기(0 = 종전처럼 무음)")
+    ap.add_argument("--no-stop", action="store_true", help="옛 펌웨어 흉내 — 재생 중 S(멈춤)를 무시한다")
     a = ap.parse_args()
     g = FakeGlass(a.clips, mic_port=a.mic_port, cmd_port=a.cmd_port, burst_sec=a.burst,
                   stall_sec=a.stall, vanish=a.vanish, out=a.out, play_speed=a.play_speed,
-                  noise_rms=a.noise_rms).start()
+                  noise_rms=a.noise_rms, supports_stop=not a.no_stop).start()
     try:
         g.mic_done.wait()
     except KeyboardInterrupt:

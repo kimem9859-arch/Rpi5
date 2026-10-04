@@ -158,6 +158,43 @@ def test_mic_write_block_drops():
         g.stop()
 
 
+
+def test_fake_glass_stop():
+    """설계 2026-10-04 §4.3 — 새 펌웨어 흉내: 재생 중 S → [재생 중단] · 다음 명령은 그대로."""
+    print("\n[명령 채널] 멈춤 S")
+    g = FakeGlass([tone(0.2)], mic_port=0, cmd_port=0, play_speed=1.0, quiet=True).start()
+    try:
+        s = socket.create_connection(("127.0.0.1", g.cmd_port), 2)
+        s.sendall(frame(tone(2.0), 16000))
+        time.sleep(0.6)
+        t0 = time.time()
+        s.sendall(b"S")
+        got = read_until(s, "재생 중단")
+        check(bool(got) and got[-1] == "[재생 중단]" and time.time() - t0 < 0.5, f"S → 곧바로 중단 — {got[-2:]}")
+        check(g.count("stop") == 1 and g.count("play") == 0, "중단 사건 · 재생 완료 사건 없음")
+        s.sendall(frame(tone(0.1), 16000))
+        check(read_until(s, "재생 완료")[-1:] == ["[재생 완료]"], "다음 재생은 그대로")
+    finally:
+        g.stop()
+
+
+def test_fake_glass_old_firmware_ignores_stop():
+    """Review Focus 2 — 옛 펌웨어(supports_stop=False): 재생 중 S 는 끝난 뒤 한 글자 명령으로 읽혀 무시된다."""
+    print("\n[명령 채널] 옛 펌웨어는 멈춤 무시")
+    g = FakeGlass([tone(0.2)], mic_port=0, cmd_port=0, play_speed=1.0, quiet=True,
+                  supports_stop=False).start()
+    try:
+        s = socket.create_connection(("127.0.0.1", g.cmd_port), 2)
+        s.sendall(frame(tone(0.8), 16000))
+        time.sleep(0.3)
+        s.sendall(b"S")
+        got = read_until(s, "재생 완료")
+        check(got[-1:] == ["[재생 완료]"] and "[재생 중단]" not in got, "끝까지 재생")
+        time.sleep(0.2)
+        check(g.count("stop_idle") == 1, "S 는 재생 뒤 그냥 지나간다")
+    finally:
+        g.stop()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

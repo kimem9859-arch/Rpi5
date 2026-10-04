@@ -299,6 +299,11 @@ class Speaker:
         self.s = None
         self.f = None                 # 쓰지 않는다(V1) — 옛 시험·호출부 호환용으로만 남긴다
         self._rbuf = b""              # 소켓에서 받은 아직 줄이 안 된 바이트
+        # 🔑 알림 감시와 메인 루프가 함께 쓴다(설계 2026-10-04 §4.3) — `_io` = 보내고 응답을 읽는 한 벌을
+        #    한 스레드만 · `_tx` = 바이트를 보내는 동안만(멈춤 `S` 가 소리 파일 본문 사이에 끼지 않게).
+        self._io = threading.RLock()
+        self._tx = threading.Lock()
+        self.last_play_start = None   # 펌웨어 「[재생] …」 을 받은 시각 — 알림 지연을 잰다
 
     def _ensure(self):
         if self.s is not None:
@@ -352,6 +357,7 @@ class Speaker:
         🔑 이번 요청의 확인만 받는다(설계 2026-10-03 §4.5) — 「[적재] … ok」 **뒤의** 「[재생 완료]」만
            완료다. 그 앞에 온 것은 지난 재생의 늦은 응답이라 버린다(R3 I1: 엉뚱한 확인을 성공으로 적었다).
         🔴 끝 응답 없이 끝나면(시간 초과·EOF·FAIL) 명령 채널을 버린다 — 다음 전송이 새로 붙는다(③ 리뷰 M-2).
+        🔑 「[재생 중단]」(2026-10-04 · 멈춤 S)도 끝 응답이다 — 채널을 버리지 않는다.
            FAIL 뒤에도 버리는 이유 = 펌웨어가 거절한 본문이 남아 한 글자 명령으로 읽힌다(P4).
         """
         out, loaded, why = [], False, "시간 초과"
@@ -373,7 +379,7 @@ class Speaker:
             t = line.decode("utf-8", "replace").strip()
             if not t:
                 continue
-            if "재생 완료" in t and not loaded:
+            if ("재생 완료" in t or "재생 중단" in t) and not loaded:
                 continue                       # 지난 재생의 늦은 확인 — 이번 것이 아니다
             out.append(t)
             if "FAIL" in t:
@@ -381,7 +387,9 @@ class Speaker:
                 break
             if t.startswith("[적재]") and t.endswith("ok"):
                 loaded = True
-            elif "재생 완료" in t:
+            elif t.startswith("[재생]"):
+                self.last_play_start = time.time()      # 🔑 소리가 나기 시작한 때(설계 2026-10-04 §4.3 목표 측정)
+            elif "재생 완료" in t or "재생 중단" in t:
                 self.s.settimeout(30)
                 return out
         if why == "FAIL":
@@ -416,17 +424,35 @@ class Speaker:
         return line + b"\n"
 
     def send(self, payload, expect=False):
-        for attempt in (1, 2):
+        with self._io:
+            for attempt in (1, 2):
+                try:
+                    self._ensure()
+                    with self._tx:
+                        self.s.sendall(payload)
+                    if expect:
+                        return self._drain()
+                    return True
+                except OSError as e:
+                    log(f"🔴 명령 전송 실패({attempt}): {e}")
+                    self.reset()
+            return False
+
+    def stop(self):
+        """재생 중인 소리를 멈추라고 보낸다(설계 2026-10-04 §4.3) — 응답은 재생하던 쪽(_drain)이 읽는다.
+
+        🔴 `_tx` 만 잡는다 — 재생 확인을 기다리는 동안(_drain)은 그 잠금이 비어 있어 바로 나간다.
+        🔑 2단계 펌웨어 전에는 재생이 끝난 뒤 한 글자 명령으로 읽혀 무시된다(해가 없다).
+        """
+        with self._tx:
+            s = self.s
+            if s is None:
+                return False
             try:
-                self._ensure()
-                self.s.sendall(payload)
-                if expect:
-                    return self._drain()
+                s.sendall(b"S")
                 return True
-            except OSError as e:
-                log(f"🔴 명령 전송 실패({attempt}): {e}")
-                self.reset()
-        return False
+            except OSError:
+                return False
 
     def reset(self):
         """링크가 끊겼을 때 명령 채널도 버린다 — 다음 send 에서 다시 붙는다."""
