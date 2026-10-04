@@ -19,7 +19,7 @@ sys.path.insert(0, _DEMO_DIR)
 
 from voice_card import (ANSWER_MAX_CHARS, build_card, card_facts, check_safety, fallback_sentence,
                         finalize, in_emergency, is_one_sentence, next_action, read_state, shorten,
-                        tool_phase, tool_sentence, verify_answer)
+                        tool_phase, tool_sentence, UNKNOWN_LINE, verify_answer)
 
 _fails = []
 
@@ -191,12 +191,43 @@ def test_card_progress_and_next_warning():
     t0 = time.time()
     c = build_card(dict(RUN, 쓴시각=t0), [], False, now=t0 + 2.2)
     check("진행 중 · 남은 시간 약 4초" in c, "진행 중이면 쓴 시각부터 흐른 만큼 빼고 올림")
-    check("필요한 공구 아직 확인 안 됨" in c, "공구 충족 여부")
+    check("공구 상황: 렌치를 찾아야 한다" in c, "공구 상황 줄(정보 없음 = 찾는 중)")
     c = build_card(dict(LIVE, 상태="WARNING", 쓴시각=t0,
                         서브진행={"상태": "멈춤", "남은초": 4.0, "공구충족": True}), [], False, now=t0 + 100)
     check("경고로 멈춤 · 남은 시간 약 4초" in c, "멈춘 동안은 시간이 흐르지 않는다")
     c = build_card(dict(LIVE, 현재단계=4, 현재버튼="B4", 다음단계=None, 서브작업=None), [], False)
     check("진행 상황" not in c, "서브 없는 단계에는 진행 줄이 없다")
+
+
+def test_card_redesign():
+    print("── 카드 재설계(설계 2026-10-04 §4.1)")
+    emo = build_card(dict(LIVE, 현재단계=3, 현재단계명="전극 냉각", 현재버튼="B3", 상태="BLOCK", 비상정지=True,
+                          서브작업=None), [], False)
+    lines = emo.splitlines()
+    check(lines[1].startswith("지금 할 일: EMO 를 복귀한 뒤"), f"맨 위(둘째 줄) = 지금 할 일 — {lines[1]}")
+    check("지금 눌러야 할 버튼" not in emo, "🔴 비상정지 카드에 「지금 눌러야 할 버튼」이 없다")
+    check("멈춘 자리: 3단계" in emo and "끝난 단계: 1·2단계 (해제하면 1단계부터 다시)" in emo, "멈춘 자리 · 끝난 단계")
+    last = build_card(dict(LIVE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None),
+                      [], False)
+    check("4단계 「챔버 벤트」 (마지막 단계) — 아직 끝나지 않음" in last, "🔑 마지막 단계 = 아직 끝나지 않음")
+    check("끝난 단계: 1·2·3단계" in last and "이번이 마지막 단계다" not in last, "끝난 단계 · 옛 「마지막 단계다」 문구 없음")
+    check("순서 판정: 정상 (경고·차단 없음)" in build_card(LIVE, [], False), "「상태: 정상」 → 「순서 판정: 정상」")
+    check(UNKNOWN_LINE in build_card(LIVE, [], False), "이 시스템이 모르는 것 줄")
+    check("끝난 단계: 없음" in build_card(dict(LIVE, 현재단계=1, 현재버튼="B1"), [], False), "1단계 — 끝난 단계 없음")
+    run = dict(LIVE, 서브진행={"상태": "진행 중", "남은초": 6.0, "공구충족": False, "공구오답": None})
+    both = [("pliers", 0.71, 0, 0, 9, 9), ("wrench", 0.55, 20, 0, 29, 9)]
+    t0 = LIVE["쓴시각"]
+    c = build_card(run, both, True, now=t0)
+    check("공구 상황: 렌치가 보인다" in c and "카메라에 지금 보이는 공구: 플라이어·렌치" in c, f"보임 · 보이는 공구 둘\n{c}")
+    c = build_card(run, [("pliers", 0.71, 0, 0, 9, 9)], True, now=t0)
+    check("공구 상황: 렌치를 찾아야 한다 (보이는 다른 공구: 플라이어)" in c, "찾는 중 · 다른 공구 함께")
+    c = build_card(dict(run, 서브진행=dict(run["서브진행"], 공구오답="플라이어")), [], True, now=t0)
+    check("공구 상황: 플라이어를 쥐었다 — 렌치로 바꿔야 한다" in c, "다른 공구 쥠")
+    c = build_card(dict(run, 서브진행=dict(run["서브진행"], 공구충족=True)), [], True, now=t0)
+    check("공구 상황: 렌치를 쥐었다(확인됨)" in c, "쥠")
+    done_emo = build_card(dict(DONE, 상태="BLOCK", 비상정지=True), [], False)
+    check("지금 할 일: EMO 를 복귀한 뒤" in done_emo and "이미 완료됨" in done_emo and "작업 결과" in done_emo,
+          "완료 뒤 비상정지 — 할 일은 EMO · 결과 줄은 남는다")
 
 
 def test_verify_ordinal_step():
@@ -289,6 +320,7 @@ def main():
     test_review_question_gate_length_vocab()
     test_fallback_and_finalize()
     test_card_progress_and_next_warning()
+    test_card_redesign()
     test_verify_ordinal_step()
     test_next_action_and_tool_phase()
     tmp = tempfile.mkdtemp(prefix="sop_card_test_")

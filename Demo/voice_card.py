@@ -251,77 +251,90 @@ def card_facts(state, dets, fresh, now=None):
 
 
 def _progress_line(cur, btn, p):
-    """서브 작업 진행 한 줄 — 🔴 이것이 없으면 「끝났어?」에 근거가 없어 「끝났습니다」를 지어냈다(R3 I4)."""
+    """서브 작업 진행 한 줄 — 🔴 이것이 없으면 「끝났어?」에 근거가 없어 「끝났습니다」를 지어냈다(R3 I4).
+
+    공구 쪽은 「공구 상황」 줄이 따로 말한다(설계 2026-10-04 §4.1-6).
+    """
     head = f"{cur}단계 진행 상황: "
     if p is None or p["상태"] == "시작 전":
         return head + f"버튼 {btn} 누르기 전 (서브작업 시작 전)"
     if p["상태"] == "멈춤":
         return head + f"서브작업 「{p['라벨']}」 경고로 멈춤 · 남은 시간 약 {p['남은초']}초"
-    line = head + f"버튼 {btn} 누름 · 서브작업 「{p['라벨']}」 진행 중 · 남은 시간 약 {p['남은초']}초"
-    if p["공구"]:
-        line += f" · 필요한 공구 {'확인됨' if p['공구충족'] else '아직 확인 안 됨'}"
-    return line
+    return head + f"버튼 {btn} 누름 · 서브작업 「{p['라벨']}」 진행 중 · 남은 시간 약 {p['남은초']}초"
+
+
+_TOOL_LINE = {"찾는중": "{요구}를 찾아야 한다", "보임": "{요구}가 보인다 — 아직 쥐지 않았다(쥐면 확인된다)",
+              "쥠": "{요구}를 쥐었다(확인됨)", "다른공구": "{쥔오답}를 쥐었다 — {요구}로 바꿔야 한다"}
+# 🔑 「상태: 정상」을 장비 안전으로 읽어 「가스 누출 없어?」에 「정상」이라 답했다 — 순서 판정임을 밝힌다(§4.1-4)
+_STATE_LINE = {"차단": "순서 판정: 🔴 차단 중 — 순서를 어겨 버튼 입력이 막혔다",
+               "경고": "순서 판정: 경고 중 — 순서가 어긋났다",
+               "정상": "순서 판정: 정상 (경고·차단 없음)"}
+UNKNOWN_LINE = "이 시스템이 모르는 것: 가스·압력·온도 같은 장비 센서 값 · 다른 작업자"
 
 
 def build_card(state, dets, fresh, now=None):
-    """LLM 프롬프트에 붙일 `[사실]` 블록."""
-    L = ["[사실]"]
-    if not state or not state.get("세션"):
+    """LLM 프롬프트에 붙일 `[사실]` 블록 — 맨 위가 코드가 정한 「지금 할 일」이다(설계 2026-10-04 §4.1).
+
+    🔴 「지금 눌러야 할 버튼」 줄을 두지 않는다 — 비상정지 중에도 그 줄이 있어 모델이 「B3 를 누르세요」를
+       옮겼다(holdout 2026-10-04). 누르라는 말은 「지금 할 일」에만 있다.
+    """
+    act = next_action(state, dets, fresh, now)
+    L = ["[사실]", f"지금 할 일: {act['카드']}"]
+    st = state or {}
+    emo = bool(st.get("비상정지"))
+    if not state or not st.get("세션"):
         L.append("작업: 시작되지 않음 (작업자가 아직 「작업 시작」을 누르지 않았다)")
-    elif state.get("결과"):
+    elif st.get("결과"):
         # 🔴 완주 뒤에도 세션은 살려 둔다 — 「작업 결과 어때?」에 답해야 하기 때문이다.
         #    다만 「진행 중」이라고 쓰면 결과와 모순되므로 여기서 갈라 쓴다.
-        L.append(f"작업: {state.get('공정명', '')} · 전체 {state.get('전체단계')}단계 · "
+        L.append(f"작업: {st.get('공정명', '')} · 전체 {st.get('전체단계')}단계 · "
                  f"🔴 이미 완료됨 (더 누를 버튼이 없다)")
+        if emo:
+            L.append("멈춘 이유: 🔴 비상정지(EMO) — 순서 위반이 아니다")
     else:
-        L.append(f"작업: {state.get('공정명', '')} · 전체 {state.get('전체단계')}단계 · 진행 중")
-        cur = state.get("현재단계")
-        L.append(f"현재 진행 중인 단계: {cur}단계 「{state.get('현재단계명', '')}」 "
-                 f"· 지금 눌러야 할 버튼 {state.get('현재버튼', '')}")
-        st = state.get("상태") or ""
-        if st == "BLOCK" and state.get("비상정지"):
+        total, cur = st.get("전체단계"), st.get("현재단계")
+        L.append(f"작업: {st.get('공정명', '')} · 전체 {total}단계 · 진행 중")
+        last = " (마지막 단계)" if cur == total else ""
+        label = "멈춘 자리" if emo else "현재 진행 중인 단계"
+        L.append(f"{label}: {cur}단계 「{st.get('현재단계명', '')}」{last} — 아직 끝나지 않음 · "
+                 f"이 단계의 버튼: {st.get('현재버튼', '')}")
+        done = "·".join(str(n) for n in range(1, cur)) if isinstance(cur, int) and cur > 1 else ""
+        again = " (해제하면 1단계부터 다시)" if emo else ""
+        L.append(f"끝난 단계: {done + '단계' if done else '없음'}{again}")
+        if emo:
             # 🔴 EMO 는 순서 위반이 아니다 — 화면 문구(G5)와 같은 말을 해야 한다(V2)
-            L.append("상태: 🔴 비상정지(EMO)로 멈춤 — 순서 위반이 아니다. "
-                     "EMO 를 복귀한 뒤 「차단 해제」를 눌러야 한다")
-        elif st == "BLOCK":
-            L.append("상태: 🔴 차단 중 — 순서를 어겨 버튼 입력이 막혔다")
-        elif st == "WARNING":
-            L.append("상태: 경고 중 — 순서가 어긋났다")
+            L.append("멈춘 이유: 🔴 비상정지(EMO) — 순서 위반이 아니다")
         else:
-            L.append("상태: 정상 (경고 없음, 차단 없음)")
-        if state.get("다음단계"):
+            L.append(_STATE_LINE[_state_bucket(st.get("상태"))])
+        if st.get("다음단계"):
             # 🔴 「다음 버튼」만 적으면 LLM 이 그것을 지금 누르라고 권했다(R3 C3 · 5/5) — 조건을 같은 줄에 붙인다
-            L.append(f"그 다음에 올 단계: {state['다음단계']}단계 "
-                     f"「{state.get('다음단계명', '')}」 · 버튼 {state.get('다음버튼', '')} "
-                     f"(현재 단계가 끝난 뒤에만 누른다 — 지금 누르면 순서 위반이다)")
+            L.append(f"그 다음에 올 단계: {st['다음단계']}단계 「{st.get('다음단계명', '')}」 · "
+                     f"버튼 {st.get('다음버튼', '')} (현재 단계가 끝난 뒤에만 누른다 — 지금 누르면 순서 위반이다)")
         else:
-            L.append("그 다음에 올 단계: 없음 (이번이 마지막 단계다)")
-        sub = state.get("서브작업")
+            L.append("그 다음에 올 단계: 없음")
+        sub = st.get("서브작업")
         if sub:
             tool = sub.get("tool")
             name = sub.get("tool_name") or TOOL_KO.get(tool, tool)
-            line = f"{cur}단계의 서브작업: {sub.get('label', '')} {sub.get('sec')}초"
-            if tool:
-                line += f" · {cur}단계에 필요한 공구 = {name}"
-            else:
-                line += f" · {cur}단계에 필요한 공구 = 없음"
-            L.append(line)
-            L.append(_progress_line(cur, state.get("현재버튼", ""), sub_progress(state, now)))
+            L.append(f"{cur}단계의 서브작업: {sub.get('label', '')} {sub.get('sec')}초 · "
+                     f"{cur}단계에 필요한 공구 = {name if tool else '없음'}")
+            L.append(_progress_line(cur, st.get("현재버튼", ""), sub_progress(state, now)))
         else:
             L.append(f"{cur}단계의 서브작업: 없음")
-
-    seen = _seen_tool(dets, fresh)
+    tp = tool_phase(state, dets, fresh, now)
+    if tp:
+        others = [n for n in tp["보이는"] if n != tp["요구"]]
+        extra = f" (보이는 다른 공구: {'·'.join(others)})" if tp["상황"] == "찾는중" and others else ""
+        L.append("공구 상황: " + _TOOL_LINE[tp["상황"]].format(**tp) + extra)
+    seen = _seen_tools(dets, fresh)
     if seen:
-        score = max(float(d[1]) for d in dets
-                    if str(d[0]).split("-in-hand")[0].strip() == seen)
-        L.append(f"카메라에 지금 보이는 공구: {TOOL_KO.get(seen, seen)} (신뢰도 {score:.2f})")
+        L.append(f"카메라에 지금 보이는 공구: {'·'.join(seen)}")
     elif fresh:
         L.append("카메라에 지금 보이는 공구: 없음 (보고 있지만 아무 공구도 안 보인다)")
     else:
-        L.append("카메라에 지금 보이는 공구: 확인 중이 아님 "
-                 "(지금은 공구를 인식하는 단계가 아니다)")
-
-    res = (state or {}).get("결과")
+        L.append("카메라에 지금 보이는 공구: 확인 중이 아님 (지금은 공구를 인식하는 단계가 아니다)")
+    L.append(UNKNOWN_LINE)
+    res = st.get("결과")
     if res:
         L.append(f"작업 결과: 총 {res.get('total_sec', 0):.0f}초 · "
                  f"완료 {len(res.get('steps') or [])}단계 · "
