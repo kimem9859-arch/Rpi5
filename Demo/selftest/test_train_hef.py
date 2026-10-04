@@ -160,6 +160,14 @@ def test_파이_명령():
     check(T.CALIB_SEED == 0, "보정 시드는 한 곳(CALIB_SEED)")
 
 
+def test_변환_이름():
+    print("[11] 받은 변환 = <학습 모델 새 이름>_ours-L<수준>.hef · 변환_ours-L<수준>.json(설계 모델이름 §2.3)")
+    res = Path(_RPI5) / "학습" / "결과"
+    check(T.convert_names("E0b-button-s0", 2, res) == ("B-early-base-s0_ours-L2.hef", "변환_ours-L2.json"), "옛 id → 새 이름 · 수준 2")
+    check(T.convert_names("E0c-tool-f120", 1, res) == ("T-full-base-s0_ours-L1.hef", "변환_ours-L1.json"), "공구 · 수준 1")
+    check(T.convert_names("B-full-color-s1", 2, res) == ("B-full-color-s1_ours-L2.hef", "변환_ours-L2.json"), "새 꼴 id 는 그대로")
+
+
 if __name__ == "__main__":
     test_캘리브()
     test_모델_스크립트()
@@ -171,6 +179,7 @@ if __name__ == "__main__":
     test_장수_대조()
     test_로그_증거()
     test_파이_명령()
+    test_변환_이름()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
