@@ -581,6 +581,9 @@ class Assistant:
       LLM 을 안 씀(SOP_LLM=0 · TTS 없음) → A 갈래(어떤 질문이든 공구 키 · 종전 결정)
       LLM 을 쓸 수 없음(예열 전·건너뜀) → 「확인 중」 없이 바로 A 갈래(공구 질문이면 공구 답 · 아니면 unavailable)
       LLM → finalize(한 문장 60자 · 안전 규칙 → 대체 문장) → 합성 → 펌웨어 한도 → 검산 → 전송
+      비상 상황(해제 전까지) → 반응 없음(2026-10-04 §4.7)
+      장비 센서 질문 → LLM 없이 「확인할 수 없음」(2026-10-04 §4.5)
+      LLM 이 못 냄(준비 전·실패·빈답) → 「지금 할 일」 문장 합성 → 실패하면 A(2026-10-04 §4.6)
     🔴 어디서 실패해도 A 갈래로 떨어진다 — 「확인해 보겠습니다」 뒤 침묵을 남기지 않는다(R2 I2).
     """
 
@@ -599,6 +602,14 @@ class Assistant:
 
     def on_text(self, text, m):
         """STT 결과 하나. 질문에 답했으면 True — 호출부가 그동안 들어온 소리를 버린다(G11)."""
+        # 🔑 비상 상황(비상정지·차단·경고 — 해제 버튼을 누르기 전까지)에는 「가디언」에도 질문에도 반응하지
+        #    않는다(사용자 2026-10-04 · 설계 §4.7). 알림이 이미 할 일을 말했다. 되돌리기 = 여기서 알림 문장을 한 번 더.
+        if voice_card.in_emergency(self._read_state()):
+            m["비상중"] = True
+            self.awake_until = 0.0
+            if is_wake(text):
+                log(f"비상 상황 — 해제 전까지 질문을 받지 않는다: {text}")
+            return False
         now = self._clock()
         awake = now < self.awake_until
         wake = is_wake(text)
@@ -661,9 +672,15 @@ class Assistant:
             log(f"허가를 묻는 질문 — LLM 없이 사실 문장으로 답한다: {text}")
             self._say(gated, "대체-위험질문", facts, tool_q, m)
             return
+        sensed = voice_card.sensor_answer(text, facts)
+        if sensed:
+            # 🔑 이 시스템은 장비 센서를 보지 않는다 — LLM 에 맡길 이유가 없다(설계 2026-10-04 §4.5-나)
+            log(f"장비 센서 질문 — LLM 없이 「확인할 수 없음」으로 답한다: {text}")
+            self._say(sensed, "대체-센서질문", facts, tool_q, m)
+            return
         if not self.llm.available():
             m["LLM오류"] = "예열 전" if not self.llm.ready else "건너뜀(연속 실패)"
-            self._answer_a(tool_q, "고정-LLM준비안됨", m)
+            self._answer_fixed(tool_q, facts, "고정-LLM준비안됨", m)
             return
         card = voice_card.build_card(state, dets, fresh)
         m["카드줄수"] = card.count("\n")
@@ -676,15 +693,15 @@ class Assistant:
         if self._preempted(m):
             return
         if not raw:
-            self._answer_a(tool_q, "고정-폴백", m)
+            self._answer_fixed(tool_q, facts, "고정-폴백", m)
             return
-        said, src, bad = voice_card.finalize(raw, facts)
+        said, src, bad = voice_card.finalize(raw, facts, question=text)
         m.update({"LLM원문": raw, "다듬은문장": said})
         if bad:
             m["안전규칙"] = bad
             log(f"⚠️ 안전 규칙 {bad} — 대체 문장으로 답한다: {raw}")
         if not said:
-            self._answer_a(tool_q, "고정-빈답", m)
+            self._answer_fixed(tool_q, facts, "고정-빈답", m)
             return
         self._say(said, src, facts, tool_q, m)
 
@@ -729,6 +746,21 @@ class Assistant:
         log(f"🔴 답 재생이 확인되지 않았다 — A 갈래로 한 번 더: {said}")
         m["답변재생실패"] = said
         self._answer_a(tool_q, "고정-재생실패대체", m)
+
+    def _answer_fixed(self, tool_q, facts, src, m):
+        """LLM 이 답을 못 낼 때 — 「지금 할 일」(공구 질문이면 공구 상황) 문장을 합성해 말한다(설계 2026-10-04 §4.6).
+
+        🔑 공구 질문인데 공구 상황이 없으면 종전처럼 녹음(A 갈래) — 「지금은 공구를 확인하는 단계가 아닙니다」가 정확하다.
+        🔴 합성·재생이 실패하면 `_say` 가 A 갈래로 떨어진다 — 「모든 실패의 착지점은 A」는 그대로다.
+        """
+        if tool_q and not facts.get("공구상황"):
+            self._answer_a(tool_q, src, m)
+            return
+        said = voice_card.fallback_sentence(facts, tool_q=tool_q)
+        if not said:
+            self._answer_a(tool_q, src, m)
+            return
+        self._say(said, src, facts, tool_q, m)
 
     def _answer_a(self, tool_q, src, m, any_question=False):
         """A 갈래(고정 wav). 🔴 공구는 폴백 직전에 다시 읽는다 — 질문 때 것은 15초 전일 수 있다(R3 M2)."""

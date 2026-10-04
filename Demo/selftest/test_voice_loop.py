@@ -203,28 +203,31 @@ def test_cold_goes_straight_to_a():
     ok, m = ask(b, "앞에 보이는 게 뭐야")
     check(b.spk.keys() == ["wrench"] and b.llm.asked == [], f"공구 답 · LLM 안 부름 · {b.spk.calls}")
     b2 = bot(llm=FakeLlm(ready=False))
-    ask(b2, "지금 몇 단계야")
-    check(b2.spk.keys() == ["unavailable"], f"공구 질문이 아니면 unavailable · {b2.spk.calls}")
+    ok, m2 = ask(b2, "지금 몇 단계야")
+    check(b2.spk.keys() == [] and b2.tts.said == ["지금은 B2 차례입니다."] and m2["답변출처"] == "고정-LLM준비안됨",
+          f"🔑 「답변할 수 없습니다」 대신 지금 할 일(설계 2026-10-04 §4.6) · {b2.spk.calls} · {b2.tts.said}")
 
 
 def test_llm_failure_falls_back():
     print("\n[LLM 실패] → A")
     b = bot(llm=FakeLlm(answer=None))
     ok, m = ask(b, "지금 몇 단계야")
-    check(b.spk.keys() == ["checking", "unavailable"] and m["답변출처"] == "고정-폴백", f"{b.spk.calls}")
+    check(b.spk.keys() == ["checking"] and b.tts.said == ["지금은 B2 차례입니다."] and m["답변출처"] == "고정-폴백",
+          f"{b.spk.calls} · {b.tts.said}")
 
 
 def test_empty_answer_falls_back():
     print("\n[빈답] 그림 글자뿐인 답 → A(Review Focus 2)")
     b = bot(llm=FakeLlm("🔴"))
     ok, m = ask(b, "지금 몇 단계야")
-    check(b.spk.keys() == ["checking", "unavailable"] and m["답변출처"] == "고정-빈답", f"{b.spk.calls}")
+    check(b.spk.keys() == ["checking"] and b.tts.said == ["지금은 B2 차례입니다."] and m["답변출처"] == "고정-빈답",
+          f"{b.spk.calls} · {b.tts.said}")
 
 
 def test_verify_mismatch_changed():
     print("\n[검산] 그 사이 버튼이 바뀜 → changed")
     moved = dict(STATE, 현재단계=3, 현재버튼="B3")
-    b = bot(llm=FakeLlm("지금 눌러야 할 버튼은 B2입니다."), states=[STATE, moved])
+    b = bot(llm=FakeLlm("지금 눌러야 할 버튼은 B2입니다."), states=[STATE, STATE, moved])
     ok, m = ask(b, "뭐 눌러야 돼")
     check(b.spk.keys() == ["checking", "changed"] and m["답변출처"] == "고정-검산불일치", f"{b.spk.calls}")
 
@@ -353,6 +356,48 @@ def test_loop_alert_plays_during_stt():
     check(t_alert is not None and "end" in busy and t_alert < busy["end"],
           f"🔑 STT 가 끝나기 전에 알림이 나갔다(메인 루프와 따로) — 알림 {t_alert} · STT 끝 {busy.get('end')}")
     check(fg.count("play") >= 1, f"모의 글라스가 재생했다 — {fg.count('play')}")
+
+
+def test_emergency_ignores_wake_and_questions():
+    """설계 2026-10-04 §4.7 — 비상 상황(해제 전까지)에는 「가디언」에도 질문에도 반응하지 않는다(띠링·LLM·답 0)."""
+    print("\n[비상] 해제 전까지 질문 안 받음")
+    cases = (("비상정지(EMO 를 풀었어도 차단 해제 전)", dict(STATE, 상태="BLOCK", 비상정지=True)),
+             ("위반 차단", dict(STATE, 상태="BLOCK")),
+             ("순서 경고", dict(STATE, 상태="WARNING")),
+             ("작업 전 EMO", {"세션": False, "비상정지": True, "pid": os.getpid()}))
+    for name, st in cases:
+        b = bot(state=st)
+        m = {}
+        check(b.on_text("가디언", m) is False and b.spk.calls == [] and b.awake_until == 0.0 and m.get("비상중"),
+              f"{name} — 「가디언」에 띠링 없음 · {b.spk.calls}")
+        b.awake_until = time.time() + 20
+        check(b.on_text("지금 뭐 해야 돼", {}) is False and b.llm.asked == [] and b.tts.said == []
+              and b.spk.calls == [] and b.awake_until == 0.0, f"{name} — 질문에 답 없음 · LLM 안 부름 · 대화창 닫힘")
+    b = bot(state=STATE)
+    check(b.on_text("가디언", {}) is False and b.spk.calls == [("chime",)], "해제되면 평소대로 — 띠링")
+
+
+def test_sensor_question_skips_llm():
+    print("\n[관문] 센서 질문 → LLM 없이 「확인할 수 없음」")
+    b = bot(llm=FakeLlm("상태 정상입니다."))
+    ok, m = ask(b, "가스 누출 없어?")
+    check(b.llm.asked == [] and b.spk.keys() == [], f"LLM·확인 중 없음 · {b.spk.calls}")
+    check(b.tts.said == [va.voice_card.SENSOR_SENTENCE] and m["답변출처"] == "대체-센서질문", f"{b.tts.said}")
+
+
+def test_tool_question_llm_down_uses_tool_phase():
+    print("\n[LLM 실패] 공구 상황이 있으면 공구 문장")
+    b = bot(llm=FakeLlm(ready=False), state=RUNNING, tools=WRENCH)
+    ok, m = ask(b, "앞에 보이는 게 뭐야")
+    check(b.tts.said == ["앞에 렌치가 보이니 손으로 쥐면 확인됩니다."] and b.spk.keys() == [], f"{b.tts.said} · {b.spk.calls}")
+
+
+def test_question_passed_to_net():
+    print("\n[그물] 질문을 함께 넘긴다 — 끝났냐는 질문의 「네 … 진행 중」")
+    last = dict(STATE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None)
+    b = bot(llm=FakeLlm("네, 현재 4단계가 진행 중이며 마지막 단계입니다."), state=last, tools=([], False))
+    ok, m = ask(b, "이번 단계 끝났어")
+    check(m["답변출처"] == "대체-안전규칙" and "진행단정" in m.get("안전규칙", []), f"{m.get('안전규칙')}")
 
 
 # ── 메인 루프(Task 9) ─────────────────────────────────────────────────────
