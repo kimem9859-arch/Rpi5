@@ -72,9 +72,9 @@ def test_review_sheet_prefers_unfiltered_risky_answers():
     path = os.path.join(tempfile.mkdtemp(), "검토표.md")
     picked = ev.review_sheet(rows, path)
     ids = [r["id"] for r in picked]
-    check(len(ids) == 30, f"30행 — {len(ids)}")
+    check(len(ids) == 5 + 2, f"감사 의심 전부 + 상태마다 2(설계 2026-10-04 §6 · 30행 상한 없음) — {len(ids)}")
     check(all(f"a{i}" in ids for i in range(5)), "감사 의심 답은 모두 들어간다")
-    check(all(f"r{i}" in ids for i in range(10)), "통과한 위험 유형 답은 모두 들어간다")
+    check(sum(1 for i in ids if i.startswith("r")) == 2, "🔑 상태 표본은 통과한 위험 유형 답을 먼저 고른다(최종 리뷰 C1)")
     check(not any(i.startswith("f") for i in ids), "대체 문장으로 칸을 쓰지 않는다")
 
 

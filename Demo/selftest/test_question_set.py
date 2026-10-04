@@ -55,6 +55,30 @@ for key, state, tools in qs.STATES + qs.STATES2_EXTRA:
     card = voice_card.build_card(state, *tools)
     check(card.startswith("[사실]"), f"{key} 카드가 만들어진다")
 
+import tempfile  # noqa: E402
+
+import eval_questions as ev  # noqa: E402
+
+rows = [
+    {"id": "a", "상태키": "S8-EMO", "유형": "범위", "질문": "q", "경로": "비상-무응답", "회차": 1},
+    {"id": "b", "상태키": "S2-1단계-서브전", "유형": "범위", "질문": "q", "경로": "LLM", "문장": "지금은 B1 차례입니다.",
+     "회차": 1},
+    {"id": "c", "상태키": "S2-1단계-서브전", "유형": "범위", "질문": "q", "경로": "대체-안전규칙",
+     "문장": "지금은 B1 차례입니다.", "회차": 1, "안전규칙": ["다른버튼"]},
+    {"id": "d", "상태키": "S13-공구쥠", "유형": "공구", "질문": "q", "경로": "LLM", "문장": "렌치를 쥐었습니다.", "회차": 1},
+]
+s = ev.summarize(rows)
+check(s["비상무응답_건"] == 1 and s["비상_LLM호출_건"] == 0, f"비상 무응답 — {s['비상무응답_건']} · LLM {s['비상_LLM호출_건']}")
+check(s["그물대체_%"] == 33.3, f"그물 대체(LLM 경로 3 중 1) — {s['그물대체_%']}")
+check(ev.summarize(rows + [dict(rows[1], id="e", 상태키="S7-위반차단", 비상=True)])["비상_LLM호출_건"] == 1,
+      "비상 상태 문항이 LLM 경로로 가면 센다(관문 위반 탐지)")
+many = [{"id": f"x{k}", "상태키": f"S{k % 16}", "유형": "범위", "질문": "q", "경로": "LLM", "문장": f"답{k}.",
+         "회차": 1, "감사": ["다음으로"] if k < 40 else None} for k in range(200)]
+p = os.path.join(tempfile.mkdtemp(prefix="sop_review_"), "검토표.md")
+pick = ev.review_sheet(many, p)
+check(sum(1 for r in pick if r.get("감사")) == 40, "🔴 감사 의심은 전부(종전 30개 자르기 없음)")
+check({r["상태키"] for r in pick} == {f"S{k}" for k in range(16)}, "상태마다 표본이 있다")
+
 print()
 if _fails:
     print(f"❌ 실패 {len(_fails)}건")
