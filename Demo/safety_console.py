@@ -230,6 +230,9 @@ class SafetyConsole(QMainWindow):
                               self._start_demo_capture)
             self._append_log(f"[시연촬영] 대기 — {config.DEMO_SCENARIO} / {_mode}")
 
+        # 🔑 시작 기준 — 음성 알림은 「직전 상태」가 있어야 첫 비상정지를 알린다(음성 설계 2026-10-04 §4.3).
+        self._publish_state()
+
     # =========================================================================
     # [UI 초기화]
     # =========================================================================
@@ -927,6 +930,7 @@ class SafetyConsole(QMainWindow):
             return
 
         before = self._tool_state.phase
+        wrong_before = self._sub.wrong_tool
         tool = self._tool_state.update(dets, fingertip)
         self._sub.set_tool(tool)
         # 🔑 손이 보이는데 쥔 공구가 없는 스캔이 **연달아** TOOL_PUT_DOWN_SCANS 번이면
@@ -950,6 +954,8 @@ class SafetyConsole(QMainWindow):
             if self._tool_state.phase == "grasped":
                 self._stats.tool_grasped(self._tool_state.want_tool, True)
             self._publish_state()      # 공구 충족이 바뀌었다(음성 §4.4)
+        elif self._sub.wrong_tool != wrong_before:
+            self._publish_state()      # 쥔 오답 공구가 바뀌었다(음성 설계 2026-10-04 §4.2-나)
         self._update_sub_view()
 
     def _sim_tool_grasped(self):
@@ -1211,7 +1217,10 @@ class SafetyConsole(QMainWindow):
             #    「작업 결과 어때?」에 답해야 한다.
             result = self._last_result
             if result is None and (self.fsm.state == State.IDLE or not self._stats.running):
-                self._state_pub.clear()
+                # 🔑 작업 전에도 비상정지는 싣는다 — 음성 알림이 작업 전 EMO 를 보게(음성 설계 2026-10-04 §4.3).
+                #    `세션` 이 거짓이라 음성 답은 그대로 「작업 시작 전」이다(A-M3 유지).
+                self._state_pub.publish({"세션": False, "비상정지": bool(self.fsm.emo_active),
+                                         "EMO신호없음": bool(self._emo_no_signal)})
                 return
             cur = self.fsm.expected_step
             steps = (self._recipe or {}).get("steps", [])
@@ -1233,7 +1242,8 @@ class SafetyConsole(QMainWindow):
                     and self._sub_button == self.fsm.correct_roi):
                 prog = {"상태": "멈춤" if live.paused else "진행 중",
                         "남은초": round(max(0.0, live.total_sec - live.elapsed_sec), 1),
-                        "공구충족": bool(live.tool_ok)}
+                        "공구충족": bool(live.tool_ok),
+                        "공구오답": live.wrong_tool_name or None}      # 🔑 「다른 공구 쥠」(음성 설계 2026-10-04 §4.2-나)
             nxt = cur + 1 if cur < self.fsm.step_count else None
             self._state_pub.publish({
                 "세션": True,
@@ -1247,6 +1257,7 @@ class SafetyConsole(QMainWindow):
                 "다음버튼": self._step_button(nxt) if nxt else None,
                 "상태": self.fsm.state.value,
                 "비상정지": self.fsm.emo_active,     # EMO 차단을 순서 위반과 가른다(V2)
+                "EMO신호없음": bool(self._emo_no_signal),   # 켤 때부터 HIGH — 음성 알림이 「비상정지」로 단정하지 않게
                 "서브작업": sub,
                 "서브진행": prog,
                 "결과": result,

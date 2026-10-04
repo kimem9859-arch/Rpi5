@@ -15,6 +15,7 @@
 
 import os
 import sys
+import tempfile
 import time
 
 _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,6 +35,9 @@ config.RECORDING_ENABLED = False            # 테스트가 녹화 파일을 남�
 config.CAMERA_TCP_HOST = "127.0.0.1"
 config.TCP_RECV_TIMEOUT_SEC = 0.3
 config.TCP_RECONNECT_DELAY_SEC = 0.1
+# 🔴 상태 파일을 임시 폴더에 — 시작 공개가 생겨(음성 설계 2026-10-04 §4.3) 시험이 돌고 있는 데모의
+#    /dev/shm/sop_state/state.json 을 덮으면 음성비서가 엉뚱한 상태를 읽는다.
+config.STATE_SHM_DIR = tempfile.mkdtemp(prefix="sop_state_test_")
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
@@ -1187,6 +1191,35 @@ def test_voice_sub_progress_published():
     check(len(pubs) == n + 1, "설정에서 공구를 바꾸면 곧바로 공개한다(R2 M5)")
     win.close()
 
+def test_voice_alert_publish():
+    """음성 설계 2026-10-04 §4.3 · §4.2-나 — 시작 공개 · EMO신호없음 · 쥔 오답 공구를 공개한다."""
+    print("\n[음성 2026-10-04] 알림용 공개")
+    import json as _json
+    win = make_console()
+    path = os.path.join(config.STATE_SHM_DIR, "state.json")
+    with open(path, encoding="utf-8") as f:
+        boot = _json.load(f)
+    check(boot.get("세션") is False and boot.get("비상정지") is False and boot.get("pid") == os.getpid(),
+          f"시작하자마자 한 번 공개 — 알림의 「직전 상태」 {boot}")
+    pubs = []
+    win._state_pub.publish = pubs.append
+    win._on_cta()
+    key(win, "1"); finish_sub(win)
+    key(win, "2")
+    check(pubs[-1].get("EMO신호없음") is False and pubs[-1]["서브진행"].get("공구오답") is None,
+          "작업 중 공개에 EMO신호없음 · 공구오답")
+    want = win._sub.want_tool
+    other = "driver" if want != "driver" else "pliers"
+    n = len(pubs)
+    win.camera_thread.tool_signal.emit([(other, 0.9, 300, 100, 400, 200)], (350, 150))
+    check(len(pubs) == n + 1 and pubs[-1]["서브진행"]["공구오답"] == win._sub.wrong_tool_name,
+          f"오답 공구를 쥐면 곧바로 공개 — {pubs[-1]['서브진행']}")
+    win._emo_no_signal = True
+    win._publish_state()
+    check(pubs[-1].get("EMO신호없음") is True, "켤 때 EMO 신호 없음을 공개")
+    win.close()
+
+
 def test_g10_frame_sink_attached_at_start():
     """G10 — 시연 촬영이면 카메라 sink 를 기동 때 붙여 첫 프레임이 촬영 시작 전에 담긴다(U11)."""
     print("\n[G10] 1인칭 녹화 크기 — sink 선연결")
@@ -1600,7 +1633,8 @@ def test_review_am3_voice_state_file():
     now = watch(win)
     key(win, "E")
     check(win.fsm.state == State.BLOCK, f"작업 전 EMO 차단({win.fsm.state.value})")
-    check(now() is None, "작업 전 EMO 는 공개하지 않는다(파일 없음 = 「작업 시작 전」)")
+    check(now() == {"세션": False, "비상정지": True, "EMO신호없음": False},
+          f"작업 전 EMO — 세션 없음 + 비상정지만 공개(음성 알림이 보게 · 음성 답은 그대로 「작업 시작 전」) {now()}")
     win.close()
 
     win = make_console()                             # ② 완주 → EMO → 해제 → 다음 회차
@@ -1629,7 +1663,8 @@ def test_review_am3_voice_state_file():
         key(win, k)
         finish_sub(win)
     win._reset_work()
-    check(now() is None, "완주 뒤 작업 초기화 — 결과도 버리고 파일을 비운다")
+    check(now() is not None and now()["세션"] is False and now()["비상정지"] is False,
+          "완주 뒤 작업 초기화 — 결과를 버리고 작업 없음으로 공개")
     win.close()
 
     win = make_console()                             # ④ 작업 중 EMO → 해제
@@ -1641,7 +1676,7 @@ def test_review_am3_voice_state_file():
     check(bool(now()) and now().get("비상정지") is True, "작업 중 EMO — 진행 중 · 비상정지 공개")
     win.gpio_input.emo_active = lambda: False
     win._release_block()
-    check(now() is None, "작업 중 EMO 해제 — 파일을 비운다(작업이 끝났다)")
+    check(now() is not None and now()["세션"] is False, "작업 중 EMO 해제 — 작업 없음으로 공개(작업이 끝났다)")
     win.close()
 
 def test_review_am5_wrong_tool_held_through_retry_counted_once():
