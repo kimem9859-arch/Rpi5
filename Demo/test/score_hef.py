@@ -1,4 +1,4 @@
-"""console_v2 정량 채점 — 정답 라벨 대비 `.hef` 실추론 성능 측정.
+"""console_v2 정량 채점 — 정답 라벨 대비 `.hef` 실추론 성능 측정(--names 로 공구 HEF 도).
 
 왜 필요한가:
     §10.18까지의 수치는 "검출됐다"의 **빈도**일 뿐, "맞는 위치에 맞는 클래스로
@@ -78,6 +78,14 @@ def load_labels(label_dir, wh):
     return out
 
 
+def parse_names(text):
+    """--names 쉼표 목록 → 이름 목록(HEF 출력 순서). 빈 이름·겹침은 멈춘다 — 라벨 번호와 어긋나면 채점이 조용히 틀린다."""
+    out = [n.strip() for n in text.split(",")]
+    if not text.strip() or any(not n for n in out) or len(set(out)) != len(out):
+        raise ValueError(f"--names 는 겹치지 않는 이름의 쉼표 목록 — {text!r}")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description="console_v2 정량 채점 (.hef)")
     ap.add_argument("--labels", required=True, help="YOLO 정규화 라벨(.txt) 폴더")
@@ -88,7 +96,10 @@ def main():
     ap.add_argument("--self-check", action="store_true",
                     help="자기일관성 모드 — mAP50 이 1.0 근처인지 판정해 배관 검증")
     ap.add_argument("--no-csv", action="store_true")
+    ap.add_argument("--names", default=",".join(CLASS_NAMES),
+                    help="클래스 이름(HEF 출력 순서 · 쉼표) — 기본 버튼 5종 · 공구 = driver,wrench,pliers")
     args = ap.parse_args()
+    names = parse_names(args.names)
 
     if args.hef:
         config.HEF_MODEL_PATH = args.hef      # create_detector 전에 덮어써야 반영된다
@@ -135,7 +146,7 @@ def main():
 
     # ── mAP ────────────────────────────────────────────────────────────────
     thrs = tuple(round(t, 2) for t in np.arange(0.5, 0.96, 0.05))
-    res = evaluate(per_image, CLASS_NAMES, thrs)
+    res = evaluate(per_image, names, thrs)
     ap50 = res[0.5]
     m5095 = float(np.nanmean([res[t]["mAP"] for t in thrs]))
 
@@ -143,22 +154,22 @@ def main():
     print(f"  mAP50     : {ap50['mAP']:.3f}")
     print(f"  mAP50-95  : {m5095:.3f}")
     print(f"  클래스별 AP50    : " +
-          " / ".join(f"{n} {ap50['per_class'][n]:.3f}" for n in CLASS_NAMES))
+          " / ".join(f"{n} {ap50['per_class'][n]:.3f}" for n in names))
     print(f"  클래스별 AP50-95 : " +
           " / ".join(f"{n} {np.nanmean([res[t]['per_class'][n] for t in thrs]):.3f}"
-                     for n in CLASS_NAMES))
+                     for n in names))
 
     # ── 운용점 ─────────────────────────────────────────────────────────────
-    op = operating_point(per_image, CLASS_NAMES, conf_op)
+    op = operating_point(per_image, names, conf_op)
     print(f"\n【운용점 conf={conf_op}】  FSM 이 실제로 보는 값")
     print(f"  {'cls':<5}{'TP':>6}{'FP':>6}{'FN':>6}{'precision':>11}{'recall':>9}{'F1':>8}")
-    for n in CLASS_NAMES:
+    for n in names:
         s = op[n]
         print(f"  {n:<5}{s['tp']:>6}{s['fp']:>6}{s['fn']:>6}"
               f"{s['precision']:>11.3f}{s['recall']:>9.3f}{s['f1']:>8.3f}")
-    tp = sum(op[n]["tp"] for n in CLASS_NAMES)
-    fp = sum(op[n]["fp"] for n in CLASS_NAMES)
-    fn = sum(op[n]["fn"] for n in CLASS_NAMES)
+    tp = sum(op[n]["tp"] for n in names)
+    fp = sum(op[n]["fp"] for n in names)
+    fn = sum(op[n]["fn"] for n in names)
     P, R = tp / max(tp + fp, 1e-12), tp / max(tp + fn, 1e-12)
     print(f"  {'전체':<4}{tp:>6}{fp:>6}{fn:>6}{P:>11.3f}{R:>9.3f}"
           f"{2*P*R/max(P+R,1e-12):>8.3f}")
@@ -167,27 +178,27 @@ def main():
     print(f"\n【임계값 스윕】  현재 운용값 {conf_op} 이 적절한지")
     print(f"  {'conf':>6}{'TP':>7}{'FP':>6}{'FN':>6}{'precision':>11}{'recall':>9}{'F1':>8}")
     for c in [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90]:
-        s = operating_point(per_image, CLASS_NAMES, c)
-        t = sum(s[n]["tp"] for n in CLASS_NAMES)
-        f_ = sum(s[n]["fp"] for n in CLASS_NAMES)
-        n_ = sum(s[n]["fn"] for n in CLASS_NAMES)
+        s = operating_point(per_image, names, c)
+        t = sum(s[n]["tp"] for n in names)
+        f_ = sum(s[n]["fp"] for n in names)
+        n_ = sum(s[n]["fn"] for n in names)
         p, r = t / max(t + f_, 1e-12), t / max(t + n_, 1e-12)
         mark = " ←현재" if abs(c - conf_op) < 1e-9 else ""
         print(f"  {c:>6.2f}{t:>7}{f_:>6}{n_:>6}{p:>11.3f}{r:>9.3f}"
               f"{2*p*r/max(p+r,1e-12):>8.3f}{mark}")
 
     # ── 혼동행렬 ───────────────────────────────────────────────────────────
-    mat = confusion(per_image, CLASS_NAMES, conf_op)
-    cols = CLASS_NAMES + ["미검출"]
+    mat = confusion(per_image, names, conf_op)
+    cols = names + ["미검출"]
     print(f"\n【혼동행렬 conf={conf_op}】  행=정답 · 열=예측")
     print("  ⭐ 오분류(대각선 밖)는 미검출보다 위험하다 — FSM 이 순서 위반을 통과시킨다")
     print(f"  {'':<8}" + "".join(f"{c:>8}" for c in cols))
-    for i, n in enumerate(CLASS_NAMES):
+    for i, n in enumerate(names):
         print(f"  {n:<8}" + "".join(f"{mat[i][j]:>8}" for j in range(len(cols))))
-    print(f"  {'오검출':<6}" + "".join(f"{mat[len(CLASS_NAMES)][j]:>8}"
-                                       for j in range(len(CLASS_NAMES))) + f"{'-':>8}")
-    off = int(sum(mat[i][j] for i in range(len(CLASS_NAMES))
-                  for j in range(len(CLASS_NAMES)) if i != j))
+    print(f"  {'오검출':<6}" + "".join(f"{mat[len(names)][j]:>8}"
+                                       for j in range(len(names))) + f"{'-':>8}")
+    off = int(sum(mat[i][j] for i in range(len(names))
+                  for j in range(len(names)) if i != j))
     print(f"\n  → 클래스 간 오분류 총 {off}건" +
           ("  ⚠️ 확인 필요" if off else "  ✅ 없음"))
 
@@ -216,14 +227,14 @@ def main():
             w_.writerow(["images", "", len(keys)])
             w_.writerow(["mAP50", "", f"{ap50['mAP']:.4f}"])
             w_.writerow(["mAP50-95", "", f"{m5095:.4f}"])
-            for n in CLASS_NAMES:
+            for n in names:
                 w_.writerow(["AP50", n, f"{ap50['per_class'][n]:.4f}"])
                 w_.writerow(["AP50-95", n,
                              f"{np.nanmean([res[t]['per_class'][n] for t in thrs]):.4f}"])
                 s = op[n]
                 for k2 in ("tp", "fp", "fn", "precision", "recall", "f1"):
                     w_.writerow([f"op@{conf_op}_{k2}", n, s[k2]])
-            for i, n in enumerate(CLASS_NAMES):
+            for i, n in enumerate(names):
                 for j, c in enumerate(cols):
                     if mat[i][j]:
                         w_.writerow(["confusion", f"{n}->{c}", int(mat[i][j])])
