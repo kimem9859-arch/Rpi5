@@ -115,9 +115,77 @@ def test_세션_보류():
           and "s2__f99999" in SP.session_test(h2, "button"), "세션 채점 = 넘긴 목록 기준(바탕판 이름만 넘기면 새 묶음이 안 섞임 — 사용자 A)")
 
 
+def _base_split():
+    """s1 = 100장(f0~f990 · 검증 f700~f760) · s2 = 10장(검증 없음 · 떼어 둔 f80·f90 = 안 씀) · 공구 = f300 앞만 있음."""
+    a = [f"s1__f{i:05d}" for i in range(0, 1000, 10)]
+    b = [f"s2__f{i:05d}" for i in range(0, 100, 10)]
+    lab = lambda n, g: ["0 0.5 0.5 0.1 0.1"] if g == "button" or SP.frame_no(n) < 300 else []
+    return SP.make_split("t_v1", a + b, [n for n in a if SP.frame_no(n) >= 800], lab), lab
+
+
+def test_솎기():
+    print("[t1] 솎기 — 그 무리 학습 몫만 세션·프레임 순서로 한 장 건너 · 나머지 몫·바탕판은 그대로(학습량 곡선 §3)")
+    d, _ = _base_split()
+    before = json.dumps(d, sort_keys=True)
+    h = SP.thin(d, "tool", "t_v1half", 2)
+    xs = sorted(d["tool"]["train"], key=lambda n: (SP.session_of(n), SP.frame_no(n)))
+    check(h["tool"]["train"] == sorted(xs[::2]), f"남김 = 순서상 0·2·4… 번째 {len(xs[::2])}장 — {len(h['tool']['train'])}")
+    check(sorted(h["tool"]["train"] + h["tool"]["thinned"]) == sorted(xs), "남김 + 솎아 낸 것 = 바탕판 학습 몫")
+    check(h["공통"] == d["공통"] and h["button"] == d["button"] and h["tool"]["bg_dropped"] == d["tool"]["bg_dropped"],
+          "공통 몫 · 다른 무리 · 뺀 배경은 그대로")
+    check(h["규칙"]["솎기"] == 2 and h["규칙"]["바탕판"] == "t_v1" and h["규칙"]["무리"] == "tool", "규칙 = 솎기 · 바탕판 · 무리")
+    check(h["나눔"] == "t_v1half" and SP.split_hash(h) == h["해시"] != d["해시"], "이름 · 해시")
+    check(SP.names_of(h) == SP.names_of(d), "판의 사진 범위 = 바탕판과 같다(솎아 낸 것도 기록)")
+    check(json.dumps(d, sort_keys=True) == before, "바탕판을 고치지 않는다")
+
+
+def test_새사진_더하기():
+    print("[t2] 새 사진 더하기 — 세션의 학습 구간(검증·떼어 둔 20% 첫 프레임보다 36 넘게 앞)만 · 더한 배경만 10% 로(학습량 곡선 §3)")
+    d, lab = _base_split()
+    before = json.dumps(d, sort_keys=True)
+    new = [f"s1__f{i:05d}" for i in range(5, 1000, 10)] + [f"s2__f{i:05d}" for i in range(5, 100, 10)]
+    h = SP.add_new(d, new, lab, "tool", "t_v1add")
+    added = sorted(set(h["tool"]["train"]) - set(d["tool"]["train"]))
+    hold = d["공통"]["val"] + d["공통"]["test"] + d["공통"]["unused"]
+    near = [n for n in added for x in hold if SP.session_of(x) == SP.session_of(n) and 0 < SP.frame_no(x) - SP.frame_no(n) <= SP.GAP]
+    check(near == [], f"더한 사진이 검증·채점·떼어 둔 사진 36 프레임 안에 없음(누출 0) — {near[:3]}")
+    check(len(h["tool"]["added_unused"]) == 40, f"학습 구간 밖 = s1 f665~ 34 + s2 f45~ 6 = 40 — {len(h['tool']['added_unused'])}")
+    check("s2__f00035" in added and "s2__f00045" in h["tool"]["added_unused"], "검증 없는 세션 = 떼어 둔 20% 첫 프레임(f80) − 36 앞까지")
+    check(set(d["tool"]["train"]) <= set(h["tool"]["train"]), "바탕판 학습 몫은 그대로 남는다")
+    zone_bg = [n for n in set(new) - set(h["tool"]["added_unused"]) if not lab(n, "tool")]
+    kept_bg = [n for n in added if not lab(n, "tool")]
+    check(len(zone_bg) == 36 and len(kept_bg) == 4, f"더한 것 = 공구 34 · 배경 36 중 4 만(10%) — 배경 {len(kept_bg)}")
+    check(h["tool"]["bg_dropped"] == sorted(set(d["tool"]["bg_dropped"]) | (set(zone_bg) - set(kept_bg))), "뺀 배경 = 바탕판 것 + 더한 것에서 뺀 것")
+    check(h["공통"] == d["공통"] and h["button"] == d["button"], "공통 몫 · 다른 무리는 그대로")
+    check(h["규칙"]["더함"] == len(added) == 38 and h["규칙"]["바탕판"] == "t_v1" and h["규칙"]["무리"] == "tool", f"규칙 더함 38 — {h['규칙'].get('더함')}")
+    check(SP.split_hash(h) == h["해시"] and set(new) <= set(SP.names_of(h)), "해시 · 새 사진 전부가 판의 사진 범위에")
+    check(json.dumps(d, sort_keys=True) == before, "바탕판을 고치지 않는다")
+    for bad, why in ((["s9__f00005"], "바탕판에 없는 세션"), (["s1__f00000"], "바탕판에 이미 있는 사진")):
+        try:
+            SP.add_new(d, bad, lab, "tool", "x")
+            check(False, f"{why} → ValueError")
+        except ValueError:
+            check(True, f"{why} → ValueError")
+
+
+def test_검증채점_같음():
+    print("[t3] 검증·채점 몫 같음 — 학습 몫만 바꾼 판끼리만 견준다(판정 --나눔허용)")
+    d, _ = _base_split()
+    check(SP.same_eval(d, SP.thin(d, "tool", "x", 2)), "솎은 판 = 같음")
+    other = json.loads(json.dumps(d))
+    other["공통"]["test"] = other["공통"]["test"][1:]
+    check(not SP.same_eval(d, other), "채점 몫 하나 다름 → 다름")
+    other = json.loads(json.dumps(d))
+    other["공통"]["val"].append("s1__f00650")
+    check(not SP.same_eval(d, other), "검증 몫 하나 다름 → 다름")
+
+
 if __name__ == "__main__":
     test_세_몫과_빈_구간()
     test_세션_보류()
+    test_솎기()
+    test_새사진_더하기()
+    test_검증채점_같음()
     test_채점_목록_검사()
     test_배경_줄이기()
     test_나눔_파일()

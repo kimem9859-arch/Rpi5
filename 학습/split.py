@@ -8,6 +8,8 @@
 - 배경 줄이기 = 무리마다 학습 몫에서만(학습 중 검증·채점은 그대로).
 - 나눔 파일은 덮어쓰지 않는다 — 사진이 늘면 새 판.
 - 세션 보류 판(hold_session) = 한 세션을 버튼 학습·검증에서 통째로 빼 「처음 보는 세션」으로 채점(1-3단계 §4).
+- 학습량 판(thin · add_new) = 한 무리의 학습 몫만 솎거나 새 사진을 더한다 · 검증·채점 몫은 바탕판 그대로
+  (설계 2026-10-06-공구학습량곡선-design §3).
 시스템 python3 로 돈다.
 """
 import hashlib
@@ -124,13 +126,60 @@ def hold_session(d, session, all_names, name):
     return h
 
 
+def thin(d, group, name, step=2):
+    """그 무리 전용 새 판 — 학습 몫을 세션·프레임 순서로 한 줄 세워 step 장마다 하나만 남긴다(공구 학습량 곡선 §3).
+    배경·물체 구분 없이 솎는다(배경 비율이 거의 그대로) · 솎아 낸 것 = <무리>.thinned · 다른 몫은 그대로."""
+    import copy
+    h = copy.deepcopy(d)
+    h["나눔"] = name
+    h["규칙"] = {**d["규칙"], "솎기": step, "바탕판": d["나눔"], "무리": group}
+    xs = sorted(d[group]["train"], key=lambda n: (session_of(n), frame_no(n)))
+    h[group]["train"] = sorted(xs[::step])
+    h[group]["thinned"] = sorted(set(xs) - set(xs[::step]))
+    h["해시"] = split_hash(h)
+    return h
+
+
+def add_new(d, new_names, labels_of, group, name):
+    """그 무리 전용 새 판 — 바탕판에 없는 새 사진 중 세션의 학습 구간(학습 중 검증·떼어 둔 20% 의 첫 프레임보다 GAP 넘게 앞)에
+    드는 것만 학습 몫에 더한다(공구 학습량 곡선 §3). 더한 것의 배경만 그 안에서 BG_FRAC 로 줄인다(바탕판 몫은 그대로).
+    학습 구간 밖 = <무리>.added_unused(공통 몫을 건드리지 않는다). labels_of 는 make_split 과 같다.
+    바탕판에 없는 세션이거나 이미 판에 있는 사진이면 ValueError."""
+    import copy
+    have = set(names_of(d))
+    dup = sorted(set(new_names) & have)
+    if dup:
+        raise ValueError(f"바탕판에 이미 있는 사진 {len(dup)}장: {dup[:3]}")
+    edge = {}
+    for n in d["공통"]["val"] + d["공통"]["test"] + d["공통"]["unused"]:
+        edge[session_of(n)] = min(edge.get(session_of(n), frame_no(n)), frame_no(n))
+    lost = sorted(n for n in new_names if session_of(n) not in edge)
+    if lost:
+        raise ValueError(f"바탕판에 없는 세션의 사진 {len(lost)}장: {lost[:3]}")
+    zone = [n for n in new_names if edge[session_of(n)] - frame_no(n) > GAP]
+    kept, dropped = cap_background(zone, lambda n: not labels_of(n, group))
+    h = copy.deepcopy(d)
+    h["나눔"] = name
+    h["규칙"] = {**d["규칙"], "더함": len(kept), "바탕판": d["나눔"], "무리": group}
+    h[group]["train"] = sorted(set(d[group]["train"]) | set(kept))
+    h[group]["bg_dropped"] = sorted(set(d[group]["bg_dropped"]) | set(dropped))
+    h[group]["added_unused"] = sorted(set(new_names) - set(zone))
+    h["해시"] = split_hash(h)
+    return h
+
+
+def same_eval(a, b):
+    """두 판의 학습 중 검증·채점 몫이 똑같은가 — 학습 몫만 바꾼 판끼리만 견준다(판정 --나눔허용 · 공구 학습량 곡선 §4)."""
+    return all(a["공통"][k] == b["공통"][k] for k in ("val", "test"))
+
+
 def names_of(d):
-    """나눔 판에 나오는 이름 전부(몫 · 빈 구간 · 안 씀 · 뺀 배경 · 세션 채점) — 그 판의 사진 범위."""
+    """나눔 판에 나오는 이름 전부(몫 · 빈 구간 · 안 씀 · 뺀 배경 · 세션 채점 · 솎아 낸 것 · 더하지 않은 새 사진) — 그 판의 사진 범위."""
     out = set()
     for k in ("val", "test", "gap", "unused"):
         out |= set(d["공통"][k])
     for g in GROUPS:
-        for k in ("train", "bg_dropped", "test_session"):
+        for k in ("train", "bg_dropped", "test_session", "thinned", "added_unused"):
             out |= set(d.get(g, {}).get(k, []))
     return sorted(out)
 
