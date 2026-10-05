@@ -339,6 +339,80 @@ def test_판정_입력():
             stopped = True
         check(stopped, f"{what} → 멈춤")
 
+
+def test_무리_전용_판():
+    print("[w-g] 걸기 전 나눔 확인 — 규칙에 무리가 있는 판(학습량 판)은 그 무리 설정만(학습량 곡선 §3)")
+    sp = json.loads(json.dumps(SPLIT))
+    sp["규칙"] = {"무리": "tool", "바탕판": "place1_v1"}
+    btn = CLI.TC.resolve(CLI.TC.load_yaml(CLI.HERE / "설정" / "기본.yaml"), {"id": "B-full-color-s0", "group": "button"})
+    check(any("tool 전용" in m for m in CLI.split_problems(btn, sp)), "버튼이 공구 전용 판 → 멈춤")
+    check(CLI.split_problems(_cfg(), sp) == [], "공구 · 공구 전용 판 → 통과")
+
+
+def test_준비_분기():
+    print("[p-d] 준비 --솎기 · --더하기새사진 — 바탕판에서 그 무리 몫만 바꾼 판 · 보류·솎기·더하기는 함께 못 줌(학습량 곡선 §4)")
+    names = [f"s1__f{i:05d}" for i in range(0, 1000, 10)]
+    base = CLI.SP.make_split("t_v1", names, [n for n in names if CLI.SP.frame_no(n) >= 800], lambda n, g: ["0 0.5 0.5 0.1 0.1"])
+    ns = lambda **kw: argparse.Namespace(**{"나눔": "t_v1x", "무리": "tool", "솎기": None, "더하기새사진": False, **kw})
+    h = CLI.derive_split(ns(솎기=2), base, names, None)
+    check(h["규칙"].get("솎기") == 2 and h["tool"]["train"] == CLI.SP.thin(base, "tool", "t_v1x", 2)["tool"]["train"], "--솎기 2 → 솎은 판")
+    new = [f"s1__f{i:05d}" for i in range(5, 300, 10)]
+    h = CLI.derive_split(ns(더하기새사진=True), base, names + new, lambda n, g: ["0 0.5 0.5 0.1 0.1"])
+    check(h["규칙"].get("더함") == 30 and set(new) <= set(h["tool"]["train"]), "--더하기새사진 → 바탕판에 없는 사진만 더한 판")
+    got, orig = [], CLI.cmd_prepare
+    CLI.cmd_prepare = got.append
+    try:
+        CLI.main(["준비", "--나눔", "x", "--바탕판", "place1_v1", "--솎기", "2", "--무리", "tool"])
+        check(got[-1].솎기 == 2 and got[-1].무리 == "tool" and got[-1].더하기새사진 is False, "인자 --솎기 · --무리")
+        for bad in (["--솎기", "2", "--더하기새사진"], ["--보류", "s", "--솎기", "2"], ["--무리", "사람"]):
+            try:
+                CLI.main(["준비", "--나눔", "x", *bad]); stopped = False
+            except SystemExit:
+                stopped = True
+            check(stopped, f"{' '.join(bad)} → 멈춤")
+    finally:
+        CLI.cmd_prepare = orig
+
+
+def test_판정_나눔허용():
+    print("[j5] 판정 --나눔허용 — 나눔이 달라도 각 판의 검증·채점 몫이 똑같을 때만 · 나머지 조건은 그대로 같아야(학습량 곡선 §4)")
+    sc = {"전체": {"precision": .9, "recall": .9}, "클래스": {n: {"recall": .9} for n in ("driver", "wrench", "pliers")}}
+    sps = {"p_v1": {"나눔": "p_v1", "해시": "h1", "공통": {"val": ["v"], "test": ["t"]}},
+           "p_v1half": {"나눔": "p_v1half", "해시": "h2", "공통": {"val": ["v"], "test": ["t"]}}}
+    mk = lambda i, sp, conf=.65: ({"id": i, "group": "tool", "나눔": {"name": sp["나눔"], "해시": sp["해시"]},
+                                   "조건": {"멈춤": {}, "나눔": sp["해시"], "conf": conf, "판": {}}}, sc)
+    base, cand = ["a0", "a1", "a2"], ["c0", "c1", "c2"]
+    res = [mk(i, sps["p_v1"]) for i in base] + [mk(i, sps["p_v1half"]) for i in cand]
+
+    def stops(r=res, **kw):
+        try:
+            CLI.judge_ids(r, cand, base, **kw)
+            return False
+        except SystemExit:
+            return True
+    check(stops(), "허용 없이 → 나눔 다름 → 멈춤")
+    check(not stops(splits=sps), "허용 · 검증·채점 몫 같음 → 판정")
+    bad = json.loads(json.dumps(sps))
+    bad["p_v1half"]["공통"]["test"] = ["t", "t2"]
+    check(stops(splits=bad), "허용 · 채점 몫 다름 → 멈춤")
+    bad = json.loads(json.dumps(sps))
+    bad["p_v1half"]["공통"]["val"] = []
+    check(stops(splits=bad), "허용 · 검증 몫 다름 → 멈춤")
+    bad = json.loads(json.dumps(sps))
+    bad["p_v1half"]["해시"] = "zz"
+    check(stops(splits=bad), "허용 · 판 파일 해시가 결과와 다름 → 멈춤")
+    check(stops(splits={"p_v1": sps["p_v1"]}), "허용 · 판 파일 없음 → 멈춤")
+    check(stops(res[:3] + [mk(i, sps["p_v1half"], .5) for i in cand], splits=sps), "허용 · conf 다름 → 멈춤(나눔만 풀어 준다)")
+    got, orig = [], CLI.cmd_judge
+    CLI.cmd_judge = got.append
+    try:
+        CLI.main(["판정", "--후보", "c0", "--기준", "a0", "--나눔허용"])
+        CLI.main(["판정", "--후보", "c0", "--기준", "a0"])
+        check(got[0].나눔허용 is True and got[1].나눔허용 is False, "인자 --나눔허용(기본 = 꺼짐)")
+    finally:
+        CLI.cmd_judge = orig
+
+
 if __name__ == "__main__":
     test_작업()
     test_예상()
@@ -357,6 +431,9 @@ if __name__ == "__main__":
     test_나눔_문제()
     test_보류_확인()
     test_판정_입력()
+    test_무리_전용_판()
+    test_준비_분기()
+    test_판정_나눔허용()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

@@ -4,6 +4,7 @@
 실행(Rpi5 에서 · 시스템 python3): python3 학습/학습.py <명령> …
   준비 --나눔 place1_v1 [--채점 <목록>]     나눔 파일(없으면 만들기 · 있으면 그대로) → 원본 사진·라벨을 데스크톱으로(바뀐 것만)
   준비 --나눔 place1_v2b --보류 <세션> --바탕판 place1_v1   세션 보류 판(버튼 전용 · 1-3단계)
+  준비 --나눔 place1_v1half --바탕판 place1_v1 --무리 tool --솎기 2 | --더하기새사진   학습량 판(그 무리 전용 · 학습량 곡선)
   속도재기 --입력 늘리기640|원본768x1024     첫 속도 측정을 데스크톱에 띄운다(실험이 없을 때)
   걸기 <설정.yaml …> [--확인]                대기열에 넣고 실행기를 띄운다(예상 24시간 넘으면 --확인 필요)
   걸기 --이어서 <id>                          끊긴 실험을 last.pt 에서 이어서
@@ -11,7 +12,8 @@
   받기                                         끝난 실험의 기록·best.pt 를 받아 해시를 맞추고 장부를 다시 만든다
   재개                                         대기열 멈춤을 풀고 실행기를 띄운다 — 멈춘 이유를 정한 뒤에만
   빼기 <id>                                    대기열에서 뺀다(건너뛰기)
-  판정 --후보 <id …> --기준 <id …> [--채점 기본|세션]   채택 판정(후보·기준 각 시드 3개 · 세션 = 처음 보는 세션 채점)
+  판정 --후보 <id …> --기준 <id …> [--채점 기본|세션] [--나눔허용]   채택 판정(후보·기준 각 시드 3개 · 세션 = 처음 보는 세션 채점
+                                               · 나눔허용 = 나눔이 달라도 학습 중 검증·채점 몫이 같을 때만)
   변환 <id> [--수준 N]                         HEF 변환을 데스크톱에 띄운다 · 다시 치면 상태 · 끝났으면 받는다(1-2단계 §8.3)
   이름표                                      옛 이름 → 새 이름 대조표(학습/이름대조표.md)를 다시 만든다
 🔴 코드·설정이 커밋되지 않았으면 걸지 않는다 — 결과의 코드 해시가 저장소를 가리켜야 한다.
@@ -69,7 +71,29 @@ def split_problems(cfg, d):
         out.append(f"{cfg['id']}: 세션 보류 사진 {len(leak)}장이 학습·검증 몫에 있다 — 나눔 {d['나눔']} 확인")
     if d.get("규칙", {}).get("세션보류") and cfg["group"] != "button":
         out.append(f"{cfg['id']}: 나눔 {d['나눔']} 은 세션 보류 판(버튼 전용) — 공구는 바탕판({d['규칙'].get('바탕판')})으로")
+    g = d.get("규칙", {}).get("무리")
+    if g and cfg["group"] != g:
+        out.append(f"{cfg['id']}: 나눔 {d['나눔']} 은 {g} 전용 판 — {cfg['group']} 은 바탕판({d['규칙'].get('바탕판')})으로")
     return out
+
+
+def derive_split(a, base, all_names, labels_of):
+    """준비 --솎기 · --더하기새사진 → 바탕판에서 그 무리 학습 몫만 바꾼 새 판(공구 학습량 곡선 §3).
+    더하기 = 원본 목록에 있으나 바탕판에 없는 사진 전부를 후보로."""
+    if a.솎기:
+        return SP.thin(base, a.무리, a.나눔, a.솎기)
+    return SP.add_new(base, sorted(set(all_names) - set(SP.names_of(base))), labels_of, a.무리, a.나눔)
+
+
+def eval_split_problems(used, splits):
+    """판정 --나눔허용 확인 — used = 실험마다 요약의 나눔({name, 해시}) · splits = 이름 → 나눔 판.
+    판 파일이 없거나 해시가 결과와 다르거나 학습 중 검증·채점 몫이 판마다 다르면 멈출 이유를 돌려준다(학습량 곡선 §4)."""
+    out = sorted({f"나눔 {u.get('name')} 판 파일이 없거나 해시가 결과와 다르다" for u in used
+                  if (splits.get(u.get("name")) or {}).get("해시") != u.get("해시")})
+    if out:
+        return out
+    ds = [splits[u["name"]] for u in used]
+    return [] if all(SP.same_eval(ds[0], x) for x in ds) else ["학습 중 검증·채점 몫이 판마다 다르다 — --나눔허용 은 그 둘이 똑같을 때만"]
 
 
 def hold_problems(existing, held, session):
@@ -290,6 +314,20 @@ def cmd_prepare(a):
         probs = hold_problems(SP.load_split(sp_path), None, a.보류)
         if probs:
             sys.exit("🔴 " + " · ".join(probs))
+    elif a.솎기 or a.더하기새사진:
+        if not (a.바탕판 and a.무리):
+            sys.exit("🔴 --솎기 · --더하기새사진 은 --바탕판 · --무리 와 함께 준다")
+        base = SP.load_split(HERE / "나눔" / f"{a.바탕판}.json")
+        made = derive_split(a, base, idx, labels_of)
+        if not SP.same_eval(made, base):
+            sys.exit("🔴 학습 중 검증·채점 몫이 바탕판과 다르다 — 걸지 않는다(학습량 곡선 관문 ①)")
+        if not sp_path.exists():
+            SP.save_split(made, sp_path)
+            how = (f"솎기 {a.솎기}(솎아 낸 {len(made[a.무리]['thinned'])})" if a.솎기 else
+                   f"새 사진 더함 {made['규칙']['더함']}(학습 구간 밖 {len(made[a.무리]['added_unused'])} 안 씀)")
+            print(f"나눔 {a.나눔} 을 만들었다 — {a.바탕판} 의 {a.무리} 학습 몫 {how} · 학습 중 검증·채점 몫은 바탕판과 같다")
+        elif SP.load_split(sp_path)["해시"] != made["해시"]:
+            sys.exit("🔴 나눔 판이 이미 있고 지금 다시 만든 것과 다르다 — 새 판 이름으로")
     elif not sp_path.exists():
         test = [l.strip() for l in Path(a.채점).read_text(encoding="utf-8").splitlines() if l.strip()]
         SP.save_split(SP.make_split(a.나눔, sorted(idx), test, labels_of), sp_path)
@@ -444,8 +482,9 @@ def cmd_fetch(a):
     print(f"받음 {len(got)}: {', '.join(got)} · 장부 = {HERE / '장부.md'}")
 
 
-def judge_ids(results, cand_ids, base_ids):
-    dup = sorted({i for i in cand_ids + base_ids if (cand_ids + base_ids).count(i) > 1})
+def judge_ids(results, cand_ids, base_ids, splits=None):
+    """splits = 나눔 이름 → 나눔 판(판정 --나눔허용) — 주면 나눔이 달라도 각 판의 검증·채점 몫이 똑같을 때만 판정한다."""
+    dup =sorted({i for i in cand_ids + base_ids if (cand_ids + base_ids).count(i) > 1})
     if dup:
         sys.exit(f"🔴 같은 id 를 두 번 넣었다(후보 안 · 기준 안 · 후보와 기준 사이): {dup} — 시드 3개씩 서로 다른 실험으로")
     by = {su["id"]: (su, sc) for su, sc in results}
@@ -455,10 +494,15 @@ def judge_ids(results, cand_ids, base_ids):
     resumed = [i for i in cand_ids + base_ids if by[i][0].get("이어서")]
     if resumed:
         sys.exit(f"🔴 이어 학습한 결과는 판정하지 않는다(patience 를 처음부터 다시 셈): {resumed} — 새 id 로 다시 돌린다")
-    conds = {json.dumps(by[i][0].get("조건"), sort_keys=True, ensure_ascii=False) for i in cand_ids + base_ids}
+    conds = {json.dumps({k: v for k, v in (by[i][0].get("조건") or {}).items() if splits is None or k != "나눔"},
+                        sort_keys=True, ensure_ascii=False) for i in cand_ids + base_ids}
     groups = {by[i][0]["group"] for i in cand_ids + base_ids}
     if len(conds) > 1 or len(groups) > 1:
         sys.exit("🔴 후보·기준의 운용 조건(멈춤 · 나눔 · conf · 판) 또는 무리가 다르다 — 같은 조건의 기준으로 판정한다")
+    if splits is not None:
+        probs = eval_split_problems([by[i][0].get("나눔") or {} for i in cand_ids + base_ids], splits)
+        if probs:
+            sys.exit("🔴 " + " · ".join(probs))
     return ledger.adopt([by[i][1] for i in cand_ids], [by[i][1] for i in base_ids], groups.pop())
 
 
@@ -468,7 +512,12 @@ def cmd_judge(a):
     except ValueError as e:
         sys.exit(f"🔴 {e}")
     print(f"채점 = {fname}({'처음 보는 세션' if fname == '채점_세션.json' else '292장'})")
-    v, ok = judge_ids(ledger.load_results(HERE / "결과", fname), a.후보, a.기준)
+    res, splits = ledger.load_results(HERE / "결과", fname), None
+    if a.나눔허용:
+        used = {(su.get("나눔") or {}).get("name") for su, _ in res if su["id"] in a.후보 + a.기준} - {None}
+        splits = {n: SP.load_split(HERE / "나눔" / f"{n}.json") for n in used if (HERE / "나눔" / f"{n}.json").exists()}
+        print(f"나눔 허용 — 판 {', '.join(sorted(used))} · 학습 중 검증·채점 몫이 같을 때만")
+    v, ok = judge_ids(res, a.후보, a.기준, splits)
     for k, x in v.items():
         print(f"  {k}: {x}")
     print("✅ 채택" if ok else "— 기각(위로 갈린 지표 없음 또는 아래로 갈린 지표 있음)")
@@ -697,8 +746,12 @@ def main(argv=None):
     p = sub.add_parser("준비")
     p.add_argument("--나눔", required=True)
     p.add_argument("--채점", default=str(DEFAULT_TEST))
-    p.add_argument("--보류", help="이 세션을 버튼 학습·검증에서 빼고 세션 채점으로(1-3단계 §4)")
-    p.add_argument("--바탕판", help="--보류 로 만들 때 세션을 뺄 기존 나눔")
+    m = p.add_mutually_exclusive_group()
+    m.add_argument("--보류", help="이 세션을 버튼 학습·검증에서 빼고 세션 채점으로(1-3단계 §4)")
+    m.add_argument("--솎기", type=int, choices=range(2, 11), metavar="N", help="--무리 학습 몫을 세션·프레임 순서로 이 장수마다 하나만(학습량 곡선 §3)")
+    m.add_argument("--더하기새사진", action="store_true", help="원본에 있으나 바탕판에 없는 사진 중 학습 구간만 --무리 학습 몫에(학습량 곡선 §3)")
+    p.add_argument("--바탕판", help="--보류 · --솎기 · --더하기새사진 으로 만들 때 바탕이 되는 기존 나눔")
+    p.add_argument("--무리", choices=SP.GROUPS, help="--솎기 · --더하기새사진 이 바꿀 무리(그 무리 전용 판)")
     p = sub.add_parser("속도재기")
     p.add_argument("--입력", required=True, choices=sorted(TC.INPUT_MODES))
     p.add_argument("--에폭", type=int, default=3)
@@ -724,6 +777,7 @@ def main(argv=None):
     p.add_argument("--후보", nargs="+", required=True)
     p.add_argument("--기준", nargs="+", required=True)
     p.add_argument("--채점", choices=["기본", "세션"], default=None, help="세션 = 처음 보는 세션 채점(채점_세션.json · 1-3단계) · 기본 = 292장 · 세션 채점이 다 있으면 꼭 고른다")
+    p.add_argument("--나눔허용", action="store_true", help="후보·기준의 나눔이 달라도 각 판의 학습 중 검증·채점 몫이 똑같을 때만 판정(학습량 곡선 §4)")
     sub.add_parser("이름표")
     a = ap.parse_args(argv)
     {"준비": cmd_prepare, "속도재기": cmd_speed, "걸기": cmd_launch, "상태": cmd_status,
