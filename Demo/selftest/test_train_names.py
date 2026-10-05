@@ -104,6 +104,10 @@ def test_대조표():
     check(f.exists() and f.read_text(encoding="utf-8") == body, "대조표가 최신 — 아니면 `python3 학습/학습.py 이름표`")
     for old, new in (("E0b-button-s0", "B-early-base-s0"), ("E0c-tool-f120", "T-full-base-s0"), ("E9-button-sat", "B-check-sat-s0")):
         check(f"| {old} | {new} |" in body, f"{old} → {new} 줄")
+    for old, new in (("E0b-button-s0/model.hef", "B-early-base-s0_ours-L2"), ("E0b-button-s0/MZ/model.hef", "B-early-base-s0_zoo"),
+                     ("E0b-button-s0/UL/model.hef", "B-early-base-s0_ultra"), ("E0c-tool-f120/model.hef", "T-full-base-s0_ours-L2")):
+        check(f"| {old} | {new} |" in body, f"변환 모델 {old} → {new} 줄(파일은 옛 이름 그대로 · 대조표에만)")
+    check("best.pt" in body and "person_v1.pt" in body, "시연 모델 best.pt → person_v1.pt 한 줄")
 
 
 if __name__ == "__main__":

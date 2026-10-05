@@ -613,12 +613,24 @@ def names_table():
     out = ["# 이름 대조표 — 옛 이름 → 새 이름", "",
            "> 자동 생성 — `python3 학습/학습.py 이름표` 가 설정 파일·결과 폴더에서 다시 만든다. 손으로 고치지 않는다.",
            "> 규칙·모델 설명 정본 = 상위 `docs/통합문서.md` §6.4. 보고·대화에서는 **새 이름**으로 부른다 — 옛 이름은 파일·폴더·기록에만 남는다.",
-           "> 다른 머신의 git 밖 공구 모델 사본 이름 바꾸기(Demo/ 에서): `for f in models/tool_*.pt; do mv \"$f\" \"models/T_${f#models/tool_}\"; done`",
+           "> 범위 = 1단계(2026-10-03)부터 만든 모델 — 이미 이름이 정해진 것은 파일·문서·기록을 그대로 두고 여기서만 새 이름을 준다. 1단계 이전 모델(`console_v1`·`console_v2`·`tool_v*`·`button_r1`·`tool_r*`)은 이름 그대로.",
+           "> 시연 모델 예외 = `Demo/models/best.pt` → `person_v1.pt`(사람 1종 · 이름이 흔해 겹쳐 실제로 바꿨다).",
            "", "| 옛 이름 | 새 이름 | 결과 폴더 | 근거(에폭 · patience · 포화_향상) |", "|---|---|---|---|"]
     for i in sorted(rows, key=key):
         sat, seed, ep, pat = rows[i]
         has = "있음" if (HERE / "결과" / i / "설정.json").exists() else "—"
         out.append(f"| {i} | {이름.new_name(i, sat, seed)} | {has} | {ep} · {pat} · {sat} |")
+    out += ["", "## 변환 모델 — 파일은 옛 이름 그대로(파이 `~/data/학습실험/`)", "",
+            "| 옛 파일 | 새 이름 | 기록(결과 폴더) |", "|---|---|---|"]
+    for d in sorted((HERE / "결과").iterdir()):
+        for r in sorted(d.glob("변환*.json")):
+            tail = r.stem[len("변환"):].lstrip("_")
+            if tail in ("MZ", "UL"):
+                path, method = f"{d.name}/{tail}/model.hef", {"MZ": "zoo", "UL": "ultra"}[tail]
+            else:
+                lv = json.loads(r.read_text(encoding="utf-8"))["수준"]["지정"]
+                path, method = (f"{d.name}/model.hef" if not tail else f"{d.name}/{tail}/model.hef"), 이름.ours(lv)
+            out.append(f"| {path} | {이름.name_for(d.name, HERE / '결과')}_{method} | {d.name}/{r.name} |")
     return "\n".join(out) + "\n"
 
 
