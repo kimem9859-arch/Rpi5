@@ -124,12 +124,6 @@ def convert_dirname(i, level):
     return i if level is None else f"{i}_L{level}"
 
 
-def convert_names(i, level, results):
-    """받은 변환의 HEF·기록 파일 이름 — 파일만 봐도 어느 모델을 어떤 방식으로 바꿨는지 보이게(설계 모델이름 §2.3)."""
-    m = 이름.ours(level)
-    return 이름.hef_file(이름.name_for(i, results), m), f"변환_{m}.json"
-
-
 def sanitize(text, home):
     return text.replace(home, "~") if home and home != "/" else text
 
@@ -500,7 +494,7 @@ def cmd_remove(a):
 
 
 def convert_fetch(a, name, wd, code):
-    """끝난 변환 받기 — HEF 해시를 맞추고 <학습 모델 새 이름>_ours-L<수준>.hef 로 옮긴다 · 기록은 홈 경로를 지워 결과 폴더의 변환_ours-L<수준>.json 에(가중치·HEF 는 저장소 밖)."""
+    """끝난 변환 받기 — HEF 해시를 맞추고 변환.json 은 홈 경로를 지워 결과 폴더에(가중치·HEF 는 저장소 밖)."""
     dst = LOCAL / a.id / ("" if a.수준 is None else f"L{a.수준}")
     dst.mkdir(parents=True, exist_ok=True)
     logs = ["onnx.log", "hef.log", "hailo_sdk.client.log"]
@@ -513,16 +507,14 @@ def convert_fetch(a, name, wd, code):
     rec = json.loads(raw)
     if hashlib.sha256((dst / "model.hef").read_bytes()).hexdigest() != rec["해시"]["model.hef"]:
         sys.exit(f"🔴 {name} model.hef 해시가 변환.json 과 다르다 — 다시 받는다")
-    hef_name, rec_name = convert_names(a.id, rec["수준"]["지정"], HERE / "결과")
-    (dst / "model.hef").replace(dst / hef_name)        # 다시 받아도 같은 이름으로 덮는다
     text = sanitize(raw, sh("echo $HOME").strip())
     bad = leaks(text)
     if bad:
         sys.exit(f"🔴 {name}/변환.json 에 개인 경로가 남았다 {sorted(set(bad))} — 받기를 멈춘다(공개 저장소)")
-    out = HERE / "결과" / a.id / rec_name
+    out = HERE / "결과" / a.id / ("변환.json" if a.수준 is None else f"변환_L{a.수준}.json")
     out.write_text(text, encoding="utf-8")
     t = rec["시간_s"]
-    print(f"받음 {name} — 수준 {rec['수준']['지정']} · 미세 학습 {rec['수준']['미세학습']} · 시간(초) {t} · HEF {dst / hef_name} · 기록 {out}")
+    print(f"받음 {name} — 수준 {rec['수준']['지정']} · 미세 학습 {rec['수준']['미세학습']} · 시간(초) {t} · HEF {dst / 'model.hef'} · 기록 {out}")
     for l in rec["수준"]["DFC_로그"]:
         print(f"  DFC: {l}")
 
