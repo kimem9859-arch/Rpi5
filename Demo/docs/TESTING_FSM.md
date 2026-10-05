@@ -69,10 +69,10 @@ pip install PyQt6 opencv-python numpy mediapipe ultralytics
   `PyQt6`·`opencv`·`numpy`는 필수(없으면 `main.py` import 실패).
 
 ## 5. 모델 (중요) — 2026-07-18 현행화
-- ✅ 버튼 검출 모델 배선 완료 — 기본 = **`models/B_v2.hef`**(옛 console_v2 · Hailo, `config.HEF_MODEL_PATH`, 2026-07-16 전환. B4 판정은 통합문서 §12.16). `models/person_v1.pt`(옛 best.pt) = **사람 1종**(PyTorch 백엔드 폴백 — 버튼을 못 찾는다 · 통합문서 §6.4 ⏸).
+- ✅ 버튼 검출 모델 배선 완료 — 기본 = **`models/console_v2.hef`**(Hailo, `config.HEF_MODEL_PATH`, 2026-07-16 전환. B4 판정은 통합문서 §12.16). `models/person_v1.pt`(옛 `best.pt`) = **사람 1종**(PyTorch 백엔드 폴백 — 버튼을 못 찾는다 · 통합문서 §6 ⏸, `config.INFERENCE_BACKEND`로 전환).
 - 계약: **YOLOv8 detection, 5클래스 `B1 B2 B3 B4 EMO`**(※구판의 "B1~B4 4클래스"는 오기), uint8 640, HailoRT NMS.
 - 모델이 없어도 **키보드(②대역)만으로 FSM 흐름 전체를 시연**할 수 있다.
-- ※구판 서술 「best.pt = person 1클래스 → ROI 안 잡힘」은 지금도 맞다 — 그 파일은 바뀐 적이 없고 지금 이름이 `person_v1.pt` 다(버튼 PyTorch 폴백은 없다 · 통합문서 §6.4 ⏸).
+- ※구판 서술 「best.pt = person 1클래스 → ROI 안 잡힘」은 지금도 맞다 — 그 파일은 바뀐 적이 없고 지금 이름이 `person_v1.pt` 다.
 
 ## 6. GUI 실행 & 시연
 ```bash

@@ -28,7 +28,7 @@
    바뀌면 간격과 무관하게 즉시 한 장 남긴다(전환 순간이 가장 정보가 많다).
 
 조작:
-    1 / 2 / 3   모델 전환 (T_v1 / T_v2 / T_v3)
+    1 / 2   모델 전환 (tool_v1 / tool_v2)
     ↑ / ↓   신뢰도 임계 ±0.05
     a       자동 캡처 켜기/끄기
     s       지금 화면을 강제로 한 장 저장
@@ -50,11 +50,11 @@ import config
 import frame_orient
 
 MODELS = {
-    ord('1'): ("T_v1", os.path.join(_DEMO, "models", "T_v1.pt")),
-    ord('2'): ("T_v2", os.path.join(_DEMO, "models", "T_v2.pt")),
-    # 🆕 T_v3 (2026-08-13) — 클래스가 다르다: driver·wrench·**pliers**
+    ord('1'): ("tool_v1", os.path.join(_DEMO, "models", "tool_v1.pt")),
+    ord('2'): ("tool_v2", os.path.join(_DEMO, "models", "tool_v2.pt")),
+    # 🆕 tool_v3 (2026-08-13) — 클래스가 다르다: driver·wrench·**pliers**
     #    v1·v2 의 `spanner`(몽키)는 없어졌다. 우리 오픈엔드의 정답은 `wrench`(§10.39-(6)).
-    ord('3'): ("T_v3", os.path.join(_DEMO, "models", "T_v3.pt")),
+    ord('3'): ("tool_v3", os.path.join(_DEMO, "models", "tool_v3.pt")),
 }
 # 클래스별 색(BGR) — 오분류가 한눈에 보이도록 서로 멀리 띄운다
 COLOR = {"spanner": (255, 120, 0), "driver": (0, 220, 255), "wrench": (0, 255, 120),

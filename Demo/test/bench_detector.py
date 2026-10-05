@@ -1,6 +1,6 @@
 """Hailo 실추론 벤치마크 — FPS·탐지율·안정성 측정.
 
-대상 모델은 config.HEF_MODEL_PATH가 가리키는 것(현재 B_v2.hef). --hef 옵션은 없다.
+대상 모델은 config.HEF_MODEL_PATH가 가리키는 것(현재 console_v2.hef). --hef 옵션은 없다.
 
 실행:
     cd ~/sop-project/Rpi5/Demo
@@ -23,7 +23,7 @@
 출력 (파일명 태그 = YYYYMMDD_HHMMSS_<src>[_<condition>][_<model>]):
     <src>       = esp32 (옛 세션엔 usb 도 있다)
     <condition> = --condition 지정 시에만. 예: fluorescent/lowlight/daylight/cleanroom
-    <model>     = config가 가리키는 모델 stem(B_v2 등 · 옛 로그는 console_v2) — 자동 유도
+    <model>     = config가 가리키는 모델 stem(console_v2 등) — 자동 유도
     예: test/logs/20260720_143012_esp32_lowlight_console_v2_rawdet_log.csv
     ※ 파일명 규약은 test/db_import.py의 _LOG_RE와 공유한다 — 한쪽만 바꾸면 적재에서 스킵된다.
 

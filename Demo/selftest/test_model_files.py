@@ -1,7 +1,8 @@
-"""시연 모델 파일 — config 가 가리키는 파일이 있고 옛 이름(console_* · tool_* · best.pt)이 남지 않았다.
+"""시연 모델 파일 — config 가 가리키는 파일이 있고, 이름이 흔해 겹치던 옛 best.pt 가 person_v1.pt 로 바뀌었다.
 
 실행: python3 Demo/selftest/test_model_files.py
-정본 설계: 상위 docs/superpowers/specs/2026-10-05-모델이름-정리-design.md §2.4 · 목록 = 통합문서 §6.4
+계기: 2026-10-05 옛 Demo/models/best.pt 가 버튼 모델이 아니라 사람 1종(person_v1)으로 드러나 이름을 바꿨다(사용자 「바꿔줘」).
+      console_v1·console_v2·tool_v* 는 이름 그대로다(사용자 범위 결정 · 통합문서 §6.4).
 """
 import os
 import sys
@@ -21,15 +22,10 @@ def check(cond, msg):
 
 
 def test_파일():
-    print("[m1] config 의 모델 경로 = 새 이름 · git 추적 파일은 반드시 있다 · git 밖(T_*)은 없으면 건너뜀")
-    names = {os.path.basename(p) for p in (config.PT_MODEL_PATH, config.HEF_MODEL_PATH, config.TOOL_MODEL_PATH)}
-    check(names == {"person_v1.pt", "B_v2.hef", "T_v3.pt"}, f"config 경로 = person_v1.pt · B_v2.hef · T_v3.pt — {sorted(names)}")
-    for p in (config.PT_MODEL_PATH, config.HEF_MODEL_PATH):
-        check(os.path.isfile(p), f"{os.path.basename(p)} 있음")
-    if not os.path.isfile(config.TOOL_MODEL_PATH):
-        print("  ⏭️  T_v3.pt 없음(git 밖) — 이 머신에 공구 모델 사본이 없거나 옛 이름이다 → 학습/이름대조표.md 머리말의 한 줄로 바꾼다")
-    old = [f for f in os.listdir(os.path.join(_DEMO, "models")) if f.startswith(("console_", "tool_")) or f == "best.pt"]
-    check(not old, f"옛 이름 없음 — {old}")
+    print("[m1] config 의 PT 경로 = person_v1.pt(있음) · HEF 경로 파일 있음 · models/ 에 옛 best.pt 없음")
+    check(os.path.basename(config.PT_MODEL_PATH) == "person_v1.pt" and os.path.isfile(config.PT_MODEL_PATH), f"PT = person_v1.pt — {config.PT_MODEL_PATH}")
+    check(os.path.isfile(config.HEF_MODEL_PATH), f"HEF 있음 — {os.path.basename(config.HEF_MODEL_PATH)}")
+    check(not os.path.exists(os.path.join(_DEMO, "models", "best.pt")), "옛 best.pt 없음")
 
 
 if __name__ == "__main__":

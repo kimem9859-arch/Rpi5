@@ -14,17 +14,16 @@
 - **`recipe.py`/`recipe.json`** — 정답 순서 단일 출처. **PM 정비 4단계**: B1 클린·가스차단 → B2 펌프/퍼지 → B3 전극 냉각 → B4 챔버 벤트 (+EMO). `current_step_name`이 여기서 옴. (정본 §5.1과 동기화됨)
 - 테스트 절차 전체: **`Demo/docs/TESTING_FSM.md`**. 실HW 테스트는 **라즈베리파이에서** 수행.
 
-## 추론 백엔드 — `detector.py` (★ 버튼 HEF 통합 지점)
-> 모델 이름 = **B 버튼 · T 공구**(`B_v1`·`B_v2`·`T_v3` · 옛 `console_v1/v2`·`best.pt`·`tool_v*`) — 규칙·목록 정본 = 상위 통합문서 §6.4 · id 대조 = `학습/이름대조표.md`. 보고에서는 새 이름으로 부른다.
-- `PyTorchDetector`(Phase A, `person_v1.pt`, ultralytics CPU — ⚠️ 사람 1종 모델이라 버튼을 못 찾는다 · §6.4 ⏸) ↔ `HailoDetector`(Phase B, .hef, Hailo-8). `config.INFERENCE_BACKEND`로 전환.
-- ✅ **B_v1.hef 배선 완료** (상세 [`../dev/ai_model/README.md`](../dev/ai_model/README.md)):
+## 추론 백엔드 — `detector.py` (★ console_v1.hef 통합 지점)
+- `PyTorchDetector`(Phase A, `person_v1.pt`(옛 best.pt — 사람 1종이라 버튼을 못 찾는다 · 상위 통합문서 §6 ⏸), ultralytics CPU) ↔ `HailoDetector`(Phase B, .hef, Hailo-8). `config.INFERENCE_BACKEND`로 전환.
+- ✅ **console_v1.hef 배선 완료** (상세 [`../dev/ai_model/README.md`](../dev/ai_model/README.md)):
   - 입력 **uint8 640×640 RGB**(float 정규화 ❌, stretch 리사이즈), 출력 **HailoRT NMS 결과** 파싱(raw 텐서 ❌), **HailoRT 4.x**.
   - `class_name`/`_names` = **5클래스(0=B1·1=B2·2=B3·3=B4·4=EMO)** 매핑 완료(`detector.py:112`).
-  - .hef(빌드 환경 `D:\Hailo_DFC\console_v1.hef`) → 파이 `Demo/models/B_v1.hef`.
-- **`B_v2.hef`** — `Demo/models/B_v2.hef`(4.4MB, 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652. 수치 = 상위 통합문서 **§12.14·§12.15**). 규격은 v1과 동일(uint8 640·NMS 포함(HEF 안 · 실행은 파이 CPU 의 HailoRT — yolov8 은 `engine=cpu` 만 된다 · `조사/HEF변환-20261004/원문대조.md` 57)·5클래스·HailoRT 4.x)이라 **코드 수정 불필요**.
-  - ✅ **`config.HEF_MODEL_PATH` 의 현재 값은 `B_v2.hef`** — `bench_detector.py`·`run_demo.sh` 등 **config를 읽는 모든 경로가 v2로 동작**한다(이 둘엔 `--hef` 옵션이 없어 config가 유일한 선택 수단).
+  - .hef(빌드 환경 `D:\Hailo_DFC\console_v1.hef`) → 파이 `Demo/models/console_v1.hef`(`config.HEF_MODEL_PATH`).
+- **`console_v2.hef`** — `Demo/models/console_v2.hef`(4.4MB, 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652. 수치 = 상위 통합문서 **§12.14·§12.15**). 규격은 v1과 동일(uint8 640·NMS 포함(HEF 안 · 실행은 파이 CPU 의 HailoRT — yolov8 은 `engine=cpu` 만 된다 · `조사/HEF변환-20261004/원문대조.md` 57)·5클래스·HailoRT 4.x)이라 **코드 수정 불필요**.
+  - ✅ **`config.HEF_MODEL_PATH` 의 현재 값은 `console_v2.hef`** — `bench_detector.py`·`run_demo.sh` 등 **config를 읽는 모든 경로가 v2로 동작**한다(이 둘엔 `--hef` 옵션이 없어 config가 유일한 선택 수단).
   - 🔴 **전환 = 검증이 아니다.** **B4 해결 여부는 여전히 미판정**(§12.16). 기본값이 v2라고 해서 "v2가 검증됐다"고 읽지 말 것.
-  - **v1과 대조하려면**: `replay_raw.py`는 `--hef models/B_v1.hef`로 런타임 지정(권장) / `bench_detector.py`·데모는 **config를 `B_v1.hef`로 되돌려야** 한다(`--hef` 미지원).
+  - **v1과 대조하려면**: `replay_raw.py`는 `--hef models/console_v1.hef`로 런타임 지정(권장) / `bench_detector.py`·데모는 **config를 `console_v1.hef`로 되돌려야** 한다(`--hef` 미지원).
 
 ## GUI·카메라·설정 (기존 모듈 — 현행 유효)
 ### `safety_console.py` (메인 GUI, QMainWindow)

@@ -14,10 +14,7 @@
 ⚠️ Qt 에 의존하지 않는다 — GUI 없이 시험할 수 있어야 한다.
 """
 
-import os
 import time
-
-import config
 
 
 class CheckResult:
@@ -58,7 +55,7 @@ def run_stage1(ctx):
 
     det = g("detector_available", None)
     out.append(CheckResult("detector", "검출 모델", bool(det),
-                           f"{os.path.splitext(os.path.basename(config.HEF_MODEL_PATH))[0]} 로드됨" if det else "로드 실패", retryable=True))
+                           "console_v2 로드됨" if det else "로드 실패", retryable=True))
 
     hand = g("hand_tracker")
     hand_ok = bool(hand and getattr(hand, "available", False))

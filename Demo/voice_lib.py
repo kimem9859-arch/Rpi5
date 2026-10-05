@@ -36,7 +36,7 @@ _SEE_HINTS  = ("보이", "보여", "보인", "뵈", "모이", "보임")   # 오�
 _OBJ_HINTS  = ("공구", "도구", "이거", "이게", "앞에")
 _WHAT_HINTS = ("뭐", "무엇", "뭔", "머")
 
-# 🔴 런타임 모델(T_v3)의 클래스명. T_v4 는 `-in-hand` 접미어가 붙는다.
+# 🔴 런타임 모델(tool_v3)의 클래스명. tool_v4 는 `-in-hand` 접미어가 붙는다.
 _TOOL_KEYS = ("driver", "wrench", "pliers")
 
 TOOL_SHM = "/dev/shm/sop_tool/resp.json"
@@ -239,7 +239,7 @@ def answer_key(dets, fresh):
         return "notstep"
     best, best_score = None, -1.0
     for d in dets or []:
-        # 🔑 T_v4 부터 `wrench-in-hand` 처럼 접미어가 붙는다 — 벗긴다.
+        # 🔑 tool_v4 부터 `wrench-in-hand` 처럼 접미어가 붙는다 — 벗긴다.
         name = str(d[0]).split("-in-hand")[0].strip()
         if name not in _TOOL_KEYS:
             continue

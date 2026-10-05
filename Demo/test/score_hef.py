@@ -1,4 +1,4 @@
-"""버튼 HEF 정량 채점(기본 = config 의 B_v2) — 정답 라벨 대비 `.hef` 실추론 성능 측정.
+"""console_v2 정량 채점 — 정답 라벨 대비 `.hef` 실추론 성능 측정.
 
 왜 필요한가:
     §10.18까지의 수치는 "검출됐다"의 **빈도**일 뿐, "맞는 위치에 맞는 클래스로
@@ -79,7 +79,7 @@ def load_labels(label_dir, wh):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="버튼 HEF 정량 채점 (.hef · 기본 config)")
+    ap = argparse.ArgumentParser(description="console_v2 정량 채점 (.hef)")
     ap.add_argument("--labels", required=True, help="YOLO 정규화 라벨(.txt) 폴더")
     ap.add_argument("--images", required=True, help="원본 PNG 폴더 (로컬 무손실)")
     ap.add_argument("--hef", default=None, help="사용할 .hef (기본 config.HEF_MODEL_PATH)")

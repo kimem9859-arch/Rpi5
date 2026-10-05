@@ -347,14 +347,12 @@ def test_관문_입력_미리_확인():
         tpl = Path(d) / "tpl"; tpl.mkdir(); (tpl / "f00001.png").write_bytes(b"x")
         w = Path(d) / "w.pt"; w.write_bytes(b"x")
         ok = lambda **k: argparse.Namespace(probe=False, backend="colab", round=1, **k)
-        check(TTR.preflight(ok(group="button", template=str(tpl), current="B_v2"), models) == [], "버튼 · B_v2(지금 배포 HEF) = 통과")
+        check(TTR.preflight(ok(group="button", template=str(tpl), current="console_v2"), models) == [], "버튼 · console_v2 = 통과")
         check(TTR.preflight(ok(group="button", template=str(tpl), current=str(w)), models) == [], "버튼 · 가중치 파일 = 통과")
-        check(any("--current" in m for m in TTR.preflight(ok(group="button", template=str(tpl), current="B_V2"), models)), "버튼 · 오타 = 멈춤")
-        old = TTR.preflight(ok(group="button", template=str(tpl), current="console_v2"), models)
-        check(any("B_v2" in m for m in old), "버튼 · 옛 낱말 console_v2 = 멈춤 + 새 이름 B_v2 안내(통합문서 §6.4)")
-        check(any("--current" in m for m in TTR.preflight(ok(group="tool", current="B_v2"), models)), "공구 · B_v2 는 파일이 아니라 멈춤")
+        check(any("--current" in m for m in TTR.preflight(ok(group="button", template=str(tpl), current="console_V2"), models)), "버튼 · 오타 = 멈춤")
+        check(any("--current" in m for m in TTR.preflight(ok(group="tool", current="console_v2"), models)), "공구 · console_v2 는 파일이 아니라 멈춤")
         empty = Path(d) / "empty"; empty.mkdir()
-        check(any("--template" in m for m in TTR.preflight(ok(group="button", template=str(empty), current="B_v2"), models)), "사진 없는 배치 틀 = 멈춤")
+        check(any("--template" in m for m in TTR.preflight(ok(group="button", template=str(empty), current="console_v2"), models)), "사진 없는 배치 틀 = 멈춤")
 
 
 def test_배치_틀_없으면_멈춤():
@@ -387,7 +385,7 @@ def test_버튼_관문_호출():
         cwd = os.getcwd(); os.chdir(d)
         try:
             try:
-                TTR.gate_button({"m": "w.pt"}, Path("ds"), "tpl", "B_v2"); raised = None
+                TTR.gate_button({"m": "w.pt"}, Path("ds"), "tpl", "console_v2"); raised = None
             except TTR.GateFailed as e:
                 raised = e
         finally:

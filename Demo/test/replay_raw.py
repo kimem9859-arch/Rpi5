@@ -7,7 +7,7 @@
 
 주 용도:
     1. **console_v2 평가** — console_v1이 B4를 놓친 그 ESP32 프레임에 v2를 그대로 먹여 비교.
-       `python3 test/replay_raw.py test/raw/<세션> --hef models/B_v2.hef`
+       `python3 test/replay_raw.py test/raw/<세션> --hef models/console_v2.hef`
     2. **요인 분리 재현**(§10.9) — 입력을 인위적으로 열화시켜 어느 요인이 검출을 죽이는지.
        `python3 test/replay_raw.py test/raw/<세션> --jpeg 30`
        `python3 test/replay_raw.py test/raw/<세션> --scale 0.74`

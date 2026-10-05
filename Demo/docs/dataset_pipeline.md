@@ -22,7 +22,7 @@
   ↓
 학습            (GPU) 증강 학습 → DFC → .hef
   ↓
-평가            replay_raw.py --hef B_v2.hef(옛 console_v2)  ← v1이 실패한 그 프레임에
+평가            replay_raw.py --hef console_v2.hef  ← v1이 실패한 그 프레임에
 ```
 
 ---

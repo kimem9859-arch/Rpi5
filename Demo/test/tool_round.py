@@ -16,7 +16,7 @@ import tarfile
 from pathlib import Path
 
 TOOL_FIRST = 5                                    # 8종 번호(B1 B2 B3 B4 EMO driver wrench pliers)에서 공구 시작
-TOOL_NAMES = ["driver", "wrench", "pliers"]       # T_v3 순서와 같다
+TOOL_NAMES = ["driver", "wrench", "pliers"]       # tool_v3 순서와 같다
 BUTTON_NAMES = ["B1", "B2", "B3", "B4", "EMO"]    # 8종 번호 0~4 그대로(spec 2026-09-29 §4)
 GROUPS = {"tool": (TOOL_FIRST, TOOL_NAMES), "button": (0, BUTTON_NAMES)}
 

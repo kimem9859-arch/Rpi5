@@ -374,7 +374,7 @@ def test_버튼_모델_기록():
         m = RB.button_model_record(p)
         check(m["path"] == p and m["sha256_16"] == RB._sha(p) and m["conf"] == config.YOLO_CONF_LOW
               and m["method"].startswith("whole") and m["backend"] == "pt-rfenv", f"{m}")
-    check(RB.button_model_record()["method"].startswith("tile2"), "모델을 안 주면 지금 방식(B_v2 조각)")
+    check(RB.button_model_record()["method"].startswith("tile2"), "모델을 안 주면 지금 방식(console_v2 조각)")
 
 
 def test_제안은_기본으로_끔():

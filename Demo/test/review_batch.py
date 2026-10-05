@@ -6,7 +6,7 @@
       --out ~/data/label_batches/b001 --size 200 [--seed 1]
 출력: <out>/images/(순서 표시가 붙은 사진 + 같은 이름 .json) · classes.txt · manifest.json · 안내.txt · xanylabelingrc_단축키.yaml
 정본 설계 = 상위 docs/superpowers/specs/2026-09-28-반자동라벨링-design.md §3 · §4 · §5 · §6
---button-model = 반복 학습 버튼 모델(spec 2026-09-29) — rfenv 에서 사진 통째로 초벌(조각 안 함) · 배치 틀·문턱도 그 모델로. 없으면 B_v2 조각(지금 배포 버튼 HEF).
+--button-model = 반복 학습 버튼 모델(spec 2026-09-29) — rfenv 에서 사진 통째로 초벌(조각 안 함) · 배치 틀·문턱도 그 모델로. 없으면 console_v2 조각.
 🔴 원본을 옮기거나 지우지 않는다 — 사진은 복사한다. 🔴 --seal 을 주면 봉인 사진과 그 주변은 넣지 않는다
    (실험 1 의 50장 봉인은 실험 1 취소로 풀었다 — 설계 §4 · §13. 장소3 세션은 --sessions 에 넣지 않는다).
 🔴 한 번 묶음에 넣은 원본은 --used 목록에 적어 다음 묶음에 다시 넣지 않고, 그것과 pHash 가 가까운 후보도 뺀다.
@@ -35,7 +35,7 @@ import label_review as LR          # noqa: E402
 import xany_io as X                # noqa: E402
 
 RFENV = Path.home() / "env/rfenv/bin/python"
-TOOL_MODEL = DEMO / "models/T_v3.pt"
+TOOL_MODEL = DEMO / "models/tool_v3.pt"
 PHASH_THR = 6                      # 설계 §4 — 세션 전체를 합쳐
 BLACK_MEAN = 12
 

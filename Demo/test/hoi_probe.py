@@ -4,7 +4,7 @@
     MediaPipe가 Python 3.13/aarch64 휠을 제공하지 않아 손 검출이 막혀 있었다(§10.6·§4 NFR-1).
     그런데 MediaPipe의 손 모델(BlazePalm + BlazeHandLandmark)은 이미 Hailo로 포팅돼 있고,
     그 경로는 `hailo_platform`+numpy+cv2만 쓴다 — **mediapipe 패키지가 아예 불필요**하다.
-    이 스크립트는 그 경로가 이 파이에서 실제로 도는지, 그리고 버튼 HEF(config · 지금 B_v2)와 동시 구동이
+    이 스크립트는 그 경로가 이 파이에서 실제로 도는지, 그리고 console_v2와 동시 구동이
     가능한지를 **기존 런타임 코드를 건드리지 않고** 확인한다.
 
     🔴 이것은 실증 프로브지 런타임 통합이 아니다. 채택 여부는 측정 후 사람이 결정한다.
@@ -13,7 +13,7 @@
     # 손 랜드마크가 나오는지 (정지 이미지)
     python3 test/hoi_probe.py --image test/raw/<세션>/f00203.png
 
-    # 버튼 HEF(config · 지금 B_v2)와 동시 로드·FPS 측정
+    # console_v2와 동시 로드·FPS 측정
     python3 test/hoi_probe.py --image <png> --with-console --frames 30
 
 전제:
@@ -115,7 +115,7 @@ def main():
     ap.add_argument("--batch", metavar="DIR",
                     help="폴더 내 PNG 전량에 대해 손 검출률·접촉 판정을 집계(신뢰도 측정용)")
     ap.add_argument("--with-console", action="store_true",
-                    help="버튼 HEF(config · 지금 B_v2.hef)를 같은 VDevice 에 함께 로드해 동시 구동 확인")
+                    help="console_v2.hef 를 같은 VDevice 에 함께 로드해 동시 구동 확인")
     ap.add_argument("--frames", type=int, default=0, help=">0 이면 그 횟수만큼 반복해 FPS 측정")
     ap.add_argument("--viz", default=None, metavar="PNG",
                     help="손 랜드마크 + console_v2 버튼 박스를 겹쳐 그린 이미지를 저장 "

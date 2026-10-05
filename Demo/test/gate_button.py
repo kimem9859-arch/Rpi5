@@ -1,10 +1,10 @@
 """버튼 초벌 관문 — 떼어 둔 사진에서 후보마다 초벌 + 기계 검토를 돌려 사용자 최종 라벨(버튼)과 대조한다.
 
 실행(Demo/ 에서, 시스템 python3 — Hailo·cv2): python3 test/gate_button.py --ds ~/data/label_train/button_r1 \\
-    --template test/raw/<정지 세션> --cand yolov8n=<dets.json> [--cand ...] --current B_v2|이름=<dets.json> --out <gate.json>
+    --template test/raw/<정지 세션> --cand yolov8n=<dets.json> [--cand ...] --current console_v2|이름=<dets.json> --out <gate.json>
 dets.json = {사진 경로: [[이름, 점수, x1, y1, x2, y2], ...]} — 떼어 둔 사진과 배치 틀 사진 전부(train_tool_round 가 rfenv 에서
   prelabel_tools.predict_boxes 로 만든다 · 경로 열쇠 = tool_round.gate_paths). 새 모델은 사진 통째로(tile=False).
---current B_v2 = 지금 방식(Hailo 지금 배포 버튼 HEF B_v2 · 조각)으로 잰다 — 시연 프로그램이 Hailo 를 쓰고 있으면 실패한다.
+--current console_v2 = 지금 방식(Hailo console_v2 · 조각)으로 잰다 — 시연 프로그램이 Hailo 를 쓰고 있으면 실패한다.
 출력(JSON) = {"cands": {이름: 셈 또는 {"error": 이유}}, "current": {"name": 이름, **셈}} · 셈 = collect_batch.button_work
 정본 설계 = 상위 docs/superpowers/specs/2026-09-29-버튼초벌-반복학습-design.md §7
 🔴 짝짓기는 회수 집계(collect_batch.edit_stats)와 같다 — 관문 값과 묶음 값이 같은 잣대. 🔴 같은 장소 값 — 성능으로 인용하지 않는다.
@@ -68,7 +68,7 @@ def main():
     ap.add_argument("--ds", required=True)
     ap.add_argument("--template", required=True)
     ap.add_argument("--cand", action="append", default=[], help="이름=초벌 JSON(여러 번)")
-    ap.add_argument("--current", required=True, help="B_v2(Hailo 조각 방식 · 옛 console_v2) 또는 이름=초벌 JSON")
+    ap.add_argument("--current", required=True, help="console_v2(Hailo 조각 방식) 또는 이름=초벌 JSON")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     ds = Path(a.ds).expanduser().resolve()
@@ -88,9 +88,7 @@ def main():
             res["cands"][name] = {"error": str(e)}
         print(f"  {name}: {res['cands'][name]}")
     if a.current == "console_v2":
-        sys.exit("--current console_v2 는 B_v2 로 바뀌었다(지금 배포 버튼 HEF · 통합문서 §6.4)")
-    if a.current == "B_v2":
-        res["current"] = {"name": "B_v2", **evaluate(hailo_run(), True, tpl, val)}
+        res["current"] = {"name": "console_v2", **evaluate(hailo_run(), True, tpl, val)}
     else:
         name, j = a.current.split("=", 1)
         res["current"] = {"name": name, **evaluate(json_run(j, vp + tp), False, tpl, val)}
