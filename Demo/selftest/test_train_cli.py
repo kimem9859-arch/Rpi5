@@ -359,6 +359,20 @@ def test_준비_분기():
     new = [f"s1__f{i:05d}" for i in range(5, 300, 10)]
     h = CLI.derive_split(ns(더하기새사진=True), base, names + new, lambda n, g: ["0 0.5 0.5 0.1 0.1"])
     check(h["규칙"].get("더함") == 30 and set(new) <= set(h["tool"]["train"]), "--더하기새사진 → 바탕판에 없는 사진만 더한 판")
+    pa = lambda **kw: argparse.Namespace(**{"나눔": "place1_v1x", "보류": None, "솎기": None, "더하기새사진": False, "바탕판": None, "무리": None, **kw})
+    check(CLI.prepare_problems(pa()) == [] and CLI.prepare_problems(pa(솎기=2, 바탕판="place1_v1", 무리="tool")) == []
+          and CLI.prepare_problems(pa(보류="s", 바탕판="place1_v1")) == [], "인자 확인 — 보통 · 솎기 · 보류 → 통과")
+    for kw, what in (({"솎기": 2, "무리": "tool"}, "솎기 · 바탕판 없음"), ({"더하기새사진": True, "바탕판": "place1_v1"}, "더하기 · 무리 없음"),
+                     ({"바탕판": "place1_v1", "무리": "tool"}, "솎기·더하기 없이 바탕판·무리(새 3분할 판이 생긴다)"),
+                     ({"보류": "s", "바탕판": "place1_v1", "무리": "tool"}, "보류에 무리"),
+                     ({"솎기": 2, "바탕판": "place2_v1", "무리": "tool"}, "바탕판 장소 다름")):
+        check(bool(CLI.prepare_problems(pa(**kw))), f"인자 확인 — {what} → 멈춤")
+    made = CLI.SP.thin(base, "tool", "t_v1x", 2)
+    check(CLI.derive_problems(None, made, base) == [] and CLI.derive_problems(made, made, base) == [], "새 판 · 같은 판이 이미 있음 → 통과")
+    check(bool(CLI.derive_problems(CLI.SP.thin(base, "tool", "t_v1x", 3), made, base)), "이미 있는 판이 다시 만든 것과 다름 → 멈춤")
+    bad = json.loads(json.dumps(made))
+    bad["공통"]["test"] = bad["공통"]["test"][1:]
+    check(bool(CLI.derive_problems(None, bad, base)), "검증·채점 몫이 바탕판과 다름 → 멈춤(관문 ①)")
     got, orig = [], CLI.cmd_prepare
     CLI.cmd_prepare = got.append
     try:
@@ -402,6 +416,7 @@ def test_판정_나눔허용():
     bad["p_v1half"]["해시"] = "zz"
     check(stops(splits=bad), "허용 · 판 파일 해시가 결과와 다름 → 멈춤")
     check(stops(splits={"p_v1": sps["p_v1"]}), "허용 · 판 파일 없음 → 멈춤")
+    check(bool(CLI.eval_split_problems([{}, {"name": "p_v1", "해시": "h1"}], sps)), "요약에 나눔이 없는 결과 → 멈춤(KeyError 아님)")
     check(stops(res[:3] + [mk(i, sps["p_v1half"], .5) for i in cand], splits=sps), "허용 · conf 다름 → 멈춤(나눔만 풀어 준다)")
     got, orig = [], CLI.cmd_judge
     CLI.cmd_judge = got.append

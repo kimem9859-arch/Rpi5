@@ -129,7 +129,11 @@ def test_솎기():
     before = json.dumps(d, sort_keys=True)
     h = SP.thin(d, "tool", "t_v1half", 2)
     xs = sorted(d["tool"]["train"], key=lambda n: (SP.session_of(n), SP.frame_no(n)))
-    check(h["tool"]["train"] == sorted(xs[::2]), f"남김 = 순서상 0·2·4… 번째 {len(xs[::2])}장 — {len(h['tool']['train'])}")
+    kept = h["tool"]["train"]
+    s1p = [n for n in kept if n.startswith("s1__") and SP.frame_no(n) < 300]
+    check(len(kept) == 20 and s1p == [f"s1__f{i:05d}" for i in range(0, 300, 20)]
+          and [n for n in kept if n.startswith("s2__")] == ["s2__f00000", "s2__f00020", "s2__f00040"],
+          f"손으로 센 남김 20장 = s1 공구 f0·f20…f280 15 + s1 배경 2 + s2 f0·f20·f40 — {len(kept)}")
     check(sorted(h["tool"]["train"] + h["tool"]["thinned"]) == sorted(xs), "남김 + 솎아 낸 것 = 바탕판 학습 몫")
     check(h["공통"] == d["공통"] and h["button"] == d["button"] and h["tool"]["bg_dropped"] == d["tool"]["bg_dropped"],
           "공통 몫 · 다른 무리 · 뺀 배경은 그대로")
@@ -160,12 +164,14 @@ def test_새사진_더하기():
     check(h["규칙"]["더함"] == len(added) == 38 and h["규칙"]["바탕판"] == "t_v1" and h["규칙"]["무리"] == "tool", f"규칙 더함 38 — {h['규칙'].get('더함')}")
     check(SP.split_hash(h) == h["해시"] and set(new) <= set(SP.names_of(h)), "해시 · 새 사진 전부가 판의 사진 범위에")
     check(json.dumps(d, sort_keys=True) == before, "바탕판을 고치지 않는다")
-    for bad, why in ((["s9__f00005"], "바탕판에 없는 세션"), (["s1__f00000"], "바탕판에 이미 있는 사진")):
-        try:
-            SP.add_new(d, bad, lab, "tool", "x")
-            check(False, f"{why} → ValueError")
-        except ValueError:
-            check(True, f"{why} → ValueError")
+    h2 = SP.add_new(d, new + ["s9__f00005"], lab, "tool", "x")
+    check("s9__f00005" in h2["tool"]["added_unused"] and h2["tool"]["train"] == h["tool"]["train"],
+          "바탕판에 없는 세션 = 학습 구간을 셀 수 없어 안 씀(added_unused)")
+    try:
+        SP.add_new(d, ["s1__f00000"], lab, "tool", "x")
+        check(False, "바탕판에 이미 있는 사진 → ValueError")
+    except ValueError:
+        check(True, "바탕판에 이미 있는 사진 → ValueError")
 
 
 def test_검증채점_같음():
@@ -178,6 +184,9 @@ def test_검증채점_같음():
     other = json.loads(json.dumps(d))
     other["공통"]["val"].append("s1__f00650")
     check(not SP.same_eval(d, other), "검증 몫 하나 다름 → 다름")
+    other = json.loads(json.dumps(d))
+    other["button"]["test_session"] = ["s2__f00000"]
+    check(not SP.same_eval(d, other), "세션 채점 몫 다름 → 다름(--채점 세션 과 함께 쓸 때)")
 
 
 if __name__ == "__main__":

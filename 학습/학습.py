@@ -77,6 +77,30 @@ def split_problems(cfg, d):
     return out
 
 
+def prepare_problems(a):
+    """준비 인자 확인 — 바탕판에서 만드는 판(--보류 · --솎기 · --더하기새사진)만 --바탕판(같은 장소)을 · 솎기·더하기만 --무리 를 받는다.
+    빠뜨리면 조용히 무시되어 그 이름으로 새 3분할 판이 생긴다(최종 리뷰 m3)."""
+    derive = a.솎기 or a.더하기새사진
+    out = []
+    if derive and not (a.바탕판 and a.무리):
+        out.append("--솎기 · --더하기새사진 은 --바탕판 · --무리 와 함께 준다")
+    if a.바탕판 and not (a.보류 or derive):
+        out.append("--바탕판 은 --보류 · --솎기 · --더하기새사진 과 함께만")
+    if a.무리 and not derive:
+        out.append("--무리 는 --솎기 · --더하기새사진 과 함께만")
+    if a.바탕판 and place_of(a.바탕판) != place_of(a.나눔):
+        out.append(f"바탕판 {a.바탕판} 과 나눔 {a.나눔} 의 장소가 다르다")
+    return out
+
+
+def derive_problems(existing, made, base):
+    """준비 --솎기 · --더하기새사진 확인 — 학습 중 검증·채점 몫이 바탕판과 같아야(관문 ①) · 이미 있는 판이면 다시 만든 것과 해시가 같아야."""
+    out = [] if SP.same_eval(made, base) else ["학습 중 검증·채점 몫이 바탕판과 다르다 — 걸지 않는다(학습량 곡선 관문 ①)"]
+    if existing is not None and existing["해시"] != made["해시"]:
+        out.append("나눔 판이 이미 있고 지금 다시 만든 것과 다르다 — 새 판 이름으로")
+    return out
+
+
 def derive_split(a, base, all_names, labels_of):
     """준비 --솎기 · --더하기새사진 → 바탕판에서 그 무리 학습 몫만 바꾼 새 판(공구 학습량 곡선 §3).
     더하기 = 원본 목록에 있으나 바탕판에 없는 사진 전부를 후보로."""
@@ -89,7 +113,7 @@ def eval_split_problems(used, splits):
     """판정 --나눔허용 확인 — used = 실험마다 요약의 나눔({name, 해시}) · splits = 이름 → 나눔 판.
     판 파일이 없거나 해시가 결과와 다르거나 학습 중 검증·채점 몫이 판마다 다르면 멈출 이유를 돌려준다(학습량 곡선 §4)."""
     out = sorted({f"나눔 {u.get('name')} 판 파일이 없거나 해시가 결과와 다르다" for u in used
-                  if (splits.get(u.get("name")) or {}).get("해시") != u.get("해시")})
+                  if u.get("name") is None or (splits.get(u["name"]) or {}).get("해시") != u.get("해시")})
     if out:
         return out
     ds = [splits[u["name"]] for u in used]
@@ -292,6 +316,9 @@ def start_runner(code_dir):
 
 # ── 명령 ───────────────────────────────────────────────────────────
 def cmd_prepare(a):
+    probs = prepare_problems(a)
+    if probs:
+        sys.exit("🔴 " + " · ".join(probs))
     place = place_of(a.나눔)
     src = SRC / place
     idx = read_index(src)
@@ -315,19 +342,19 @@ def cmd_prepare(a):
         if probs:
             sys.exit("🔴 " + " · ".join(probs))
     elif a.솎기 or a.더하기새사진:
-        if not (a.바탕판 and a.무리):
-            sys.exit("🔴 --솎기 · --더하기새사진 은 --바탕판 · --무리 와 함께 준다")
         base = SP.load_split(HERE / "나눔" / f"{a.바탕판}.json")
-        made = derive_split(a, base, idx, labels_of)
-        if not SP.same_eval(made, base):
-            sys.exit("🔴 학습 중 검증·채점 몫이 바탕판과 다르다 — 걸지 않는다(학습량 곡선 관문 ①)")
+        try:
+            made = derive_split(a, base, idx, labels_of)
+        except ValueError as e:
+            sys.exit(f"🔴 {e}")
+        probs = derive_problems(SP.load_split(sp_path) if sp_path.exists() else None, made, base)
+        if probs:
+            sys.exit("🔴 " + " · ".join(probs))
         if not sp_path.exists():
             SP.save_split(made, sp_path)
             how = (f"솎기 {a.솎기}(솎아 낸 {len(made[a.무리]['thinned'])})" if a.솎기 else
-                   f"새 사진 더함 {made['규칙']['더함']}(학습 구간 밖 {len(made[a.무리]['added_unused'])} 안 씀)")
+                   f"새 사진 더함 {made['규칙']['더함']}(학습 구간 밖·바탕판에 없는 세션 {len(made[a.무리]['added_unused'])} 안 씀)")
             print(f"나눔 {a.나눔} 을 만들었다 — {a.바탕판} 의 {a.무리} 학습 몫 {how} · 학습 중 검증·채점 몫은 바탕판과 같다")
-        elif SP.load_split(sp_path)["해시"] != made["해시"]:
-            sys.exit("🔴 나눔 판이 이미 있고 지금 다시 만든 것과 다르다 — 새 판 이름으로")
     elif not sp_path.exists():
         test = [l.strip() for l in Path(a.채점).read_text(encoding="utf-8").splitlines() if l.strip()]
         SP.save_split(SP.make_split(a.나눔, sorted(idx), test, labels_of), sp_path)
@@ -484,7 +511,7 @@ def cmd_fetch(a):
 
 def judge_ids(results, cand_ids, base_ids, splits=None):
     """splits = 나눔 이름 → 나눔 판(판정 --나눔허용) — 주면 나눔이 달라도 각 판의 검증·채점 몫이 똑같을 때만 판정한다."""
-    dup =sorted({i for i in cand_ids + base_ids if (cand_ids + base_ids).count(i) > 1})
+    dup = sorted({i for i in cand_ids + base_ids if (cand_ids + base_ids).count(i) > 1})
     if dup:
         sys.exit(f"🔴 같은 id 를 두 번 넣었다(후보 안 · 기준 안 · 후보와 기준 사이): {dup} — 시드 3개씩 서로 다른 실험으로")
     by = {su["id"]: (su, sc) for su, sc in results}

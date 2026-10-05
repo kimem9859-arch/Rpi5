@@ -143,8 +143,10 @@ def thin(d, group, name, step=2):
 def add_new(d, new_names, labels_of, group, name):
     """그 무리 전용 새 판 — 바탕판에 없는 새 사진 중 세션의 학습 구간(학습 중 검증·떼어 둔 20% 의 첫 프레임보다 GAP 넘게 앞)에
     드는 것만 학습 몫에 더한다(공구 학습량 곡선 §3). 더한 것의 배경만 그 안에서 BG_FRAC 로 줄인다(바탕판 몫은 그대로).
-    학습 구간 밖 = <무리>.added_unused(공통 몫을 건드리지 않는다). labels_of 는 make_split 과 같다.
-    바탕판에 없는 세션이거나 이미 판에 있는 사진이면 ValueError."""
+    학습 구간 밖 · 바탕판에 없는 세션(구간을 셀 수 없음) = <무리>.added_unused(공통 몫을 건드리지 않는다).
+    labels_of 는 make_split 과 같다. 이미 판에 있는 사진이면 ValueError.
+    ⚠️ 검증 몫이 전부 빈 구간이 된 세션은 경계가 떼어 둔 20% 첫 프레임이 되어 바탕판이 빈 구간으로 뺀 자리에 더할 수 있다
+    (평가 몫이 아니라 누출은 아님 · place1 에는 그런 세션이 없다 — 최종 리뷰 m6)."""
     import copy
     have = set(names_of(d))
     dup = sorted(set(new_names) & have)
@@ -153,10 +155,7 @@ def add_new(d, new_names, labels_of, group, name):
     edge = {}
     for n in d["공통"]["val"] + d["공통"]["test"] + d["공통"]["unused"]:
         edge[session_of(n)] = min(edge.get(session_of(n), frame_no(n)), frame_no(n))
-    lost = sorted(n for n in new_names if session_of(n) not in edge)
-    if lost:
-        raise ValueError(f"바탕판에 없는 세션의 사진 {len(lost)}장: {lost[:3]}")
-    zone = [n for n in new_names if edge[session_of(n)] - frame_no(n) > GAP]
+    zone = [n for n in new_names if session_of(n) in edge and edge[session_of(n)] - frame_no(n) > GAP]
     kept, dropped = cap_background(zone, lambda n: not labels_of(n, group))
     h = copy.deepcopy(d)
     h["나눔"] = name
@@ -169,8 +168,9 @@ def add_new(d, new_names, labels_of, group, name):
 
 
 def same_eval(a, b):
-    """두 판의 학습 중 검증·채점 몫이 똑같은가 — 학습 몫만 바꾼 판끼리만 견준다(판정 --나눔허용 · 공구 학습량 곡선 §4)."""
-    return all(a["공통"][k] == b["공통"][k] for k in ("val", "test"))
+    """두 판의 학습 중 검증·채점(세션 채점 포함) 몫이 똑같은가 — 학습 몫만 바꾼 판끼리만 견준다(판정 --나눔허용 · 공구 학습량 곡선 §4)."""
+    return (all(a["공통"][k] == b["공통"][k] for k in ("val", "test"))
+            and all(session_test(a, g) == session_test(b, g) for g in GROUPS))
 
 
 def names_of(d):
