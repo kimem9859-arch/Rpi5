@@ -1,0 +1,32 @@
+{
+ "id": "T-full-b010-s1",
+ "group": "tool",
+ "입력": "늘리기640",
+ "바꾼것": "나눔=place1_v1b010 · seed=1",
+ "나눔": {
+  "name": "place1_v1b010",
+  "해시": "40aedb41ed164877"
+ },
+ "종료이유": "최대에폭",
+ "이상": false,
+ "에폭": 120,
+ "best_epoch": 115,
+ "분": 12.1,
+ "끝": "2026-10-06T01:19:57+09:00",
+ "판": {
+  "ultralytics": "8.4.171",
+  "torch": "2.12.1+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 5060",
+  "albumentations": true
+ },
+ "코드해시": "af094f1f1e",
+ "conf": 0.65,
+ "속도재기": false,
+ "출발_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+ "이어서": false,
+ "라벨지문": "63c94c9839dd8178",
+ "best_sha256": "aa39eef61fb626e99dd8e49766743987b60e9863a6d7cb128b38c7dc56259d93",
+ "검증목표": 0.9089,
+ "검증P": 0.8835
+}

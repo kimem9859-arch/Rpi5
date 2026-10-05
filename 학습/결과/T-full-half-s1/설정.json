@@ -1,0 +1,84 @@
+{
+ "id": "T-full-half-s1",
+ "group": "tool",
+ "입력": "늘리기640",
+ "바꾼것": "나눔=place1_v1half · seed=1",
+ "names": [
+  "driver",
+  "wrench",
+  "pliers"
+ ],
+ "conf": 0.65,
+ "train_kwargs": {
+  "epochs": 120,
+  "patience": 0,
+  "batch": 16,
+  "workers": 2,
+  "cache": "disk",
+  "optimizer": "AdamW",
+  "lr0": 0.001,
+  "momentum": 0.9,
+  "warmup_bias_lr": 0.0,
+  "deterministic": true,
+  "amp": true,
+  "plots": true,
+  "imgsz": 640,
+  "seed": 1
+ },
+ "predict_imgsz": 640,
+ "stretch": [
+  640,
+  640
+ ],
+ "멈춤": {
+  "포화_에폭": 30,
+  "포화_향상": 0,
+  "점수0_에폭": 10,
+  "점수0_mAP50": 0.05,
+  "진행없음_분": 15,
+  "시간상한_배": 2
+ },
+ "출발": "~/학습실험/yolov8n.pt",
+ "원본": "~/학습실험/원본/place1",
+ "루트": "~/학습실험",
+ "나눔": {
+  "name": "place1_v1half",
+  "해시": "500e06792ad637dd"
+ },
+ "코드": "~/학습실험/코드/af094f1f1e",
+ "코드해시": "af094f1f1e",
+ "시간상한_s": 2441.832,
+ "설정": {
+  "나눔": "place1_v1half",
+  "입력": "늘리기640",
+  "출발": "yolov8n.pt",
+  "seed": 1,
+  "train": {
+   "epochs": 120,
+   "patience": 0,
+   "batch": 16,
+   "workers": 2,
+   "cache": "disk",
+   "optimizer": "AdamW",
+   "lr0": 0.001,
+   "momentum": 0.9,
+   "warmup_bias_lr": 0.0,
+   "deterministic": true,
+   "amp": true,
+   "plots": true
+  },
+  "멈춤": {
+   "포화_에폭": 30,
+   "포화_향상": 0,
+   "점수0_에폭": 10,
+   "점수0_mAP50": 0.05,
+   "진행없음_분": 15,
+   "시간상한_배": 2
+  },
+  "메모": "공구 학습량 곡선 — 공구 학습 몫 절반(바탕판 place1_v1 을 세션·프레임 순서로 한 장 건너 · 317장) · 기준 = T-full-base-albu(옛 E13-tool-base*) · 나머지는 기본(120 끝까지) · 시드 1",
+  "id": "T-full-half-s1",
+  "group": "tool",
+  "바꾼것": "나눔=place1_v1half · seed=1"
+ },
+ "흐림": null
+}
