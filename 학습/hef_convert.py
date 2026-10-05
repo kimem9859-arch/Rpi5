@@ -82,9 +82,21 @@ def count_problems(cfg, group):
     return [] if got and all(x == n for x in got) else [f"모델 스크립트 장수 {got} ≠ calib_n {n}"]
 
 
+_LOG_HEAD = re.compile(r"^(?:\[\w+\]\s*|\d{4}-\d\d-\d\d [\d:,]+ - \w+ - [\w.]+:\d+ - )")
+
+
 def evidence_lines(text):
-    """DFC 로그에서 실제로 돈 최적화의 증거 줄 — 수준을 명시하면 「optimization level」 문구는 안 나온다(기본값을 고르는 경로에서만)."""
-    return [l.strip() for l in text.splitlines() if EVIDENCE_RE.search(l)]
+    """DFC 로그에서 실제로 돈 최적화의 증거 줄 — 수준을 명시하면 「optimization level」 문구는 안 나온다(기본값을 고르는 경로에서만).
+    hef.log 와 hailo_sdk.client.log 가 같은 문장을 앞머리(시각·로거)만 달리 적으므로 문장 기준으로 한 벌만 남긴다(1-2 최종 리뷰 m8)."""
+    out, seen = [], set()
+    for l in text.splitlines():
+        if not EVIDENCE_RE.search(l):
+            continue
+        key = _LOG_HEAD.sub("", l.strip())
+        if key not in seen:
+            seen.add(key)
+            out.append(l.strip())
+    return out
 
 
 def end_node_problems(conv_out, end_nodes, nc):

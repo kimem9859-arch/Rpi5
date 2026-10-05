@@ -33,8 +33,20 @@ def test_이름():
         check(ok, f"{bad!r} → ValueError")
 
 
+def test_클래스_수():
+    print("[2] --names 개수 = HEF 클래스 수(다르면 이름이 조용히 틀리게 붙는다 · 1-2 최종 리뷰 m7)")
+    check(S.names_problem(["a", "b", "c"], 3) is None, "같으면 통과")
+    check(S.names_problem(["a", "b", "c"], 5) is not None, "다르면 문제 문구")
+    hef = os.path.join(_DEMO, "models", "console_v2.hef")
+    try:
+        import hailo_platform  # noqa: F401
+        check(S.hef_class_count(hef) == 5, "console_v2.hef 클래스 수 = 5")
+    except ImportError:
+        print("  (hailo_platform 없음 — HEF 읽기는 건너뜀)")
+
 if __name__ == "__main__":
     test_이름()
+    test_클래스_수()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

@@ -200,6 +200,13 @@ def test_세션_바탕():
         check(T1.prepare_base(_job(src, [5, 3]), root) != b, "옛 판(세션 몫 없음)은 다른 바탕 폴더")
 
 
+def test_요약_원자적():
+    print("[w-a] 요약 쓰기 — 임시 파일에 쓴 뒤 바꿔 끼움(탐색기가 반쯤 쓴 요약을 읽지 않게 · 1-2 최종 리뷰 m1)")
+    with tempfile.TemporaryDirectory() as t:
+        p = Path(t) / "요약.json"
+        T1.write_json(p, {"검증목표": 0.9})
+        check(json.loads(p.read_text(encoding="utf-8")) == {"검증목표": 0.9} and not list(Path(t).glob("*.tmp")), "다 쓰고 임시 파일 안 남음")
+
 if __name__ == "__main__":
     test_바탕_폴더()
     test_동시_준비()
@@ -210,6 +217,7 @@ if __name__ == "__main__":
     test_고정_메모리_끄기()
     test_흐림_목록()
     test_세션_바탕()
+    test_요약_원자적()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

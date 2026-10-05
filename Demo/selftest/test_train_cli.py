@@ -327,6 +327,18 @@ def test_보류_확인():
     check(bool(CLI.hold_problems({"규칙": {"세션보류": "s"}}, None, "t")), "있는 판 · 다른 세션 → 멈춤")
 
 
+def test_판정_입력():
+    print("[j4] 판정 입력 — 같은 id 두 번 · 후보·기준 겹침 · 이어 학습 결과는 멈춤(시드 3회 규칙 · 1-2 최종 리뷰 m6)")
+    sc = {"전체": {"precision": .9, "recall": .9}, "클래스": {n: {"recall": .9} for n in ("driver", "wrench", "pliers")}}
+    res = [({"id": i, "group": "tool", "조건": {"a": 1}, "이어서": i == "r"}, sc) for i in ("a", "b", "c", "x", "y", "z", "r")]
+    for cand, base, what in ((["a", "a", "b"], ["x", "y", "z"], "후보 중복"), (["a", "b", "x"], ["x", "y", "z"], "후보·기준 겹침"),
+                             (["a", "b", "r"], ["x", "y", "z"], "이어 학습")):
+        try:
+            CLI.judge_ids(res, cand, base); stopped = False
+        except SystemExit:
+            stopped = True
+        check(stopped, f"{what} → 멈춤")
+
 if __name__ == "__main__":
     test_작업()
     test_예상()
@@ -344,6 +356,7 @@ if __name__ == "__main__":
     test_판정_채점_고르기()
     test_나눔_문제()
     test_보류_확인()
+    test_판정_입력()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

@@ -160,6 +160,14 @@ def test_파이_명령():
     check(T.CALIB_SEED == 0, "보정 시드는 한 곳(CALIB_SEED)")
 
 
+def test_로그_증거_한벌():
+    print("[11] 로그 증거 줄 — hef.log 와 client.log 의 같은 문장은 한 벌만(앞머리 시각·로거만 다름 · 1-2 최종 리뷰 m8)")
+    a = "[info] Using dataset with 1024 entries for finetune"
+    b = "2026-10-04 23:10:01,123 - INFO - qft.py:332 - Using dataset with 1024 entries for finetune"
+    c = "[info] Model Optimization Algorithm Quantization-Aware Fine-Tuning is done (completion time is 00:30:20.00)"
+    got = H.evidence_lines("\n".join([a, c, b]))
+    check(len(got) == 2 and got[0] == a, f"같은 문장 두 벌 → 한 벌 · 첫 줄 그대로 — {got}")
+
 if __name__ == "__main__":
     test_캘리브()
     test_모델_스크립트()
@@ -171,6 +179,7 @@ if __name__ == "__main__":
     test_장수_대조()
     test_로그_증거()
     test_파이_명령()
+    test_로그_증거_한벌()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

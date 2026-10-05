@@ -86,6 +86,20 @@ def parse_names(text):
     return out
 
 
+
+def names_problem(names, n_classes):
+    """--names 개수가 HEF 클래스 수와 다르면 문구 — 다르면 이름이 조용히 틀리게 붙는다(1-2 최종 리뷰 m7)."""
+    if len(names) != n_classes:
+        return f"--names {len(names)}개 ≠ HEF 클래스 {n_classes}개 — 이름 목록을 HEF 출력 순서대로 준다"
+    return None
+
+
+def hef_class_count(path):
+    """HEF 의 NMS 출력 클래스 수(HailoRT · 장치 없이 파일만 읽는다)."""
+    from hailo_platform import HEF
+    return HEF(path).get_output_vstream_infos()[0].nms_shape.number_of_classes
+
+
 def main():
     ap = argparse.ArgumentParser(description="console_v2 정량 채점 (.hef)")
     ap.add_argument("--labels", required=True, help="YOLO 정규화 라벨(.txt) 폴더")
@@ -104,6 +118,10 @@ def main():
     if args.hef:
         config.HEF_MODEL_PATH = args.hef      # create_detector 전에 덮어써야 반영된다
     conf_op = args.conf if args.conf is not None else config.YOLO_CONF_HIGH
+    bad = names_problem(names, hef_class_count(config.HEF_MODEL_PATH))
+    if bad:
+        print(f"❌ {bad}")
+        return 2
 
     imgs = {}
     for f in sorted(os.listdir(args.images)):

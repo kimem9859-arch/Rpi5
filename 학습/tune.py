@@ -4,8 +4,10 @@
 optuna 는 main() 안에서만 import 한다(파이 selftest 는 optuna 없이 순수 함수만 시험).
 """
 import argparse
+import fcntl
 import json
 import os
+import pickle
 import subprocess
 import sys
 import time
@@ -50,12 +52,49 @@ def finished(rd):
     sp = rd / "요약.json"
     if not sp.exists():
         return None
-    su = json.loads(sp.read_text(encoding="utf-8"))
+    try:
+        su = json.loads(sp.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:                       # 쓰는 중인 요약 — 다음 간격에 다시 본다(1-2 최종 리뷰 m1)
+        return None
     if su.get("이상"):
         return {"상태": "이상", "목표": None, "검증P": None}
     if not (rd / "채점_검증.json").exists():
         return None
     return {"상태": "끝", "목표": su["검증목표"], "검증P": su["검증P"]}
+
+
+def load_or_new(path, make):
+    """저장한 객체(샘플러)를 되살린다 — 없으면 make(). Optuna 저장소는 샘플러 상태를 담지 않는다(RDB 재개 튜토리얼 · 1-2 최종 리뷰 I1)."""
+    path = Path(path)
+    if path.exists():
+        with open(path, "rb") as f:
+            return pickle.load(f)
+    return make()
+
+
+def save_obj(path, obj):
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "wb") as f:
+        pickle.dump(obj, f)
+    os.replace(tmp, path)
+
+
+def acquire_lock(path):
+    """탐색기를 하나만 띄운다 — 잠금을 잡으면 그 파일을 돌려주고(쥔 채로 둔다) 못 잡으면 None(1-2 최종 리뷰 I2)."""
+    f = open(path, "w")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return f
+    except OSError:
+        f.close()
+        return None
+
+
+def orphans(running_numbers, log_rows):
+    """study 에는 걸렸는데(RUNNING) 시도 기록이 없는 번호 — ask 뒤 기록 전에 죽은 것 · 실패로 정리한다(1-2 최종 리뷰 m2)."""
+    seen = {r["번호"] for r in log_rows}
+    return sorted(n for n in running_numbers if n not in seen)
 
 
 def pending(log_rows):
@@ -119,20 +158,29 @@ def main(argv=None):
     cfgp = Path(a.설정).expanduser()
     cfg = json.loads(cfgp.read_text(encoding="utf-8"))
     d, root = cfgp.parent, Path(cfg["루트"]).expanduser()
+    lock = acquire_lock(d / "탐색.lock")
+    if lock is None:
+        print(f"이미 탐색기 {cfg['이름']} 가 돌고 있다 — 이 탐색기는 끝낸다", flush=True)
+        return 0
     base_min, p_floor = base_floor(root, cfg["기준"])
+    sp = d / "sampler.pkl"                                  # 다시 뜨면 무작위 구간을 처음부터 되풀이하지 않게 되살린다
+    sampler = load_or_new(sp, lambda: optuna.samplers.TPESampler(
+        seed=cfg["시드"], n_startup_trials=cfg["시작무작위"], multivariate=True, constant_liar=True))
     study = optuna.create_study(study_name=cfg["이름"], storage=f"sqlite:///{d / 'study.db'}", load_if_exists=True,
-                                direction="maximize", sampler=optuna.samplers.TPESampler(
-                                    seed=cfg["시드"], n_startup_trials=cfg["시작무작위"], multivariate=True, constant_liar=True))
+                                direction="maximize", sampler=sampler)
+    for n in orphans([t.number for t in study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.RUNNING,))], _rows(d)):
+        study.tell(n, state=optuna.trial.TrialState.FAIL, skip_if_finished=True)
     running = {r["번호"]: r for r in pending(_rows(d))}      # 끊겼다 다시 뜬 경우 마저 읽는다
     while True:
         for n, r in list(running.items()):
             res = finished(root / "runs" / r["id"])
             if res is None:
                 continue
-            if res["상태"] == "끝":
-                study.tell(n, res["목표"])
+            if res["상태"] == "끝":                       # tell 뒤 기록 전에 죽었다 다시 떠도 두 번째 tell 은 넘어간다(I2)
+                study.tell(n, res["목표"], skip_if_finished=True)
             else:
-                study.tell(n, state=optuna.trial.TrialState.FAIL)
+                study.tell(n, state=optuna.trial.TrialState.FAIL, skip_if_finished=True)
+            save_obj(sp, study.sampler)
             _log(d, {**r, **res})
             del running[n]
         last = {}
@@ -143,13 +191,14 @@ def main(argv=None):
         done = len(rows)
         if not stop and done + len(running) < cfg["횟수"] and len(running) < cfg["동시"]:
             t = study.ask()
+            save_obj(sp, study.sampler)
             job = job_for(cfg["틀"], cfg["이름"], t.number, suggest(t, cfg["범위"]))
             q = root / "대기열" / f"{time.strftime('%Y%m%d-%H%M%S')}-{t.number:03d}_{job['id']}.json"
             tmp = q.with_name(q.name + ".tmp")
             tmp.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
-            os.replace(tmp, q)
             row = {"번호": t.number, "id": job["id"], "상태": "걸음", "바꾼것": job["바꾼것"]}
-            _log(d, row)
+            _log(d, row)                                     # 기록을 먼저 — 대기열에 들어간 뒤 기록 없이 죽는 일이 없게(m2)
+            os.replace(tmp, q)
             running[t.number] = row
             with open(root / "실행기.log", "ab") as lg:      # 실행기는 잠금으로 하나만 뜬다 — 이미 돌면 새 것은 바로 끝남
                 subprocess.Popen([sys.executable, str(Path(cfg["코드"]).expanduser() / "runner.py"), "--루트", str(root)],

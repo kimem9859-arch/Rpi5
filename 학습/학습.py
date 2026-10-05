@@ -445,10 +445,16 @@ def cmd_fetch(a):
 
 
 def judge_ids(results, cand_ids, base_ids):
+    dup = sorted({i for i in cand_ids + base_ids if (cand_ids + base_ids).count(i) > 1})
+    if dup:
+        sys.exit(f"🔴 같은 id 를 두 번 넣었다(후보 안 · 기준 안 · 후보와 기준 사이): {dup} — 시드 3개씩 서로 다른 실험으로")
     by = {su["id"]: (su, sc) for su, sc in results}
     miss = [i for i in cand_ids + base_ids if i not in by or by[i][1] is None]
     if miss:
         sys.exit(f"🔴 결과(채점) 없음: {miss}")
+    resumed = [i for i in cand_ids + base_ids if by[i][0].get("이어서")]
+    if resumed:
+        sys.exit(f"🔴 이어 학습한 결과는 판정하지 않는다(patience 를 처음부터 다시 셈): {resumed} — 새 id 로 다시 돌린다")
     conds = {json.dumps(by[i][0].get("조건"), sort_keys=True, ensure_ascii=False) for i in cand_ids + base_ids}
     groups = {by[i][0]["group"] for i in cand_ids + base_ids}
     if len(conds) > 1 or len(groups) > 1:

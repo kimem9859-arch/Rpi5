@@ -82,17 +82,25 @@ def score_val(job, base, best):
     return sv, {"검증목표": round(scoring.objective(sv, job["names"]), 4), "검증P": round(sv["전체"]["precision"], 4)}
 
 
+def write_json(path, obj):
+    """임시 파일에 쓴 뒤 바꿔 끼운다 — 탐색기·받기가 반쯤 쓴 요약·채점을 읽지 않게(1-2 최종 리뷰 m1)."""
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def rescore_val(rd):
     """다시 학습 없이 — 끝난 실험의 best.pt 를 검증 몫으로 채점해 채점_검증.json · 요약(검증목표 · 검증P)을 남긴다."""
     rd = Path(rd).expanduser()
     job = json.loads((rd / "작업.json").read_text(encoding="utf-8"))
     base = prepare_base(job, Path(job["루트"]).expanduser())
     sv, extra = score_val(job, base, rd / "weights" / "best.pt")
-    (rd / "채점_검증.json").write_text(json.dumps(sv, ensure_ascii=False, indent=1), encoding="utf-8")
+    write_json(rd / "채점_검증.json", sv)
     sp = rd / "요약.json"
     summ = json.loads(sp.read_text(encoding="utf-8"))
     summ.update(extra)
-    sp.write_text(json.dumps(summ, ensure_ascii=False, indent=1), encoding="utf-8")
+    write_json(sp, summ)
     return extra
 
 
@@ -274,15 +282,15 @@ def main(argv=None):
     if not job.get("속도재기") and best.exists() and not summ["이상"]:
         sc = scoring.score_model(best, base / "images" / "test", base / "labels" / "test",
                                  job["names"], job["conf"], job["predict_imgsz"])
-        (rd / "채점.json").write_text(json.dumps(sc, ensure_ascii=False, indent=1), encoding="utf-8")
+        write_json(rd / "채점.json", sc)
         if job["나눔"].get("test_session"):
             ss = scoring.score_model(best, base / "images" / "test_session", base / "labels" / "test_session",
                                      job["names"], job["conf"], job["predict_imgsz"])
-            (rd / "채점_세션.json").write_text(json.dumps(ss, ensure_ascii=False, indent=1), encoding="utf-8")
+            write_json(rd / "채점_세션.json", ss)
         sv, extra = score_val(job, base, best)
-        (rd / "채점_검증.json").write_text(json.dumps(sv, ensure_ascii=False, indent=1), encoding="utf-8")
+        write_json(rd / "채점_검증.json", sv)
         summ.update(extra)
-    (rd / "요약.json").write_text(json.dumps(summ, ensure_ascii=False, indent=1), encoding="utf-8")
+    write_json(rd / "요약.json", summ)
     return EXIT_ABNORMAL if summ["이상"] else 0
 
 

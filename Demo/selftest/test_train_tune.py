@@ -110,12 +110,33 @@ def test_기준_최저():
         check(bad, "검증 채점 없는 기준 → ValueError")
 
 
+def test_다시_뜨기():
+    print("[6] 다시 뜨기 — 반쯤 쓴 요약은 아직 · 샘플러 저장·복원 · 탐색기는 하나만(잠금) · 기록 없는 걸린 시도 찾기(1-2 최종 리뷰 I1·I2·m1·m2)")
+    with tempfile.TemporaryDirectory() as t:
+        rd = Path(t) / "run"; rd.mkdir()
+        (rd / "요약.json").write_text('{"검증목표": 0.9', encoding="utf-8")
+        check(TU.finished(rd) is None, "반쯤 쓴 요약.json → 아직(JSONDecodeError 로 죽지 않음)")
+        sp = Path(t) / "sampler.pkl"
+        a = TU.load_or_new(sp, lambda: {"새것": 1})
+        check(a == {"새것": 1}, "저장본 없음 → 새로 만듦")
+        TU.save_obj(sp, {"이어감": 2})
+        check(TU.load_or_new(sp, lambda: {"새것": 1}) == {"이어감": 2} and not sp.with_name(sp.name + ".tmp").exists(), "저장본 있음 → 그대로 복원 · 임시 파일 안 남음")
+        lk = Path(t) / "탐색.lock"
+        h1 = TU.acquire_lock(lk)
+        h2 = TU.acquire_lock(lk)
+        check(h1 is not None and h2 is None, "두 번째 탐색기는 잠금을 못 잡는다")
+        h1.close()
+        check(TU.acquire_lock(lk) is not None, "첫째가 끝나면 다시 잡힌다")
+    rows = [{"번호": 0, "상태": "끝"}, {"번호": 1, "상태": "걸음"}]
+    check(TU.orphans([1, 2, 3], rows) == [2, 3], "study 에는 걸렸는데 기록이 없는 시도 = 고아(실패로 정리)")
+
 if __name__ == "__main__":
     test_제안과_작업()
     test_멈춤과_고르기()
     test_이어가기()
     test_끝_판단()
     test_기준_최저()
+    test_다시_뜨기()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

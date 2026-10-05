@@ -1,6 +1,8 @@
 """데스크톱 메모리 감시 — WSL 이 스왑으로 넘어가기 전에 HEF 변환을 멈춘다.
 
 계기: 2026-10-05 01:04 U1 변환(수준 1 편향 보정 · 임시 파일 6.5GB)에서 WSL 이 멈춰 데스크톱을 재부팅했다.
+      ⚠️ 그 멈춤의 원인은 뒤에 Windows C: 가득 참으로 규명됐다(메모리가 아님 · WSL 디스크를 D: 로 옮겨 해결 · 통합문서 §14.2).
+      이 감시는 그 뒤에도 스왑 넘침을 막는 장치로 남는다.
 사용자 「WSL 메모리 스왑 오버되지 않게 메모리 감시 붙여주고」.
 - 멈춤 조건 = 사용 가능 메모리 < --최소가용(MB) 또는 스왑 사용 > --최대스왑(MB).
 - 멈출 대상 = 변환 프로세스만(우리 hef_convert.py · Model Zoo hailomz compile · ultralytics ul.py) — 감시 자신 · 학습 · 띄우는 셸 · 파일을 여는 명령은 아니다.
@@ -9,6 +11,7 @@
 실행(데스크톱 · 시스템 python3): cd ~/학습실험 && ( setsid nohup python3 memguard.py >> memguard.log 2>&1 < /dev/null & )
 """
 import argparse
+import hashlib
 import os
 import re
 import signal
@@ -54,6 +57,24 @@ def targets():
     return out
 
 
+def cmdline_of(pid):
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+    except OSError:
+        return None
+
+
+def kill_if_same(pid, cmd):
+    """SIGKILL 직전 명령줄을 다시 대조한다 — 그사이 끝났거나 PID 가 다른 프로세스로 바뀌었으면 건드리지 않는다(1-2 최종 리뷰 m3)."""
+    if cmdline_of(pid) != cmd:
+        return False
+    try:
+        os.kill(pid, signal.SIGKILL)
+        return True
+    except OSError:
+        return False
+
+
 def _alive(pid):
     try:
         os.kill(pid, 0)
@@ -69,9 +90,9 @@ def stop(procs):
         except OSError:
             pass
     time.sleep(10)
-    for pid, _ in procs:
+    for pid, cmd in procs:
         if _alive(pid):
-            os.kill(pid, signal.SIGKILL)
+            kill_if_same(pid, cmd)
 
 
 def main(argv=None):
@@ -81,7 +102,8 @@ def main(argv=None):
     ap.add_argument("--간격", type=float, default=5)
     a = ap.parse_args(argv)
     say = lambda s: print(time.strftime("%Y-%m-%d %H:%M:%S"), s, flush=True)
-    say(f"시작 pid {os.getpid()} · 사용 가능 < {a.최소가용}MB 또는 스왑 > {a.최대스왑}MB 이면 변환을 멈춘다")
+    me = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]   # 손으로 복사해 띄우므로 어느 판인지 남긴다
+    say(f"시작 pid {os.getpid()} · 파일 {me} · 사용 가능 < {a.최소가용}MB 또는 스왑 > {a.최대스왑}MB 이면 변환을 멈춘다")
     last = 0.0
     while True:
         m = parse(Path("/proc/meminfo").read_text())

@@ -49,9 +49,23 @@ def test_대상():
     check(not any(M.is_target(c) for c in no), "감시 · 학습 · 파일 보기 · 띄우는 셸 → 대상 아님")
 
 
+def test_멈춤_경합():
+    print("[3] 멈춤 경합 — 이미 끝난 프로세스·다른 명령으로 바뀐 PID 는 SIGKILL 하지 않고 감시는 죽지 않는다(1-2 최종 리뷰 m3)")
+    import subprocess
+    p = subprocess.Popen(["sleep", "30"])
+    try:
+        check(M.kill_if_same(p.pid, "/usr/bin/python3 다른 명령") is False and p.poll() is None, "명령줄이 다르면 그대로 둔다")
+        check(M.kill_if_same(p.pid, M.cmdline_of(p.pid)) is True, "같은 명령이면 SIGKILL")
+        p.wait(timeout=5)
+    finally:
+        if p.poll() is None:
+            p.kill()
+    check(M.kill_if_same(p.pid, "x") is False, "이미 끝난 PID → 예외 없이 False")
+
 if __name__ == "__main__":
     test_판단()
     test_대상()
+    test_멈춤_경합()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
