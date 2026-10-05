@@ -65,6 +65,9 @@ def test_걸기_전_막기():
     check(CLI.launch_problems(["a", "b"], [], [], False) == [], "문제 없음")
     p = CLI.launch_problems(["a", "a", "b"], ["b"], ["c"], True)
     check(len(p) == 3 and "커밋" in p[0] and "두 번" in p[1] and "'b'" in p[2], f"세 가지 — {p}")
+    p = CLI.launch_problems(["B-full-base-s0", "B-full-color-s0"], [], [], False, taken={"B-full-base-s0"})
+    check(len(p) == 1 and "B-full-base-s0" in p[0] and "대조표" in p[0], f"옛 실험의 새 이름과 같은 id → 막음(최종 리뷰 I1) — {p}")
+    check("B-full-base-s0" in CLI.old_new_names() and "T-full-base-s0" in CLI.old_new_names(), "옛 id 의 새 이름 묶음에 E15·E0c 의 새 이름이 있다")
 
 
 def test_홈_경로():

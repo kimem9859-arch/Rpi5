@@ -12,13 +12,13 @@ import re
 from pathlib import Path
 
 OLD_RE = re.compile(r"^E(\d+)([a-z]?)-(button|tool)-([A-Za-z0-9.]+)\Z")             # \Z — $ 는 끝 줄바꿈 하나를 허용한다
-NEW_RE = re.compile(r"^([BT])-(early|full|check)-([A-Za-z0-9.]+)(?:-([a-z]+))?-s(\d+)\Z")
-ID_RE = re.compile(r"^(?:E\d+[a-z]?-(?:button|tool)-[A-Za-z0-9.]+|[BT]-(?:early|full|check)-[A-Za-z0-9.]+(?:-[a-z]+)?-s\d+)\Z")  # 옛 꼴 | 새 꼴
+NEW_RE = re.compile(r"^([BT])-(early|full|check)-([A-Za-z0-9.]+)(?:-(old|albu))?-s(0|[1-9]\d*)\Z")   # 꼬리는 TAGS 의 둘뿐
+ID_RE = re.compile(r"^(?:E\d+[a-z]?-(?:button|tool)-[A-Za-z0-9.]+|[BT]-(?:early|full|check)-[A-Za-z0-9.]+(?:-(?:old|albu))?-s(?:0|[1-9]\d*))\Z")  # 옛 꼴 | 새 꼴
 GROUP = {"B": "button", "T": "tool"}
 PREFIX = {v: k for k, v in GROUP.items()}
 TAGS = {"E0": "old", "E13": "albu"}            # 같은 이름이 둘 생기는 기준만 — old = 옛 포화 문턱 · albu = 증강 라이브러리 설치 뒤
 METHODS = ("ours-L2", "ours-L1", "zoo", "ultra")
-_SMOKE = re.compile(r"^E8-(button|tool)-T0t\d+")
+_SMOKE = re.compile(r"^(?:E8-(?:button|tool)-T0t|[BT]-\w+-S0t)\d+")   # 탐색 스모크 = 회차 0(옛 T0 · 새 S0)
 
 
 def is_valid(i):

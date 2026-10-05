@@ -68,8 +68,9 @@ def test_전체():
 def test_꼴():
     print("[n3] 새 꼴 · 옛 꼴 · 무리 · 학습 방식 · 시드")
     check(all(N.is_valid(x) for x in ["B-full-color-s0", "T-early-base-old-s1", "E0b-button-s0", "T-full-S1t002-s2"]), "새 꼴·옛 꼴 통과")
-    bad = ["B1-full-color-s0", "B-fast-color-s0", "B-full-color", "X-full-color-s0", "B-full-color-s0\n", "B-full-color-OLD-s0"]
-    check(not any(N.is_valid(x) for x in bad), "B 뒤 숫자 · 모르는 방식 · 시드 없음 · 모르는 접두 · 끝 줄바꿈 · 대문자 꼬리 거부")
+    bad = ["B1-full-color-s0", "B-fast-color-s0", "B-full-color", "X-full-color-s0", "B-full-color-s0\n", "B-full-color-OLD-s0",
+           "B-full-color-noflip-s0", "B-full-color-s01"]
+    check(not any(N.is_valid(x) for x in bad), "B 뒤 숫자 · 모르는 방식 · 시드 없음 · 모르는 접두 · 끝 줄바꿈 · 대문자 꼬리 · 정해지지 않은 꼬리 · 시드 앞자리 0 거부(최종 리뷰 M2)")
     check(N.group_of("T-full-base-s0") == "tool" and N.group_of("E0b-button-s0") == "button" and N.group_of("x") is None, "무리")
     check(N.regime_of("B-check-sat-s0") == "check" and N.regime_of("E0b-button-s0") is None, "학습 방식(새 꼴만)")
     check(N.seed_of("B-full-color-s2") == 2 and N.seed_of("E0b-button-s2") is None, "시드(새 꼴만)")
@@ -77,7 +78,7 @@ def test_꼴():
 
 def test_건너뛰기():
     print("[n4] 받기·장부에서 뺄 것 — 점검 · 속도 · 탐색 스모크(T0 = S0)")
-    yes = ["E9-button-sat", "SPEED-640", "E8-tool-T0t000", "E8-button-T0t001", "B-check-sat-s0"]
+    yes = ["E9-button-sat", "SPEED-640", "E8-tool-T0t000", "E8-button-T0t001", "B-check-sat-s0", "T-full-S0t000-s0"]
     no = ["E8-tool-T1t002", "E0b-button-s0", "B-full-color-s0", "T-full-S1t002-s0", "E15-button-base"]
     check(all(N.skipped(x) for x in yes), "점검 · 속도 · 스모크 → 뺌")
     check(not any(N.skipped(x) for x in no), "탐색 본회차 · 실험 → 안 뺌")

@@ -86,7 +86,8 @@ def estimate(jobs, speed):
     return total / 3600, limits
 
 
-def launch_problems(ids, local_done, remote_known, dirty):
+def launch_problems(ids, local_done, remote_known, dirty, taken=()):
+    """taken = 옛 id 들의 새 이름(old_new_names) — 새 꼴 id 가 그것과 같으면 두 모델이 한 이름을 갖는다(최종 리뷰 I1)."""
     out = []
     if dirty:
         out.append("코드·설정이 커밋되지 않았다 — 커밋한 뒤에 건다")
@@ -96,6 +97,9 @@ def launch_problems(ids, local_done, remote_known, dirty):
     seen = sorted(set(ids) & (set(local_done) | set(remote_known)))
     if seen:
         out.append(f"이미 있는 id: {seen} — 새 id 로")
+    clash = sorted(set(ids) & set(taken))
+    if clash:
+        out.append(f"옛 실험이 이미 쓰는 새 이름: {clash} — 학습/이름대조표.md 확인 · 바꾼 것·꼬리를 달리한다")
     return out
 
 
@@ -315,7 +319,7 @@ def cmd_launch(a):
         ids = [c["id"] for c in cfgs]
         remote = sh(f"cd {RROOT} && ls runs 2>/dev/null; ls 대기열 2>/dev/null | sed 's/^[^_]*_//; s/\\.json$//' ; true").split()
         local = [p.name for p in (HERE / "결과").glob("*") if p.is_dir()]
-        probs = launch_problems(ids, local, remote, dirty)
+        probs = launch_problems(ids, local, remote, dirty, old_new_names())
         if probs:
             sys.exit("🔴 " + " · ".join(probs))
         jobs = [make_job(c, SP.load_split(HERE / "나눔" / f"{c['나눔']}.json"), head, op_conf(c["group"]), None) for c in cfgs]
@@ -588,8 +592,8 @@ def cmd_convert(a):
           f" · 같은 명령을 다시 치면 상태 · 끝나면 받는다")
 
 
-def names_table():
-    """대조표 본문 — 옛 꼴 id(설정 파일 · 결과 폴더) → 새 이름. 학습 방식 근거 = 멈춤 조건(설계 모델이름 §4)."""
+def old_name_rows():
+    """옛 꼴 id(설정 파일 · 결과 폴더) → (포화_향상, 시드, 에폭, patience). 결과가 있으면 결과의 설정이 이긴다."""
     base = TC.load_yaml(HERE / "설정" / "기본.yaml")
     rows = {}
     for sub in ("실험", "점검"):
@@ -602,6 +606,17 @@ def names_table():
             c = json.loads(s.read_text(encoding="utf-8"))
             tk = c["train_kwargs"]
             rows[d.name] = (c["멈춤"]["포화_향상"], int(tk["seed"]), tk.get("epochs"), tk.get("patience"))
+    return rows
+
+
+def old_new_names():
+    """옛 id → 새 이름(대조표와 같은 값) — 새 꼴 id 가 이것과 겹치지 않게 걸기 전에 본다."""
+    return {이름.new_name(i, sat, seed): i for i, (sat, seed, _, _) in old_name_rows().items()}
+
+
+def names_table():
+    """대조표 본문 — 옛 꼴 id → 새 이름. 학습 방식 근거 = 멈춤 조건(설계 모델이름 §4)."""
+    rows = old_name_rows()
     key = lambda i: (int(re.match(r"E(\d+)", i).group(1)), i)
     out = ["# 이름 대조표 — 옛 이름 → 새 이름", "",
            "> 자동 생성 — `python3 학습/학습.py 이름표` 가 설정 파일·결과 폴더에서 다시 만든다. 손으로 고치지 않는다.",
