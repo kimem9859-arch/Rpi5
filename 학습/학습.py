@@ -11,6 +11,7 @@
   받기                                         끝난 실험의 기록·best.pt 를 받아 해시를 맞추고 장부를 다시 만든다
   재개                                         대기열 멈춤을 풀고 실행기를 띄운다 — 멈춘 이유를 정한 뒤에만
   빼기 <id>                                    대기열에서 뺀다(건너뛰기)
+  판정 --후보 <id …> --기준 <id …> [--채점 기본|세션]   채택 판정(후보·기준 각 시드 3개 · 세션 = 처음 보는 세션 채점)
   변환 <id> [--수준 N]                         HEF 변환을 데스크톱에 띄운다 · 다시 치면 상태 · 끝났으면 받는다(1-2단계 §8.3)
   이름표                                      옛 이름 → 새 이름 대조표(학습/이름대조표.md)를 다시 만든다
 🔴 코드·설정이 커밋되지 않았으면 걸지 않는다 — 결과의 코드 해시가 저장소를 가리켜야 한다.
@@ -57,6 +58,36 @@ TRAIN_PROC = r"python[^ ]* [^ ]*/([r]unner|[t]une|[s]peedprobe)\.py"         # c
 # ── 순수 함수(시험 대상) ─────────────────────────────────────────────
 def place_of(split_name):
     return split_name.rsplit("_", 1)[0]
+
+
+def split_problems(cfg, d):
+    """걸기 전 나눔 확인 — 세션 보류 사진이 학습·검증 몫에 있으면 · 세션 보류 판(버튼 전용)을 공구가 쓰면 멈춘다(1-3 최종 리뷰 M1·M7)."""
+    out = []
+    tr, va, _ = SP.lists_for(d, cfg["group"])
+    leak = set(SP.session_test(d, cfg["group"])) & (set(tr) | set(va))
+    if leak:
+        out.append(f"{cfg['id']}: 세션 보류 사진 {len(leak)}장이 학습·검증 몫에 있다 — 나눔 {d['나눔']} 확인")
+    if d.get("규칙", {}).get("세션보류") and cfg["group"] != "button":
+        out.append(f"{cfg['id']}: 나눔 {d['나눔']} 은 세션 보류 판(버튼 전용) — 공구는 바탕판({d['규칙'].get('바탕판')})으로")
+    return out
+
+
+def hold_problems(existing, held, session):
+    """준비 --보류 확인 — 이미 있는 판이면 그 판의 세션보류와 같아야 · 새 판이면 세션 채점 몫이 0장이 아니어야(1-3 최종 리뷰 M2)."""
+    if existing is not None:
+        r = existing.get("규칙", {}).get("세션보류")
+        return [] if r == session else [f"나눔 판이 이미 있고 세션보류가 {r!r} — --보류 {session!r} 와 다르다"]
+    return [] if held["button"]["test_session"] else [f"세션 {session!r} 의 사진이 바탕판에 없다 — 세션 이름 확인"]
+
+
+def score_file(choice, ids, results):
+    """판정에 쓸 채점 파일 — 세션 = 채점_세션.json(처음 보는 세션) · 기본 = 채점.json(292장).
+    고르지 않았는데 모든 실험에 세션 채점이 있으면 멈춘다 — 292장으로 조용히 판정하지 않게(1-3 최종 리뷰 I2)."""
+    if choice is None:
+        if ids and all((Path(results) / i / "채점_세션.json").exists() for i in ids):
+            raise ValueError("모든 실험에 세션 채점(채점_세션.json)이 있다 — --채점 세션 또는 --채점 기본 을 고른다")
+        choice = "기본"
+    return "채점_세션.json" if choice == "세션" else "채점.json"
 
 
 def make_job(cfg, d, head, conf, time_limit):
@@ -249,8 +280,16 @@ def cmd_prepare(a):
         if not a.바탕판:
             sys.exit("🔴 --보류 는 --바탕판(세션을 뺄 기존 나눔)과 함께 준다")
         base = SP.load_split(HERE / "나눔" / f"{a.바탕판}.json")
-        SP.save_split(SP.hold_session(base, a.보류, SP.names_of(base), a.나눔), sp_path)   # 바탕판의 사진만(새 묶음 안 섞음 · 사용자 A)
+        held = SP.hold_session(base, a.보류, SP.names_of(base), a.나눔)   # 바탕판의 사진만(새 묶음 안 섞음 · 사용자 A)
+        probs = hold_problems(None, held, a.보류)
+        if probs:
+            sys.exit("🔴 " + " · ".join(probs))
+        SP.save_split(held, sp_path)
         print(f"나눔 {a.나눔} 을 만들었다 — {a.바탕판} 에서 세션 {a.보류} 를 버튼 학습·검증에서 빼고 세션 채점으로")
+    elif a.보류:
+        probs = hold_problems(SP.load_split(sp_path), None, a.보류)
+        if probs:
+            sys.exit("🔴 " + " · ".join(probs))
     elif not sp_path.exists():
         test = [l.strip() for l in Path(a.채점).read_text(encoding="utf-8").splitlines() if l.strip()]
         SP.save_split(SP.make_split(a.나눔, sorted(idx), test, labels_of), sp_path)
@@ -314,6 +353,7 @@ def cmd_launch(a):
         remote = sh(f"cd {RROOT} && ls runs 2>/dev/null; ls 대기열 2>/dev/null | sed 's/^[^_]*_//; s/\\.json$//' ; true").split()
         local = [p.name for p in (HERE / "결과").glob("*") if p.is_dir()]
         probs = launch_problems(ids, local, remote, dirty, old_new_names())
+        probs += [m for c in cfgs for m in split_problems(c, SP.load_split(HERE / "나눔" / f"{c['나눔']}.json"))]
         if probs:
             sys.exit("🔴 " + " · ".join(probs))
         jobs = [make_job(c, SP.load_split(HERE / "나눔" / f"{c['나눔']}.json"), head, op_conf(c["group"]), None) for c in cfgs]
@@ -417,7 +457,12 @@ def judge_ids(results, cand_ids, base_ids):
 
 
 def cmd_judge(a):
-    v, ok = judge_ids(ledger.load_results(HERE / "결과", "채점_세션.json" if a.채점 == "세션" else "채점.json"), a.후보, a.기준)
+    try:
+        fname = score_file(a.채점, a.후보 + a.기준, HERE / "결과")
+    except ValueError as e:
+        sys.exit(f"🔴 {e}")
+    print(f"채점 = {fname}({'처음 보는 세션' if fname == '채점_세션.json' else '292장'})")
+    v, ok = judge_ids(ledger.load_results(HERE / "결과", fname), a.후보, a.기준)
     for k, x in v.items():
         print(f"  {k}: {x}")
     print("✅ 채택" if ok else "— 기각(위로 갈린 지표 없음 또는 아래로 갈린 지표 있음)")
@@ -672,7 +717,7 @@ def main(argv=None):
     p = sub.add_parser("판정")
     p.add_argument("--후보", nargs="+", required=True)
     p.add_argument("--기준", nargs="+", required=True)
-    p.add_argument("--채점", choices=["기본", "세션"], default="기본", help="세션 = 처음 보는 세션 채점(채점_세션.json · 1-3단계)")
+    p.add_argument("--채점", choices=["기본", "세션"], default=None, help="세션 = 처음 보는 세션 채점(채점_세션.json · 1-3단계) · 기본 = 292장 · 세션 채점이 다 있으면 꼭 고른다")
     sub.add_parser("이름표")
     a = ap.parse_args(argv)
     {"준비": cmd_prepare, "속도재기": cmd_speed, "걸기": cmd_launch, "상태": cmd_status,

@@ -287,6 +287,46 @@ def test_세션_채점_판정():
         check(stopped, "세션 채점이 하나라도 없으면 멈춤")
 
 
+def test_판정_채점_고르기():
+    print("[j3] 판정 채점 파일 — 세션/기본을 고르면 그 파일 · 안 골랐는데 모든 실험에 세션 채점이 있으면 멈춤(1-3 최종 리뷰 I2·M8)")
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        for i in ("a", "b"):
+            (r / i).mkdir()
+            (r / i / "채점_세션.json").write_text("{}")
+        check(CLI.score_file("세션", ["a", "b"], r) == "채점_세션.json" and CLI.score_file("기본", ["a", "b"], r) == "채점.json", "고른 대로")
+        try:
+            CLI.score_file(None, ["a", "b"], r); stopped = False
+        except ValueError:
+            stopped = True
+        check(stopped, "안 골랐는데 세션 채점이 다 있다 → ValueError")
+        (r / "c").mkdir()
+        check(CLI.score_file(None, ["a", "c"], r) == "채점.json", "세션 채점이 없는 실험이 있으면 기본(292장)")
+
+
+def test_나눔_문제():
+    print("[w-p] 걸기 전 나눔 확인 — 세션 보류 사진이 학습·검증 몫에 있으면 · 공구가 세션 보류 판을 쓰면 멈춤(1-3 최종 리뷰 M1·M7)")
+    btn = CLI.TC.resolve(CLI.TC.load_yaml(CLI.HERE / "설정" / "기본.yaml"), {"id": "B-full-color-s0", "group": "button"})
+    sp = json.loads(json.dumps(SPLIT))
+    sp["규칙"] = {"세션보류": "s0923"}
+    sp["button"]["test_session"] = ["s0923__f1"]
+    check(CLI.split_problems(btn, sp) == [], "버튼 · 겹침 없음 → 통과")
+    bad = json.loads(json.dumps(sp))
+    bad["button"]["train"].append("s0923__f1")
+    check(any("세션 보류" in m for m in CLI.split_problems(btn, bad)), "세션 사진이 학습 몫에 → 멈춤")
+    check(any("버튼 전용" in m for m in CLI.split_problems(_cfg(), sp)), "공구가 세션 보류 판 → 멈춤")
+    check(CLI.split_problems(_cfg(), SPLIT) == [], "공구 · 보통 판 → 통과")
+
+
+def test_보류_확인():
+    print("[p-h] 준비 --보류 확인 — 이미 있는 판은 세션보류가 같아야 · 새 판은 세션 채점 몫이 0장이 아니어야(1-3 최종 리뷰 M2)")
+    held = {"button": {"test_session": ["s__f1"]}}
+    check(CLI.hold_problems(None, held, "s") == [], "새 판 · 세션 사진 있음 → 통과")
+    check(bool(CLI.hold_problems(None, {"button": {"test_session": []}}, "오타")), "새 판 · 0장 → 멈춤")
+    check(CLI.hold_problems({"규칙": {"세션보류": "s"}}, None, "s") == [], "있는 판 · 같은 세션 → 통과")
+    check(bool(CLI.hold_problems({"규칙": {"세션보류": "s"}}, None, "t")), "있는 판 · 다른 세션 → 멈춤")
+
+
 if __name__ == "__main__":
     test_작업()
     test_예상()
@@ -301,6 +341,9 @@ if __name__ == "__main__":
     test_받기_검증채점()
     test_작업_세션몫()
     test_세션_채점_판정()
+    test_판정_채점_고르기()
+    test_나눔_문제()
+    test_보류_확인()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
