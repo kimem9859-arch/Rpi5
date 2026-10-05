@@ -36,7 +36,7 @@
 """
 
 
-# 「쥔 공구」 클래스 접미어. `tool_v4` 부터 모델이 `wrench-in-hand` 처럼 낸다.
+# 「쥔 공구」 클래스 접미어. `T_v4` 부터 모델이 `wrench-in-hand` 처럼 낸다.
 # 🔑 우리 키(recipe.json 의 tool)는 접미어가 없다 — 대조 전에 벗긴다.
 IN_HAND_SUFFIX = "-in-hand"
 
@@ -102,7 +102,7 @@ class ToolState:
             self._phase = "grasped"
             return self._want
 
-        # ── 보조 조건 — 검지 끝이 요구 공구 박스 안 (tool_v3 시절 규칙 그대로)
+        # ── 보조 조건 — 검지 끝이 요구 공구 박스 안 (T_v3 시절 규칙 그대로)
         held = self._held_tool(dets, fingertip)
         if held is not None and _base(held) == self._want:
             self._phase = "grasped"

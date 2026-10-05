@@ -1,4 +1,4 @@
-"""홀드아웃 채점 — `tool_v3` 대 `tool_v4` 를 **클래스별·조건별**로 잰다.
+"""홀드아웃 채점 — `T_v3` 대 `T_v4` 를 **클래스별·조건별**로 잰다.
 
 무엇을 재나 (설계 §4 관문 3):
     · **쥔 상태 재현율** — 「쥠」 조건 이미지에서 그 공구를 찾아내는 비율. 이것이 이번
@@ -11,7 +11,7 @@
 🔴 **임계·전처리는 `config` 에서 읽는다.** 도구 기본값이 config 를 안 따라 이미 네 번
    물렸다(conf·ring·dwell·gap — CLAUDE.md 함정). 여기서 임계를 새로 정하지 않는다.
 
-🔑 **`tool_v3` 도 같은 시험지로 채점한다.** v3 는 in-hand 클래스를 모르므로, 쥔 상태
+🔑 **`T_v3` 도 같은 시험지로 채점한다.** v3 는 in-hand 클래스를 모르므로, 쥔 상태
    라벨(`wrench-in-hand`)에 대해 **평이름 검출(`wrench`)이 맞으면 정답**으로 친다.
    그래야 「쥔 공구를 찾아내는가」라는 같은 질문을 두 모델에 던지는 것이 된다.
    (v4 는 둘 중 어느 쪽으로 잡아도 정답 — 판정 로직이 `-in-hand` 접미어를 벗겨 쓴다.)
@@ -19,8 +19,8 @@
 🔴 **홀드아웃은 1회만 개봉한다.** 합격선은 개봉 전에 계획서에 못 박혀 있다.
 
 사용법:
-    ~/env/rfenv/bin/python test/holdout_score.py <홀드아웃폴더> --model models/tool_v3.pt
-    ~/env/rfenv/bin/python test/holdout_score.py <홀드아웃폴더> --model models/tool_v4.pt
+    ~/env/rfenv/bin/python test/holdout_score.py <홀드아웃폴더> --model models/T_v3.pt
+    ~/env/rfenv/bin/python test/holdout_score.py <홀드아웃폴더> --model models/T_v4.pt
 
     <홀드아웃폴더> = Roboflow YOLO 내보내기(하위에 images/ labels/) 또는 그 상위 폴더.
 """

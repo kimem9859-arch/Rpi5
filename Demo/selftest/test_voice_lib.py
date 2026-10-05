@@ -109,7 +109,7 @@ check(answer_key([], False) == "notstep", "스캔이 낡았으면 notstep")
 check(answer_key([], True) == "none", "스캔은 신선한데 검출 0개면 none")
 check(answer_key([("wrench", 0.9, 0, 0, 10, 10)], True) == "wrench", "렌치")
 check(answer_key([("wrench-in-hand", 0.9, 0, 0, 10, 10)], True) == "wrench",
-      "🔑 tool_v4 의 -in-hand 접미어를 벗긴다")
+      "🔑 T_v4 의 -in-hand 접미어를 벗긴다")
 check(answer_key([("driver", 0.7, 0, 0, 10, 10),
                   ("wrench", 0.9, 0, 0, 10, 10)], True) == "wrench",
       "여럿이면 점수가 높은 것")

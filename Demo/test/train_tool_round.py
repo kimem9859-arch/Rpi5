@@ -1,7 +1,7 @@
 """공구 초벌 반복 학습 한 라운드 — 학습 데이터 만들기 → 출발 가중치마다 학습 → 떼어 둔 사진 관문 → 고르기 → 저장.
 
 실행(Demo/ 에서, rfenv): ~/env/rfenv/bin/python test/train_tool_round.py [--group tool|button] --data ~/data/label_dataset/place1 --round N \\
-    --start <작은 모델부터 · 가중치 …> --current <공구 = 가중치 · 버튼 = console_v2 또는 가중치> [--template <정지 세션>(버튼)] \\
+    --start <작은 모델부터 · 가중치 …> --current <공구 = 가중치 · 버튼 = B_v2 또는 가중치> [--template <정지 세션>(버튼)] \\
     [--backend colab|cpu] [--exclude 뺄이름.txt] [--epochs 50] [--probe]
 --group button(spec 2026-09-29-버튼초벌-반복학습) = 버튼 5종 · 관문은 초벌 + 기계 검토(gate_button.py · 시스템 python3 · 지금 방식은 Hailo).
 --backend colab(기본) = 학습만 Colab T4 — 파이가 colab CLI 로 빌리기·올리기·학습·받기·반납(설계 §5 개정). 관문·고르기는 파이.
@@ -51,8 +51,10 @@ def preflight(a, models):
             if f.exists():
                 out.append(f"이미 있다: {f} — 라운드 모델·기록을 덮어쓰지 않는다")
     cur = getattr(a, "current", None)          # 관문 입력은 학습(Colab 수십 분) 전에 확인한다(최종 리뷰 중요 1)
-    if cur is not None and not (group == "button" and cur == "console_v2") and not Path(cur).expanduser().is_file():
-        out.append(f"--current 가 없다: {cur} — 공구 = 가중치 파일 · 버튼 = console_v2 또는 가중치 파일")
+    if cur == "console_v2":
+        out.append("--current console_v2 는 B_v2 로 바뀌었다(지금 배포 버튼 HEF · 통합문서 §6.4)")
+    elif cur is not None and not (group == "button" and cur == "B_v2") and not Path(cur).expanduser().is_file():
+        out.append(f"--current 가 없다: {cur} — 공구 = 가중치 파일 · 버튼 = B_v2 또는 가중치 파일")
     if group == "button":
         t = getattr(a, "template", None)
         if not t or not Path(t).expanduser().is_dir() or not any(Path(t).expanduser().glob("f*.png")):
@@ -146,8 +148,8 @@ class GateFailed(RuntimeError):
 
 def gate_button(weights, ds, template, current):
     """버튼 관문(spec 2026-09-29 §7) — 후보마다 떼어 둔 사진·배치 틀 사진의 초벌을 여기(rfenv)서 JSON 으로 만들고,
-    기계 검토·대조는 시스템 python3 의 gate_button.py 가 한다(지금 방식 console_v2 는 Hailo).
-    weights = {이름: 가중치} · current = "console_v2" 또는 가중치. 반환 = (후보 셈, 지금 셈)."""
+    기계 검토·대조는 시스템 python3 의 gate_button.py 가 한다(지금 방식 B_v2 는 Hailo).
+    weights = {이름: 가중치} · current = "B_v2" 또는 가중치. 반환 = (후보 셈, 지금 셈)."""
     import prelabel_tools as PT
     vp, tp = TR.gate_paths(ds, template)
     args = []
@@ -155,8 +157,8 @@ def gate_button(weights, ds, template, current):
         j = ds / f"dets_{name}.json"
         j.write_text(json.dumps(PT.predict_boxes(str(w), vp + tp, BUTTON_CONF), ensure_ascii=False), encoding="utf-8")
         args += ["--cand", f"{name}={j}"]
-    if current == "console_v2":
-        args += ["--current", "console_v2"]
+    if current == "B_v2":
+        args += ["--current", "B_v2"]
     else:
         j = ds / "dets_current.json"
         j.write_text(json.dumps(PT.predict_boxes(str(current), vp + tp, BUTTON_CONF), ensure_ascii=False), encoding="utf-8")
