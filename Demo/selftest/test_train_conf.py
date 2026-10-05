@@ -45,6 +45,8 @@ def test_합치기():
     c2 = TC.resolve(BASE, {"id": "E1-tool-in1024", "group": "tool", "입력": "원본768x1024", "seed": 2})
     check(TC.train_kwargs(c2)["imgsz"] == 1024 and c2["바꾼것"] == "입력=원본768x1024 · seed=2", f"원본 입력 — {c2['바꾼것']}")
     check(TC.INPUT_MODES["원본768x1024"]["predict_imgsz"] == [1024, 768], "채점 = [세로 1024, 가로 768]")
+    c3 = TC.resolve(BASE, {"id": "E3-tool-half", "group": "tool", "나눔": "place1_v1half", "seed": 1})
+    check(c3["바꾼것"] == "나눔=place1_v1half · seed=1", f"나눔을 바꾸면 바꾼것에 보인다(학습량 곡선) — {c3['바꾼것']}")
 
 
 def test_막기():
@@ -87,7 +89,7 @@ def test_기본값():
 
 
 def test_커밋된_설정():
-    print("[4] 실험 77(E0b 6 · 후보 시드 4 · 조합 E7 3 · 에폭 고정 12 · 탐색 확인 E10 6 · 가설 E11·E12 6 · 흐림 E13·E14 6 · 버튼 기준 B0 E15 3 · 1-3 버튼 후보 B-full-* 12 포함) · 점검 4 — 전부 읽히고 id 가 겹치지 않는다")
+    print("[4] 실험 83(E0b 6 · 후보 시드 4 · 조합 E7 3 · 에폭 고정 12 · 탐색 확인 E10 6 · 가설 E11·E12 6 · 흐림 E13·E14 6 · 버튼 기준 B0 E15 3 · 1-3 버튼 후보 B-full-* 12 · 공구 학습량 T-full-half·b010 6 포함) · 점검 4 — 전부 읽히고 id 가 겹치지 않는다")
     b = TC.load_yaml(CONF / "기본.yaml")
     ids = []
     for sub in ("실험", "점검"):
@@ -97,7 +99,7 @@ def test_커밋된_설정():
                 check(False, f"{p.name}: {e}")
             ids.append(p.stem)
     exp = [i for i in ids if not i.startswith("E9-")]
-    check(len(exp) == 77, f"실험 77 — {len(exp)}")
+    check(len(exp) == 83, f"실험 83 — {len(exp)}")
     check(len([i for i in ids if i.startswith("E9-")]) == 4, "점검 4")
     check(len(ids) == len(set(ids)), "id 겹침 없음")
     for e0 in ("E0", "E0b"):
@@ -180,6 +182,24 @@ def test_버튼후보():
                   f"{cid} — 다른 키 {sorted(diff)} · 흐림 {c.get('흐림')}")
 
 
+def test_공구학습량():
+    print("[c8] 공구 학습량 half·b010 × 3 — 기준 T-full-base-albu(E13-tool-base*)와 나눔만 다르다(학습량 곡선 설계 §5)")
+    b = TC.load_yaml(CONF / "기본.yaml")
+    for name, split in (("half", "place1_v1half"), ("b010", "place1_v1b010")):
+        for s in range(3):
+            base_id = "E13-tool-base" + ("" if s == 0 else f"s{s}")
+            cid = f"T-full-{name}-s{s}"
+            p = CONF / "실험" / f"{cid}.yaml"
+            if not p.exists():
+                check(False, f"{cid}.yaml 없음")
+                continue
+            c = TC.resolve(b, TC.load_yaml(p), cid)
+            r = TC.resolve(b, TC.load_yaml(CONF / "실험" / f"{base_id}.yaml"), base_id)
+            check(TC.train_kwargs(c) == TC.train_kwargs(r) and c["멈춤"] == r["멈춤"] and c.get("흐림") == r.get("흐림")
+                  and c["입력"] == r["입력"] and c["출발"] == r["출발"] and c["나눔"] == split and r["나눔"] == "place1_v1",
+                  f"{cid} — 나눔 {c['나눔']} · 그 밖은 {base_id} 와 같음")
+
+
 if __name__ == "__main__":
     test_합치기()
     test_막기()
@@ -190,6 +210,7 @@ if __name__ == "__main__":
     test_새꼴()
     test_옛꼴_묶음()
     test_버튼후보()
+    test_공구학습량()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

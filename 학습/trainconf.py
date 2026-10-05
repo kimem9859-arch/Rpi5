@@ -36,8 +36,8 @@ def load_yaml(path):
 
 
 def changes(base, exp):
-    """장부용 — 기본과 다른 것만 「키=값」(입력 · 출발 · seed · train · 멈춤 순)."""
-    out = [f"{k}={exp[k]}" for k in ("입력", "출발", "seed") if k in exp and exp[k] != base.get(k)]
+    """장부용 — 기본과 다른 것만 「키=값」(나눔 · 입력 · 출발 · seed · train · 멈춤 순)."""
+    out = [f"{k}={exp[k]}" for k in ("나눔", "입력", "출발", "seed") if k in exp and exp[k] != base.get(k)]
     if exp.get("흐림"):
         out.append("흐림=" + "+".join(exp["흐림"]))
     for sect in ("train", "멈춤"):
