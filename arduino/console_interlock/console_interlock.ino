@@ -31,22 +31,24 @@
  *
  *    종전의 「차단」은 램프 색 + 소프트웨어 무시(`fsm.py` 의 `if state == BLOCK:
  *    return`)였다. 버튼 신호는 끝까지 들어와 로그에 쌓인 뒤 마지막 if 에서만
- *    버려졌다. CH5 가 **B1~B4 의 공통 GND 를 NC 접점으로 끊어** 그 주장을
- *    사실로 만든다.
+ *    버려졌다. CH5 가 **B1~B4 의 공통 GND 를 NO 접점으로 이어 두었다가
+ *    끊어** 그 주장을 사실로 만든다(평소 코일 ON = 닫힘 · 차단 = 코일 OFF = 열림).
  *
  *    B1 GND ─┐
- *    B2 GND ─┤  와고 5P ├─1가닥─→ [CH5 COM─NC] ─→ Pi GND
+ *    B2 GND ─┤  와고 5P ├─1가닥─→ [CH5 NO─COM] ─→ Pi GND   (NC 는 비움)
  *    B3 GND ─┤
  *    B4 GND ─┘
  *
  *    🔴 **EMO(GPIO26)는 와고에 넣지 않는다** — NC 배선 fail-safe 라 끊으면
  *       비상정지가 죽는다. 차단 중에도 EMO 는 살아 있어야 한다(설계 §3.2).
- *    ⚠️ **NC 접점이라 전원이 죽으면 버튼이 살아난다**(차단이 풀린다). 산업
- *       표준(de-energize to trip)과 반대 방향이며 **의도된 선택**이다 —
- *       시리얼 끊김 이력 때문에 시연 중 콘솔이 먹통이 되는 쪽을 피했다.
- *       🔴 이 때문에 **이 시스템을 fail-safe 라고 부르지 않는다**(설계 §7-④).
- *    ⚠️ BLOCK 은 3채널 동시 ON = 코일 약 225mA. Arduino 5V 급전(방법 A)
- *       유지 — USB 500mA 한계 안이다(설계 §3.4).
+ *    🆕 **2026-09-11 개정 — NC → NO**(설계 §11 · 사용자 결정 2026-09-04·09-11).
+ *       **NO 접점이라 아두이노·릴레이 전원이 죽으면 버튼도 죽는다**(차단 유지 ·
+ *       de-energize to trip = 산업 표준). 대신 시리얼이 끊기거나 아두이노가
+ *       리셋되면 버튼 4개가 전부 죽어 콘솔이 먹통이 된다 — 사용자가 감수했다.
+ *       🔴 「fail-safe」라는 말은 실물 검증(설계 §11.5-6 · USB 를 뽑으면 버튼이
+ *       죽고 다시 꽂으면 살아남)을 통과한 뒤에만 쓴다(설계 §11.6).
+ *    ⚠️ 동시 ON 코일은 최대 2채널(정상 = 녹+차단 · BLOCK = 적+부저 ≈150mA).
+ *       Arduino 5V 급전(방법 A) 유지 — USB 500mA 한계 안이다(설계 §3.4).
  * ─────────────────────────────────────────────────────────────────────────
  *
  * ─────────────────────────────────────────────────────────────────────────
@@ -69,7 +71,7 @@ const int PIN_RED   = 7;  // IN1 타워램프 적 (BLOCK)
 const int PIN_YELLOW = 6; // IN2 타워램프 황 (WARNING)
 const int PIN_GREEN = 5;  // IN3 타워램프 녹 (정상/RUN)
 const int PIN_BUZZER = 4; // IN4 부저 (BLOCK)
-const int PIN_CUT   = 3;  // IN5 버튼 공통 GND 차단 (BLOCK) — ON = 버튼이 끊긴다
+const int PIN_CUT   = 3;  // IN5 버튼 공통 GND 차단 (BLOCK) — NO 접점: OFF = 버튼이 끊긴다
 
 const int RELAY_ON  = LOW;   // active LOW: LOW = 채널 ON
 const int RELAY_OFF = HIGH;
@@ -83,16 +85,16 @@ void setRelays(bool red, bool yellow, bool green, bool buzzer, bool cut) {
   digitalWrite(PIN_YELLOW, yellow ? RELAY_ON : RELAY_OFF);
   digitalWrite(PIN_GREEN,  green  ? RELAY_ON : RELAY_OFF);
   digitalWrite(PIN_BUZZER, buzzer ? RELAY_ON : RELAY_OFF);
-  digitalWrite(PIN_CUT,    cut    ? RELAY_ON : RELAY_OFF);
+  digitalWrite(PIN_CUT,    cut    ? RELAY_OFF : RELAY_ON);   // NO: 코일 OFF = 끊김
 }
 
 void setup() {
-  // 핀을 OUTPUT 으로 만들기 전에 OFF 값을 먼저 써 글리치(순간 ON)를 막는다.
+  // 핀을 OUTPUT 으로 만들기 전에 초기값을 먼저 써 글리치를 막는다(램프·부저 = OFF · 차단 채널 = ON).
   digitalWrite(PIN_RED,    RELAY_OFF);
   digitalWrite(PIN_YELLOW, RELAY_OFF);
   digitalWrite(PIN_GREEN,  RELAY_OFF);
   digitalWrite(PIN_BUZZER, RELAY_OFF);
-  digitalWrite(PIN_CUT,    RELAY_OFF);   // 🔴 OFF = 버튼 통전 — 부팅 중에도 살려 둔다
+  digitalWrite(PIN_CUT,    RELAY_ON);    // 🔴 NO: ON = 버튼 통전 — 부팅 중에도 살려 둔다
   pinMode(PIN_RED,    OUTPUT);
   pinMode(PIN_YELLOW, OUTPUT);
   pinMode(PIN_GREEN,  OUTPUT);
