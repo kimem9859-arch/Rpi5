@@ -1,0 +1,201 @@
+  [입력] GPIO 입력 활성 — 버튼 ['B1', 'B2', 'B3', 'B4'] + EMO(GPIO26)
+[Detector] 로드 중...
+[Detector] 'hailo' 백엔드 준비 완료.
+  [손검출] Hailo 팜+핸드 준비 완료 (MediaPipe 모델·NPU 실행)
+[공구] NPU 로드 — /home/pi/data/학습실험/E0c-tool-f120/model.hef
+[TCP] 연결 성공: 192.168.1.16:8888
+
+[벤치마크 시작] 소스=esp32  플립=수직  회전=CCW90  워밍업=0  900프레임 측정 — Ctrl+C로 중단
+
+[왜곡보정] camera_calibration_1024x768.npz (1024×768)
+[F 0030] FPS: 15.5  추론: 18.9ms  탐지: 5개
+  B1   conf 0.941
+  B2   conf 0.945
+  B3   conf 0.922
+  EMO  conf 0.945
+  B4   conf 0.906
+[F 0060] FPS: 17.2  추론: 18.9ms  탐지: 5개
+  B1   conf 0.956
+  EMO  conf 0.918
+  B4   conf 0.926
+  B2   conf 0.949
+  B3   conf 0.937
+  [GPIO] B1 눌림 (frame 68)
+[F 0090] FPS: 22.2  추론: 19.3ms  탐지: 5개
+  B1   conf 0.964
+  B4   conf 0.922
+  B2   conf 0.960
+  B3   conf 0.941
+  EMO  conf 0.945
+[F 0120] FPS: 13.3  추론: 18.4ms  탐지: 5개
+  B1   conf 0.968
+  B4   conf 0.918
+  B2   conf 0.960
+  B3   conf 0.933
+  EMO  conf 0.953
+[F 0150] FPS: 17.9  추론: 18.5ms  탐지: 5개
+  B1   conf 0.960
+  B4   conf 0.933
+  B2   conf 0.953
+  B3   conf 0.941
+  EMO  conf 0.964
+[F 0180] FPS: 18.2  추론: 19.1ms  탐지: 5개
+  B1   conf 0.964
+  B4   conf 0.941
+  B2   conf 0.941
+  B3   conf 0.922
+  EMO  conf 0.960
+[F 0210] FPS: 13.6  추론: 18.4ms  탐지: 3개
+  EMO  conf 0.956
+  B4   conf 0.953
+[F 0240] FPS: 16.3  추론: 18.4ms  탐지: 5개
+  B1   conf 0.964
+  B2   conf 0.933
+  B3   conf 0.937
+  B4   conf 0.926
+  EMO  conf 0.937
+  [GPIO] B2 눌림 (frame 267)
+[F 0270] FPS: 16.0  추론: 20.1ms  탐지: 4개
+  B1   conf 0.945
+  EMO  conf 0.953
+  B2   conf 0.918
+  B3   conf 0.941
+[F 0300] FPS: 14.4  추론: 18.4ms  탐지: 5개
+  B1   conf 0.945
+  EMO  conf 0.945
+  B2   conf 0.956
+  B3   conf 0.941
+  B4   conf 0.910
+[F 0330] FPS: 11.4  추론: 19.4ms  탐지: 5개
+  B1   conf 0.956
+  EMO  conf 0.930
+  B2   conf 0.949
+  B3   conf 0.918
+  B4   conf 0.906
+[F 0360] FPS: 15.4  추론: 19.2ms  탐지: 14개
+  B1   conf 0.930
+  EMO  conf 0.930
+  B2   conf 0.945
+  B4   conf 0.895
+[F 0390] FPS: 10.1  추론: 18.4ms  탐지: 3개
+  B1   conf 0.933
+  EMO  conf 0.914
+  B2   conf 0.949
+[F 0420] FPS: 10.1  추론: 18.4ms  탐지: 3개
+  B1   conf 0.941
+  EMO  conf 0.930
+  B2   conf 0.972
+[F 0450] FPS: 17.3  추론: 18.4ms  탐지: 3개
+  B1   conf 0.937
+  EMO  conf 0.933
+  B2   conf 0.964
+[F 0480] FPS: 13.1  추론: 18.5ms  탐지: 7개
+  B1   conf 0.964
+  B2   conf 0.964
+  EMO  conf 0.937
+[F 0510] FPS: 13.9  추론: 19.1ms  탐지: 4개
+  B1   conf 0.964
+  B2   conf 0.964
+  EMO  conf 0.918
+[F 0540] FPS: 13.5  추론: 18.4ms  탐지: 5개
+  B1   conf 0.968
+  B2   conf 0.964
+  EMO  conf 0.941
+  B3   conf 0.880
+  B4   conf 0.903
+  [GPIO] B3 눌림 (frame 543)
+[F 0570] FPS: 12.2  추론: 18.4ms  탐지: 5개
+  B1   conf 0.953
+  B2   conf 0.964
+  EMO  conf 0.933
+  B3   conf 0.914
+  B4   conf 0.922
+[F 0600] FPS: 21.3  추론: 18.5ms  탐지: 5개
+  B1   conf 0.953
+  B2   conf 0.964
+  EMO  conf 0.933
+  B3   conf 0.930
+  B4   conf 0.918
+[F 0630] FPS: 14.9  추론: 18.6ms  탐지: 5개
+  B1   conf 0.945
+  B2   conf 0.960
+  EMO  conf 0.922
+  B3   conf 0.930
+  B4   conf 0.930
+[F 0660] FPS: 12.6  추론: 18.4ms  탐지: 5개
+  B1   conf 0.960
+  B2   conf 0.964
+  EMO  conf 0.960
+  B3   conf 0.937
+  B4   conf 0.930
+[F 0690] FPS: 20.3  추론: 18.5ms  탐지: 5개
+  B1   conf 0.956
+  B2   conf 0.949
+  EMO  conf 0.949
+  B3   conf 0.945
+  B4   conf 0.953
+[F 0720] FPS: 22.8  추론: 18.4ms  탐지: 5개
+  B1   conf 0.956
+  B2   conf 0.960
+  EMO  conf 0.945
+  B3   conf 0.945
+  B4   conf 0.941
+  [GPIO] B4 눌림 (frame 732)
+[F 0750] FPS: 11.7  추론: 20.9ms  탐지: 19개
+  B1   conf 0.964
+  B2   conf 0.953
+  B4   conf 0.657
+  EMO  conf 0.937
+  B3   conf 0.807
+[F 0780] FPS: 21.5  추론: 18.3ms  탐지: 0개
+[F 0810] FPS: 11.5  추론: 18.4ms  탐지: 0개
+[F 0840] FPS: 14.4  추론: 19.3ms  탐지: 0개
+[F 0870] FPS: 15.0  추론: 18.7ms  탐지: 0개
+[F 0900] FPS: 21.6  추론: 18.3ms  탐지: 0개
+
+==================================================
+벤치마크 결과 (900 프레임)
+==================================================
+평균 FPS   : 15.9
+최저 FPS   : 4.1
+최고 FPS   : 23.0
+수신 프레임 : 906
+처리 프레임 : 900
+버린 프레임 : 6  ← 처리보다 수신이 빨라 덮인 장수
+
+[소스: esp32]  클래스별 누적 탐지 (confirmed 트랙 ≥0.65):
+  B1  :  984회  평균신뢰도 0.952
+  B2  :  992회  평균신뢰도 0.953
+  B3  :  775회  평균신뢰도 0.923
+  B4  :  800회  평균신뢰도 0.914
+  EMO :  862회  평균신뢰도 0.941
+
+raw 검출 (≥0.5, 트래킹 이전 — 저신뢰 포함):
+  B1  :  735회 (프레임 735)  평균 0.953
+  B2  :  718회 (프레임 718)  평균 0.954
+  B3  :  541회 (프레임 541)  평균 0.931
+  B4  :  565회 (프레임 565)  평균 0.920
+  EMO :  710회 (프레임 710)  평균 0.943
+
+--------------------------------------------------
+B4 집중 분석
+  B4 raw 검출: 565회 / 검출 프레임 565
+  score  min 0.657  median 0.922  max 0.964
+  분포   0.5–0.6:0  0.6–0.7:1  0.7+:564
+  B4↔EMO 오인(트랙 전환): 0회 | raw EMO 총검출: 710회
+
+--------------------------------------------------
+손 검출 (HOI)
+  소요   평균 14.2ms  최대 110.5ms
+  검출   171/900 프레임 (19.0%)
+  ⇒ 위 평균 FPS는 **HOI 포함** 값이다 (§4 NFR-1 판정용)
+
+--------------------------------------------------
+공구 (NPU · e0c_tool_f120)
+  소요   평균 18.6ms  최대 19.7ms
+  검출 프레임(≥0.65) driver 0  wrench 8  pliers 0  / 공구를 돌린 59프레임 (간격 1.0초)
+  ⇒ 위 평균 FPS는 **버튼 + 손 + 공구 NPU 동시** 값이다(손은 --hand 일 때)
+
+GPIO 눌림  : 4회 → test/logs/20261006_213937_esp32_place2-retrain-demo-speed-r1_e0b_button_s0_gpio_log.csv
+
+저장 위치: test/logs/20261006_213937_esp32_place2-retrain-demo-speed-r1_e0b_button_s0_*.csv
