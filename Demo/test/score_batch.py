@@ -5,6 +5,10 @@
   --dataset = 앞 검토의 결과(collect_batch 출력 — labels/ · images.txt). 1회차 = 학습 묶음 회수본 · 2회차 = 1회차 회수본
 출력: <out>/images/(s_score__<라벨 이름>.png + 같은 이름 .json — 앞 검토 결과를 박스로 · 「검토함」 꺼짐) · classes.txt · manifest.json · 안내.txt · 단축키
 회수 = collect_batch.py 그대로(파일 이름 규칙 <앞머리>__<짧은 세션>__fNNNNN 이 같다).
+  1회차 회수 → 학습 라벨 폴더(예 ~/data/label_dataset/place2)로 — 학습·채점 라벨이 갈리지 않게 같은 폴더를 덮는다.
+  2회차 = 1회차 회수본으로 다시 이 도구 → 회수 → 같은 폴더. collect_batch 가 sources.json 으로 채점 라벨을 지킨다
+  (학습 묶음을 다시 회수해도 덮지 못한다 · 다시 회수 순서 = 학습 묶음 → 채점 1회차 → 2회차).
+🔴 유효 범위 — 채점 사진도 학습 사진으로 들어간다(사용자 2026-10-07). 이 라벨로 학습한 모델(장소2 를 배운 2단계)은 이 묶음으로 채점하지 않는다.
 🔴 used 목록에 적지 않는다 — 이미 학습 묶음에 들어간 사진이다. 🔴 사진은 복사한다(원본을 옮기지 않는다).
 🔴 채점 라벨 조건(데이터셋 스킬 「분할」) — 평가 대상 모델 초벌로 시작한 라벨은 사진마다 2명 이상이 검토한다. 이 묶음이 그 다음 사람의 몫이다.
 """
@@ -51,10 +55,22 @@ def yolo_to_shapes(lines, w, h):
         c, cx, cy, bw, bh = l.split()
         name = X.CLASSES[int(c)]
         cx, cy, bw, bh = float(cx) * w, float(cy) * h, float(bw) * w, float(bh) * h
-        box = [round(cx - bw / 2, 1), round(cy - bh / 2, 1), round(cx + bw / 2, 1), round(cy + bh / 2, 1)]
+        box = [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2]     # 반올림하지 않는다 — 고치지 않으면 라벨 글자 그대로 돌아온다
         shapes.append(X.shape(name, box, None, "앞 검토 결과 — 다시 확인", difficult=True))
         drafts.append({"label": name, "box": box, "kind": "tool" if name in TOOLS else "check", "why": ["앞 검토 결과"]})
     return shapes, drafts
+
+
+def source_batches(root):
+    """원본 경로 → (처음 초벌을 그린 학습 묶음 이름, 그 묶음의 초벌 모델 기록) — 채점 묶음(kind = score)은 건너뛴다."""
+    out = {}
+    for m in sorted(Path(root).glob("*/manifest.json")):
+        man = json.loads(m.read_text(encoding="utf-8"))
+        if man.get("kind") == "score":
+            continue
+        for r in man.get("images", []):
+            out.setdefault(r["original"], (man["batch"], man.get("models")))
+    return out
 
 
 def main():
@@ -63,6 +79,7 @@ def main():
     ap.add_argument("--dataset", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--round", type=int, default=1, help="이 묶음이 채점 라벨의 몇 번째 추가 검토인지(기록용)")
+    ap.add_argument("--batches", default="~/data/label_batches", help="학습 묶음 폴더들 — 사진마다 처음 초벌을 그린 묶음·모델을 찾아 기록한다")
     a = ap.parse_args()
     out = Path(a.out).expanduser()
     if out.exists() and any(out.iterdir()):
@@ -73,20 +90,34 @@ def main():
     missing = [n for n in names if n not in idx or not (ds / "labels" / f"{n}.txt").exists()]
     if missing:
         sys.exit(f"앞 검토 라벨이 없는 이름 {len(missing)}개(예: {missing[:3]}) — 그 사진은 아직 회수되지 않았다")
+    imgs = {n: cv2.imread(idx[n]) for n in names}
+    bad = [n for n, im in imgs.items() if im is None]
+    if bad:
+        sys.exit(f"원본 사진을 못 읽은 이름 {len(bad)}개(예: {[idx[n] for n in bad[:3]]}) — 폴더를 만들지 않았다")
+    src = source_batches(Path(a.batches).expanduser())
     (out / "images").mkdir(parents=True)
     recs = []
     for n in names:
         p = idx[n]
-        img = cv2.imread(p); h, w = img.shape[:2]
+        h, w = imgs[n].shape[:2]
         shapes, drafts = yolo_to_shapes((ds / "labels" / f"{n}.txt").read_text(encoding="utf-8").splitlines(), w, h)
         fname = f"{PREFIX}__{n}.png"
         shutil.copy2(p, out / "images" / fname)
         X.write_json(out / "images" / f"{PREFIX}__{n}.json", fname, w, h, shapes)
-        sess, fr = n.split("__f")
-        recs.append({"file": fname, "original": p, "session": sess, "frame": int(fr), "w": w, "h": h,
-                     "kind": "check", "blur": False, "drafts": drafts})
+        recs.append({"file": fname, "original": p, "session": Path(p).parent.name, "frame": int(n.split("__f")[1]),
+                     "w": w, "h": h, "kind": "check", "blur": False, "drafts": drafts,
+                     "from_batch": src.get(p, (None, None))[0]})
     created = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    first = {}
+    for r in recs:
+        b = r["from_batch"]
+        if b:
+            first[b] = src[r["original"]][1]
     man = {"batch": out.name, "created": created, "kind": "score", "round": a.round,
+           "누적 검토 회차": a.round + 1,
+           "누적 검토 회차 뜻": "학습 묶음 검토 1 + 채점 묶음 회차 — 같은 사람이 두 회차를 보면 사람 수는 그보다 적다(점수 인용 때 확인)",
+           "유효 범위": "이 라벨을 학습하지 않은 모델의 채점에만 쓴다 — 채점 사진도 학습에 들어가므로 이 라벨로 학습한 모델은 다른 장소(장소3)로 채점",
+           "처음 초벌": first, "처음 초벌 못 찾음": sum(r["from_batch"] is None for r in recs),
            "source": {"dataset": str(ds), "names": str(Path(a.names).expanduser())}, "images": recs}
     (out / "manifest.json").write_text(json.dumps(man, ensure_ascii=False, indent=1), encoding="utf-8")
     (out / "classes.txt").write_text("\n".join(X.CLASSES + [X.EXCLUDE]) + "\n", encoding="utf-8")

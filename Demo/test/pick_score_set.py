@@ -6,16 +6,31 @@
   공구 없는 사진을 무작위로 더한다(잘못 잡는 경우를 재는 몫). 모자라면 있는 만큼 넣고 「모자람」에 적는다.
 🔴 모델 초벌·검출로 고르지 않는다 — 평가 대상 모델이 찾은 사진만 뽑히면 놓친 공구가 채점에 안 잡혀 점수가 부푼다
    (데이터셋 스킬 「분할」 ③ · 사용자 2026-10-07 「공구의 종류별 분배를 잘해줘」).
+⚠️ 한계 — 종류별 칸은 1회 검토 라벨로 나눈다. 그 라벨도 초벌(형제 모델)을 보며 고친 것이라, 초벌과 1회 검토자가 함께 놓친 공구가
+   있는 사진은 「공구 없음」으로 분류되어 공구 칸에서 빠진다(공구 없는 칸에 뽑힐 때만 추가 검토를 받는다) → 공구 칸이 「보인 공구」
+   쪽으로 조금 쏠려 형제 모델 재현율이 조금 낙관적일 수 있다. 채점 묶음 회수 뒤 추가 검토자가 칸마다 공구 박스를 몇 개 더했는지 함께 적는다.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
+import sys
 from pathlib import Path
 
-CLASSES = ["B1", "B2", "B3", "B4", "EMO", "driver", "wrench", "pliers"]   # collect_batch 8종 번호 순서(xany_io.CLASSES)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from xany_io import CLASSES     # noqa: E402 — collect_batch 8종 번호 순서
+
 TOOLS = ["driver", "wrench", "pliers"]
+
+
+def dataset_fingerprint(ds):
+    """images.txt + 이름 순 라벨 내용의 sha256 앞 16자 — 같은 seed 라도 데이터가 바뀌면 고른 결과가 다르다는 것을 기록으로 가린다."""
+    h = hashlib.sha256((Path(ds) / "images.txt").read_bytes())
+    for p in sorted((Path(ds) / "labels").glob("*.txt")):
+        h.update(p.name.encode()); h.update(p.read_bytes())
+    return h.hexdigest()[:16]
 
 
 def tool_boxes(lines):
@@ -63,12 +78,14 @@ def main():
     ds = Path(a.dataset).expanduser()
     names = [l.split("\t")[0] for l in (ds / "images.txt").read_text(encoding="utf-8").splitlines() if l.strip()]
     items = {n: tool_boxes((ds / "labels" / f"{n}.txt").read_text(encoding="utf-8").splitlines()) for n in names}
-    picked, rep = pick(items, a.per_tool, a.no_tool, a.seed)
     out = Path(a.out).expanduser()
-    if out.exists():
-        raise SystemExit(f"이미 있다: {out} — 덮어쓰지 않는다")
+    for f in (out, out.with_suffix(".json")):
+        if f.exists():
+            raise SystemExit(f"이미 있다: {f} — 덮어쓰지 않는다")
+    picked, rep = pick(items, a.per_tool, a.no_tool, a.seed)
     out.write_text("".join(n + "\n" for n in picked), encoding="utf-8")
-    rep["설정"] = {"dataset": str(ds), "후보 사진": len(items), "per_tool": a.per_tool, "no_tool": a.no_tool, "seed": a.seed}
+    rep["설정"] = {"dataset": str(ds), "데이터셋 지문": dataset_fingerprint(ds), "후보 사진": len(items),
+                  "per_tool": a.per_tool, "no_tool": a.no_tool, "seed": a.seed}
     out.with_suffix(".json").write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(rep, ensure_ascii=False))
 

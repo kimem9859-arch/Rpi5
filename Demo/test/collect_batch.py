@@ -4,6 +4,10 @@
 받는 조건(설계 §8): ①묶음의 모든 사진에 .json ②검토 흔적 — 다시 저장됨(version ≠ 초벌 표시) · 「검토함」 플래그·검토 완료(checked) · 또는 사용자가 「다 봤다」(--viewed-all) ③이름 = 8종·exclude ④「제안_」 없음(exclude 사진은 통째로 빠지므로 예외) ⑤사각형만
 하나라도 어긋나면 아무것도 쓰지 않고 종료 코드 1 과 목록을 낸다.
 출력: <out>/labels/<짧은 세션>__fNNNNN.txt · <out>/images.txt(라벨 이름 → 원본 경로) · <out>/data.yaml · <out>/stats/<묶음>.json
+      · <out>/sources.json(라벨 이름 → 마지막으로 쓴 묶음·종류)
+🔴 채점 묶음(manifest kind = score · score_batch.py)이 쓴 라벨은 학습 묶음을 다시 회수해도 덮지 못한다 — 사진마다 여러 사람이
+   검토한 채점 라벨이 1회 검토 라벨로 조용히 되돌아가지 않게(데이터셋 스킬 「분할」 ②). 다시 회수 순서 = 학습 묶음 → 채점 1회차 → 2회차.
+🔴 채점 묶음은 --viewed-all 로 받지 않는다 — 사진마다 「검토함」 표시(또는 다시 저장한 흔적)가 그 회차 검토의 증거다.
 🔴 사진은 파이의 원본과 짝짓는다 — 돌려받은 사진은 쓰지 않는다.
 """
 from __future__ import annotations
@@ -27,6 +31,8 @@ def check_returned(man, returned_dir, viewed_all=False):
     """viewed_all = 사용자가 「묶음을 다 봤다」고 확인함 — X-AnyLabeling 은 고치지 않은 사진을 저장하지 않으므로
     (3.3.5 · 사용자 확인 2026-09-28) 저장 흔적이 없는 사진도 「봤고 고칠 게 없음」으로 받는다. 이름 점검은 그대로 한다."""
     out = []
+    if viewed_all and man.get("kind") == "score":
+        out.append("채점 묶음은 --viewed-all 로 받지 않는다 — 사진마다 「검토함」을 켜고 저장해 검토 흔적을 남겨야 한다")
     if (Path(returned_dir) / "images").is_dir():   # scp -r 로 폴더째 두 번 보내면 returned/images/ 로 들어가 옛 파일을 읽게 된다
         out.append("returned 안에 images 폴더가 있다 — 폴더째 다시 보낸 것 같다(다시 보낼 때는 고친 .json 만 returned/ 로)")
     for r in man["images"]:
@@ -87,6 +93,27 @@ def unchanged(man, returned_dir):
 def _center_in(a, b):
     cx, cy = (a[0] + a[2]) / 2, (a[1] + a[3]) / 2
     return b[0] <= cx <= b[2] and b[1] <= cy <= b[3]
+
+
+SOURCES = "sources.json"
+
+
+def label_name(file):
+    """묶음 파일 이름 <앞머리>__<짧은 세션>__fNNNNN.png → 라벨 이름 <짧은 세션>__fNNNNN."""
+    return file.split("__", 1)[1].rsplit(".", 1)[0]
+
+
+def load_sources(out):
+    p = Path(out) / SOURCES
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def score_conflicts(man, sources):
+    """학습 묶음이 채점 묶음의 라벨을 덮으려는 이름 — 채점 묶음끼리(1회차 → 2회차)는 덮어도 된다."""
+    if man.get("kind") == "score":
+        return []
+    return sorted(n for n in (label_name(r["file"]) for r in man["images"])
+                  if sources.get(n, {}).get("kind") == "score")
 
 
 def write_index(path, rows, gone):
@@ -186,6 +213,14 @@ def main():
             for f in un["check"]:
                 print("   -", f)
     out = Path(a.out).expanduser()
+    sources = load_sources(out)
+    conflicts = score_conflicts(man, sources)
+    if conflicts:
+        print(f"❌ 회수 거부 — 채점 묶음이 쓴 라벨 {len(conflicts)}개를 학습 묶음 {man['batch']} 이 덮으려 한다(아무것도 쓰지 않았다)")
+        for n in conflicts[:10]:
+            print(f"  - {n} ← {sources[n]['batch']}")
+        print("  다시 회수 순서 = 학습 묶음 → 채점 1회차 → 2회차(채점 묶음을 다시 회수하면 된다)")
+        sys.exit(1)
     (out / "labels").mkdir(parents=True, exist_ok=True); (out / "stats").mkdir(exist_ok=True)
     total = {k: Counter() for k in ("auto", "check", "propose", "tool")}; added = Counter()
     excluded, rows, gone, merged = 0, {}, set(), 0
@@ -194,7 +229,7 @@ def main():
         shapes = X.drop_exact_duplicates(doc["shapes"])
         merged += len(doc["shapes"]) - len(shapes)
         doc["shapes"] = shapes
-        name = r["file"].split("__", 1)[1].rsplit(".", 1)[0]          # <짧은 세션>__fNNNNN
+        name = label_name(r["file"])          # <짧은 세션>__fNNNNN
         lines = X.to_yolo_lines(doc["shapes"], r["w"], r["h"])
         if lines is None:          # exclude 사진은 수정 집계에서도 뺀다 — 박스를 남기든 지우든 기계 정확도와 무관하다
             excluded += 1
@@ -208,6 +243,9 @@ def main():
         (out / "labels" / f"{name}.txt").write_text("".join(l + "\n" for l in lines), encoding="utf-8")
         rows[name] = r["original"]
     write_index(out / "images.txt", rows, gone)
+    kind = "score" if man.get("kind") == "score" else "train"
+    sources.update({n: {"batch": man["batch"], "kind": kind} for n in list(rows) + sorted(gone)})
+    (out / SOURCES).write_text(json.dumps(sources, ensure_ascii=False, indent=0), encoding="utf-8")
     (out / "data.yaml").write_text("names: [" + ", ".join(X.CLASSES) + "]\n", encoding="utf-8")
     stats = {"batch": man["batch"], "images": len(man["images"]), "exclude": excluded,
              **{k: dict(v) for k, v in total.items()}, "추가": dict(added)}

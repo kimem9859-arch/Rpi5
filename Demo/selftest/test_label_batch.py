@@ -529,8 +529,8 @@ def test_채점_묶음_왕복():
         img = os.path.join(src, "f00012.png"); cv2.imwrite(img, np.zeros((1024, 768, 3), np.uint8))
         ds = os.path.join(d, "ds"); os.makedirs(os.path.join(ds, "labels"))
         name = "1006-185503__f00012"
-        lines = ["0 0.244141 0.811035 0.079427 0.059570", "5 0.500000 0.400000 0.200000 0.100000",
-                 "6 0.300000 0.700000 0.150000 0.050000"]
+        lines = ["0 0.244141 0.811035 0.079427 0.059570", "5 0.513579 0.402917 0.211339 0.103713",
+                 "6 0.300123 0.700987 0.150456 0.050321", "7 0.123457 0.876543 0.098765 0.043210"]   # 정수 픽셀이 아닌 값(리뷰 M-1)
         open(os.path.join(ds, "labels", f"{name}.txt"), "w").write("\n".join(lines) + "\n")
         open(os.path.join(ds, "images.txt"), "w").write(f"{name}\t{img}\n")
         lst = os.path.join(d, "c001_목록.txt"); open(lst, "w").write(name + "\n")
@@ -540,7 +540,9 @@ def test_채점_묶음_왕복():
         check(r.returncode == 0, f"묶음 만들기 {r.stdout.strip()} {r.stderr.strip()[-200:]}")
         man = json.load(open(os.path.join(out, "manifest.json")))
         check(man["kind"] == "score" and man["images"][0]["file"] == f"s_score__{name}.png"
-              and [x["kind"] for x in man["images"][0]["drafts"]] == ["check", "tool", "tool"], f"{man['images'][0]['file']}")
+              and [x["kind"] for x in man["images"][0]["drafts"]] == ["check", "tool", "tool", "tool"]
+              and man["images"][0]["session"] == "20261006_185503_장소2_6", f"{man['images'][0]['file']} · {man['images'][0]['session']}")
+        check("유효 범위" in man and man["누적 검토 회차"] == 2, "기록 — 유효 범위 · 누적 검토 회차(학습 묶음 1 + 이 회차)")
         doc = json.load(open(os.path.join(out, "images", f"s_score__{name}.json")))
         check(doc["flags"] == {X.REVIEW_FLAG: False}, "「검토함」 꺼진 채로 넘긴다")
         ret = os.path.join(d, "returned"); os.makedirs(ret)
@@ -565,6 +567,95 @@ def test_공구_초벌_입력_크기():
         p = os.path.join(d, "best.pt"); open(p, "wb").write(b"weights")
         m = RB.tool_model_record(p, conf=0.65, imgsz=[1024, 768])
         check(m["input"] == "원본 그대로 · imgsz [1024, 768]", f"{m}")
+
+
+def _score_fixture(d, name, lines):
+    import cv2
+    import numpy as np
+    src = os.path.join(d, "raw", "20261006_185503_장소2_6"); os.makedirs(src, exist_ok=True)
+    img = os.path.join(src, name.split("__f")[1].join(["f", ".png"]))
+    cv2.imwrite(img, np.zeros((1024, 768, 3), np.uint8))
+    return img
+
+
+def test_채점_라벨_보호():
+    print("[39] 🔴 채점 묶음이 쓴 라벨은 학습 묶음을 다시 회수해도 덮지 못한다(sources.json) · 채점 묶음은 --viewed-all 로 받지 않는다")
+    import subprocess
+    with tempfile.TemporaryDirectory() as d:
+        name = "1006-185503__f00012"
+        img = _score_fixture(d, name, None)
+        # 학습 묶음 b015(사진 1장) — 회수해 dataset 에 1차 라벨
+        bman = {"batch": "b015", "images": [{"file": f"a_check__{name}.png", "original": img, "session": "20261006_185503_장소2_6",
+                                              "frame": 12, "w": 768, "h": 1024, "kind": "check", "blur": False,
+                                              "drafts": [{"label": "driver", "box": [10, 10, 60, 60], "kind": "tool", "why": []}]}]}
+        bdir = os.path.join(d, "b015"); os.makedirs(os.path.join(bdir, "returned"))
+        json.dump(bman, open(os.path.join(bdir, "manifest.json"), "w"), ensure_ascii=False)
+        X.write_json(os.path.join(bdir, "returned", f"a_check__{name}.json"), f"a_check__{name}.png", 768, 1024,
+                     [X.shape("driver", [10, 10, 60, 60])])
+        doc = json.load(open(os.path.join(bdir, "returned", f"a_check__{name}.json"))); doc["flags"][X.REVIEW_FLAG] = True
+        json.dump(doc, open(os.path.join(bdir, "returned", f"a_check__{name}.json"), "w"), ensure_ascii=False)
+        ds = os.path.join(d, "place2")
+        col = [sys.executable, os.path.join(_DEMO_DIR, "test", "collect_batch.py")]
+        r = subprocess.run(col + [os.path.join(bdir, "returned"), "--manifest", os.path.join(bdir, "manifest.json"), "--out", ds],
+                           capture_output=True, text=True)
+        check(r.returncode == 0, f"학습 묶음 회수 {r.stdout[-150:]} {r.stderr[-200:]}")
+        lst = os.path.join(d, "c001_목록.txt"); open(lst, "w").write(name + "\n")
+        cdir = os.path.join(d, "c001")
+        r = subprocess.run([sys.executable, os.path.join(_DEMO_DIR, "test", "score_batch.py"), "--names", lst, "--dataset", ds,
+                            "--out", cdir, "--batches", d], capture_output=True, text=True)
+        check(r.returncode == 0, f"채점 묶음 {r.stdout[-150:]} {r.stderr[-200:]}")
+        cman = json.load(open(os.path.join(cdir, "manifest.json")))
+        check(cman["images"][0].get("from_batch") == "b015", f"앞 묶음 기록 {cman['images'][0].get('from_batch')}")
+        # 2차 검토자가 박스를 고쳐 회수 → dataset 에 채점 라벨
+        cret = os.path.join(cdir, "returned"); os.makedirs(cret)
+        X.write_json(os.path.join(cret, f"s_score__{name}.json"), f"s_score__{name}.png", 768, 1024,
+                     [X.shape("driver", [12, 12, 62, 62])])
+        doc = json.load(open(os.path.join(cret, f"s_score__{name}.json"))); doc["flags"][X.REVIEW_FLAG] = True
+        json.dump(doc, open(os.path.join(cret, f"s_score__{name}.json"), "w"), ensure_ascii=False)
+        r = subprocess.run(col + [cret, "--manifest", os.path.join(cdir, "manifest.json"), "--out", ds, "--viewed-all"],
+                           capture_output=True, text=True)
+        check(r.returncode == 1 and "viewed-all" in r.stdout, "채점 묶음 + --viewed-all = 거부")
+        r = subprocess.run(col + [cret, "--manifest", os.path.join(cdir, "manifest.json"), "--out", ds], capture_output=True, text=True)
+        check(r.returncode == 0, f"채점 묶음 회수 {r.stdout[-150:]} {r.stderr[-200:]}")
+        after = open(os.path.join(ds, "labels", f"{name}.txt")).read()
+        src = json.load(open(os.path.join(ds, "sources.json")))
+        check(src.get(name, {}).get("batch") == "c001" and src[name]["kind"] == "score", f"sources {src}")
+        # 학습 묶음을 다시 회수 → 채점 라벨을 덮으려 하므로 거부 · 라벨 그대로
+        r = subprocess.run(col + [os.path.join(bdir, "returned"), "--manifest", os.path.join(bdir, "manifest.json"), "--out", ds],
+                           capture_output=True, text=True)
+        check(r.returncode == 1 and "채점 묶음" in r.stdout, f"학습 묶음 다시 회수 = 거부 {r.stdout[-200:]}")
+        check(open(os.path.join(ds, "labels", f"{name}.txt")).read() == after, "채점 라벨 그대로")
+
+
+def test_채점_묶음_읽기_실패():
+    print("[40] 채점 묶음 — 원본 사진을 못 읽으면 폴더를 만들기 전에 멈춘다(반쯤 만든 폴더를 남기지 않는다)")
+    import subprocess
+    with tempfile.TemporaryDirectory() as d:
+        ds = os.path.join(d, "ds"); os.makedirs(os.path.join(ds, "labels"))
+        name = "1006-185503__f00012"
+        open(os.path.join(ds, "labels", f"{name}.txt"), "w").write("5 0.5 0.5 0.1 0.1\n")
+        open(os.path.join(ds, "images.txt"), "w").write(f"{name}\t{os.path.join(d, 'nope.png')}\n")
+        lst = os.path.join(d, "l.txt"); open(lst, "w").write(name + "\n")
+        out = os.path.join(d, "c001")
+        r = subprocess.run([sys.executable, os.path.join(_DEMO_DIR, "test", "score_batch.py"), "--names", lst, "--dataset", ds,
+                            "--out", out, "--batches", d], capture_output=True, text=True)
+        check(r.returncode != 0 and not os.path.exists(out), f"멈춤 · 폴더 없음 {r.stderr.strip()[-120:]}")
+
+
+def test_채점_고르기_기록():
+    print("[41] 채점 고르기 — 목록·기록(.json) 어느 쪽이든 있으면 덮지 않고 · 데이터셋 지문을 남긴다(같은 seed 라도 데이터가 바뀌면 다른 결과)")
+    import subprocess
+    with tempfile.TemporaryDirectory() as d:
+        ds = os.path.join(d, "ds"); os.makedirs(os.path.join(ds, "labels"))
+        open(os.path.join(ds, "labels", "a__f00001.txt"), "w").write("5 0.5 0.5 0.1 0.1\n")
+        open(os.path.join(ds, "images.txt"), "w").write("a__f00001\t/x.png\n")
+        f1 = PS.dataset_fingerprint(ds)
+        open(os.path.join(ds, "labels", "a__f00001.txt"), "w").write("6 0.5 0.5 0.1 0.1\n")
+        check(PS.dataset_fingerprint(ds) != f1 and len(f1) == 16, "라벨이 바뀌면 지문도 바뀐다")
+        out = os.path.join(d, "c001_목록.txt"); open(out.replace(".txt", ".json"), "w").write("{}")
+        r = subprocess.run([sys.executable, os.path.join(_DEMO_DIR, "test", "pick_score_set.py"), "--dataset", ds, "--out", out],
+                           capture_output=True, text=True)
+        check(r.returncode != 0 and not os.path.exists(out), "기록 파일이 있으면 거부")
 
 
 if __name__ == "__main__":
@@ -606,6 +697,9 @@ if __name__ == "__main__":
     test_채점_사진_공구_종류별_고르기()
     test_채점_묶음_왕복()
     test_공구_초벌_입력_크기()
+    test_채점_라벨_보호()
+    test_채점_묶음_읽기_실패()
+    test_채점_고르기_기록()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
