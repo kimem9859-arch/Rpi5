@@ -1,0 +1,29 @@
+20:45:43 ESP-ROM:esp32s3-20210327
+20:45:43 Build:Mar 27 2021
+20:45:43 rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+20:45:43 Saved PC:0x4037a08e
+20:45:43 SPIWP:0xee
+20:45:43 mode:DIO, clock div:1
+20:45:43 load:0x3fce2820,len:0x10cc
+20:45:43 load:0x403c8700,len:0xc2c
+20:45:43 load:0x403cb700,len:0x30c0
+20:45:43 entry 0x403c88b8
+20:45:46 === TCP Streaming Start ===
+20:45:46 CPU: 240MHz
+20:45:46 Camera OK
+20:45:46 Sensor: PID=0x3660 VER=0x00 MIDH=0x00 MIDL=0x00
+20:45:47 EXP[boot]: 196.0 row = 9.02 ms · gain x6.62 · max 147.0 row (6.76 ms)
+20:45:47 [OK] PSRAM 버퍼 240000샘플 (468KB · 최대 10초)
+20:45:47 [OK] 마이크(I2S0/PDM) GPIO42=CLK GPIO41=DATA
+20:45:47 [OK] 스피커(I2S1/STD) BCLK=D0 LRC=D1 DIN=D2
+20:45:47 Scanning networks...
+20:45:50   [1] iptime : found
+20:45:58 Connecting to: iptime ........
+20:45:58 WiFi connected. SSID: iptime  IP: 192.168.1.16
+20:45:58 mDNS ready: esp32cam.local
+20:45:58 Stream: esp32cam.local:8888
+20:45:58 TCP server ready: port 8888
+20:45:58 [audio] 서버 준비 — 8889 마이크 업링크 · 8890 명령/스피커
+20:46:03 Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+20:46:03   Link: RSSI=-27dBm ch=1 BSSID=58:86:94:E5:5E:8A
+20:46:03 EXP[run]: 196.0 row = 9.02 ms · gain x6.62 · max 147.0 row (6.76 ms)

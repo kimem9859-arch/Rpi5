@@ -1,0 +1,30 @@
+
+── G0 · 주소와 도달성
+  ✅ 보드 192.168.1.16
+  ✅ 보드 ping
+
+── G2 · 무선 오디오 왕복 (체크섬)
+  ❌ 체크섬 불일치/전송 실패
+       File "/home/pi/sop-project/Rpi5/arduino/mic_speaker_test/../../Demo/serial_ports.py", line 10, in <module>
+         from serial.tools import list_ports
+     ModuleNotFoundError: No module named 'serial'
+
+── G3 · 마이크 업링크 중 카메라 FPS (합격선 ≥15)
+  ✅ 업링크 중 19.4 fps (582 프레임 / 30초)
+  ✅ NFR-1 충족
+
+── ⛔ 명료도 — 재생만 한다. 판정은 사람이 한다
+  🔴 스피커를 **귀 옆 5cm** 에 두고 들으세요(§10.49 가 정한 조건).
+     ▶ checking
+     ❌ 재생 실패
+     ▶ wrench
+     ❌ 재생 실패
+     ▶ none
+     ❌ 재생 실패
+     ▶ notstep
+     ❌ 재생 실패
+  ❓ 네 문장이 **무슨 말인지 알아들렸는가?**
+     아니면 → Demo/voice/make_answers.py 의 문장을 줄여 다시 합성한다(2분).
+
+── 요약
+  ❌ 실패 1 건 — Demo/voice/시연절차.md §4 증상별 대응표를 보라.
