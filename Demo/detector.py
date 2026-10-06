@@ -78,7 +78,12 @@ class HailoDetector(BaseDetector):
 
     backend_name = "hailo"
 
-    def __init__(self):
+    def __init__(self, hef_path=None, names=None):
+        """hef_path·names 기본값 = 시연 그대로(config.HEF_MODEL_PATH · B1~EMO).
+
+        🔑 측정 도구가 재학습 모델·공구 모델을 같은 공유 장치에 올릴 때만 넘긴다
+           (2026-10-06 사용자 「측정 도구에서만」 — 시연 경로는 인자 없이 부른다).
+        """
         from contextlib import ExitStack
 
         from hailo_platform import InferVStreams, InputVStreamParams, OutputVStreamParams
@@ -90,7 +95,7 @@ class HailoDetector(BaseDetector):
 
         # 장치는 hailo_device 가 소유한다(공유). 여기서 VDevice 를 만들면
         # 손 검출 등 다른 모델을 올릴 수 없다 — HAILO_OUT_OF_PHYSICAL_DEVICES.
-        network_group = hailo_device.configure(config.HEF_MODEL_PATH)
+        network_group = hailo_device.configure(hef_path or config.HEF_MODEL_PATH)
         in_params = InputVStreamParams.make(network_group)
         out_params = OutputVStreamParams.make(network_group)
         self._in_name = network_group.get_input_vstream_infos()[0].name
@@ -100,7 +105,7 @@ class HailoDetector(BaseDetector):
         # ⚠️ network_group.activate() 를 부르지 않는다 — ROUND_ROBIN 스케줄러가
         #    컨텍스트 전환을 관리한다. 수동 활성화는 장치를 독점해 다른 모델을 막는다.
 
-        self._names = {0: "B1", 1: "B2", 2: "B3", 3: "B4", 4: "EMO"}
+        self._names = dict(names) if names else {0: "B1", 1: "B2", 2: "B3", 3: "B4", 4: "EMO"}
 
     def detect(self, frame):
         import cv2

@@ -1,6 +1,10 @@
 """Hailo 실추론 벤치마크 — FPS·탐지율·안정성 측정.
 
-대상 모델은 config.HEF_MODEL_PATH가 가리키는 것(현재 console_v2.hef). --hef 옵션은 없다.
+대상 모델은 config.HEF_MODEL_PATH가 가리키는 것(현재 console_v2.hef).
+🆕 2026-10-06 — `--hef <파일>` = 이 실행만 버튼 모델을 바꾼다(설정 파일 무변경) · `--tool-hef <파일>` = 공구 모델도
+    같은 NPU 공유 장치에 올려 매 프레임 버튼 → 손 → 공구 순으로 돌린다(시연은 공구를 CPU 별도 프로세스로 돌린다 —
+    이 옵션은 「세 모델 NPU 동시」 측정 전용 · 사용자 「측정 도구에서만」). 공구 기록 = <tag>_tool_log.csv.
+    ⚠️ 학습 실험 폴더의 model.hef 는 이름표가 폴더 이름(예: e0b_button_s0)이라 db_import 파일명 규약 밖이다(적재 안 됨).
 
 실행:
     cd ~/sop-project/Rpi5/Demo
@@ -32,6 +36,7 @@
     test/logs/YYYYMMDD_HHMMSS_<src>_stability_log.csv
     test/logs/YYYYMMDD_HHMMSS_<src>_confusion_log.csv
     test/logs/YYYYMMDD_HHMMSS_<src>_rawdet_log.csv       (raw 검출 ≥CONF_LOW — B4 저신뢰 포함)
+    test/logs/YYYYMMDD_HHMMSS_<src>_tool_log.csv         (--tool-hef 시 · 프레임마다 공구 시간 + 공구 검출 ≥CONF_LOW)
     test/videos/YYYYMMDD_HHMMSS_<src>_bench.mp4           (--no-video 생략 시)
        ⚠ 이 영상은 **검출 오버레이가 그려진** 화면이고 mp4v 손실압축이라 재분석용이 아니다.
     test/raw/YYYYMMDD_HHMMSS_<src>/f00001.png …          (--save-raw 시, 무손실)
@@ -73,6 +78,21 @@ _RAW_DIR    = os.path.join(_TEST_DIR, "raw")
 
 CLASS_NAMES = ["B1", "B2", "B3", "B4", "EMO"]
 CONF_WARN   = 0.70  # 이 미만이면 취약 경고
+# 공구 HEF 의 클래스 순서 — 학습 이름표와 같다(T-full-base best.pt names 2026-10-06 확인).
+TOOL_NAMES  = ["driver", "wrench", "pliers"]
+
+
+def _hef_label(path):
+    """산출물 파일명에 넣을 모델 이름표 — 학습 실험 폴더의 model.hef 는 폴더 이름으로, 소문자·밑줄만."""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    if stem == "model":
+        stem = os.path.basename(os.path.dirname(os.path.abspath(path)))
+    return re.sub(r"[^a-z0-9_]+", "_", stem.lower()).strip("_")
+
+
+def _hex_bgr(h):
+    h = h.lstrip("#")
+    return (int(h[4:6], 16), int(h[2:4], 16), int(h[0:2], 16))
 
 # =============================================================================
 # TCP 수신 (camera_thread.py 패턴, Qt 의존 제거)
@@ -207,10 +227,13 @@ def run_bench(args):
     if args.condition:
         condition = re.sub(r"[^a-z0-9-]+", "-", args.condition.strip().lower()).strip("-") or None
 
+    # 🆕 --hef = 이 실행만 버튼 모델을 바꾼다(설정 파일은 그대로 · 아래 이름표·manifest 도 이 값을 따른다).
+    if args.hef:
+        config.HEF_MODEL_PATH = args.hef
     # 사용 모델 stem (console_v1 / console_v2 …) — 실제로 로드되는 백엔드의 경로에서 유도.
     _model_path = (config.PT_MODEL_PATH if config.INFERENCE_BACKEND == "pytorch"
                    else getattr(config, "HEF_MODEL_PATH", None))
-    model_name = os.path.splitext(os.path.basename(_model_path))[0] if _model_path else None
+    model_name = _hef_label(_model_path) if _model_path else None
 
     # 플립 결정. auto = 수직 — 카메라가 물리적으로 거꾸로 장착돼 있어 바로잡는 보정(추론에 필요).
     if args.flip == "auto":
@@ -288,6 +311,12 @@ def run_bench(args):
     conf_w.writerow(["frame", "timestamp", "prev_cls", "new_cls", "iou"])
     # rawdet = 트래킹 이전 원시 검출(score≥YOLO_CONF_LOW). B4 저신뢰(0.5~0.65) 소실 구간 가시화용.
     raw_w.writerow(  ["frame", "timestamp", "source", "cls_name", "score", "x1", "y1", "x2", "y2"])
+    # 🆕 공구(--tool-hef) — 기존 CSV 의 칸은 바꾸지 않는다(db_import INSERT 가 칸 수에 묶여 있다).
+    tool_f = tool_w = None
+    if args.tool_hef:
+        tool_f = open(os.path.join(_LOGS_DIR, f"{_tag}_tool_log.csv"), "w", newline="")
+        tool_w = csv.writer(tool_f)
+        tool_w.writerow(["frame", "timestamp", "tool_ms", "cls_name", "score", "x1", "y1", "x2", "y2"])
 
     # --- GPIO 물리 버튼 눌림 기록 (--gpio) ---
     # 왜: 비전이 "손이 어느 버튼에 있나"만 알려주는 데 반해, GPIO는 "실제로 언제 눌렸나"라는
@@ -381,6 +410,16 @@ def run_bench(args):
             hand_tracker = None
             print("  ⚠️ 손 검출이 비활성이다 — 이 세션의 FPS는 'HOI 포함'이 아니다")
 
+    # --- 공구도 NPU 로 (--tool-hef) — 버튼·손과 같은 공유 장치(ROUND_ROBIN) ---
+    tool_det     = None
+    tool_ms_list = []
+    tool_hit     = {n: 0 for n in TOOL_NAMES}   # TOOL_CONF 이상으로 잡힌 프레임 수
+    tool_last    = [float("-inf")]               # 마지막으로 공구를 돌린 시각(--tool-interval)
+    if args.tool_hef:
+        from detector import HailoDetector
+        tool_det = HailoDetector(hef_path=args.tool_hef, names=dict(enumerate(TOOL_NAMES)))
+        print(f"[공구] NPU 로드 — {args.tool_hef}")
+
     # --- 프레임 소스 설정 (ESP32 TCP) ---
     sock = None
     latest_raw  = [None]
@@ -393,6 +432,8 @@ def run_bench(args):
         detector.close()
         if hand_tracker is not None:
             hand_tracker.close()
+        if tool_det is not None:
+            tool_det.close()
 
     sock = _connect_tcp(host)
     if sock is None:
@@ -513,6 +554,7 @@ def run_bench(args):
                 "raw_every":      args.raw_every,
                 "backend":        detector.backend_name,
                 "hef_path":       getattr(config, "HEF_MODEL_PATH", None),
+                "tool_hef":       args.tool_hef,
                 "yolo_conf_high": config.YOLO_CONF_HIGH,
                 "yolo_conf_low":  config.YOLO_CONF_LOW,
                 "yolo_input_size": config.YOLO_INPUT_SIZE,
@@ -583,6 +625,27 @@ def run_bench(args):
                 if fingertip is not None:
                     hand_hit += 1
 
+            # 공구 — 손 바로 뒤에서 같은 프레임으로(이 시간도 FPS 에 그대로 실린다).
+            tool_dets = []
+            # 🔑 --tool-interval = 공구를 몇 초에 한 번 돌리나(0 = 매 프레임 · 시연은 config.TOOL_SCAN_INTERVAL_SEC).
+            if tool_det is not None and (args.tool_interval <= 0 or
+                                         time.perf_counter() - tool_last[0] >= args.tool_interval):
+                tool_last[0] = time.perf_counter()
+                t_tool = time.perf_counter()
+                tool_dets = tool_det.detect(frame)
+                tool_ms = (time.perf_counter() - t_tool) * 1000.0
+                tool_ms_list.append(tool_ms)
+                if not tool_dets:
+                    tool_w.writerow([frame_no, now_str, f"{tool_ms:.2f}", "", "", "", "", "", ""])
+                _tool_seen = set()
+                for cls_id, score, x1, y1, x2, y2 in tool_dets:
+                    name = tool_det.class_name(cls_id)
+                    tool_w.writerow([frame_no, now_str, f"{tool_ms:.2f}", name, f"{score:.4f}", x1, y1, x2, y2])
+                    if score >= config.TOOL_CONF:
+                        _tool_seen.add(name)
+                for name in _tool_seen:
+                    tool_hit[name] = tool_hit.get(name, 0) + 1
+
             # --- raw 검출 로깅 (트래킹 이전, score≥CONF_LOW 전량) ---
             # confirmed 트랙(≥CONF_HIGH)만 보는 detection_log의 사각지대(B4 저신뢰) 보완.
             _seen_this_frame = set()
@@ -649,6 +712,13 @@ def run_bench(args):
                 pass
             else:
                 frame_draw = _draw_detections(frame.copy(), tracks, fps, frame_no)
+                for cls_id, score, x1, y1, x2, y2 in tool_dets:   # 공구 — 시연과 같은 문턱·색
+                    if score >= config.TOOL_CONF:
+                        name = tool_det.class_name(cls_id)
+                        c = _hex_bgr(config.TOOL_BOX_COLORS.get(name, config.DETECT_BOX_FALLBACK))
+                        cv2.rectangle(frame_draw, (x1, y1), (x2, y2), c, 2)
+                        cv2.putText(frame_draw, f"{name} {score:.2f}", (x1, max(y1 - 6, 10)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, c, 2)
                 if fingertip is not None:             # 검지 끝 — 촬영 중 눈으로 확인하는 용도
                     cv2.circle(frame_draw, fingertip, 10, (255, 0, 255), -1)
                     cv2.circle(frame_draw, fingertip, 12, (255, 255, 255), 2)
@@ -700,6 +770,8 @@ def run_bench(args):
             with gpio_lock:
                 gpio_f.close()
         perf_f.close(); det_f.close(); stab_f.close(); conf_f.close(); raw_f.close()
+        if tool_f is not None:
+            tool_f.close()
         if raw_img_queue is not None:
             raw_img_queue.put(None)          # 종료 신호 — 남은 큐를 다 쓰고 끝난다
             raw_img_thread.join(timeout=60)
@@ -767,6 +839,17 @@ def run_bench(args):
         else:
             print("  비활성이었다 — 위 FPS는 버튼만 돌린 값이다")
 
+    if args.tool_hef:
+        print(f"\n{'-'*50}\n공구 (NPU · {_hef_label(args.tool_hef)})")
+        if tool_ms_list:
+            print(f"  소요   평균 {sum(tool_ms_list)/len(tool_ms_list):.1f}ms  최대 {max(tool_ms_list):.1f}ms")
+            print("  검출 프레임(≥" + f"{config.TOOL_CONF}) " + "  ".join(f"{n} {tool_hit.get(n,0)}" for n in TOOL_NAMES)
+                  + f"  / 공구를 돌린 {len(tool_ms_list)}프레임"
+                  + (f" (간격 {args.tool_interval}초)" if args.tool_interval > 0 else " (매 프레임)"))
+            print("  ⇒ 위 평균 FPS는 **버튼 + 손 + 공구 NPU 동시** 값이다(손은 --hand 일 때)")
+        else:
+            print("  처리한 프레임이 없다")
+
     if args.gpio:
         print(f"\nGPIO 눌림  : {gpio_events[0]}회 → test/logs/{_tag}_gpio_log.csv")
         if gpio_events[0] == 0:
@@ -815,6 +898,15 @@ if __name__ == "__main__":
     parser.add_argument("--undistort", action="store_true",
                         help="런타임과 같은 왜곡보정을 넣는다(기본 꺼짐). "
                              "🔴 켜면 옛 측정값과 직접 비교할 수 없다 — 입력 그림이 달라진다")
+    parser.add_argument("--hef", type=str, default=None, metavar="PATH",
+                        help="이 실행만 버튼 모델 HEF 를 바꾼다(설정 파일 무변경). 산출물 이름표 = 파일 이름 "
+                             "(학습 실험 폴더의 model.hef 는 폴더 이름)")
+    parser.add_argument("--tool-hef", type=str, default=None, metavar="PATH",
+                        help="공구 모델 HEF 도 같은 NPU 에 올려 매 프레임 돌린다(버튼 → 손 → 공구) · "
+                             "기록 = <tag>_tool_log.csv · 시연은 공구를 CPU 로 돌리므로 측정 전용")
+    parser.add_argument("--tool-interval", type=float, default=0.0, metavar="SEC",
+                        help="--tool-hef 의 공구를 SEC 초에 한 번만 돌린다(기본 0 = 매 프레임 · 최악 조건). "
+                             "시연과 같은 간격 = config.TOOL_SCAN_INTERVAL_SEC")
     parser.add_argument("--condition", type=str, default=None, metavar="SLUG",
                         help="촬영 조건 슬러그(fluorescent/lowlight/daylight/cleanroom 등). "
                              "산출물 파일명·manifest에 기록되어 db_import가 조건을 자동 분류한다. "

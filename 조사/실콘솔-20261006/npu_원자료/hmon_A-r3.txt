@@ -1,0 +1,224 @@
+[?1049h[2J[1;1H[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                41.3                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     28.3                     19.9           3549564                                                               
+palm_detection_lite                                         13.0                     19.9           3549564                                                               
+hand_landmark_lite                                          0.0                      0.0            3549564                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     yolov8n/input_layer1                                        H2D            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv63_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv62_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv53_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv52_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv42_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv41_97                                           D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                38.3                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     26.0                     18.9           3549564                                                               
+palm_detection_lite                                         12.3                     18.9           3549564                                                               
+hand_landmark_lite                                          0.0                      0.0            3549564                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     yolov8n/input_layer1                                        H2D            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv63_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv62_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv53_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv52_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv42_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv41_97                                           D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                35.5                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     24.5                     16.9           3549564                                                               
+palm_detection_lite                                         11.0                     16.9           3549564                                                               
+hand_landmark_lite                                          0.0                      0.0            3549564                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     yolov8n/input_layer1                                        H2D            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv63_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv62_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv53_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv52_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv42_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv41_97                                           D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                32.0                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     21.6                     15.9           3549564                                                               
+palm_detection_lite                                         10.4                     15.9           3549564                                                               
+hand_landmark_lite                                          0.0                      0.0            3549564                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     yolov8n/input_layer1                                        H2D            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv63_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv62_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv53_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv52_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv42_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv41_97                                           D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                32.0                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     22.3                     15.9           3549564                                                               
+palm_detection_lite                                         9.7                      14.9           3549564                                                               
+hand_landmark_lite                                          0.0                      0.0            3549564                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     yolov8n/input_layer1                                        H2D            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv63_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv62_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv53_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv52_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv42_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv41_97                                           D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                32.0                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     22.3                     15.9           3549564                                                               
+palm_detection_lite                                         9.7                      14.9           3549564                                                               
+hand_landmark_lite                                          0.0                      0.0            3549564                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     yolov8n/input_layer1                                        H2D            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv63_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv62_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv53_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv52_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv42_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv41_97                                           D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                31.2                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     20.9                     14.9           3549564                                                               
+palm_detection_lite                                         10.4                     15.9           3549564                                                               
+hand_landmark_lite                                          0.0                      0.0            3549564                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+yolov8n                                                     yolov8n/input_layer1                                        H2D            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv63_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv62_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv53_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv52_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv42_97                                           D2H            0.50    1       0       8       
+yolov8n                                                     yolov8n/conv41_97                                           D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
