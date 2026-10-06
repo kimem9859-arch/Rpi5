@@ -20,6 +20,8 @@
  *   WARN   → 황 ON,  녹·적·부저·차단 OFF        (경고 — 🔴 여기서는 끊지 않는다)
  *   BLOCK  → 적+부저+**차단** ON, 녹·황 OFF     (버튼 전기 신호를 실제로 끊는다)
  *   수신할 때마다 "ACK\n" 회신.
+ *   ⚠️ 표의 「차단 ON/OFF」는 **논리**(버튼을 끊느냐)다. NO 접점이라 **CH5 코일·LED 는 반대** —
+ *      RUN·WARN = CH5 코일 ON(LED 켜짐 · 버튼 통전) · BLOCK = CH5 코일 OFF(LED 꺼짐 · 버튼 끊김).
  *
  * 부팅 시 안전 초기상태 = 정상(녹 ON, 차단 OFF) → 버튼이 살아 있는 채로 시작.
  * EMO 는 Pi GPIO 가 직접 감지하므로 여기서는 별도 처리 없이 Pi 가 보내는
@@ -43,11 +45,15 @@
  *       비상정지가 죽는다. 차단 중에도 EMO 는 살아 있어야 한다(설계 §3.2).
  *    🆕 **2026-09-11 개정 — NC → NO**(설계 §11 · 사용자 결정 2026-09-04·09-11).
  *       **NO 접점이라 아두이노·릴레이 전원이 죽으면 버튼도 죽는다**(차단 유지 ·
- *       de-energize to trip = 산업 표준). 대신 시리얼이 끊기거나 아두이노가
- *       리셋되면 버튼 4개가 전부 죽어 콘솔이 먹통이 된다 — 사용자가 감수했다.
- *       🔴 「fail-safe」라는 말은 실물 검증(설계 §11.5-6 · USB 를 뽑으면 버튼이
- *       죽고 다시 꽂으면 살아남)을 통과한 뒤에만 쓴다(설계 §11.6).
- *    ⚠️ 동시 ON 코일은 최대 2채널(정상 = 녹+차단 · BLOCK = 적+부저 ≈150mA).
+ *       de-energize to trip = 산업 표준). 대신 USB 가 빠지는 등 **전원을 잃으면**
+ *       버튼 4개가 전부 죽어 콘솔이 먹통이 된다 — 사용자가 감수했다.
+ *       · 시리얼 데이터만 끊기면(파이 프로그램 종료·포트 닫힘) 릴레이는 마지막 상태 그대로다.
+ *       · 아두이노가 리셋되면 부팅 순간만 영향이 있고 끝나면 RUN(버튼 통전)이다. 그래서
+ *         BLOCK 중에 리셋되면 파이가 다시 맞출 때까지(재연결 약 3초 + 부팅 대기 2초) 버튼이
+ *         살아 있다 — NC 때와 같다(회귀 아님).
+ *       🔴 「fail-safe」라는 말은 **전원 상실에만** 해당하고, 실물 검증(설계 §11.5-6 · USB 를
+ *       뽑으면 버튼이 죽고 다시 꽂으면 살아남)을 통과한 뒤에만 쓴다(설계 §11.6).
+ *    ⚠️ 동시 ON 코일은 최대 2채널(정상 = 녹+CH5 코일 · BLOCK = 적+부저 ≈150mA).
  *       Arduino 5V 급전(방법 A) 유지 — USB 500mA 한계 안이다(설계 §3.4).
  * ─────────────────────────────────────────────────────────────────────────
  *
@@ -58,8 +64,9 @@
  *
  * 빌드·업로드 (라즈베리파이, arduino-cli — IDE 아님):
  *   arduino-cli core install arduino:renesas_uno            # 최초 1회
- *   arduino-cli compile --fqbn arduino:renesas_uno:minima console_interlock
- *   arduino-cli upload  --fqbn arduino:renesas_uno:minima console_interlock
+ *   arduino-cli compile --upload -p <포트> --fqbn arduino:renesas_uno:minima console_interlock
+ *   # 포트 = 설명에 「UNO R4」 가 든 것(ttyACM 번호는 꽂는 순서로 바뀐다) · compile 없이 upload 만
+ *   #   하면 캐시된 옛 바이너리가 조용히 올라갈 수 있다.
  *   # 업로드 시 1200bps 터치로 DFU 모드 진입 → dfu-util 자동 플래시.
  *   # DFU 는 raw USB(libusb) 라 권한 필요 — udev 룰 설치 완료:
  *   #   /etc/udev/rules.d/99-arduino-unor4.rules (ATTRS{idVendor}=="2341", MODE="0666")
@@ -89,7 +96,10 @@ void setRelays(bool red, bool yellow, bool green, bool buzzer, bool cut) {
 }
 
 void setup() {
-  // 핀을 OUTPUT 으로 만들기 전에 초기값을 먼저 써 글리치를 막는다(램프·부저 = OFF · 차단 채널 = ON).
+  // 초기값을 쓴 뒤 OUTPUT 으로 만든다. ⚠️ 이 보드(Renesas 코어)의 pinMode(OUTPUT) 은 핀 설정을
+  //    통째로 다시 써 출력을 LOW(= active LOW 모듈에선 ON)로 만든다 — 앞의 OFF 가 남지 않아
+  //    램프·부저가 수 µs ON 이 된다. 릴레이가 붙는 시간(수 ms)보다 훨씬 짧아 실제 영향은 없고,
+  //    바로 아래 setRelays() 가 맞춘다. CH5 는 원래 ON(통전)을 원하므로 NO 설계와 무관하다.
   digitalWrite(PIN_RED,    RELAY_OFF);
   digitalWrite(PIN_YELLOW, RELAY_OFF);
   digitalWrite(PIN_GREEN,  RELAY_OFF);

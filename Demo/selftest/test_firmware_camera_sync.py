@@ -21,22 +21,30 @@ def check(cond, msg):
 
 
 def _src(name):
+    """소스 — `//` 줄 주석은 지운다(주석 처리된 설정이 대조에 끼지 않게)."""
     with open(os.path.join(_ARDUINO, name, f"{name}.ino"), encoding="utf-8") as f:
-        return f.read()
+        return re.sub(r"//[^\n]*", "", f.read())
 
 
 def _camera_config(src):
-    """`config.<필드> = <값>;` 을 모은다 — 카메라 초기화 설정."""
-    return dict(re.findall(r"config\.(\w+)\s*=\s*([^;]+);", src))
+    """`config.<필드> = <값>;` 을 순서대로 모은다 — 카메라 초기화 설정(같은 필드를 두 번 쓰면 둘 다 남는다)."""
+    return [(k, v.strip()) for k, v in re.findall(r"config\.(\w+)\s*=\s*([^;]+);", src)]
+
+
+def _camera_pins(src):
+    """`#define <이름>_GPIO_NUM <값>` — 카메라 배선 핀."""
+    return re.findall(r"#define\s+(\w+_GPIO_NUM)\s+(-?\d+)", src)
 
 
 def test_카메라_설정():
     print("[c1] 카메라 초기화 설정(해상도·화질·버퍼·핀·클럭)이 두 펌웨어에서 같다")
-    a, b = _camera_config(_src("camera_stream_tcp")), _camera_config(_src("glass_voice"))
+    sa, sb = _src("camera_stream_tcp"), _src("glass_voice")
+    a, b = _camera_config(sa), _camera_config(sb)
     check(len(a) >= 20, f"camera_stream_tcp 설정 {len(a)}개를 읽었다")
-    diff = {k: (a.get(k), b.get(k)) for k in set(a) | set(b) if a.get(k) != b.get(k)}
-    check(not diff, f"다른 설정 없음 — {diff}")
-    check(a.get("frame_size") == "FRAMESIZE_XGA", f"기준 해상도 = XGA — {a.get('frame_size')}")
+    check(a == b, f"설정이 같은 순서·같은 값 — 다른 것 {sorted(set(a) ^ set(b))}")
+    check(dict(a).get("frame_size") == "FRAMESIZE_XGA", f"기준 해상도 = XGA — {dict(a).get('frame_size')}")
+    pa, pb = _camera_pins(sa), _camera_pins(sb)
+    check(len(pa) >= 16 and pa == pb, f"카메라 핀 {len(pa)}개가 같다 — 다른 것 {sorted(set(pa) ^ set(pb))}")
 
 
 def test_노출_상한():
@@ -44,8 +52,10 @@ def test_노출_상한():
     pat = r"set_reg\(\s*\w+\s*,\s*0x3A0E\s*,\s*0xFF\s*,\s*0x02\s*\)"
     for name in ("camera_stream_tcp", "glass_voice"):
         s = _src(name)
-        check(re.search(pat, s) is not None, f"{name} — 0x3A0E=2")
+        m, init = re.search(pat, s), s.find("esp_camera_init(")
+        check(m is not None and 0 <= init < m.start(), f"{name} — 0x3A0E=2 · 카메라 초기화 뒤")
         check('printExposure("boot")' in s, f"{name} — 부팅 노출 기록")
+        check('printExposure("run")' in s, f"{name} — 5초마다 노출 기록")
 
 
 def test_음성_명령과_안_겹침():

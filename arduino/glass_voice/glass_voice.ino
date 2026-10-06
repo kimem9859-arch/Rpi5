@@ -11,6 +11,8 @@
  *    상한 9ms(0x3A0E=2) · 센서 모델 기록 · 노출 기록(부팅 + 5초마다). ⚠️ 시리얼 진단 명령
  *    `R:`·`W:`·`EXP:` 는 **옮기지 않았다** — 같은 시리얼로 음성 명령 `R`(녹음)·`W`(소리 적재)를
  *    받아 글자가 겹친다. 두 펌웨어의 카메라 설정 대조 = `Demo/selftest/test_firmware_camera_sync.py`.
+ *    🔴 그래서 `camera_stream_tcp` 습관으로 시리얼에 `R:3A0E`·`EXP:0`·`RESET_WIFI` 를 치면 **음성
+ *    명령으로 잡힌다**(`R…` → 녹음 · `EXP:0` 의 `P` → 담긴 소리 재생). 이 펌웨어에선 치지 않는다.
  *
  * 포트: 8888 카메라(기존) · 8889 마이크 업링크 · 8890 명령/스피커
  * 멈춤 명령(8890): S — 재생 중이면 멈추고 [재생 중단] · 아니면 무시(음성 설계 2026-10-04 §4.3)
@@ -31,7 +33,8 @@
  *
  * 🔴 굽기 — PSRAM=opi 필수(빠뜨리면 카메라가 부팅 루프에 빠진다):
  *   arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi arduino/glass_voice
- *   arduino-cli upload -p <포트> --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi arduino/glass_voice
+ *   arduino-cli compile --upload -p <포트> --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi arduino/glass_voice
+ *   (compile 없이 upload 만 하면 캐시된 옛 바이너리가 조용히 올라갈 수 있다)
  *   (포트는 시리얼번호 `3C:0F:02:DD:5E:58` 로 찾는다 — ttyACM 번호는 꽂는 순서로 바뀐다)
  */
 
