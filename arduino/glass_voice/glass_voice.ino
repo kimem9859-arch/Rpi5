@@ -7,6 +7,10 @@
  * 🔴 카메라 코드는 `camera_stream_tcp` 에서 **그대로 복사**했다. 손대지 않는다.
  *    통신경로 과제(2026-09-06-esp32-통신경로-design.md)가 카메라 쪽을 고치면
  *    **그 diff 만 여기로 옮긴다.** 아래 「오디오 추가분」 표시가 붙은 곳만 새 것이다.
+ *    🆕 2026-10-06 — `camera_stream_tcp` 의 2026-09-22~23 diff 를 옮겼다: XGA(1024×768) · 부팅 노출
+ *    상한 9ms(0x3A0E=2) · 센서 모델 기록 · 노출 기록(부팅 + 5초마다). ⚠️ 시리얼 진단 명령
+ *    `R:`·`W:`·`EXP:` 는 **옮기지 않았다** — 같은 시리얼로 음성 명령 `R`(녹음)·`W`(소리 적재)를
+ *    받아 글자가 겹친다. 두 펌웨어의 카메라 설정 대조 = `Demo/selftest/test_firmware_camera_sync.py`.
  *
  * 포트: 8888 카메라(기존) · 8889 마이크 업링크 · 8890 명령/스피커
  * 멈춤 명령(8890): S — 재생 중이면 멈추고 [재생 중단] · 아니면 무시(음성 설계 2026-10-04 §4.3)
@@ -28,7 +32,7 @@
  * 🔴 굽기 — PSRAM=opi 필수(빠뜨리면 카메라가 부팅 루프에 빠진다):
  *   arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi arduino/glass_voice
  *   arduino-cli upload -p <포트> --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi arduino/glass_voice
- *   (포트는 `python3 Demo/serial_ports.py` 로 찾는다 — ttyACM0 은 Arduino 인터록이다)
+ *   (포트는 시리얼번호 `3C:0F:02:DD:5E:58` 로 찾는다 — ttyACM 번호는 꽂는 순서로 바뀐다)
  */
 
 #include "esp_camera.h"
@@ -485,6 +489,37 @@ static volatile uint32_t statBytes = 0;      // 전송 바이트 합
 static volatile uint32_t statSendMsSum = 0;  // send() 소요 합
 static volatile uint32_t statSendMsMax = 0;  // send() 소요 최대
 
+// =============================================================================
+// [노출 상한] — `camera_stream_tcp` 에서 옮김(2026-10-06). 근거·계산 = 그 파일의 같은 절.
+// =============================================================================
+// 🔴 **부팅 때 0x3A0E=2(노출 상한 밴드 2 → 최대 약 9ms)를 건다** — 상위 §12.66-(18) 채택값.
+//    플래시 설정이 아니라 매 부팅마다 건다. 진단용 시리얼 조정(`EXP:`·`W:`)은 없다(머리 주석).
+
+// row 한 줄을 읽는 시간(us). HTS 2300 / SCLK 50MHz — 둘 다 드라이버가 정한 값이라
+// 펌웨어에서 바꾸지 않는 한 고정이다(근거 = 상위 §12.65-(1)).
+static const float ROW_TIME_US = 2300.0f / 50.0f;   // = 46.0us
+
+// 현재 노출·게인·상한을 사람이 읽을 수 있는 단위로 찍는다.
+// 🔴 이것이 있어야 「노출이 원인이었나」를 추론이 아니라 «측정» 으로 확정한다.
+void printExposure(const char *tag) {
+  sensor_t *sp = esp_camera_sensor_get();
+  if (!sp || !sp->get_reg) { Serial.println("EXP: sensor has no get_reg"); return; }
+  // 🔑 마스크가 0xFF 를 넘으면 드라이버가 여러 바이트를 한 번에 읽는다
+  //    (`ov3660.c get_reg`: >0xFF → 2바이트 · >0xFFFF → 3바이트).
+  //    낱개로 7번 부르지 않고 3번으로 끝낸다 — I2C 는 촬영 중에도 도는 버스다.
+  int exp  = sp->get_reg(sp, 0x3500, 0x0FFFFF);  // 노출 20비트 · 하위 4비트가 1/16 row
+  int gn   = sp->get_reg(sp, 0x350A, 0x03FF);    // 게인 10비트 · 1/16 배
+  int mx   = sp->get_reg(sp, 0x3A02, 0xFFFF);    // 최대 노출 상한(60Hz)
+  if (exp < 0 || gn < 0 || mx < 0) { Serial.println("EXP: read failed"); return; }
+
+  float    rows = exp / 16.0f;
+  float    ms   = rows * ROW_TIME_US / 1000.0f;
+  float    gain = gn / 16.0f;
+  uint16_t maxr = (uint16_t)mx;
+  Serial.printf("EXP[%s]: %.1f row = %.2f ms · gain x%.2f · max %.1f row (%.2f ms)\n",
+                tag, rows, ms, gain, maxr / 16.0f, (maxr / 16.0f) * ROW_TIME_US / 1000.0f);
+}
+
 bool loadCredentials(String &ssid, String &pass) {
   prefs.begin("wifi", true);
   ssid = prefs.getString("ssid", "");
@@ -720,7 +755,7 @@ void setup() {
   config.pin_pwdn     = PWDN_GPIO_NUM;
   config.pin_reset    = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.frame_size   = FRAMESIZE_VGA;
+  config.frame_size   = FRAMESIZE_XGA;   // 1024x768 — 2026-09-23 런타임 XGA 전환(런타임이 첫 프레임 크기로 맞춘다)
   config.pixel_format = PIXFORMAT_JPEG;
   // 버퍼 2개 + LATEST — fb_count=1 이면 전송이 끝나야 다음 캡처가 시작돼
   // 캡처·전송 태스크를 코어까지 나눠 놓고도 직렬화된다(2026-08-10 실측:
@@ -737,6 +772,18 @@ void setup() {
     ESP.restart();
   }
   Serial.println("Camera OK");
+  // 🔑 센서 모델을 부팅 로그에 남긴다 — 문서에 OV3660/OV5640 이 섞여 있어 실물로 확정해야 한다.
+  {
+    sensor_t *ss = esp_camera_sensor_get();
+    if (ss) Serial.printf("Sensor: PID=0x%04x VER=0x%02x MIDH=0x%02x MIDL=0x%02x\n",
+                          ss->id.PID, ss->id.VER, ss->id.MIDH, ss->id.MIDL);
+  }
+  // 노출 상한 밴드 = 2 → 최대 노출 약 9ms (상위 §12.66-(18) 채택 · 해상도와 무관 — 한 줄 읽는 시간이 같다 §12.68-(3))
+  {
+    sensor_t *se = esp_camera_sensor_get();
+    if (se && se->set_reg) { se->set_reg(se, 0x3A0E, 0xFF, 0x02); delay(300); }
+  }
+  printExposure("boot");
 
   // ── 오디오 추가분: PSRAM 버퍼 + 마이크(I2S0/PDM) + 스피커(I2S1/STD) ──
   // 🔴 초기화에 실패해도 멈추지 않는다 — 카메라는 되는데 오디오만 안 될 때
@@ -821,6 +868,10 @@ void loop() {
     Serial.printf("  Link: RSSI=%ddBm ch=%d BSSID=%s\n",
       WiFi.RSSI(), WiFi.channel(), WiFi.BSSIDstr().c_str());
   }
+
+  // 🔑 노출·게인을 상시로 남긴다 — 촬영 회차마다 «그때 실제 노출» 을 알아야
+  //    선명도와 대조할 수 있다. 값이 없으면 또 추론으로 돌아간다.
+  printExposure("run");
 
   // 카운터를 읽고 즉시 0 으로 되돌린다 — 이 5초 구간의 값이라는 뜻이다.
   uint32_t cap = statCap,  drop = statDrop, sent = statSent;
