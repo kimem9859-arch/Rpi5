@@ -81,9 +81,11 @@ def button_model_record(path=None):
 TOOL_CONF = 0.25                   # 설계 §5.2 — 공구 초벌 점수 기준
 
 
-def tool_model_record(path):
-    """묶음 기록용 — 공구 초벌 모델(tool_v3 또는 반복 학습 tool_rN · spec 2026-09-28-공구초벌-반복학습 §6)."""
-    return {"path": str(path), "sha256_16": _sha(path), "conf": TOOL_CONF}
+def tool_model_record(path, conf=TOOL_CONF, stretch=None):
+    """묶음 기록용 — 공구 초벌 모델(tool_v3 또는 반복 학습 tool_rN · spec 2026-09-28-공구초벌-반복학습 §6)과
+    점수 기준·입력 방식(stretch = (가로, 세로) 늘리기 · 없으면 원본 그대로 = ultralytics 기본 비율 유지)."""
+    inp = f"늘리기 {stretch[0]}x{stretch[1]}" if stretch else "원본 그대로(비율 유지 여백 채우기)"
+    return {"path": str(path), "sha256_16": _sha(path), "conf": conf, "input": inp}
 
 
 def drop_nested(dets, thr=0.8):
@@ -194,7 +196,7 @@ SHORTCUTS = "digit_shortcuts:\n" + "".join(
     f"  {i}: {{mode: rectangle, label: {n}}}\n" for i, n in enumerate(X.CLASSES + [X.EXCLUDE], 1))
 
 
-def main():
+def build_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sessions", nargs="+", required=True)
     ap.add_argument("--template", required=True, help="배치 틀·문턱을 만들 정지 장면 세션(같은 장소)")
@@ -206,7 +208,15 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--size", type=int, default=200)
     ap.add_argument("--seed", type=int, default=1)
-    a = ap.parse_args()
+    ap.add_argument("--tool-conf", type=float, default=TOOL_CONF, help="공구 초벌 점수 기준(기본 0.25 · 설계 §5.2)")
+    ap.add_argument("--tool-stretch", help="공구 초벌 입력을 늘릴 크기 「가로x세로」 — 640×640 늘리기로 학습한 모델(T-full-base)은 640x640")
+    return ap
+
+
+def main():
+    import prelabel_tools as PT
+    a = build_parser().parse_args()
+    stretch = PT.parse_size(a.tool_stretch)
     out = Path(a.out).expanduser()
     if out.exists() and any(out.iterdir()):
         sys.exit(f"이미 있다: {out} — 덮어쓰지 않는다")
@@ -271,7 +281,8 @@ def main():
     lst = out / "_tools_list.txt"; tj = out / "_tools.json"
     lst.write_text("\n".join(c[2] for c in pick), encoding="utf-8")
     subprocess.run([str(RFENV), str(HERE / "prelabel_tools.py"), "--list", str(lst), "--out", str(tj),
-                    "--model", str(Path(a.tool_model).expanduser()), "--conf", str(TOOL_CONF)], check=True, cwd=str(DEMO))
+                    "--model", str(Path(a.tool_model).expanduser()), "--conf", str(a.tool_conf)]
+                   + (["--stretch", a.tool_stretch] if stretch else []), check=True, cwd=str(DEMO))
     tools = json.loads(tj.read_text(encoding="utf-8"))
 
     recs = []
@@ -291,7 +302,7 @@ def main():
     created = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     man = {"batch": out.name, "created": created,
            "models": {"buttons": button_model_record(bmodel),
-                      "tools": tool_model_record(Path(a.tool_model).expanduser())},
+                      "tools": tool_model_record(Path(a.tool_model).expanduser(), a.tool_conf, stretch)},
            "template": str(a.template), "propose": a.propose, "thresholds": th, "edge_frac": LR.EDGE_FRAC, "frame_sharp_thr": sharp_thr,
            "images": recs}
     (out / "manifest.json").write_text(json.dumps(man, ensure_ascii=False, indent=1), encoding="utf-8")

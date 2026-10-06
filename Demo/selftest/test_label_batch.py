@@ -464,6 +464,96 @@ def test_같은_이름_개수_회수():
         check(st["check"]["그대로"] == 1 and st["check"]["지움"] == 0, f"초벌 중복도 합쳐 집계(지움으로 안 셈) — {st['check']}")
 
 
+def test_늘린_사진_박스_되돌리기():
+    print("[33] 🔴 늘린 사진(640×640)에 그린 공구 박스를 원본(768×1024) 좌표로 — 축마다 비율만 곱하고 반올림(사각형은 사각형 그대로)")
+    import prelabel_tools as PT
+    check(PT.stretch_back([64, 64, 320, 320], 768, 1024, (640, 640)) == [77, 102, 384, 512],
+          f"{PT.stretch_back([64, 64, 320, 320], 768, 1024, (640, 640))}")
+    check(PT.stretch_back([0, 0, 640, 640], 768, 1024, (640, 640)) == [0, 0, 768, 1024], "사진 전체 = 원본 전체")
+    check(PT.parse_size("640x640") == (640, 640) and PT.parse_size(None) is None, "옵션 글자 → (가로, 세로)")
+
+
+def test_공구_초벌_문턱과_입력_기록():
+    print("[34] 🔴 공구 초벌의 문턱·입력 방식은 묶음 기록에 남는다 — 기본값은 옛 묶음과 같다(0.25 · 원본 그대로)")
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "best.pt"); open(p, "wb").write(b"weights")
+        old = RB.tool_model_record(p)
+        new = RB.tool_model_record(p, conf=0.65, stretch=(640, 640))
+        check(old["conf"] == 0.25 and old["input"].startswith("원본"), f"{old}")
+        check(new["conf"] == 0.65 and new["input"] == "늘리기 640x640", f"{new}")
+
+
+def test_공구_초벌_옵션():
+    print("[35] 🔴 review_batch 에 --tool-conf · --tool-stretch 가 있고 기본값은 옛 묶음과 같다(0.25 · 늘리지 않음)")
+    a = RB.build_parser().parse_args(["--sessions", "s", "--template", "t", "--used", "u", "--out", "o"])
+    check(a.tool_conf == 0.25 and a.tool_stretch is None, f"기본 {a.tool_conf} · {a.tool_stretch}")
+    a = RB.build_parser().parse_args(["--sessions", "s", "--template", "t", "--used", "u", "--out", "o",
+                                      "--tool-conf", "0.65", "--tool-stretch", "640x640"])
+    check(a.tool_conf == 0.65 and a.tool_stretch == "640x640", f"지정 {a.tool_conf} · {a.tool_stretch}")
+
+
+import pick_score_set as PS
+
+
+def test_채점_사진_공구_종류별_고르기():
+    print("[36] 🔴 채점 묶음 고르기 — 사람 라벨의 공구만 세고 · 드문 공구부터 종류별 사진 수를 채우고 · 공구 없는 사진을 더하고 · 모자라면 적는다")
+    check(PS.tool_boxes(["5 0.1 0.1 0.1 0.1", "6 0.2 0.2 0.1 0.1", "6 0.5 0.5 0.1 0.1", "0 0.3 0.3 0.1 0.1", ""])
+          == {"driver": 1, "wrench": 2}, "버튼(0)은 세지 않고 공구 박스 수만")
+    items = {}
+    for i in range(10):
+        items[f"w{i:02d}"] = {"wrench": 1}
+    for i in range(5):
+        items[f"dw{i:02d}"] = {"driver": 1, "wrench": 1}
+    for i in range(50):
+        items[f"d{i:02d}"] = {"driver": 1}
+        items[f"p{i:02d}"] = {"pliers": 2}
+    for i in range(30):
+        items[f"e{i:02d}"] = {}
+    got, rep = PS.pick(items, 8, 5, 1)
+    ph = rep["공구별 사진"]
+    check(ph["driver"] == 8 and ph["pliers"] == 8 and ph["wrench"] >= 8, f"종류별 사진 {ph}")
+    check(rep["공구 없는 사진"] == 5 and not rep["모자람"], f"공구 없음 {rep['공구 없는 사진']} · 모자람 {rep['모자람']}")
+    check(rep["공구별 박스"]["pliers"] == 16, f"박스 수는 라벨대로 {rep['공구별 박스']}")
+    check(got == PS.pick(items, 8, 5, 1)[0] and got == sorted(got), "같은 seed → 같은 목록(정렬)")
+    _, rep2 = PS.pick(items, 20, 40, 1)
+    check(rep2["모자람"] == {"wrench": 5, "공구 없음": 10}, f"모자람 {rep2['모자람']}")
+
+
+def test_채점_묶음_왕복():
+    print("[37] 🔴 채점 묶음 — 앞 검토 라벨을 박스로 넣고, 다음 검토자가 고치지 않고 「검토함」만 켜 회수하면 같은 라벨이 돌아온다(used 에 안 적음)")
+    import subprocess
+    import cv2
+    import numpy as np
+    with tempfile.TemporaryDirectory() as d:
+        src = os.path.join(d, "raw", "20261006_185503_장소2_6"); os.makedirs(src)
+        img = os.path.join(src, "f00012.png"); cv2.imwrite(img, np.zeros((1024, 768, 3), np.uint8))
+        ds = os.path.join(d, "ds"); os.makedirs(os.path.join(ds, "labels"))
+        name = "1006-185503__f00012"
+        lines = ["0 0.244141 0.811035 0.079427 0.059570", "5 0.500000 0.400000 0.200000 0.100000",
+                 "6 0.300000 0.700000 0.150000 0.050000"]
+        open(os.path.join(ds, "labels", f"{name}.txt"), "w").write("\n".join(lines) + "\n")
+        open(os.path.join(ds, "images.txt"), "w").write(f"{name}\t{img}\n")
+        lst = os.path.join(d, "c001_목록.txt"); open(lst, "w").write(name + "\n")
+        out = os.path.join(d, "c001")
+        r = subprocess.run([sys.executable, os.path.join(_DEMO_DIR, "test", "score_batch.py"), "--names", lst,
+                            "--dataset", ds, "--out", out], capture_output=True, text=True)
+        check(r.returncode == 0, f"묶음 만들기 {r.stdout.strip()} {r.stderr.strip()[-200:]}")
+        man = json.load(open(os.path.join(out, "manifest.json")))
+        check(man["kind"] == "score" and man["images"][0]["file"] == f"s_score__{name}.png"
+              and [x["kind"] for x in man["images"][0]["drafts"]] == ["check", "tool", "tool"], f"{man['images'][0]['file']}")
+        doc = json.load(open(os.path.join(out, "images", f"s_score__{name}.json")))
+        check(doc["flags"] == {X.REVIEW_FLAG: False}, "「검토함」 꺼진 채로 넘긴다")
+        ret = os.path.join(d, "returned"); os.makedirs(ret)
+        doc["flags"][X.REVIEW_FLAG] = True
+        json.dump(doc, open(os.path.join(ret, f"s_score__{name}.json"), "w"), ensure_ascii=False)
+        dst = os.path.join(d, "final")
+        r = subprocess.run([sys.executable, os.path.join(_DEMO_DIR, "test", "collect_batch.py"), ret,
+                            "--manifest", os.path.join(out, "manifest.json"), "--out", dst], capture_output=True, text=True)
+        check(r.returncode == 0, f"회수 {r.stdout.strip()[:120]} {r.stderr.strip()[-200:]}")
+        back = open(os.path.join(dst, "labels", f"{name}.txt")).read().split("\n")
+        check([l for l in back if l] == lines, f"같은 라벨 {back}")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -497,6 +587,11 @@ if __name__ == "__main__":
     test_묶음_안내문()
     test_같은_이름_개수_상한_초벌()
     test_같은_이름_개수_회수()
+    test_늘린_사진_박스_되돌리기()
+    test_공구_초벌_문턱과_입력_기록()
+    test_공구_초벌_옵션()
+    test_채점_사진_공구_종류별_고르기()
+    test_채점_묶음_왕복()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
