@@ -1,8 +1,8 @@
 """정지 장면 NPU·FPS 표 — `python3 npu_정지장면_계산.py` (2026-10-06 실콘솔 현장 작업 · 원자료 = npu_원자료/)."""
 import csv, glob, re, statistics as st, os
 T = L = os.path.join(os.path.dirname(os.path.abspath(__file__)), "npu_원자료")  # 측정 원자료(모니터·CPU·벤치 출력·perf/tool 로그 사본)
-SLUG = {"A": "static-desk-cur", "B": "static-desk-e0b", "C": "static-desk-3npu", "D": "static-desk-3npu-1s"}
-NAME = {"A": "현행(console_v2+손)", "B": "재학습 버튼(E0b)+손", "C": "재학습 버튼+손+공구(E0c) 매 프레임", "D": "재학습 버튼+손+공구 1초 간격"}
+SLUG = {"A": "static-desk-cur", "B": "static-desk-e0b", "C": "static-desk-3npu", "D": "static-desk-3npu-1s", "E": "static-desk-cputool-1s"}
+NAME = {"A": "현행(console_v2+손)", "B": "재학습 버튼(E0b)+손", "C": "재학습 버튼+손+공구(E0c) 매 프레임", "D": "재학습 버튼+손+공구 1초 간격", "E": "재학습 버튼+손 · 공구 CPU 1초(별도 프로세스)"}
 ansi = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 def perf(c, r):
     p = [x for x in glob.glob(f"{L}/*_esp32_{SLUG[c]}-r{r}_*_perf_log.csv")]
@@ -28,7 +28,7 @@ def ms(c, r):
     return [float(x) for x in h]
 print("| 조합 | 회차 | 평균 FPS | 최저 | 15미만 연속 최장 | 15미만 비율 | NPU 장치 % | 버튼 % | 손바닥 % | 공구 % | 파이 CPU % | 파이 최고 온도 | 손·공구 ms |")
 print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
-for c in "ABCD":
+for c in "ABCDE":
     for r in (1, 2, 3):
         try:
             a, mn, lg, pct = perf(c, r); d, md = mon(c, r); cu, tm = cpu(c, r); m = ms(c, r)

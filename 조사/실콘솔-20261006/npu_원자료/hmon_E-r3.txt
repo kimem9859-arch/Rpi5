@@ -1,0 +1,224 @@
+[?1049h[2J[1;1H[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                36.1                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      24.8                     17.9           3613797                                                               
+palm_detection_lite                                         11.3                     17.9           3613797                                                               
+hand_landmark_lite                                          0.0                      0.0            3613797                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      button/input_layer1                                         H2D            0.50    1       0       8       
+button                                                      button/conv63_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv62_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv53_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv52_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv42_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv41_97                                            D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.51    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                32.0                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      21.7                     14.9           3613797                                                               
+palm_detection_lite                                         10.3                     15.9           3613797                                                               
+hand_landmark_lite                                          0.0                      0.0            3613797                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      button/input_layer1                                         H2D            0.50    1       0       8       
+button                                                      button/conv63_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv62_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv53_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv52_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv42_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv41_97                                            D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.48    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                36.7                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      25.1                     18.8           3613797                                                               
+palm_detection_lite                                         11.6                     17.9           3613797                                                               
+hand_landmark_lite                                          0.0                      0.0            3613797                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      button/input_layer1                                         H2D            0.50    1       0       8       
+button                                                      button/conv63_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv62_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv53_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv52_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv42_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv41_97                                            D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.51    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                29.7                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      20.0                     13.9           3613797                                                               
+palm_detection_lite                                         9.7                      14.9           3613797                                                               
+hand_landmark_lite                                          0.0                      0.0            3613797                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      button/input_layer1                                         H2D            0.50    1       0       8       
+button                                                      button/conv63_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv62_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv53_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv52_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv42_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv41_97                                            D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.48    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                33.6                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      22.6                     16.9           3613797                                                               
+palm_detection_lite                                         11.0                     16.9           3613797                                                               
+hand_landmark_lite                                          0.0                      0.0            3613797                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      button/input_layer1                                         H2D            0.50    1       0       8       
+button                                                      button/conv63_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv62_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv53_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv52_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv42_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv41_97                                            D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                34.4                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      23.4                     16.9           3613797                                                               
+palm_detection_lite                                         11.0                     16.9           3613797                                                               
+hand_landmark_lite                                          0.0                      0.0            3613797                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      button/input_layer1                                         H2D            0.50    1       0       8       
+button                                                      button/conv63_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv62_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv53_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv52_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv42_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv41_97                                            D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
+[H[JDevice ID                                                   Utilization (%)          Architecture                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+0001:01:00.0                                                33.8                     HAILO8                                                                               
+                                                                                
+                                                                                
+Model                                                       Utilization (%)          FPS            PID            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      23.4                     16.9           3613797                                                               
+palm_detection_lite                                         10.4                     15.9           3613797                                                               
+hand_landmark_lite                                          0.0                      0.0            3613797                                                               
+                                                                                
+                                                                                
+Model                                                       Stream                                                      Direction                Frames Queue
+                                                                                                                                       Avg     Max     Min     Capacity
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+button                                                      button/input_layer1                                         H2D            0.50    1       0       8       
+button                                                      button/conv63_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv62_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv53_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv52_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv42_97                                            D2H            0.50    1       0       8       
+button                                                      button/conv41_97                                            D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/input_layer1                            H2D            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv30                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv29                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv25                                  D2H            0.50    1       0       8       
+palm_detection_lite                                         palm_detection_lite/conv24                                  D2H            0.50    1       0       8       
+hand_landmark_lite                                          hand_landmark_lite/input_layer1                             H2D            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc4                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc3                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc2                                      D2H            NaN     -1      -1      8       
+hand_landmark_lite                                          hand_landmark_lite/fc1                                      D2H            NaN     -1      -1      8       
