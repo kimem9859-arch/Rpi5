@@ -5,9 +5,13 @@
    가리키고 있었다(인터록 Arduino 미연결 상태에서 ESP32 가 0번을 차지).
    앞으로 인터록·디스플레이 터치·오디오가 두 포트를 나눠 쓰므로 번호는 못 믿는다.
 
+🔴 pyserial 은 맨 위에서 불러오지 않는다 — 포트를 찾는 함수(resolve·describe) 안에서만 부른다.
+   상수(ESP32_S3)만 쓰는 쪽과 esp32_audio.py 의 무선(--tcp) 경로는 pyserial 이 필요 없는데,
+   맨 위에서 불러오면 pyserial 이 없는 tts venv(gate_check.sh 의 PY)에서 소리를 보내기 전에
+   ModuleNotFoundError 로 죽는다(2026-10-06 실콘솔 음성 관문 G2 ❌ · 시험 = selftest/test_serial_ports.py).
+
 설계 정본 = docs/superpowers/specs/2026-09-01-글라스-오디오다리-design.md §4.5
 """
-from serial.tools import list_ports
 
 # (vid, pid) — XIAO ESP32S3 의 네이티브 USB(USB JTAG/serial). ROM 페리페럴이라
 # 앱 펌웨어가 죽어도 이 신원은 사라지지 않는다.
@@ -16,6 +20,8 @@ ESP32_S3 = (0x303A, 0x1001)
 
 def resolve(vid, pid=None, serial_number=None):
     """조건에 맞는 첫 장치 경로를 준다. 없으면 None."""
+    from serial.tools import list_ports        # 늦은 import — 머리말 🔴
+
     for p in list_ports.comports():
         if p.vid != vid:
             continue
@@ -29,6 +35,8 @@ def resolve(vid, pid=None, serial_number=None):
 
 def describe():
     """붙어 있는 시리얼 장치를 사람이 읽을 줄로. 진단·오류 메시지용."""
+    from serial.tools import list_ports        # 늦은 import — 머리말 🔴
+
     out = []
     for p in list_ports.comports():
         if p.vid is None:
