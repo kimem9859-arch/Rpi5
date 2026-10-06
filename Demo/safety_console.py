@@ -910,6 +910,9 @@ class SafetyConsole(QMainWindow):
            않는다. GUI 가 신호를 처리한 시각은 GUI 가 멈췄다 풀리면 몰려 체류가 흔들렸다(검토 C16·U18).
         """
         self.fsm.update_vision(roi or None, t, level or ZONE_INSIDE)
+        p = self._press_pending
+        if p is not None and p.get("verdict") is None and t >= p["t"] + config.PRESS_CONFIRM_GRACE_SEC:
+            self._judge_press(p)     # 누른 뒤 여유까지의 프레임이 다 처리됐다 → 바로 판정(사용자 2026-10-07)
         if (roi, level) != self._last_roi:
             if roi:
                 # 단계를 남긴다 — 안 보이면 시연 중 "왜 안 잡히지"를 진단할 수 없다.
@@ -1084,7 +1087,8 @@ class SafetyConsole(QMainWindow):
         self._commit_button(button)
 
     def _remember_press(self, button, source, t):
-        """그 단계를 인정받는 누름을 기억한다 — 판정은 단계가 끝날 때(_check_press · 설계 §2)."""
+        """그 단계를 인정받는 누름을 기억한다 — 판정은 누른 뒤 +GRACE 를 넘긴 프레임이 처리될 때(_on_roi → _judge_press ·
+        사용자 2026-10-07 「못 보고 누른 그 순간 바로」) · 그 전에 단계가 끝나면 그때(_check_press) · 집계는 단계가 끝날 때."""
         if config.PRESS_CONFIRM_WINDOW_SEC <= 0:
             self._press_pending = None
             return
@@ -1094,14 +1098,14 @@ class SafetyConsole(QMainWindow):
             return
         # wall = 결과창에 적을 누른 시각(벽시계) — 단계 끝 시각을 적으면 영상과 10초 넘게 어긋났다(리뷰 M-2)
         p = {"button": button, "t": t, "wall": time.time(), "order": self.fsm.expected_step,
-             "source": source}
+             "source": source, "verdict": None}
         p["seen"] = self._press_seen(p)
         self._press_pending = p
-        # 🔴 누른 직후(뒤쪽 여유가 지난 때) 한 번 더 찍어 둔다 — 단계가 30초를 넘기면(공구를 늦게 쥠·
-        #    경고로 멈춤) 판정기 관측 기록이 정리돼, 단계 끝에 다시 물으면 보면서 누른 것도
-        #    「미확인」이 됐다(최종 리뷰 I-1). 누른 순간에 처리 중이던 프레임도 이때 들어온다.
-        QTimer.singleShot(int(config.PRESS_CONFIRM_GRACE_SEC * 1000) + 50,
-                          lambda p=p: self._snap_press(p))
+        # 🔴 시계(누른 뒤 0.5초)가 아니라 **처리된 프레임**으로 판정한다(_on_roi) — 화면이 느리면(녹화 중
+        #    3.5장/초 · 2026-10-06 Task 4) 누른 순간의 프레임이 0.5초 안에 처리되지 않아, 보면서 누른 것도
+        #    가짜 「미확인」 안내가 떴을 것이다. 카메라가 끊겨 프레임이 안 오면 FALLBACK 에 가진 기록으로.
+        QTimer.singleShot(int(config.PRESS_CONFIRM_FALLBACK_SEC * 1000),
+                          lambda p=p: self._judge_press(p) if p is self._press_pending else None)
 
     def _press_seen(self, p):
         """(누르기 전 마지막 관측, 누른 뒤 관측) — 범위 = 누른 시각 −WINDOW ~ +GRACE."""
@@ -1109,21 +1113,29 @@ class SafetyConsole(QMainWindow):
         return (self.fsm.seen_between(p["button"], p["t"] - w, p["t"]),
                 self.fsm.seen_between(p["button"], p["t"], p["t"] + g))
 
-    def _snap_press(self, p):
-        """누른 뒤 여유가 지난 때의 확인 결과를 기억에 찍는다(아직 그 누름을 기억하고 있을 때만)."""
-        if p is self._press_pending:
-            p["seen"] = self._press_seen(p)
-
     def _check_press(self, order, button, last_step):
-        """단계가 끝나는 순간 — 기억한 누름을 카메라 관측과 대조해 로그·집계·안내(설계 §2·§4)."""
+        """단계가 끝나는 순간 — 아직 판정 전이면(서브 없는 단계 · 프레임 전) 지금 판정하고, 미확인이면 집계(설계 §2·§4).
+        🔑 집계를 여기서만 한다 — 안내는 이미 떴어도 차단·초기화로 취소된 단계의 누름은 세지 않는다(D3 그대로)."""
         p, self._press_pending = self._press_pending, None
         if p is None or p["button"] != button or p["order"] != order:
             return
+        if p.get("verdict") is None:
+            self._judge_press(p, last_step=last_step)
+        if p["verdict"] is False:
+            self._stats.unconfirmed(order, button, now=p["wall"])
+
+    def _judge_press(self, p, last_step=False):
+        """기억한 누름을 카메라 관측과 대조해 한 번 판정 — 로그 · 미확인이면 알림·안내 박스(집계는 _check_press)."""
+        if p.get("verdict") is not None:
+            return
+        button = p["button"]
         w = config.PRESS_CONFIRM_WINDOW_SEC
-        # 지금 물은 값(아직 정리 전이면 가장 완전하다)이 없으면 찍어 둔 값을 쓴다(I-1).
+        # 지금 물은 값(아직 정리 전이면 가장 완전하다)이 없으면 기억할 때 찍어 둔 값을 쓴다(최종 리뷰 I-1).
         now_seen = self._press_seen(p)
         before, after = (now_seen[i] if now_seen[i] is not None else p["seen"][i] for i in (0, 1))
-        if before is not None or after is not None:
+        p["seen"] = (before, after)
+        p["verdict"] = before is not None or after is not None
+        if p["verdict"]:
             # 🔑 누르기 전 관측을 먼저 적는다 — 손은 누른 뒤에도 버튼 위라 「뒤」가 늘 있어,
             #    그것만 적으면 2.0초 잠정값을 조정할 근거가 안 나왔다(최종 리뷰 M-1).
             when = (f"누르기 {p['t'] - before:.1f}초 전 관측" if before is not None
@@ -1131,7 +1143,6 @@ class SafetyConsole(QMainWindow):
             self._append_log(f"[확인] {button} 누름 — 카메라 확인({when})")
             return
         self._append_log(f"[확인] {button} 누름 — 카메라 미확인(누르기 전 {w:.1f}초 손 관측 없음)")
-        self._stats.unconfirmed(order, button, now=p["wall"])
         self._notify("warn", f"카메라가 {button} 누름을 확인하지 못했습니다", "다음 버튼은 보면서 누르세요")
         # 떠 있는 안내는 새 안내로 바꾸고 4초를 다시 센다 — 앞 버튼 이름이 남지 않게(리뷰 M-3)
         if not last_step and self.alert.mode in (None, "notice"):

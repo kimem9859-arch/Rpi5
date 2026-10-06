@@ -180,10 +180,13 @@ FSM_DWELL_THRESHOLD_SEC = 0.3
 FSM_GAP_FILL_SEC        = 0.3
 # 누름 카메라 확인(설계 docs/superpowers/specs/2026-09-30-누름-카메라확인-design.md) — 잠정값.
 # GPIO 로 누른 맞는 버튼을 누른 시각 −WINDOW ~ +GRACE 안에 손이 그 버튼 구역에서 관측됐나.
-# 못 봤으면 단계는 진행하고 다음 단계 시작 때 안내(NOTICE 초) · 결과창 집계. WINDOW 0 = 끔.
-PRESS_CONFIRM_WINDOW_SEC = 2.0
-PRESS_CONFIRM_GRACE_SEC  = 0.5
-PRESS_CONFIRM_NOTICE_SEC = 4.0
+# 못 봤으면 단계는 진행하고 **누른 뒤 +GRACE 까지의 프레임이 처리되는 즉시** 안내(NOTICE 초 · 사용자 2026-10-07
+# 「못 보고 누른 그 순간 바로」) · 결과창 집계는 단계가 끝날 때. WINDOW 0 = 끔.
+# FALLBACK = 누른 뒤 이만큼 지나도 +GRACE 를 넘긴 프레임이 처리되지 않으면(카메라 끊김) 가진 기록으로 판정.
+PRESS_CONFIRM_WINDOW_SEC   = 2.0
+PRESS_CONFIRM_GRACE_SEC    = 0.5
+PRESS_CONFIRM_NOTICE_SEC   = 4.0
+PRESS_CONFIRM_FALLBACK_SEC = 2.0
 # 비상정지 버튼 ID (즉시 BLOCK, 해제 시 기대단계=1 리셋)
 FSM_EMO_BUTTON = "EMO"
 

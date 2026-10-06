@@ -1837,21 +1837,100 @@ def _hold_other_tool(w):
 def _logs(win, needle):
     return [l for l in win.log_browser.toPlainText().splitlines() if needle in l]
 
-def test_confirm_unseen_gpio_press_notices_at_next_step():
-    """①② 관측 없음 → 단계는 진행 · 다음 단계 시작 때 안내 박스·알림·로그·집계."""
-    print("\n[확인] 못 본 GPIO 누름")
+def _frame(win, t, roi="", level=0):
+    """카메라 한 프레임이 처리된 것처럼 — t = 그 프레임을 받은 시각(monotonic) · roi "" = 손 없음."""
+    win._on_roi(roi, level, t)
+
+
+def test_confirm_unseen_gpio_press_notices_right_after():
+    """①② 관측 없음 → 누른 뒤 여유(0.5초)까지의 프레임이 처리되면 **서브 작업 중에 바로** 안내 박스·알림·로그
+    (사용자 2026-10-07 「못 보고 누른 그 순간 바로」) · 집계는 단계가 끝날 때 한 번."""
+    print("\n[확인] 못 본 GPIO 누름 — 바로 안내")
+    import config
+    g = config.PRESS_CONFIRM_GRACE_SEC
     win = make_console()
     win._on_cta()
-    _gpio(win, "B1")                                 # 관측 없음
-    check(win.alert.mode is None, "누른 순간에는 안내 없음(서브 작업 중)")
-    finish_sub(win)                                  # 1단계 끝 → 2단계 시작
-    check(win.fsm.expected_step == 2, "단계는 진행된다")
-    check(win.alert.mode == "notice", f"다음 단계 시작 때 안내 박스 — mode {win.alert.mode}")
+    t = time.monotonic()
+    win._press_button("B1", source="gpio", now=t)    # 관측 없음
+    check(win.alert.mode is None, "누른 순간에는 아직(누른 뒤 여유의 프레임을 기다린다)")
+    _frame(win, t + g * 0.6)
+    check(win.alert.mode is None, f"여유 안의 프레임까지는 기다린다 ({win.alert.mode})")
+    _frame(win, t + g + 0.1)                         # 여유를 넘긴 프레임이 처리됨 → 판정
+    check(win._sub is not None and win._sub.is_active and win.fsm.expected_step == 1, "서브 작업 중(단계는 그대로)")
+    check(win.alert.mode == "notice", f"바로 안내 박스 — mode {win.alert.mode}")
     check(win.alert._line1.text() == "카메라가 B1 누름을 확인하지 못했습니다", f"둘째 줄 {win.alert._line1.text()!r}")
     check("카메라가 B1 누름을 확인하지 못했습니다" in notify_titles(win), "알림 목록에도")
-    check(bool(_logs(win, "[확인] B1 누름 — 카메라 미확인")), "로그")
-    check(len(win._stats._unconfirmed) == 1, "집계 1건")
+    check(len(_logs(win, "[확인] B1 누름 — 카메라 미확인")) == 1, "로그 한 줄")
+    check(win._stats._unconfirmed == [], "집계는 아직(단계가 끝날 때)")
+    _frame(win, t + g + 0.2)
+    finish_sub(win)                                  # 1단계 끝 → 2단계 시작
+    check(win.fsm.expected_step == 2, "단계는 진행된다")
+    check(len(win._stats._unconfirmed) == 1, f"집계 1건 ({win._stats._unconfirmed})")
+    check(len(_logs(win, "[확인] B1 누름 — 카메라 미확인")) == 1, "단계 끝에 로그를 다시 쓰지 않는다")
     win.close()
+
+
+def test_confirm_slow_frames_wait_no_false_notice():
+    """처리 지연 — 누르기 직전 손이 찍힌 프레임이 늦게 처리돼도(녹화 중 화면 3.5장/초 · Task 4 실측) 그 프레임을
+    기다려 판정한다 → 보면서 누른 누름에 가짜 안내가 뜨지 않는다(시계가 아니라 처리된 프레임 기준)."""
+    print("\n[확인] 늦게 처리된 프레임")
+    from PyQt6.QtTest import QTest
+    import config
+    g = config.PRESS_CONFIRM_GRACE_SEC
+    win = make_console()
+    win._on_cta()
+    t = time.monotonic()
+    win._press_button("B1", source="gpio", now=t)    # 아직 처리된 프레임 없음
+    QTest.qWait(int((g + 0.2) * 1000))               # 시계로는 여유가 지났다
+    check(win.alert.mode is None and not _logs(win, "[확인]"), "프레임이 안 왔으면 판정하지 않는다")
+    _frame(win, t - 0.1, "B1", 2)                    # 누르기 0.1초 전 손 — 늦게 처리됨
+    _frame(win, t + g + 0.1)                         # 여유를 넘긴 프레임 → 판정
+    check(win.alert.mode is None, f"보면서 누름 → 안내 없음 ({win.alert.mode})")
+    check(bool(_logs(win, "카메라 확인(누르기 0.1초 전 관측)")), f"확인 로그 {_logs(win, '[확인]')}")
+    finish_sub(win)
+    check(win._stats._unconfirmed == [], "집계 없음")
+    win.close()
+
+
+def test_confirm_no_frames_fallback():
+    """카메라가 끊겨 프레임이 안 오면 기다림 끝(PRESS_CONFIRM_FALLBACK_SEC)에 가진 기록으로 판정 → 미확인 안내."""
+    print("\n[확인] 프레임이 안 옴")
+    from PyQt6.QtTest import QTest
+    import config
+    old = config.PRESS_CONFIRM_FALLBACK_SEC
+    config.PRESS_CONFIRM_FALLBACK_SEC = 0.3
+    try:
+        win = make_console()
+        win._on_cta()
+        win._press_button("B1", source="gpio", now=time.monotonic())
+        check(win.alert.mode is None, "바로는 아니다")
+        QTest.qWait(500)
+        check(win.alert.mode == "notice", f"기다림 끝에 안내 ({win.alert.mode})")
+        check(len(_logs(win, "[확인] B1 누름 — 카메라 미확인")) == 1, "로그 한 줄")
+        win.close()
+    finally:
+        config.PRESS_CONFIRM_FALLBACK_SEC = old
+
+
+def test_confirm_cancelled_step_not_counted():
+    """안내는 이미 떴어도 그 단계가 차단으로 취소되면 결과창에는 세지 않는다(끝낸 단계의 누름만 · 설계 D3 그대로)."""
+    print("\n[확인] 취소된 단계는 집계 안 함")
+    import config
+    win = make_console()
+    win._on_cta()
+    t = time.monotonic()
+    win._press_button("B1", source="gpio", now=t)
+    _frame(win, t + config.PRESS_CONFIRM_GRACE_SEC + 0.1)
+    check(win.alert.mode == "notice", f"안내 ({win.alert.mode})")
+    key(win, "3")                                    # 오답 → 차단 → 서브 취소
+    check(win.alert.mode == "block" and win._press_pending is None, "차단이 이기고 기억은 버린다")
+    win.gpio_input.emo_active = lambda: False
+    win._release_block()
+    key(win, "1")
+    finish_sub(win)
+    check(win._stats._unconfirmed == [], f"집계 없음 ({win._stats._unconfirmed})")
+    win.close()
+
 
 def test_confirm_seen_press_no_notice():
     """③ 관측 있음(박스 안·링 각각 · 누른 뒤 0.3초 관측 포함) → 안내 없음 · 「카메라 확인」 로그."""

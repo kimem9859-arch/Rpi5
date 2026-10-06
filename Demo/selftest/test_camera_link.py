@@ -134,7 +134,7 @@ def test_c16_console_passes_frame_time():
     calls = []
     fake = types.SimpleNamespace(
         fsm=types.SimpleNamespace(update_vision=lambda roi, now, level: calls.append((roi, now, level))),
-        _last_roi=None, _append_log=lambda m: None)
+        _last_roi=None, _append_log=lambda m: None, _press_pending=None)   # 누름 확인 기억(프레임마다 판정 · 2026-10-07)
     try:
         sc.SafetyConsole._on_roi(fake, "B2", 2, 77.25)
     except TypeError as e:
