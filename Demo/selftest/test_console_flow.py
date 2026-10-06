@@ -1904,9 +1904,68 @@ def test_confirm_no_frames_fallback():
         win._on_cta()
         win._press_button("B1", source="gpio", now=time.monotonic())
         check(win.alert.mode is None, "바로는 아니다")
-        QTest.qWait(500)
+        QTest.qWait(800)                             # 대체 시각 = max(FALLBACK, GRACE+0.1) = 0.6초
         check(win.alert.mode == "notice", f"기다림 끝에 안내 ({win.alert.mode})")
         check(len(_logs(win, "[확인] B1 누름 — 카메라 미확인")) == 1, "로그 한 줄")
+        check(bool(_logs(win, "프레임 없음")), f"판정 경로가 로그에 남는다 {_logs(win, '[확인]')}")
+        win.close()
+    finally:
+        config.PRESS_CONFIRM_FALLBACK_SEC = old
+
+
+def test_confirm_fallback_ignores_cancelled_press():
+    """리뷰 2026-10-07 M1 — 누르고 여유 안에 차단·초기화되면 대체 타이머가 취소된 누름을 판정하지 않는다."""
+    print("\n[확인] 대체 타이머 · 취소된 누름")
+    from PyQt6.QtTest import QTest
+    import config
+    old = config.PRESS_CONFIRM_FALLBACK_SEC
+    config.PRESS_CONFIRM_FALLBACK_SEC = 0.3
+    try:
+        win = make_console()
+        win._on_cta()
+        win._press_button("B1", source="gpio", now=time.monotonic())
+        key(win, "3")                                # 오답 → 차단 → 기억 버림
+        QTest.qWait(800)                             # 대체 시각(0.6초)이 지난 뒤
+        check(not _logs(win, "[확인]"), f"판정 로그 없음 {_logs(win, '[확인]')}")
+        check(win.alert.mode == "block", f"차단 그대로 ({win.alert.mode})")
+        win.close()
+    finally:
+        config.PRESS_CONFIRM_FALLBACK_SEC = old
+
+
+def test_confirm_fallback_waits_while_frames_lag():
+    """리뷰 2026-10-07 M3 — 대체 시각이 와도 누른 뒤 프레임이 처리되고 있으면(카메라는 살아 있고 처리만 늦다) 더 기다린다:
+    그사이 +0.5초를 넘긴 프레임이 오면 프레임으로 판정 · 끝내 안 오면 두 번 더 기다린 뒤 「늦은 프레임」 대체 판정."""
+    print("\n[확인] 대체 타이머 · 처리 지연")
+    from PyQt6.QtTest import QTest
+    import config
+    old = config.PRESS_CONFIRM_FALLBACK_SEC
+    config.PRESS_CONFIRM_FALLBACK_SEC = 0.3
+    g = config.PRESS_CONFIRM_GRACE_SEC
+    try:
+        win = make_console()
+        win._on_cta()
+        t = time.monotonic()
+        win._press_button("B1", source="gpio", now=t)
+        QTest.qWait(50)
+        _frame(win, t - 0.3, "B1", 2)                # 누른 뒤 처리된 프레임(누르기 0.3초 전 손) — 처리가 늦다
+        QTest.qWait(700)                             # 대체 시각(0.6초)이 지났다
+        check(not _logs(win, "[확인]"), f"살아 있으면 대체 시각에도 기다린다 {_logs(win, '[확인]')}")
+        _frame(win, t + g + 0.1)
+        check(bool(_logs(win, "카메라 확인(누르기 0.3초 전 관측)")) and not _logs(win, "대체"),
+              f"늦게 온 프레임으로 판정 {_logs(win, '[확인]')}")
+        win.close()
+
+        win = make_console()
+        win._on_cta()
+        t = time.monotonic()
+        win._press_button("B1", source="gpio", now=t)
+        for _ in range(7):                           # 누른 뒤에도 프레임은 처리되지만 시각이 여유를 못 넘는다
+            QTest.qWait(250)
+            _frame(win, t - 0.1)
+        QTest.qWait(500)                             # 0.6초 × 세 번(처음 + 두 번 더) = 1.8초 뒤 판정
+        logs = _logs(win, "[확인] B1 누름 — 카메라 미확인")
+        check(len(logs) == 1 and "늦은 프레임" in logs[0], f"끝내 안 오면 「늦은 프레임」 대체 판정 {logs}")
         win.close()
     finally:
         config.PRESS_CONFIRM_FALLBACK_SEC = old
@@ -1979,6 +2038,7 @@ def test_confirm_last_step_result_only():
     check(win.alert.mode is None, f"다음 단계가 없어 안내 박스 없음 ({win.alert.mode})")
     check(win._last_result is not None and len(win._last_result["unconfirmed"]) == 1,
           f"결과 집계 {win._last_result and win._last_result['unconfirmed']}")
+    check(bool(_logs(win, "단계 끝 판정")), f"판정 경로(단계 끝)가 로그에 {_logs(win, '[확인] B4')}")
     win.close()
 
 def test_confirm_block_discards_pending():
@@ -2178,7 +2238,6 @@ def test_confirm_after_dwell_warning_helper():
     win._on_cta()
     _gpio(win, "B1", dt_seen=-0.5)                   # 보면서 누름(누르기 0.5초 전 관측)
     dwell_warning(win, "B3")                         # 서브 중 경고 — 도우미가 관측을 더 넣는다
-    QTest.qWait(700)                                 # 누른 뒤 여유가 지나 확인 결과를 다시 찍는다
     key(win, "1")                                    # 경고 중 정답 → 해제 · 서브 이어서
     finish_sub(win)
     check(bool(_logs(win, "[확인] B1 누름 — 카메라 확인")), f"확인 로그 {_logs(win, '[확인]')}")
