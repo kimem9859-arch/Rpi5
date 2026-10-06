@@ -554,6 +554,19 @@ def test_채점_묶음_왕복():
         check([l for l in back if l] == lines, f"같은 라벨 {back}")
 
 
+def test_공구_초벌_입력_크기():
+    print("[38] 🔴 원본 비율로 학습한 공구 모델(T-full-in1024 · 예측 [1024,768])은 입력 크기를 그대로 준다 — 기본 640 으로 넣으면 학습과 다른 그림")
+    import prelabel_tools as PT
+    check(PT.parse_imgsz("1024,768") == [1024, 768] and PT.parse_imgsz("640") == 640 and PT.parse_imgsz(None) is None, "옵션 글자 → imgsz")
+    a = RB.build_parser().parse_args(["--sessions", "s", "--template", "t", "--used", "u", "--out", "o", "--tool-imgsz", "1024,768"])
+    check(a.tool_imgsz == "1024,768", f"{a.tool_imgsz}")
+    check(RB.build_parser().parse_args(["--sessions", "s", "--template", "t", "--used", "u", "--out", "o"]).tool_imgsz is None, "기본 없음")
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "best.pt"); open(p, "wb").write(b"weights")
+        m = RB.tool_model_record(p, conf=0.65, imgsz=[1024, 768])
+        check(m["input"] == "원본 그대로 · imgsz [1024, 768]", f"{m}")
+
+
 if __name__ == "__main__":
     test_세션_짧은_이름()
     test_파일이름_세션_포함()
@@ -592,6 +605,7 @@ if __name__ == "__main__":
     test_공구_초벌_옵션()
     test_채점_사진_공구_종류별_고르기()
     test_채점_묶음_왕복()
+    test_공구_초벌_입력_크기()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
