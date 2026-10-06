@@ -1,0 +1,18 @@
+[TCP] 연결: 192.168.1.16:8888
+[저장] /home/pi/data/capture · 장소2
+space 녹화 시작/정지  ·  s 다음 장면(대기 중에만)  ·  q 종료
+[카메라] 1024×768 · 보정 camera_calibration_1024x768.npz  (장소1 = 1024×768)
+[녹화 시작] /home/pi/data/capture/20261006_184055_장소2_1
+[녹화 정지] 913장 → /home/pi/data/capture/20261006_184055_장소2_1
+[녹화 시작] /home/pi/data/capture/20261006_184519_장소2_2
+[녹화 정지] 654장 → /home/pi/data/capture/20261006_184519_장소2_2
+[녹화 시작] /home/pi/data/capture/20261006_184932_장소2_2
+[녹화 정지] 346장 → /home/pi/data/capture/20261006_184932_장소2_2
+[녹화 시작] /home/pi/data/capture/20261006_185122_장소2_3
+[녹화 정지] 363장 → /home/pi/data/capture/20261006_185122_장소2_3
+[녹화 시작] /home/pi/data/capture/20261006_185257_장소2_4
+[녹화 정지] 227장 → /home/pi/data/capture/20261006_185257_장소2_4
+[녹화 시작] /home/pi/data/capture/20261006_185503_장소2_6
+[녹화 정지] 787장 → /home/pi/data/capture/20261006_185503_장소2_6
+[녹화 시작] /home/pi/data/capture/20261006_185814_장소2_6
+[녹화 정지] 995장 → /home/pi/data/capture/20261006_185814_장소2_6

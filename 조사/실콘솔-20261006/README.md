@@ -2,6 +2,38 @@
 
 > spec = 상위 `docs/superpowers/specs/2026-10-06-실콘솔-현장작업-design.md` · plan = 상위 `docs/superpowers/plans/2026-10-06-실콘솔-현장작업.md`
 
+## 📦 산출물 목록 (2026-10-06 정리 · 세션 0b16758b)
+
+> 이 폴더(저장소 안)는 **결과·판정 근거**를, 큰 원자료는 **저장소 밖 관례 자리**에 둔다. 저장소 밖 파일은 git 으로 복구되지 않는다 — 지우기 전에 이 표를 본다.
+
+**저장소 안(이 폴더)**
+
+| 자리 | 내용 |
+|---|---|
+| `README.md` | 절마다 결과·조건·판정 |
+| `측정스크립트/` | 오늘 측정에 쓴 스크립트 — `bright_probe.py`(화면 밝기) · `firstpress_sim.py`(재부팅 직후 첫 누름 흉내) · `gate_check_py3.sh`(음성 관문 사본 · `PY=python3`) · `drain_B.py`(마이크 업링크 수신) · `gpio_fail_probe.sh`(P3) · `npu_정지장면_측정_D.sh` · `스침_GUI로그분석.py`(R1 스침 집계 재현). 🔴 경로는 쓸 때 그대로(작업 임시 폴더 `~/.claude/jobs/a8325699/tmp` 를 가리키는 것이 있다) |
+| `근거이미지/` | 판정에 쓴 화면 — 장소1↔2 정지 비교 · 장소2 거치 화면(장소1 조명 / 형광등 아래) · 어두운 조명 표본 · Task 2-2 확인 영상 표본·B4 박스 확대 · Task 4 녹화 연속 장면 · Task 5 측정 A 화면 |
+| `현장기록/` | 촬영 도구 출력(`capture_place2*`) · 장수 세기(`count_place2*`) · 통합 펌웨어 굽기 출력(`flash_glass_voice.txt`) |
+| `T4_*.jpg` · `T6_*.txt` · `H_gpiomon_*.txt` · `esp32_serial_A/B.txt` · `uplink_B.txt` | 태스크별 근거(본문 절이 가리킨다) |
+| `npu_원자료/` · `npu_원자료_장소2/` · `재학습시연_원자료/` | 측정 원자료 사본(perf·tool·gpio CSV · NPU monitor · CPU) |
+| `../음성알림실물-20261006/` | 음성 알림 실물(Task 8) 결과·로그 |
+
+**저장소 밖(관례 자리 · 큰 파일)**
+
+| 자리 | 내용 | 크기 |
+|---|---|---|
+| `~/data/capture/20261006_*_장소2_*`(10폴더) | 장소2 사진(학습·검증) | 1.5G |
+| `Demo/test/raw/20261006_214120_…retrain-demo-raw-r1…` | 재학습 시연 R3 원본 프레임 901장 | 206M |
+| `Demo/test/raw/20261006_2149~2151_…graze-natural-r1~r3…` | 스침 측정 원본 프레임 1,001장 × 3 | 661M |
+| `Demo/test/logs/20261006_*` | 측정 도구 CSV 45세션(접두 `static-desk-*` 정지 장면 · `place2-*` 장소2 · `xga-rt2-*` 처리 속도 A · `xga-rt2v-*` B · `place2-retrain-*` · `place2-graze-*`) | 262개 |
+| `Demo/test/videos/20261006_*` | 박스 영상 3개(Task 2-2 확인 r1·r2 · R3) | 37M |
+| `Demo/recordings/시연영상/촬영본/20261006_212651_정상_오버레이켬/` | 재학습 시연 R1 — GUI · 1인칭 오버레이 켬 · **끔**(각 567초) | 374M |
+| `Demo/recordings/20261006_200440_full.mp4` · `…201449_camera.mp4` | Task 4 메뉴 녹화(전체 화면 · 카메라 영역 768×1024) | 33M |
+| `Demo/scenario/20261006_195300_s2/` · `…201853_s2/` | Task 4 화면 녹화(`screen.mp4`) + 앱 로그 · 잘못된 1인칭 링크(7/22 옛 녹화)는 지움 | 266M |
+| `Demo/logs/` 실기기 실행 7개 | `102913` · `103117`(P3) · `195308`·`201858`(Task 4) · `210211`·`211844`(Task 8) · `212649`(R1) + `voice_*.log` 3개 | — |
+| `~/lab/esp32-link/mainboard_full_20261006_104423.bin` | 안경 펌웨어 전체 백업(복원 = `RESTORE.md`) | — |
+| `~/data/학습실험/공구초벌비교-20261005/` | 10/5 공구 초벌 모델 비교(T-full-base ↔ tool_r2) 결과 — 작업 임시 폴더에서 옮김 | 36M |
+
 ## P3 GPIO 초기화 실패 표시 (출발 전 · 콘솔 불필요)
 
 - 방법 — `gpiomon -c gpiochip0 5` 가 B1(GPIO5) 줄을 잡은 채 `SOP_VOICE_ALERTS=0 python3 -u main.py`(30초 뒤 화면 캡처 · 2회 · 10:29·10:31).
