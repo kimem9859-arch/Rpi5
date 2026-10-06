@@ -1,0 +1,224 @@
+[Detector] 로드 중...
+[Detector] 'hailo' 백엔드 준비 완료.
+  [손검출] Hailo 팜+핸드 준비 완료 (MediaPipe 모델·NPU 실행)
+[공구] NPU 로드 — /home/pi/data/학습실험/E0c-tool-f120/model.hef
+[TCP] 연결 성공: 192.168.1.16:8888
+
+[벤치마크 시작] 소스=esp32  플립=수직  회전=CCW90  워밍업=0  900프레임 측정 — Ctrl+C로 중단
+
+[왜곡보정] camera_calibration_1024x768.npz (1024×768)
+[F 0030] FPS: 17.7  추론: 19.2ms  탐지: 5개
+  B1   conf 0.718
+  B2   conf 0.945
+  B3   conf 0.945
+  B4   conf 0.914
+  EMO  conf 0.875
+[F 0060] FPS: 12.9  추론: 19.0ms  탐지: 3개
+  B2   conf 0.949
+  B3   conf 0.941
+  B4   conf 0.891
+[F 0090] FPS: 20.5  추론: 18.5ms  탐지: 5개
+  B2   conf 0.953
+  B3   conf 0.926
+  B4   conf 0.926
+  EMO  conf 0.960
+  B1   conf 0.887
+[F 0120] FPS: 17.5  추론: 18.4ms  탐지: 5개
+  B2   conf 0.953
+  B3   conf 0.933
+  B4   conf 0.930
+  EMO  conf 0.964
+  B1   conf 0.795
+[F 0150] FPS: 13.4  추론: 18.3ms  탐지: 4개
+  B2   conf 0.949
+  B3   conf 0.930
+  B4   conf 0.937
+  B1   conf 0.918
+[F 0180] FPS: 17.4  추론: 18.6ms  탐지: 5개
+  B2   conf 0.953
+  B3   conf 0.933
+  B1   conf 0.930
+  EMO  conf 0.922
+  B4   conf 0.853
+[F 0210] FPS: 15.7  추론: 19.0ms  탐지: 5개
+  B2   conf 0.953
+  B3   conf 0.918
+  B1   conf 0.941
+  EMO  conf 0.956
+  B4   conf 0.899
+[F 0240] FPS: 13.9  추론: 18.4ms  탐지: 5개
+  B2   conf 0.953
+  B3   conf 0.918
+  B1   conf 0.945
+  EMO  conf 0.956
+  B4   conf 0.926
+[F 0270] FPS: 22.5  추론: 18.5ms  탐지: 5개
+  B2   conf 0.953
+  B3   conf 0.922
+  B1   conf 0.941
+  EMO  conf 0.964
+  B4   conf 0.922
+[F 0300] FPS: 13.1  추론: 19.7ms  탐지: 5개
+  B2   conf 0.949
+  B3   conf 0.949
+  EMO  conf 0.857
+  B4   conf 0.880
+  B1   conf 0.905
+[F 0330] FPS: 17.6  추론: 18.3ms  탐지: 3개
+  B2   conf 0.949
+  B3   conf 0.933
+  B4   conf 0.918
+[F 0360] FPS: 13.3  추론: 18.7ms  탐지: 5개
+  B2   conf 0.949
+  B3   conf 0.930
+  B4   conf 0.930
+  EMO  conf 0.914
+  B1   conf 0.891
+[F 0390] FPS: 17.2  추론: 18.3ms  탐지: 5개
+  B2   conf 0.953
+  B3   conf 0.933
+  B4   conf 0.914
+  B1   conf 0.941
+  EMO  conf 0.906
+[F 0420] FPS: 16.3  추론: 19.0ms  탐지: 5개
+  B2   conf 0.953
+  B3   conf 0.918
+  B4   conf 0.899
+  B1   conf 0.941
+  EMO  conf 0.945
+[F 0450] FPS: 17.6  추론: 18.4ms  탐지: 5개
+  B2   conf 0.953
+  B3   conf 0.930
+  B4   conf 0.799
+  B1   conf 0.895
+  EMO  conf 0.922
+[F 0480] FPS: 11.5  추론: 18.4ms  탐지: 5개
+  B2   conf 0.937
+  B3   conf 0.933
+  B1   conf 0.906
+  EMO  conf 0.953
+  B4   conf 0.860
+[F 0510] FPS: 14.7  추론: 18.4ms  탐지: 5개
+  B2   conf 0.953
+  B3   conf 0.945
+  B1   conf 0.914
+  B4   conf 0.837
+  EMO  conf 0.956
+[F 0540] FPS: 20.9  추론: 18.4ms  탐지: 5개
+  B2   conf 0.956
+  B3   conf 0.914
+  B4   conf 0.930
+  EMO  conf 0.945
+  B1   conf 0.941
+[F 0570] FPS: 16.6  추론: 18.4ms  탐지: 5개
+  B2   conf 0.945
+  B3   conf 0.910
+  B4   conf 0.922
+  EMO  conf 0.960
+  B1   conf 0.953
+[F 0600] FPS: 21.9  추론: 19.3ms  탐지: 5개
+  B2   conf 0.949
+  B3   conf 0.910
+  B4   conf 0.906
+  EMO  conf 0.737
+  B1   conf 0.941
+[F 0630] FPS: 17.7  추론: 18.5ms  탐지: 5개
+  B2   conf 0.945
+  B3   conf 0.937
+  B4   conf 0.926
+  B1   conf 0.883
+  EMO  conf 0.937
+[F 0660] FPS: 17.6  추론: 18.4ms  탐지: 5개
+  B3   conf 0.949
+  B4   conf 0.926
+  EMO  conf 0.906
+  B1   conf 0.761
+  B2   conf 0.956
+[F 0690] FPS: 13.3  추론: 18.5ms  탐지: 4개
+  B3   conf 0.945
+  B4   conf 0.926
+  B2   conf 0.953
+  B1   conf 0.707
+[F 0720] FPS: 12.6  추론: 18.4ms  탐지: 3개
+  B3   conf 0.953
+  B2   conf 0.960
+  B1   conf 0.941
+[F 0750] FPS: 17.7  추론: 18.4ms  탐지: 5개
+  B3   conf 0.926
+  B2   conf 0.949
+  B4   conf 0.880
+  EMO  conf 0.956
+  B1   conf 0.791
+[F 0780] FPS: 13.2  추론: 18.4ms  탐지: 5개
+  B3   conf 0.918
+  B2   conf 0.953
+  B4   conf 0.826
+  EMO  conf 0.956
+  B1   conf 0.933
+[F 0810] FPS: 15.3  추론: 18.3ms  탐지: 5개
+  B3   conf 0.933
+  B2   conf 0.953
+  B4   conf 0.926
+  EMO  conf 0.956
+  B1   conf 0.949
+[F 0840] FPS: 16.6  추론: 18.4ms  탐지: 3개
+  B3   conf 0.937
+  B2   conf 0.899
+  B4   conf 0.922
+[F 0870] FPS: 17.8  추론: 18.3ms  탐지: 4개
+  B3   conf 0.937
+  B4   conf 0.930
+  EMO  conf 0.937
+  B1   conf 0.912
+[F 0900] FPS: 21.7  추론: 18.3ms  탐지: 5개
+  B3   conf 0.922
+  B4   conf 0.933
+  EMO  conf 0.883
+  B2   conf 0.956
+  B1   conf 0.595
+
+==================================================
+벤치마크 결과 (900 프레임)
+==================================================
+평균 FPS   : 16.1
+최저 FPS   : 5.2
+최고 FPS   : 22.5
+수신 프레임 : 940
+처리 프레임 : 900
+버린 프레임 : 40  ← 처리보다 수신이 빨라 덮인 장수
+
+[소스: esp32]  클래스별 누적 탐지 (confirmed 트랙 ≥0.65):
+  B1  :  841회  평균신뢰도 0.880
+  B2  :  893회  평균신뢰도 0.943
+  B3  :  900회  평균신뢰도 0.931
+  B4  :  862회  평균신뢰도 0.896
+  EMO :  715회  평균신뢰도 0.923
+
+raw 검출 (≥0.5, 트래킹 이전 — 저신뢰 포함):
+  B1  :  675회 (프레임 674)  평균 0.907
+  B2  :  859회 (프레임 858)  평균 0.947
+  B3  :  900회 (프레임 900)  평균 0.931
+  B4  :  828회 (프레임 828)  평균 0.901
+  EMO :  644회 (프레임 644)  평균 0.933
+
+--------------------------------------------------
+B4 집중 분석
+  B4 raw 검출: 828회 / 검출 프레임 828
+  score  min 0.501  median 0.918  max 0.941
+  분포   0.5–0.6:8  0.6–0.7:7  0.7+:813
+  B4↔EMO 오인(트랙 전환): 0회 | raw EMO 총검출: 644회
+
+--------------------------------------------------
+손 검출 (HOI)
+  소요   평균 20.0ms  최대 35.5ms
+  검출   623/900 프레임 (69.2%)
+  ⇒ 위 평균 FPS는 **HOI 포함** 값이다 (§4 NFR-1 판정용)
+
+--------------------------------------------------
+공구 (NPU · e0c_tool_f120)
+  소요   평균 18.5ms  최대 19.6ms
+  검출 프레임(≥0.65) driver 14  wrench 5  pliers 13  / 공구를 돌린 56프레임 (간격 1.0초)
+  ⇒ 위 평균 FPS는 **버튼 + 손 + 공구 NPU 동시** 값이다(손은 --hand 일 때)
+
+저장 위치: test/logs/20261006_194609_esp32_place2-d-video-r2_e0b_button_s0_*.csv
+영상 저장 : test/videos/20261006_194609_esp32_place2-d-video-r2_e0b_button_s0_bench.mp4  ⚠ 검출 오버레이본 — 재분석 불가
