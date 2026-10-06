@@ -1,0 +1,311 @@
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x9.75 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-23dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x9.75 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x9.75 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x9.75 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x9.75 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x9.75 · max 147.0 row (6.76 ms)
+Client connected: 192.168.1.10
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x9.75 · max 147.0 row (6.76 ms)
+  Frame: cap=23 sent=22 drop=0 · 23.4KB/장 · send avg=33ms max=49ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x9.75 · max 147.0 row (6.76 ms)
+  Frame: cap=106 sent=106 drop=0 · 23.5KB/장 · send avg=34ms max=78ms
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x9.75 · max 147.0 row (6.76 ms)
+  Frame: cap=53 sent=52 drop=0 · 23.5KB/장 · send avg=34ms max=58ms
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x9.75 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x9.75 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-23dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x10.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-23dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Client connected: 192.168.1.10
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=82 sent=82 drop=0 · 26.3KB/장 · send avg=39ms max=58ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=101 sent=100 drop=0 · 26.3KB/장 · send avg=38ms max=58ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=99 sent=99 drop=0 · 26.3KB/장 · send avg=38ms max=90ms
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=90 sent=89 drop=0 · 26.3KB/장 · send avg=38ms max=64ms
+Client connected: 192.168.1.10
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=72 sent=71 drop=0 · 26.3KB/장 · send avg=38ms max=60ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=98 sent=98 drop=0 · 26.3KB/장 · send avg=38ms max=81ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=98 sent=98 drop=0 · 26.3KB/장 · send avg=38ms max=57ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=98 sent=98 drop=0 · 26.3KB/장 · send avg=39ms max=55ms
+Client connected: 192.168.1.10
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-27dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=65 sent=63 drop=0 · 26.3KB/장 · send avg=37ms max=63ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=100 sent=100 drop=0 · 26.3KB/장 · send avg=37ms max=56ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=96 sent=96 drop=0 · 26.3KB/장 · send avg=39ms max=57ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-27dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=100 sent=101 drop=0 · 26.3KB/장 · send avg=38ms max=54ms
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=13 sent=10 drop=0 · 26.3KB/장 · send avg=35ms max=57ms
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-27dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-27dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Client connected: 192.168.1.10
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=84 sent=84 drop=0 · 26.5KB/장 · send avg=37ms max=57ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=98 sent=98 drop=0 · 27.0KB/장 · send avg=39ms max=71ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=96 sent=95 drop=0 · 27.1KB/장 · send avg=40ms max=60ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=97 sent=97 drop=0 · 26.9KB/장 · send avg=39ms max=65ms
+Client connected: 192.168.1.10
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=61 sent=59 drop=0 · 26.3KB/장 · send avg=38ms max=57ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-23dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=96 sent=96 drop=0 · 26.5KB/장 · send avg=39ms max=87ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=95 sent=96 drop=0 · 27.3KB/장 · send avg=41ms max=74ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=96 sent=95 drop=0 · 27.5KB/장 · send avg=38ms max=62ms
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-30dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=97 sent=95 drop=0 · 27.1KB/장 · send avg=40ms max=68ms
+Client connected: 192.168.1.10
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=65 sent=64 drop=0 · 26.9KB/장 · send avg=39ms max=53ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=98 sent=98 drop=0 · 27.1KB/장 · send avg=38ms max=67ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=97 sent=98 drop=0 · 27.0KB/장 · send avg=37ms max=61ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=96 sent=96 drop=0 · 27.2KB/장 · send avg=39ms max=63ms
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=61 sent=58 drop=0 · 27.0KB/장 · send avg=39ms max=59ms
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-27dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Client connected: 192.168.1.10
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=68 sent=67 drop=0 · 27.0KB/장 · send avg=39ms max=81ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=98 sent=98 drop=0 · 27.1KB/장 · send avg=39ms max=64ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-28dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=94 sent=94 drop=0 · 27.2KB/장 · send avg=39ms max=78ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=97 sent=97 drop=0 · 26.8KB/장 · send avg=40ms max=103ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=99 sent=99 drop=0 · 27.1KB/장 · send avg=38ms max=59ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-27dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=98 sent=98 drop=0 · 27.0KB/장 · send avg=39ms max=60ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-27dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=96 sent=96 drop=0 · 26.9KB/장 · send avg=39ms max=91ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=98 sent=98 drop=0 · 27.0KB/장 · send avg=39ms max=58ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=98 sent=97 drop=0 · 26.9KB/장 · send avg=39ms max=75ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=99 sent=99 drop=0 · 27.0KB/장 · send avg=38ms max=62ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=95 sent=96 drop=0 · 27.0KB/장 · send avg=39ms max=66ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=100 sent=99 drop=0 · 26.9KB/장 · send avg=38ms max=63ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=96 sent=97 drop=0 · 27.4KB/장 · send avg=39ms max=66ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=96 sent=95 drop=0 · 27.3KB/장 · send avg=40ms max=65ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-29dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=95 sent=96 drop=0 · 27.0KB/장 · send avg=40ms max=65ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=100 sent=99 drop=0 · 27.3KB/장 · send avg=38ms max=67ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=96 sent=96 drop=0 · 27.3KB/장 · send avg=40ms max=64ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=101 sent=102 drop=0 · 26.5KB/장 · send avg=35ms max=54ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=98 sent=98 drop=0 · 26.9KB/장 · send avg=38ms max=63ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=97 sent=96 drop=0 · 26.9KB/장 · send avg=37ms max=69ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-27dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=95 sent=96 drop=0 · 26.8KB/장 · send avg=40ms max=167ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-26dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=99 sent=99 drop=0 · 26.3KB/장 · send avg=38ms max=69ms
+Status: WiFi=OK IP=192.168.1.16 Stream=connected
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=99 sent=98 drop=0 · 26.3KB/장 · send avg=39ms max=54ms
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+  Frame: cap=84 sent=84 drop=0 · 26.9KB/장 · send avg=38ms max=62ms
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-24dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
+Status: WiFi=OK IP=192.168.1.16 Stream=waiting
+  Link: RSSI=-25dBm ch=1 BSSID=58:86:94:E5:5E:8A
+EXP[run]: 196.0 row = 9.02 ms · gain x15.50 · max 147.0 row (6.76 ms)
