@@ -38,6 +38,9 @@ config.TCP_RECONNECT_DELAY_SEC = 0.1
 # 🔴 상태 파일을 임시 폴더에 — 시작 공개가 생겨(음성 설계 2026-10-04 §4.3) 시험이 돌고 있는 데모의
 #    /dev/shm/sop_state/state.json 을 덮으면 음성비서가 엉뚱한 상태를 읽는다.
 config.STATE_SHM_DIR = tempfile.mkdtemp(prefix="sop_state_test_")
+# 🔴 공구 추론을 끈다 — 콘솔을 만들 때마다 실제 공구 HEF 검출기가 새로 생긴다(한 프로세스에서 같은 HEF 를 두 번 만들면
+#    두 번째 추론이 멈춘다 — Rpi5/CLAUDE.md). 흐름 시험은 tool_signal 을 직접 보낸다. 공구 갈래 시험만 켠다.
+config.TOOL_ENABLED = False
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt

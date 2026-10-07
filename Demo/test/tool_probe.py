@@ -227,6 +227,12 @@ def main():
 
     hand = HandTracker(log=log)
     gate = create_tool_gate(log=log)        # 시연과 같은 갈래(config.TOOL_BACKEND)
+    if not getattr(gate, "loaded", True):
+        log(f"[공구] 비활성 — {gate.reason} · 점검을 멈춘다")
+        stream.stop()
+        hand.close()
+        logf.close()
+        return 1
     gate.start()
 
     umap = None

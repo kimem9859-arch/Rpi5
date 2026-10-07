@@ -42,7 +42,6 @@ def _setup(btn, tool, force):
 
 def run(mode, folder, names, btn, tool, force, out):
     import cv2
-    backend = None
     config = _setup(btn, tool, force)
     backend = config.TOOL_BACKEND
     import detector

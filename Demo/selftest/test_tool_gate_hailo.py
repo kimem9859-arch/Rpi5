@@ -123,7 +123,8 @@ def test_문턱_경고():
     said = []
     TG.HailoToolGate(hef=_hef(), names=_Det.NAMES, conf=config.YOLO_CONF_LOW - 0.1, log=said.append,
                      detector_factory=lambda: _Det())
-    check(any("YOLO_CONF_LOW" in s for s in said), f"{said}")
+    g = TG.HailoToolGate(hef=_hef(), names=_Det.NAMES, conf=config.YOLO_CONF_LOW - 0.1, detector_factory=lambda: _Det())
+    check(any("YOLO_CONF_LOW" in s for s in said) and "YOLO_CONF_LOW" in g.reason, f"로그·사유(시작 줄이 적는다) {said}")
 
 
 def test_오류_로그_줄임():
@@ -142,7 +143,7 @@ def test_닫은_뒤():
     g.close()
     g.start()
     g.request(F, None)
-    check(det.closed and not g.available and g.poll() is None and det.calls == 0, "닫힘")
+    check(det.closed and not g.available and g.poll() is None and det.calls == 0 and not g.loaded, "닫힘")
 
 
 def test_추론_예외는_그_요청만():
@@ -169,8 +170,11 @@ def test_만드는_갈래():
         check(isinstance(g, TG.HailoToolGate) and not g.available, "hailo → HailoToolGate(파일 없으면 비활성)")
         said = []
         config.TOOL_BACKEND = "npu"
-        check(TG.create_tool_gate(log=said.append) is None and any("TOOL_BACKEND" in s for s in said),
-              f"모르는 값 → 공구 없음 + 로그(오타가 NPU 로 가지 않게 · 리뷰 m7) {said}")
+        g = TG.create_tool_gate(log=said.append)
+        g.start()
+        check(isinstance(g, TG.DisabledToolGate) and not g.loaded and not g.available and g.poll() is None
+              and "TOOL_BACKEND" in g.reason and sum("TOOL_BACKEND" in s for s in said) >= 2,
+              f"모르는 값 → 꺼진 갈래 · 사유가 남는다(오타가 NPU 로 가지 않게 · 리뷰 m7·후속 m2) {said}")
     finally:
         config.TOOL_BACKEND, config.TOOL_HEF_PATH = old
 

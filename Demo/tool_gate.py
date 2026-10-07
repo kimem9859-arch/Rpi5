@@ -274,8 +274,9 @@ class HailoToolGate:
         # 🔴 검출기(HailoDetector.detect)가 먼저 YOLO_CONF_LOW(버튼 설정)로 거른다 — 그보다 낮은 공구 문턱은 안 먹는다(리뷰 m5)
         low = getattr(config, "YOLO_CONF_LOW", 0.0)
         if self._conf < low:
-            self._log(f"[공구] ⚠️ 공구 문턱 {self._conf} 이 검출기 하한 YOLO_CONF_LOW {low} 보다 낮다 — "
-                      f"실제 문턱은 {low} 이다")
+            warn = f"⚠️ 공구 문턱 {self._conf} 이 검출기 하한 YOLO_CONF_LOW {low} 보다 낮다 — 실제 문턱은 {low}"
+            self.reason += f" · {warn}"          # 생성 때 로그는 화면에 안 붙는다 — 시작 줄이 reason 으로 다시 적는다
+            self._log(f"[공구] {warn}")
 
     def start(self):
         with self._lock:
@@ -326,6 +327,8 @@ class HailoToolGate:
             det, self._det = self._det, None
             self._on = False
             self._result = None
+            self.loaded = False
+            self.reason = "닫힘"
         if det is not None:
             try:
                 det.close()
@@ -333,14 +336,43 @@ class HailoToolGate:
                 pass
 
 
+class DisabledToolGate:
+    """꺼진 공구 갈래 — 같은 바깥 인터페이스로 아무것도 하지 않고, 꺼진 사유를 시작 로그·start() 에 남긴다."""
+
+    loaded = False
+
+    def __init__(self, reason, log=None):
+        self.reason = reason
+        self._log = log or (lambda m: None)
+        self._log(f"[공구] ⚠️ 비활성 — {reason}")
+
+    def start(self):
+        self._log(f"[공구] ⚠️ 비활성 — {self.reason}. 공구 지참 단계가 자동으로 넘어가지 않습니다.")
+
+    def stop(self):
+        pass
+
+    @property
+    def available(self):
+        return False
+
+    def request(self, frame, fingertip):
+        pass
+
+    def poll(self):
+        return None
+
+    def close(self):
+        pass
+
+
 def create_tool_gate(log=None):
     """설정(`config.TOOL_BACKEND`)대로 공구 추론 갈래를 만든다 — "cpu" = 종전 워커 · "hailo" = NPU.
-    모르는 값은 공구 없음(None) + 로그 — 오타가 조용히 어느 한쪽으로 가지 않게(리뷰 m7 · 시작 로그가 「비활성」으로 적는다)."""
+    모르는 값은 꺼진 갈래(DisabledToolGate) — 오타가 조용히 어느 한쪽으로 가지 않고, 사유가 시작 로그에 남는다(리뷰 m7·후속 m2)."""
     import config
     backend = getattr(config, "TOOL_BACKEND", "cpu")
     if backend == "cpu":
         return ToolGate(log=log)
     if backend == "hailo":
         return HailoToolGate(log=log)
-    (log or (lambda m: None))(f"[공구] ⚠️ 알 수 없는 TOOL_BACKEND {backend!r} — \"hailo\" 또는 \"cpu\" · 공구 검출 꺼짐")
-    return None
+    return DisabledToolGate(f"알 수 없는 TOOL_BACKEND {backend!r}(\"hailo\" 또는 \"cpu\")", log=log)

@@ -1,0 +1,15 @@
+Architecture HEF was compiled for: HAILO8
+Network group name: button, Single Context
+    Network name: button/button
+        VStream infos:
+            Input  button/input_layer1 UINT8, NHWC(640x640x3)
+            Output button/yolov8_nms_postprocess FLOAT32, HAILO NMS BY CLASS(number of classes: 5, maximum bounding boxes per class: 100, maximum frame size: 10020)
+            Operation:
+                Op YOLOV8
+                Name: YOLOV8-Post-Process
+                Score threshold: 0.250
+                IoU threshold: 0.70
+                Classes: 5
+                Max bboxes per class: 100
+                Image height: 640
+                Image width: 640
