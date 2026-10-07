@@ -114,6 +114,37 @@ def test_now_ms():
     check(ML.now_ms(1.2345678) == 1234.568, f"{ML.now_ms(1.2345678)}")
 
 
+
+def test_flush_when_idle():
+    print("\n[기록] 큐가 비면 곧바로 비운다 — 드문 사건이 비우기 주기를 기다리다 강제 종료로 사라지지 않게(리뷰 I-1)")
+    d = tempfile.mkdtemp()
+    lg = ML.MeasureLog(d, ["events"], flush_sec=10.0)
+    lg.event("alert_played", key="k")
+    time.sleep(0.3)
+    ev = rows(os.path.join(d, "events.csv"))
+    check(len(ev) == 2 and ev[1][1] == "alert_played", f"0.3초 뒤 디스크에 {ev}")
+    lg.close()
+
+
+def test_event_unserializable_value():
+    print("\n[기록] JSON 으로 못 쓰는 값도 예외 없이 글자로(리뷰 M-2 — Qt 슬롯 예외는 앱을 끈다)")
+    d = tempfile.mkdtemp()
+    lg = ML.MeasureLog(d, ["events"])
+
+    class _Odd:
+        def __str__(self):
+            return "odd"
+    try:
+        lg.event("x", v=_Odd())
+        ok = True
+    except Exception as e:                # noqa: BLE001
+        ok = False
+        print("   ", e)
+    lg.close()
+    ev = rows(os.path.join(d, "events.csv"))
+    check(ok and json.loads(ev[1][2]) == {"v": "odd"}, f"{ev[1:2]}")
+
+
 if __name__ == "__main__":
     test_null_when_env_missing()
     test_write_rows_and_events()
@@ -122,6 +153,8 @@ if __name__ == "__main__":
     test_queue_overflow_counts_drops()
     test_write_error_does_not_raise()
     test_now_ms()
+    test_flush_when_idle()
+    test_event_unserializable_value()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

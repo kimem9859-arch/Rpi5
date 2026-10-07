@@ -98,6 +98,14 @@ def vev_uplink(total, connected):
     VLOG.event("uplink", bytes=int(total), connected=bool(connected))
 
 
+def exit_on_sigterm():
+    """SIGTERM 을 정상 종료로 — 세션 끝에 감시 스크립트(run_voice.sh 의 trap)가 보내는 SIGTERM 에도 run() 의
+    finally 가 돌아 측정 기록을 닫는다(measure_end · 꼬리 사건 — 리뷰 I-1). 측정 중일 때만 main() 이 부른다
+    — 끈 시연의 종료 동작은 그대로."""
+    import signal
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+
+
 def ms_clock(t=None):
     """「HH:MM:SS.mmm」 — 로그 시각을 ms 로(측정 도구 정합 D15)."""
     t = time.time() if t is None else t
@@ -919,8 +927,9 @@ def handle_utterance(bot, stt, alog, seg):
         metric(m)
         return False
     log(f"들림: {text}")
-    answered = bot.on_text(text, m, gen0=gen0)
+    # 🔑 판단(on_text) 전에 — 판단이 실패해도 남고, 답·재생 사건보다 앞에 쌓인다(리뷰 M-3)
     VLOG.event("stt", t=t_stt_m, text=text, stt_ms=m["STT_ms"], utter_sec=m["발화초"])
+    answered = bot.on_text(text, m, gen0=gen0)
     metric(m)
     return answered
 
@@ -1059,6 +1068,8 @@ def main():
         sys.exit(EXIT_ALREADY_RUNNING)
     get_ip = (lambda: a.ip) if a.ip else esp_ip
     log(f"ESP32 = {get_ip()}")       # 🔴 주소 파일이 없으면 여기서 이유와 함께 끝난다
+    if os.environ.get("SOP_MEASURE_DIR"):
+        exit_on_sigterm()
     try:
         run(get_ip, once=a.once)
     except KeyboardInterrupt:

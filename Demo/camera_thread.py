@@ -601,6 +601,11 @@ class CameraThread(QThread):
             r.get("track_ms", ""), r.get("hand_ms", ""), r.get("tool_ms", ""), r.get("zone_ms", ""),
             tip[0] if tip else "", tip[1] if tip else "", r.get("tip_score", ""),
             r.get("roi") or "", r.get("level") or ""])
+        # 🔑 박스·장소 지표는 프레임 줄과 함께만 — 처리 오류 프레임은 어느 파일에도 줄을 남기지 않는다(리뷰 M-1)
+        for b in r.get("boxes", ()):
+            self._measure.row("boxes", b)
+        if "env" in r:
+            self._measure.row("env", r["env"])
 
     # =========================================================================
     # [프레임 처리]
@@ -633,8 +638,8 @@ class CameraThread(QThread):
         frame = frame_orient.rotate(self._undistort(frame))
         self._mark("orient_ms", t_or)
         if self._m_row is not None and self._m_row["frame"] % 30 == 1:
-            self._measure.row("env", [self._m_row["frame"], measure_log.now_ms(self._m_row["t_recv"]),
-                                      *_env_metrics(frame)])
+            self._m_row["env"] = [self._m_row["frame"], measure_log.now_ms(self._m_row["t_recv"]),
+                                  *_env_metrics(frame)]
 
         # 🔴 공구 추론에는 **오버레이가 없는 사본**을 보낸다 — 아래에서 버튼 박스와
         #    손 랜드마크가 frame 에 직접 그려지고, 그 선이 공구 위에 겹치면 검출이
@@ -661,14 +666,15 @@ class CameraThread(QThread):
             self._mark("track_ms", t0)
             if self._m_row is not None:
                 fr, tr = self._m_row["frame"], measure_log.now_ms(self._m_row["t_recv"])
+                bx = self._m_row["boxes"] = []
                 for c, sc, x1, y1, x2, y2 in dets:
-                    self._measure.row("boxes", [fr, tr, "raw", _detector.class_name(c), round(float(sc), 4),
-                                                int(x1), int(y1), int(x2), int(y2), ""])
+                    bx.append([fr, tr, "raw", _detector.class_name(c), round(float(sc), 4),
+                               int(x1), int(y1), int(x2), int(y2), ""])
                 for k in tracks:
                     x1, y1, x2, y2 = k["box"]
-                    self._measure.row("boxes", [fr, tr, "track", _detector.class_name(k["cls"]),
-                                                round(float(k["score"]), 4), int(x1), int(y1), int(x2), int(y2),
-                                                1 if k["confirmed"] else 0])
+                    bx.append([fr, tr, "track", _detector.class_name(k["cls"]),
+                               round(float(k["score"]), 4), int(x1), int(y1), int(x2), int(y2),
+                               1 if k["confirmed"] else 0])
 
         # 🔴 손 모델에는 버튼 박스가 **없는** 그림을 넣는다(R3) — 박스를 그린 뒤의 프레임을 넣으면
         #    화면 표시·촬영 여부가 손 모델 입력을 바꿨다(함수목록 §4.1-1). 그리기는 종전처럼 박스

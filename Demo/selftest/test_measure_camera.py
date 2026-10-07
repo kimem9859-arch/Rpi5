@@ -158,10 +158,37 @@ def test_off_writes_nothing():
     check(not th._measure.enabled, "기본은 NullLog")
 
 
+
+def test_error_frame_leaves_no_boxes_env():
+    print("\n[카메라 기록] 처리 오류 프레임은 boxes·env 에도 줄을 남기지 않는다(리뷰 M-1)")
+    d = tempfile.mkdtemp()
+    lg = ML.MeasureLog(d, ["frames", "boxes", "env", "events"])
+    th = ct.CameraThread()
+    th.set_measure(lg)
+    orig = th._hand.detect
+
+    def boom(*a, **k):
+        raise RuntimeError("손 검출 실패")
+    th._hand.detect = boom
+    th._measure_begin(t_recv=1.0, decode_ms=0.0)           # 1번 = env 를 적는 프레임(30프레임마다 첫 줄)
+    try:
+        th._process_frame(np.zeros((48, 64, 3), np.uint8), 1.0)
+    except RuntimeError:
+        pass
+    th._hand.detect = orig
+    th._measure_begin(t_recv=2.0, decode_ms=0.0)
+    th._process_frame(np.zeros((48, 64, 3), np.uint8), 2.0)
+    th._measure_end()
+    lg.close()
+    check({r["frame"] for r in rows(d, "boxes")} == {"2"}, f"boxes 프레임 {[r['frame'] for r in rows(d, 'boxes')]}")
+    check([r["frame"] for r in rows(d, "env")] == [], f"env 프레임 {[r['frame'] for r in rows(d, 'env')]}")
+
+
 if __name__ == "__main__":
     test_frames_and_boxes()
     test_env_every_30_frames()
     test_error_frame_leaves_no_row()
+    test_error_frame_leaves_no_boxes_env()
     test_size_event()
     test_recv_counts_drained_frames()
     test_off_writes_nothing()

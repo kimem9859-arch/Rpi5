@@ -57,6 +57,7 @@ class MeasureLog:
         self._flush_sec = flush_sec
         self._q = queue.Queue(maxsize=qmax)
         self._pause = threading.Event()          # 시험용 문 — 쓰기 스레드를 잠깐 멈춘다
+        self._drop_lock = threading.Lock()       # 버린 수 — 여러 스레드(카메라·화면·GPIO·인터락)가 센다
         self.dropped = 0
         self.failed = False
         self._files = {}
@@ -71,14 +72,24 @@ class MeasureLog:
         self._th = threading.Thread(target=self._run, name="measure-writer", daemon=True)
         self._th.start()
 
+    def _drop(self):
+        with self._drop_lock:
+            self.dropped += 1
+
     def row(self, name, values):
         try:
             self._q.put_nowait((name, list(values)))
         except queue.Full:
-            self.dropped += 1
+            self._drop()
 
     def event(self, kind, t=None, **data):
-        self.row(self._event_file, [now_ms(t), kind, json.dumps(data, ensure_ascii=False)])
+        # 🔴 부르는 쪽(Qt 슬롯 포함)에서 예외를 내지 않는다 — 슬롯 예외는 PyQt6 가 앱 전체를 끈다.
+        #    JSON 으로 못 쓰는 값은 글자로(default=str) · 그래도 실패하면 버린 수로 센다(리뷰 M-2)
+        try:
+            body = json.dumps(data, ensure_ascii=False, default=str)
+            self.row(self._event_file, [now_ms(t), kind, body])
+        except Exception:                        # noqa: BLE001
+            self._drop()
 
     def _write(self, name, values):
         if self.failed:
@@ -109,6 +120,11 @@ class MeasureLog:
                 break
             if item is not None:
                 self._write(*item)
+                if self._q.empty():
+                    # 🔑 밀린 것이 없으면 곧바로 디스크로 — 드문 사건(음성)이 비우기 주기를 기다리다 강제 종료에
+                    #    사라지지 않게(리뷰 I-1) · 바쁜 흐름(프레임)은 큐에 쌓인 만큼 묶어 쓴다
+                    self._flush()
+                    last = time.monotonic()
             if time.monotonic() - last >= self._flush_sec:
                 self._flush()
                 last = time.monotonic()

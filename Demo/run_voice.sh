@@ -28,13 +28,13 @@ while :; do
     code=$?
     child=""
     if [ "$code" -eq 3 ]; then
-        echo "[$(date +%T)] 음성비서가 이미 다른 곳에서 돈다 — 감시를 끝낸다"
+        echo "[$(date +%T.%3N)] 음성비서가 이미 다른 곳에서 돈다 — 감시를 끝낸다"
         exit 0
     fi
     if [ $((SECONDS - started)) -ge 30 ]; then
         delay="$base"                      # 한동안 돌았다 — 처음 간격으로
     fi
-    echo "[$(date +%T)] 🔴 음성비서가 끝났다(코드 $code) — ${delay}초 뒤 다시 띄운다"
+    echo "[$(date +%T.%3N)] 🔴 음성비서가 끝났다(코드 $code) — ${delay}초 뒤 다시 띄운다"
     sleep "$delay" &
     wait $!
     delay=$((delay * 2 > 60 ? 60 : delay * 2))

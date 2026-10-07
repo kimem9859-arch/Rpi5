@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 
 import config
@@ -44,12 +45,22 @@ def _git_head():
         return None
 
 
+def _git_dirty():
+    """작업 트리에 커밋 안 된 변경이 있나 — 코드 버전만으로는 그 세션의 코드를 다시 만들 수 없다(리뷰 M-10)."""
+    try:
+        r = subprocess.run(["git", "-C", os.path.dirname(os.path.abspath(__file__)), "status", "--porcelain"],
+                           capture_output=True, text=True, timeout=5)
+        return bool(r.stdout.strip()) if r.returncode == 0 else None
+    except Exception:                                # noqa: BLE001
+        return None
+
+
 def write_session(out_dir, answers, measure_on):
     rec = {
         "입력": answers,
         "시작_벽시계": datetime.datetime.now().isoformat(timespec="seconds"),
         "시작_단조_ms": round(time.monotonic() * 1000, 3),
-        "코드": {"Rpi5": _git_head()},
+        "코드": {"Rpi5": _git_head(), "Rpi5_변경있음": _git_dirty()},
         "설정": {k: getattr(config, k, None) for k in SETTINGS},
         "측정기록": bool(measure_on),
         "음성": os.environ.get("SOP_VOICE", "1") != "0",
@@ -64,6 +75,10 @@ def write_session(out_dir, answers, measure_on):
 
 
 def main():
+    if sys.argv[1:] == ["--free-gb"]:
+        # 실행기의 1GB 경고 — 올림 없는 값(df -BG 는 올려서 0.3GB 도 1G 로 보였다 · 리뷰 I-2)
+        print(f"{free_gb(BASE if os.path.isdir(BASE) else os.path.dirname(BASE)):.3f}")
+        return
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default=BASE)
     ap.add_argument("--place", type=int, required=True, choices=(1, 2))
@@ -75,6 +90,10 @@ def main():
     ap.add_argument("--firmware", default="glass_voice")      # 남길 펌웨어(실콘솔 plan Task 11 Step 1)
     ap.add_argument("--on", type=int, default=1, choices=(0, 1))
     a = ap.parse_args()
+    # 🔑 대본은 폴더를 만들기 전에 확인한다 — 복사가 실패하면 반쪽 세션 폴더가 남았다(리뷰 I-3)
+    a.script = os.path.expanduser(a.script.strip()) if a.script.strip() else ""
+    if a.script and not os.path.isfile(a.script):
+        ap.error(f"대본 파일이 없다: {a.script}")
     os.makedirs(a.base, exist_ok=True)
     out = os.path.join(a.base, session_dir_name(a.place, a.kind))
     answers = {"장소": a.place, "세션": KINDS[a.kind], "손": HANDS[a.hand], "사람": a.person,

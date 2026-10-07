@@ -27,7 +27,16 @@ def load_events(path):
     if not os.path.exists(path):
         return []
     with open(path, encoding="utf-8", newline="") as f:
-        return [(float(r["t_ms"]), r["kind"], json.loads(r["data"] or "{}")) for r in csv.DictReader(f)]
+        raw = list(csv.DictReader(f))
+    out = []
+    for i, r in enumerate(raw):
+        try:
+            out.append((float(r["t_ms"]), r["kind"], json.loads(r["data"] or "{}")))
+        except (TypeError, ValueError):
+            if i == len(raw) - 1:
+                break                # 도중에 꺼진 세션 — 잘린 마지막 줄만 건너뛴다(Review Focus 3)
+            raise                    # 중간 줄이 깨졌으면 숨기지 않는다
+    return out
 
 
 def check_events_vs_log(events, log_lines):

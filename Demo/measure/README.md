@@ -22,3 +22,15 @@
 | `voice_events.csv` | 음성 사건 하나 | `t_ms,kind,data` — `alert`·`alert_played`·`alert_clear` · `play_start`·`play_end`·`stop_sent` · `wake`·`emergency_ignored` · `stt` · `answer` · `uplink`(10초마다) · 음성 끔 세션에는 없다 |
 | `session.json` | — | 입력(장소 · 세션 · 손 · 사람 **번호** · 조명 · 대본 · 펌웨어) · 시작 벽시계·단조 · 코드 버전 · 설정값(모델·공구 경로 포함) · 측정 기록 켬 여부 · 음성 켬 여부 |
 | 대본 파일 | — | 실행기가 받은 파일을 원래 이름 그대로 복사(형식은 1단계-나) |
+
+## 세기(1단계-나)가 알아야 할 것 — 최종 리뷰(2026-10-07)에서 확인
+
+- **줄 순서 ≠ 시각 순서** — `events.csv`·`voice_events.csv` 는 큐에 넣은 순서로 쌓이고, `gpio_edge`·`interlock`·`stt` 의 `t_ms` 는 실제로 일어난 시각이라 넣은 때보다 앞선다. **세기는 `t_ms` 로 정렬한다.**
+- **`frames.csv` 의 `t_start_ms` 는 디코드 뒤** — 한 프레임 처리 시간 = `decode_ms` + (`t_done_ms` − `t_start_ms`).
+- **`voice_events.csv` 에는 `measure_end` 가 여러 줄일 수 있다** — 음성 데몬이 세션 도중 다시 뜨면 닫을 때마다 하나씩. 세션 끝 SIGTERM 에도 닫는다(측정 중일 때만 `exit_on_sigterm`). 사건은 밀린 것이 없으면 곧바로 디스크에 쓴다.
+- **`measure_end` 의 `failed` 는 거의 늘 `false`** — 쓰기가 실패하면 그 뒤 줄(끝 사건 포함)은 디스크에 못 간다. 쓰기 실패는 시연 로그의 `[측정] 측정 기록 쓰기 실패` 줄과 「끝 사건이 없음」으로 안다. `dropped` = 큐가 넘쳐 버린 수 + JSON 으로 못 쓴 사건 수.
+- **`interlock` 의 `t_ack_ms`** — `ack=false` 면 응답 기다림이 끝난(시간 초과) 시각이다 · 미연결·보내기 실패면 비어 있다. BLOCK 을 재시도하면 마지막 시도의 `t_send_ms` 만 남는다(`tries` = 재시도 수).
+- **`gpio_edge` 의 `src`** — `edge` = 장치의 엣지 시각 · `callback` = 콜백 시각으로 대신(시계가 어긋남 · 콜백이 늦어 이미 뗀 버튼 · 켤 때 이미 HIGH 인 EMO 발사).
+- **`tip_score`** — 메뉴 → 점검(손 검출)이 화면 스레드에서 같은 손 검출기를 부르는 동안에는 몇 프레임의 값이 점검 쪽 값으로 덮일 수 있다(점검 중에만 · 손끝 좌표는 영향 없음).
+- 처리 오류 프레임은 `frames`·`boxes`·`env` 어디에도 줄이 없다(번호만 건너뛴다).
+- 판 나누기 = `run_start`(그 판의 전이보다 먼저) ~ `run_end`(완주) · `run_reset`(작업 초기화 · EMO 해제).

@@ -114,11 +114,48 @@ def test_gpio_edge_bad_clock():
         check(got and got[0][2] == "callback" and abs(got[0][1] - t0) < 0.05, f"active_time={bad} → {got}")
 
 
+
+def test_run_bounds_and_emo_release():
+    print("\n[화면 기록] 판 사건 — run_start 가 그 판의 전이보다 먼저 · EMO 해제로 끝난 판은 run_reset(리뷰 M-4·M-10)")
+    d = tempfile.mkdtemp()
+    win = make(d)
+    win._on_cta()
+    win._press_button("EMO")
+    win._release_block()
+    win.close()
+    ev = events(d)
+    kinds = [k for _t, k, _d in ev]
+    first_ready = next(i for i, (_t, k, x) in enumerate(ev) if k == "state" and x["new"] == "READY")
+    check(kinds.index("run_start") < first_ready, f"run_start 가 READY 전이보다 먼저 {kinds}")
+    rr = [x for _t, k, x in ev if k == "run_reset"]
+    check(rr and rr[0]["why"] == "EMO 해제", f"EMO 해제 run_reset {rr}")
+    rel = next(i for i, (_t, k, x) in enumerate(ev) if k == "release" and x["what"] == "block" and x["ok"])
+    out = next(i for i, (_t, k, x) in enumerate(ev) if k == "state" and x["old"] == "BLOCK")
+    check(rel < out, "차단 해제 사건이 경고 해제처럼 상태 전이보다 먼저")
+
+
+def test_gpio_short_press_is_callback():
+    print("\n[화면 기록] 콜백이 늦어 이미 뗀 버튼은 뗀 시각을 엣지로 쓰지 않는다(리뷰 M-5) · EMO 는 뗀(HIGH) 시각이 엣지")
+    import gpio_input
+
+    class _D:
+        def __init__(self, a, i):
+            self.active_time, self.inactive_time = a, i
+    got = []
+    g = gpio_input.GpioInputController(on_button=lambda b: None, enabled=False,
+                                       on_edge=lambda b, t, src: got.append((b, src)))
+    g._fire("B1", _D(None, 0.1))
+    g._fire("EMO", _D(None, 0.1))
+    check(got == [("B1", "callback"), ("EMO", "edge")], f"{got}")
+
+
 if __name__ == "__main__":
     test_events_flow()
     test_off_is_null()
     test_gpio_edge_time()
     test_gpio_edge_bad_clock()
+    test_run_bounds_and_emo_release()
+    test_gpio_short_press_is_callback()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

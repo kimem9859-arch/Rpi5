@@ -62,10 +62,19 @@ def test_parsers_accept_ms():
     check(re.match(pat, "[12:00:01] [FPS] 14.0") is not None, "옛 초 단위 줄")
 
 
+
+def test_voice_watch_lines_ms():
+    print("\n[ms] 음성 감시 스크립트 줄도 ms(리뷰 M-8)")
+    with open(os.path.join(_DEMO_DIR, "run_voice.sh"), encoding="utf-8") as f:
+        sh = f.read()
+    check("date +%T)" not in sh and sh.count("date +%T.%3N") >= 2, "run_voice.sh 의 date 가 ms")
+
+
 if __name__ == "__main__":
     test_console_log_ms()
     test_voice_log_ms()
     test_parsers_accept_ms()
+    test_voice_watch_lines_ms()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

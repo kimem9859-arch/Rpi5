@@ -61,11 +61,32 @@ def test_fps_gate():
     check(MC.fps_drop_pct(MC.fps_median(on), MC.fps_median(off)) < 3.0, "하락 3% 이내")
 
 
+
+def test_truncated_last_line():
+    print("\n[관문] 도중에 꺼져 잘린 마지막 줄은 건너뛴다 · 중간이 깨지면 숨기지 않는다(리뷰 M-7)")
+    import tempfile
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "events.csv")
+    good = 't_ms,kind,data\n1.0,press,"{""button"": ""B1""}"\n'
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(good + '2.0,press,"{""butt')
+    check(len(MC.load_events(p)) == 1, "잘린 마지막 줄 건너뜀")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write('t_ms,kind,data\n1.0,press,"{""butt"\n' + '2.0,press,"{""button"": ""B1""}"\n')
+    try:
+        MC.load_events(p)
+        raised = False
+    except Exception:                     # noqa: BLE001
+        raised = True
+    check(raised, "중간 줄이 깨지면 예외")
+
+
 if __name__ == "__main__":
     test_events_match()
     test_events_mismatch()
     test_voice_match()
     test_fps_gate()
+    test_truncated_last_line()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

@@ -76,11 +76,83 @@ def test_voice_off_recorded():
           "run_measure.sh 가 SOP_VOICE=0 을 세션 정보 쓰기 **앞에** 내보낸다")
 
 
+
+def _launcher_copy():
+    """실행기를 임시 폴더에 복사 — run_demo.sh 는 가짜(환경변수만 출력) · measure_session 은 진짜(링크)."""
+    import shutil
+    d = tempfile.mkdtemp()
+    shutil.copy(os.path.join(_DEMO_DIR, "run_measure.sh"), d)
+    os.symlink(os.path.join(_DEMO_DIR, "measure_session.py"), os.path.join(d, "measure_session.py"))
+    with open(os.path.join(d, "run_demo.sh"), "w", encoding="utf-8") as f:
+        f.write('echo "STUB MEASURE=${SOP_MEASURE_DIR:-없음}"\n')
+    return d
+
+
+def test_free_space_check_precise():
+    print("\n[세션] 1GB 경고는 올림 없는 값으로(리뷰 I-2 — df -BG 는 올려 0.3GB 도 1G 로 보인다)")
+    with open(os.path.join(_DEMO_DIR, "run_measure.sh"), encoding="utf-8") as f:
+        sh = f.read()
+    check("df -BG" not in sh and "measure_session.py --free-gb" in sh, "실행기가 measure_session.free_gb 로 잰다")
+    import shutil
+    check(abs(MS.free_gb(_DEMO_DIR) - shutil.disk_usage(_DEMO_DIR).free / 1e9) < 0.01, "free_gb = 실제 남은 바이트 / 1e9")
+    r = subprocess.run([sys.executable, os.path.join(_DEMO_DIR, "measure_session.py"), "--free-gb"],
+                       capture_output=True, text=True)
+    check(r.returncode == 0 and abs(float(r.stdout.strip() or "nan") - MS.free_gb(_DEMO_DIR)) < 0.05,
+          f"CLI --free-gb {r.stdout!r} {r.stderr[-200:]}")
+
+
+def test_launcher_bad_input_keeps_window():
+    print("\n[세션] 입력 오류면 이유를 보이고 기다린다 · 세션 폴더를 남기지 않는다(리뷰 I-3)")
+    d = _launcher_copy()
+    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="3\n0\n1\n1\n\n\n\n1\n\n",
+                       capture_output=True, text=True, timeout=60)
+    check("세션 정보를 만들지 못했다" in r.stdout and "STUB" not in r.stdout, f"{r.stdout[-300:]}")
+    check(not os.path.isdir(os.path.join(d, "measure")) or not os.listdir(os.path.join(d, "measure")),
+          "반쪽 세션 폴더 없음")
+
+
+def test_launcher_off_ignores_inherited_dir():
+    print("\n[세션] 기록 끔 회차는 물려받은 SOP_MEASURE_DIR 도 지운다(리뷰 I-3)")
+    d = _launcher_copy()
+    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="1\n0\n1\n1\n\n\n\n0\n\n",
+                       capture_output=True, text=True, timeout=60, env=dict(os.environ, SOP_MEASURE_DIR="/tmp/옛폴더"))
+    check("STUB MEASURE=없음" in r.stdout, f"{r.stdout[-300:]}")
+
+
+def test_script_path_tilde_and_missing():
+    print("\n[세션] 대본 경로 ~ 를 펼친다 · 없는 대본이면 폴더를 만들지 않고 끝낸다(리뷰 I-3)")
+    home = tempfile.mkdtemp()
+    with open(os.path.join(home, "대본.txt"), "w", encoding="utf-8") as f:
+        f.write("1판\n")
+    base = tempfile.mkdtemp()
+    env = dict(os.environ, HOME=home)
+    cmd = [sys.executable, os.path.join(_DEMO_DIR, "measure_session.py"), "--base", base,
+           "--place", "1", "--kind", "0", "--hand", "1", "--person", "1", "--on", "1"]
+    r = subprocess.run(cmd + ["--script", "~/대본.txt"], capture_output=True, text=True, env=env)
+    out = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    check(r.returncode == 0 and os.path.isfile(os.path.join(out, "대본.txt")), f"~ 펼침 {r.returncode} {r.stderr[-200:]}")
+    base2 = tempfile.mkdtemp()
+    r = subprocess.run([c if c != base else base2 for c in cmd] + ["--script", "~/없는대본.txt"],
+                       capture_output=True, text=True, env=env)
+    check(r.returncode != 0 and os.listdir(base2) == [], f"없는 대본 rc={r.returncode} · {os.listdir(base2)}")
+
+
+def test_session_marks_dirty_tree():
+    print("\n[세션] 코드 버전에 커밋 안 된 변경 여부(리뷰 M-10)")
+    rec = MS.write_session(tempfile.mkdtemp(), {"장소": 1}, measure_on=True)
+    check(isinstance(rec["코드"].get("Rpi5_변경있음"), bool), f"{rec['코드']}")
+
+
 if __name__ == "__main__":
     test_dir_name()
     test_session_json()
     test_cli_prints_dir()
     test_voice_off_recorded()
+    test_free_space_check_precise()
+    test_launcher_bad_input_keeps_window()
+    test_launcher_off_ignores_inherited_dir()
+    test_script_path_tilde_and_missing()
+    test_session_marks_dirty_tree()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

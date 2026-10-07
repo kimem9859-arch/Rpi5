@@ -1063,8 +1063,8 @@ class SafetyConsole(QMainWindow):
         self._press_pending = None   # 새 작업 — 앞 누름 기억은 버린다(누름 카메라 확인)
         self._last_result = None     # 앞 회차 완료 결과는 여기서 버린다(A-M3)
         self._wrong_tool_noted = None  # 새 작업 = 새 공구 기록 — 쥐고 있던 오답 공구도 다시 센다(A-M5)
+        self._measure.event("run_start")    # 🔑 load_recipe 의 IDLE→READY→PROCESS RUN 전이보다 먼저(판 나누기 · 리뷰 M-4)
         self.fsm.load_recipe()
-        self._measure.event("run_start")
         self._append_log(f"[FSM] 작업 시작 — {self.fsm.expected_step}단계: "
                          f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
         self._notify("work", "작업 시작",
@@ -1568,12 +1568,13 @@ class SafetyConsole(QMainWindow):
             return
         was_running = self._stats.running
         no_signal = self._emo_no_signal  # release_block 이 _on_fsm_state 에서 끈다 — 먼저 읽어 둔다
+        self._measure.event("release", what="block", ok=True)   # 경고 해제처럼 상태 전이보다 먼저
         self.fsm.release_block()
-        self._measure.event("release", what="block", ok=True)
         if self.fsm.state == State.IDLE:
             # EMO 차단 해제 → 「작업 시작」 전 대기(P5 · 설계 D4). 진행 중이던 작업은 여기서
             # 끝난다 — 결과창 없이 알림 하나로 마무리하고 집계를 비운다(G4).
             self._stats.reset()
+            self._measure.event("run_reset", why="EMO 해제")   # 비상정지 해제로 끝난 판(리뷰 M-4)
             self._append_log(f"[FSM] {'EMO 신호 없음' if no_signal else '비상정지'} 해제 — 「작업 시작」 전 대기")
             if was_running:
                 self._notify("danger", "비상정지로 작업 중단",

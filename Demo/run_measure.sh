@@ -12,17 +12,24 @@ L=$(ask "조명·조도 (선택 · 엔터 = 건너뜀)")
 S=$(ask "대본 파일 경로 (선택 · 엔터 = 없음)")
 F=$(ask "펌웨어 (엔터 = glass_voice)")
 ON=$(ask "측정 기록 (1 켬 · 0 끔 — 시험 세션의 끔 회차)")
-FREE=$(df -BG --output=avail . | tail -1 | tr -dc '0-9')
-if [ "${FREE:-0}" -lt 1 ]; then
+# 🔴 음성 끔은 세션 정보를 쓰기 **전에** 내보낸다 — session.json 의 「음성」이 이 값을 읽는다
+if [ "$K" = "4" ]; then export SOP_VOICE=0; fi
+# 남은 공간 — 올림 없는 값으로(GB 단위 df 는 올려서 0.3GB 도 1G 로 보였다 · 리뷰 I-2)
+FREE=$(python3 measure_session.py --free-gb)
+if awk -v f="${FREE:-0}" 'BEGIN { exit !(f < 1) }'; then
   read -rp "  ⚠️ 남은 공간 ${FREE}GB — 1GB 미만이다. 계속할까? (y/N) > " Y
   [ "$Y" = "y" ] || exit 1
 fi
-# 🔴 음성 끔은 세션 정보를 쓰기 **전에** 내보낸다 — session.json 의 「음성」이 이 값을 읽는다
-if [ "$K" = "4" ]; then export SOP_VOICE=0; fi
-DIR=$(python3 measure_session.py --place "$P" --kind "$K" --hand "$H" --person "$W" --light "$L" \
-      ${S:+--script "$S"} --firmware "${F:-glass_voice}" --on "$ON") || exit 1
+if ! DIR=$(python3 measure_session.py --place "$P" --kind "$K" --hand "$H" --person "$W" --light "$L" \
+      ${S:+--script "$S"} --firmware "${F:-glass_voice}" --on "$ON"); then
+  # 🔴 창이 말없이 닫히지 않게 — 위 오류(argparse)를 읽고 다시 실행한다(리뷰 I-3)
+  echo "  ❌ 세션 정보를 만들지 못했다 — 위 오류를 보고 다시 실행하세요"
+  read -rp "  엔터를 누르면 창을 닫는다 > " _
+  exit 1
+fi
 echo "  세션 폴더: $DIR"
-if [ "$ON" = "1" ]; then export SOP_MEASURE_DIR="$DIR"; fi
+# 끔 회차는 물려받은 값도 지운다 — 기록이 저절로 켜지지 않게
+if [ "$ON" = "1" ]; then export SOP_MEASURE_DIR="$DIR"; else unset SOP_MEASURE_DIR; fi
 bash ./run_demo.sh
 echo "  끝 — 기록 폴더: $DIR"
 read -rp "  엔터를 누르면 창을 닫는다 > " _

@@ -95,11 +95,70 @@ def test_mic_bytes():
     check(hasattr(m, "bytes_total") and m.bytes_total == 0, "bytes_total 시작 0")
 
 
+
+def test_sigterm_closes_log():
+    print("\n[음성 기록] 세션 끝 SIGTERM 에도 기록을 닫는다 — measure_end 가 남는다(리뷰 I-1)")
+    import subprocess
+    d = tempfile.mkdtemp()
+    code = (
+        "import os, signal, sys, time\n"
+        f"sys.path.insert(0, {_DEMO_DIR!r})\n"
+        "import measure_log as ML, voice_assistant as va\n"
+        "va.VLOG = ML.open_from_env(['voice_events'], event_file='voice_events')\n"
+        "va.exit_on_sigterm()\n"
+        "try:\n"
+        "    va.VLOG.event('alert', key='k')\n"
+        "    os.kill(os.getpid(), signal.SIGTERM)\n"
+        "    time.sleep(3)\n"
+        "finally:\n"
+        "    va.VLOG.close()\n")
+    r = subprocess.run([sys.executable, "-c", code], env=dict(os.environ, SOP_MEASURE_DIR=d),
+                       capture_output=True, text=True, timeout=30)
+    path = os.path.join(d, "voice_events.csv")
+    kinds = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8", newline="") as f:
+            kinds = [x["kind"] for x in csv.DictReader(f)]
+    check(r.returncode == 0 and kinds == ["alert", "measure_end"], f"rc={r.returncode} {kinds} {r.stderr[-200:]}")
+
+
+def test_stt_event_before_answer():
+    print("\n[음성 기록] 받아쓰기 사건은 판단(on_text) 전에 — 판단이 실패해도 남는다(리뷰 M-3)")
+    import numpy as np
+    d = tempfile.mkdtemp()
+    va.VLOG = ML.MeasureLog(d, ["voice_events"], event_file="voice_events")
+
+    class _Bot:
+        def alert_gen(self):
+            return 0
+
+        def on_text(self, text, m, gen0=None):
+            raise RuntimeError("판단 실패")
+
+    class _Alog:
+        def utterance(self, samples, text):
+            pass
+    orig_log, va.log = va.log, (lambda m: None)
+    try:
+        va.handle_utterance(_Bot(), lambda s: "가디언 지금 몇 단계", _Alog(), np.zeros(1600, dtype=np.int16))
+    except RuntimeError:
+        pass
+    finally:
+        va.log = orig_log
+        va.VLOG.close()
+        va.VLOG = ML.NullLog()
+    with open(os.path.join(d, "voice_events.csv"), encoding="utf-8", newline="") as f:
+        kinds = [x["kind"] for x in csv.DictReader(f)]
+    check("stt" in kinds, f"{kinds}")
+
+
 if __name__ == "__main__":
     test_publisher_has_mono()
     test_voice_events()
     test_alert_events_match_log()
     test_mic_bytes()
+    test_sigterm_closes_log()
+    test_stt_event_before_answer()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

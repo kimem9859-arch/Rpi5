@@ -142,7 +142,9 @@ class GpioInputController:
                 now = time.monotonic()
                 ago = None
                 if dev is not None:
-                    ago = dev.active_time if dev.active_time is not None else dev.inactive_time
+                    # 🔑 그 엣지가 만든 상태의 시간만 본다 — 버튼 누름 = active · EMO(뗌 = HIGH) = inactive.
+                    #    콜백이 늦어 이미 반대 상태면 None → 콜백 시각(뗀 시각을 엣지로 적지 않는다 · 리뷰 M-5)
+                    ago = dev.inactive_time if button_id == "EMO" else dev.active_time
                 if ago is not None and 0.0 <= ago < 1.0:
                     self._on_edge(button_id, now - ago, "edge")
                 else:
