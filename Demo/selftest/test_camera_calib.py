@@ -29,6 +29,7 @@ class _Fake:
         self._undistort_map = None
         self._ring_px = 0
         self._calib_wh = None
+        self._measure = ct.measure_log.NullLog()   # 크기 사건 자리(측정 도구 정합 · 꺼짐)
 
     def _init_calibration(self, w, h):
         ct.CameraThread._init_calibration(self, w, h)

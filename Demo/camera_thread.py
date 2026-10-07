@@ -25,6 +25,7 @@ from config import (
 from hand_tracker import HandTracker
 import roi_zones
 import frame_orient
+import measure_log
 
 # =============================================================================
 # [공구 검출] — 서브 작업(wait_tool) 동안만 도는 CPU 추론 (A-2)
@@ -57,6 +58,16 @@ try:
     print(f"[Detector] '{_detector.backend_name}' 백엔드 로드 완료 — {_detector_model_name()}")
 except Exception as e:
     print(f"[Detector] 로드 실패: {e}")
+
+
+def _env_metrics(frame):
+    """장소 환경 지표(측정 도구 정합 D13·24 — 조사/실콘솔-20261006/측정스크립트/장소차이_분석.py 와 같은 정의)."""
+    im = cv2.resize(frame, (max(1, frame.shape[1] // 4), max(1, frame.shape[0] // 4)), interpolation=cv2.INTER_AREA)
+    y = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    s = cv2.cvtColor(im, cv2.COLOR_BGR2HSV)[..., 1]
+    lab = cv2.cvtColor(im, cv2.COLOR_BGR2LAB).astype(np.float32)
+    return [round(float(y.mean()), 2), round(float(y.std()), 2), round(float((y >= 250).mean() * 100), 3),
+            round(float(s.mean()), 2), round(float(lab[..., 1].mean() - 128), 3), round(float(lab[..., 2].mean() - 128), 3)]
 
 
 def close_detector():
@@ -267,6 +278,11 @@ class CameraThread(QThread):
         self._tool_dets = []          # 마지막 검출 결과 — 화면 표시용
         self._tool_dets_at = 0.0      # 그 결과가 온 시각(오래되면 지운다)
 
+        self._measure = measure_log.NullLog()   # 측정 기록(측정 도구 정합 §4.3) — set_measure 로 켠다
+        self._m_frame = 0                       # 처리한 프레임 번호(재연결해도 계속 늘어난다)
+        self._m_row = None                      # 지금 프레임의 측정 칸(_measure_begin~_end)
+        self._recv_seq = 0                      # 받은 프레임 누적 수(덮어써 처리 못 한 것 포함 · 측정 27)
+
     def _on_connected(self):
         """(재)연결 직후 — 끊기기 전 트랙을 버리고 GUI 에 알린다(R5 · 설계 D9).
 
@@ -360,6 +376,7 @@ class CameraThread(QThread):
            그대로 쓰면 cv2.remap 이 예외 없이 잘리거나 검게 채운 프레임을 낸다.
         """
         if (w, h) != self._calib_wh:
+            self._measure.event("camera", what="size", w=int(w), h=int(h))   # 해상도 — 세션 정보
             self._calib_wh = (w, h)
             self._init_calibration(w, h)
 
@@ -417,10 +434,11 @@ class CameraThread(QThread):
            옛 수신 스레드가 새 소켓을 같이 읽거나 `_recv_error` 로 **새 연결을 끊었다.**
         """
         while self._running:
-            data = self._recv_latest_frame(sock)
+            data, n = self._recv_latest_frame(sock)
             with self._raw_lock:
                 if gen != self._conn_gen:
                     return                   # 이미 끝난 연결 — 새 연결을 건드리지 않는다
+                self._recv_seq += n          # 받은 프레임 누적 수 — 덮어쓰거나 비워 버린 것 포함(측정 27)
                 if data is None:
                     self._recv_error = True
                 else:
@@ -493,6 +511,7 @@ class CameraThread(QThread):
                 while self._running:
                     if not self._raw_event.wait(timeout=TCP_RECV_TIMEOUT_SEC):
                         self.log_signal.emit("[카메라] 수신 타임아웃")
+                        self._measure.event("camera", what="timeout")
                         break
                     self._raw_event.clear()
 
@@ -501,14 +520,17 @@ class CameraThread(QThread):
 
                     with self._raw_lock:
                         got = self._latest_raw
+                        seq = self._recv_seq          # got 과 같은 순간의 누적 수(측정 27)
 
                     if got is None:
                         continue
                     data, t_frame = got
 
+                    t_dec = time.perf_counter()
                     frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
                     if frame is None:
                         continue
+                    self._measure_begin(t_frame, round((time.perf_counter() - t_dec) * 1000, 3), seq)
 
                     h, w = frame.shape[:2]
                     self._ensure_calibration(w, h)
@@ -527,10 +549,12 @@ class CameraThread(QThread):
                     self.change_pixmap_signal.emit(
                         QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
                     )
+                    self._measure_end()                      # 화면으로 넘기기까지가 처리 끝
 
             except Exception as e:
                 if self._running:
                     self.log_signal.emit(f"[카메라] 수신 오류: {e}")
+                    self._measure.event("camera", what="error")
             finally:
                 if self.sock is not None:
                     _close_sock(self.sock)       # shutdown 으로 막힌 수신을 깨운다(C19)
@@ -539,9 +563,44 @@ class CameraThread(QThread):
 
             if self._running:
                 self.log_signal.emit(f"[카메라] 스트림 끊김. {TCP_RECONNECT_DELAY_SEC:.0f}초 후 재연결...")
+                self._measure.event("camera", what="lost")
                 time.sleep(TCP_RECONNECT_DELAY_SEC)
 
         self.log_signal.emit("[카메라] 카메라 자원이 해제되었습니다.")
+
+    # =========================================================================
+    # [측정 기록] — 측정 도구 정합 §4.3 적기 · 꺼지면(NullLog) 아무것도 안 한다
+    # =========================================================================
+    def set_measure(self, log):
+        """측정 기록을 켠다(측정 도구 정합 §4.3) — 시연 화면이 연다."""
+        self._measure = log
+
+    def _measure_begin(self, t_recv, decode_ms, recv_seq=None):
+        """프레임 하나의 측정 칸을 연다. 🔑 처리 오류로 _measure_end 가 안 불린 프레임은 다음 begin 이
+        덮어써 줄을 남기지 않는다(번호는 건너뛴 채 계속 는다 — Review Focus 4)."""
+        if not self._measure.enabled:
+            self._m_row = None
+            return
+        self._m_frame += 1
+        self._m_row = {"frame": self._m_frame, "t_recv": t_recv, "recv_seq": recv_seq,
+                       "t_start": time.monotonic(), "decode_ms": decode_ms}
+
+    def _mark(self, key, t0):
+        if self._m_row is not None:
+            self._m_row[key] = round((time.perf_counter() - t0) * 1000, 3)
+
+    def _measure_end(self):
+        r, self._m_row = self._m_row, None
+        if r is None:
+            return
+        tip = r.get("tip")
+        self._measure.row("frames", [
+            r["frame"], measure_log.now_ms(r["t_recv"]),
+            "" if r["recv_seq"] is None else r["recv_seq"], measure_log.now_ms(r["t_start"]),
+            measure_log.now_ms(), r["decode_ms"], r.get("orient_ms", ""), r.get("detect_ms", ""),
+            r.get("track_ms", ""), r.get("hand_ms", ""), r.get("tool_ms", ""), r.get("zone_ms", ""),
+            tip[0] if tip else "", tip[1] if tip else "", r.get("tip_score", ""),
+            r.get("roi") or "", r.get("level") or ""])
 
     # =========================================================================
     # [프레임 처리]
@@ -557,6 +616,7 @@ class CameraThread(QThread):
         # 🔴 방향 보정은 **반전 → 왜곡보정 → 회전** 순서다(frame_orient 참조).
         #    회전을 앞에 두면 세로(480×640 · 768×1024)가 되어 센서 원본 크기(가로)로
         #    만든 왜곡보정 맵이 'mismatch' 로 조용히 꺼진다.
+        t_or = time.perf_counter()
         frame = frame_orient.flip(frame)
 
         with self._lock:
@@ -571,6 +631,10 @@ class CameraThread(QThread):
 
         h, w, _ = frame.shape
         frame = frame_orient.rotate(self._undistort(frame))
+        self._mark("orient_ms", t_or)
+        if self._m_row is not None and self._m_row["frame"] % 30 == 1:
+            self._measure.row("env", [self._m_row["frame"], measure_log.now_ms(self._m_row["t_recv"]),
+                                      *_env_metrics(frame)])
 
         # 🔴 공구 추론에는 **오버레이가 없는 사본**을 보낸다 — 아래에서 버튼 박스와
         #    손 랜드마크가 frame 에 직접 그려지고, 그 선이 공구 위에 겹치면 검출이
@@ -587,10 +651,24 @@ class CameraThread(QThread):
 
         tracks = []
         if DETECTOR_AVAILABLE:
+            t0 = time.perf_counter()
             dets = _detector.detect(frame)
+            self._mark("detect_ms", t0)
+            t0 = time.perf_counter()
             with self._lock:
                 self._tracks = _update_tracks(self._tracks, dets)
                 tracks = self._tracks
+            self._mark("track_ms", t0)
+            if self._m_row is not None:
+                fr, tr = self._m_row["frame"], measure_log.now_ms(self._m_row["t_recv"])
+                for c, sc, x1, y1, x2, y2 in dets:
+                    self._measure.row("boxes", [fr, tr, "raw", _detector.class_name(c), round(float(sc), 4),
+                                                int(x1), int(y1), int(x2), int(y2), ""])
+                for k in tracks:
+                    x1, y1, x2, y2 = k["box"]
+                    self._measure.row("boxes", [fr, tr, "track", _detector.class_name(k["cls"]),
+                                                round(float(k["score"]), 4), int(x1), int(y1), int(x2), int(y2),
+                                                1 if k["confirmed"] else 0])
 
         # 🔴 손 모델에는 버튼 박스가 **없는** 그림을 넣는다(R3) — 박스를 그린 뒤의 프레임을 넣으면
         #    화면 표시·촬영 여부가 손 모델 입력을 바꿨다(함수목록 §4.1-1). 그리기는 종전처럼 박스
@@ -608,7 +686,12 @@ class CameraThread(QThread):
 
         # 손 검출 → 검지 끝. 랜드마크는 hand_tracker 가 추론 뒤 frame 에 직접 그린다.
         # 🔴 draw_on=None 이어도 검출은 그대로 한다 — 반환값(손끝)은 ROI 판정에 쓴다.
+        t0 = time.perf_counter()
         fingertip = self._hand.detect(hand_in, draw_on=frame if draw_overlay else None)
+        self._mark("hand_ms", t0)
+        if self._m_row is not None:
+            self._m_row["tip"] = fingertip
+            self._m_row["tip_score"] = getattr(self._hand, "last_score", None) or ""
 
         # 🔴 집계 전용이다 — 판정에 쓰지 않는다. roi_signal 은 ROI 라벨만 주므로
         #    「ROI 밖의 손」과 「손 없음」이 구별되지 않는다(설계 §3.6).
@@ -617,6 +700,7 @@ class CameraThread(QThread):
         # 공구 검출(A-2) — 서브 작업 동안만. 🔑 손끝을 **같은 프레임의 것**으로
         # 함께 보낸다(§4.6 — 결과가 약 0.5초 뒤에 오므로 짝을 맞춰야 한다).
         if self._tool_scan and self._tool_gate is not None:
+            t_tool = time.perf_counter()
             now = time.time()
             if tool_frame is not None and now - self._tool_last >= config.TOOL_SCAN_INTERVAL_SEC:
                 self._tool_last = now
@@ -630,9 +714,14 @@ class CameraThread(QThread):
                 self.tool_signal.emit(got[0], got[1])
             if draw_overlay:
                 frame = self._draw_tools(frame)
+            self._mark("tool_ms", t_tool)
 
         # HOI → FSM: 손끝이 든 버튼 ROI 라벨을 통지 (없으면 "")
+        t0 = time.perf_counter()
         roi, level = zone_at_point(*fingertip, self._tracks, ring=self._ring_px) if fingertip else (None, None)
+        self._mark("zone_ms", t0)
+        if self._m_row is not None:
+            self._m_row["roi"], self._m_row["level"] = roi, level
         self.roi_signal.emit(roi or "", level or 0, t)
 
         if sink is not None:
@@ -655,30 +744,38 @@ class CameraThread(QThread):
             sock.settimeout(TCP_RECV_TIMEOUT_SEC)
             sock.connect((host, CAMERA_TCP_PORT))
             self.log_signal.emit(f"[카메라] 연결 성공! ({host}:{CAMERA_TCP_PORT})")
+            self._measure.event("camera", what="connected")
             return sock
         except Exception as e:
             self.log_signal.emit(f"[카메라] TCP 연결 실패: {e}")
             return None
 
     def _recv_latest_frame(self, sock):
+        """쌓인 프레임을 비우고 가장 최근 한 장을 준다 → (프레임 · 끊기면 None, 이번에 끝까지 받은 수).
+
+        🔑 받은 수는 비워 버린 프레임까지 센다 — 측정 27(받기 간격)이 「무선이 느린가 처리가 느린가」를
+           가르려면 처리 못 하고 버린 프레임도 받은 것으로 세야 한다.
+        """
+        n = 0
         while True:
             header = self._recv_exact(sock, 4)
             if header is None:
-                return None
+                return None, n
             length = struct.unpack('<I', header)[0]
             if length == 0 or length > TCP_MAX_FRAME_BYTES:
                 self.log_signal.emit(f"[카메라] 비정상 프레임 크기({length}). 재연결합니다.")
-                return None
+                return None, n
             data = self._recv_exact(sock, length)
             if data is None:
-                return None
+                return None, n
+            n += 1
             try:
                 readable, _, _ = select.select([sock], [], [], 0)
             except OSError:
                 # Socket closed by stop() during shutdown.
-                return None
+                return None, n
             if not readable:
-                return data
+                return data, n
 
     def _recv_exact(self, sock, length):
         data = b''

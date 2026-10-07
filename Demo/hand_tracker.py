@@ -134,6 +134,7 @@ class HandTracker:
         # 🔑 반환값은 종전대로 검지 끝 하나다 — 이건 판정 좌표를 바꿔볼 때
         #    쓰는 **읽기 전용 부산물**이다(점검 도구용, 런타임은 안 쓴다).
         self.last_landmarks = None
+        self.last_score = None   # 마지막 프레임 고른 손의 신뢰도(측정 기록 tip_score) · 손 없으면 None
 
         if not getattr(config, "HAND_ENABLED", False):
             self.reason = "config.HAND_ENABLED=False"
@@ -176,6 +177,7 @@ class HandTracker:
         import cv2
         import numpy as np
         self.last_landmarks = None
+        self.last_score = None
         try:
             with self._lock:                       # NPU 접근 직렬화
                 rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
@@ -193,6 +195,7 @@ class HandTracker:
             if hand is None:
                 return None
             self.last_landmarks = hand
+            self.last_score = float(np.max(np.asarray(flags, dtype=float).reshape(-1)[:len(lms)]))  # 고른 손 = 최댓값(pick_hand)
             tip = (int(hand[TIP][0]), int(hand[TIP][1]))
             if draw_on is not None and getattr(config, "HAND_DRAW", True):
                 for x, y, _z in hand:
