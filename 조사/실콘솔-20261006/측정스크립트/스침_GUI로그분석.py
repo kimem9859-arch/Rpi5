@@ -20,7 +20,7 @@ def main(path):
     att = 0
     ent, warns = [], []
     for line in open(path, encoding='utf-8'):
-        m = re.match(r'\[(\d\d:\d\d:\d\d)\] (.*)', line)
+        m = re.match(r'\[(\d\d:\d\d:\d\d)(?:\.\d{3})?\] (.*)', line)
         if not m:
             continue
         t, msg = sec(m.group(1)), m.group(2)

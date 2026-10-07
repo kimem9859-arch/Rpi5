@@ -854,7 +854,7 @@ class SafetyConsole(QMainWindow):
 
     @pyqtSlot(str)
     def _append_log(self, message):
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]   # ms — 측정 도구 정합 D15
         line = f"[{timestamp}] {message}"
         self.log_browser.append(line)
         self.log_browser.verticalScrollBar().setValue(

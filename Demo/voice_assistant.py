@@ -82,8 +82,14 @@ METRICS_PATH = os.environ.get("SOP_VOICE_METRICS")
 AUDIO_DIR = os.environ.get("SOP_VOICE_AUDIO")
 
 
+def ms_clock(t=None):
+    """「HH:MM:SS.mmm」 — 로그 시각을 ms 로(측정 도구 정합 D15)."""
+    t = time.time() if t is None else t
+    return time.strftime("%H:%M:%S", time.localtime(t)) + f".{int(t % 1 * 1000):03d}"
+
+
 def log(msg):
-    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+    print(f"[{ms_clock()}] {msg}", flush=True)
 
 
 def metric(rec):
@@ -870,7 +876,7 @@ def handle_utterance(bot, stt, alog, seg):
     t_stt = time.time()
     text = stt(samples)
     m = {
-        "t": time.strftime("%H:%M:%S"),
+        "t": ms_clock(),
         "발화초": round(len(samples) / RATE, 2),
         "발화RMS": round(vl_rms(samples)),
         "노이즈바닥": round(noise_floor(seg, RATE)),
