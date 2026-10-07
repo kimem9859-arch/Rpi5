@@ -44,6 +44,7 @@ class StatePublisher:
             rec = dict(data)
             rec["pid"] = os.getpid()
             rec["쓴시각"] = time.time()
+            rec["쓴시각_mono"] = time.monotonic()   # 측정 기록(음성 V1)이 같은 단조 시계로 잰다 — 쓴시각(벽시계)은 남은 시간 계산이 쓴다
             body = json.dumps(rec, ensure_ascii=False)   # 🔴 직렬화를 먼저 — 실패해도 옛 파일이 남는다
             with open(tmp, "w", encoding="utf-8") as f:
                 f.write(body)

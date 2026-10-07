@@ -39,6 +39,7 @@ import config
 import voice_card
 import voice_llm
 import voice_tts
+import measure_log
 
 # 🔑 보드는 하나다(9/7 한 보드 복귀 · 설계 2026-10-03 §4.9) — 주소 = Demo/.camera_ip.
 IP_FILE  = os.path.join(_DEMO_DIR, ".camera_ip")
@@ -80,6 +81,21 @@ METRICS_PATH = os.environ.get("SOP_VOICE_METRICS")
 #      발화_NNN.wav / .txt  잘라낸 발화 구간과 그 STT 결과
 #      재생_NNN_<키>.wav    스피커로 내보낸 것(사전 합성된 TTS 원본)
 AUDIO_DIR = os.environ.get("SOP_VOICE_AUDIO")
+
+
+VLOG = measure_log.NullLog()       # 음성 측정 기록(측정 도구 정합 ⑤) — run() 이 SOP_MEASURE_DIR 를 보고 연다
+
+
+def vev_play_line(t):
+    """펌웨어 재생 줄 → 재생 시작·끝 사건(Speaker._drain 이 부른다)."""
+    if t.startswith("[재생]"):
+        VLOG.event("play_start")
+    elif "재생 완료" in t or "재생 중단" in t:
+        VLOG.event("play_end", what="완료" if "재생 완료" in t else "중단")
+
+
+def vev_uplink(total, connected):
+    VLOG.event("uplink", bytes=int(total), connected=bool(connected))
 
 
 def ms_clock(t=None):
@@ -408,8 +424,10 @@ class Speaker:
             if t.startswith("[적재]") and t.endswith("ok"):
                 loaded = True
             elif t.startswith("[재생]"):
+                vev_play_line(t)
                 self.last_play_start = time.time()      # 🔑 소리가 나기 시작한 때(설계 2026-10-04 §4.3 목표 측정)
             elif "재생 완료" in t or "재생 중단" in t:
+                vev_play_line(t)
                 self.s.settimeout(30)
                 return out
         if why == "FAIL":
@@ -477,6 +495,7 @@ class Speaker:
                 return False
             try:
                 s.sendall(b"S")
+                VLOG.event("stop_sent")
                 return True
             except OSError:
                 return False
@@ -576,6 +595,9 @@ class AlertWatcher:
         if ev is None:
             return None
         if ev[0] == "알림":
+            VLOG.event("alert", key=ev[1],
+                       t_pub_ms=measure_log.now_ms(cur["쓴시각_mono"]) if cur and cur.get("쓴시각_mono") else None,
+                       state=(cur or {}).get("상태"))
             self.speaking.set()                  # 🔑 gen 보다 먼저 — 메인 루프가 재생 내내 버리게
             self.gen += 1                        # 🔑 멈춤보다 먼저 — 만들던 답이 보내기 잠금 안에서 이것을 본다(I2)
             self.spk.stop()                      # 재생 중이면 멈춘다(2단계 펌웨어 전에는 무시된다)
@@ -590,6 +612,7 @@ class AlertWatcher:
                 self._want = None                # 아직 안 나간 알림도 거둔다
             self.spk.stop()
             log("알림 상황이 풀렸다 — 재생 멈춤을 보냈다")
+            VLOG.event("alert_clear")
         return ev
 
     def _play(self, key, cur):
@@ -598,6 +621,7 @@ class AlertWatcher:
             lag = getattr(self.spk, "last_play_start", None)
             t_pub = (cur or {}).get("쓴시각")
             lag_txt = f" · 상태 공개→소리 시작 {lag - t_pub:.2f}초" if lag and t_pub and lag >= t_pub else ""
+            VLOG.event("alert_played", key=key, ok=bool(ok))      # 🔑 데몬 로그 줄과 같은 자리(관문 ③)
             log(f"🔔 알림 → {key} · {'재생됨' if ok else '재생 확인 안 됨'}{lag_txt}")
         finally:
             with self._cv:
@@ -685,6 +709,7 @@ class Assistant:
         # 🔑 비상 상황(비상정지·차단·경고 — 해제 버튼을 누르기 전까지)에는 「가디언」에도 질문에도 반응하지
         #    않는다(사용자 2026-10-04 · 설계 §4.7). 알림이 이미 할 일을 말했다. 되돌리기 = 여기서 알림 문장을 한 번 더.
         if voice_card.in_emergency(self._read_state()):
+            VLOG.event("emergency_ignored", text=text, wake=is_wake(text))
             m["비상중"] = True
             self.awake_until = 0.0
             if is_wake(text):
@@ -695,6 +720,7 @@ class Assistant:
         wake = is_wake(text)
         m["호출어"] = wake
         if wake:
+            VLOG.event("wake")
             t_c = time.time()
             self.spk.chime()
             m["띠링_ms"] = round((time.time() - t_c) * 1000)
@@ -820,6 +846,7 @@ class Assistant:
             return
         if self._preempted(m):
             return
+        VLOG.event("answer", src=src, text=said)     # 보내기 직전
         t_p = time.time()
         resp = self.spk.send(voice_tts.frame(pcm, rate), expect=True, still_valid=lambda: not self._stale())
         if resp is DROPPED:
@@ -862,6 +889,7 @@ class Assistant:
     def _play_key(self, key, src, m, **extra):
         if self._preempted(m):
             return
+        VLOG.event("answer", src=src, key=key)       # 고정 답 소리 — 보내기 직전
         t_p = time.time()
         ok = self.spk.play(key, self.alog, still_valid=lambda: not self._stale())
         m.update({"답변출처": src, "답변": key, "재생성공": ok,
@@ -874,6 +902,7 @@ def handle_utterance(bot, stt, alog, seg):
     samples = seg.tolist()
     gen0 = bot.alert_gen()                 # 🔑 받아쓰기 전 — 받아쓰는 사이 알림이 나갔으면 이 질문은 낡았다
     t_stt = time.time()
+    t_stt_m = time.monotonic()             # 받아쓰기를 시작한 시각 = 발화가 끝난 때(측정 기록 stt)
     text = stt(samples)
     m = {
         "t": ms_clock(),
@@ -886,10 +915,12 @@ def handle_utterance(bot, stt, alog, seg):
     alog.utterance(samples, text)
     if not text.strip():
         m["판정"] = "빈 결과"
+        VLOG.event("stt", t=t_stt_m, text=text, stt_ms=m["STT_ms"], utter_sec=m["발화초"])
         metric(m)
         return False
     log(f"들림: {text}")
     answered = bot.on_text(text, m, gen0=gen0)
+    VLOG.event("stt", t=t_stt_m, text=text, stt_ms=m["STT_ms"], utter_sec=m["발화초"])
     metric(m)
     return answered
 
@@ -897,6 +928,8 @@ def handle_utterance(bot, stt, alog, seg):
 def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
         tts=_AUTO, llm=_AUTO, read_state=None, read_tools=None, stop=None):
     """데몬 본체. `stt`·`tts`·`llm`·`read_*`·`stop` 은 시험이 넣는다(없으면 실제 모델·파일)."""
+    global VLOG
+    VLOG = measure_log.open_from_env(["voice_events"], event_file="voice_events", log=log)
     if stt is None:
         log("STT 적재 중...")
         rec = build_stt()
@@ -926,6 +959,7 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     bot = Assistant(spk, tts, llm, alog, read_state=read_state, read_tools=read_tools,
                     alert_gen=(lambda: alerts.gen) if alerts is not None else None)
     seen_alert = 0
+    up_at = 0.0                       # 업링크 바이트 사건(10초마다)을 마지막으로 남긴 때
     errs = 0                          # 이어진 오류 수 — 답을 마친 발화가 있으면 0
     buf = np.zeros(0, dtype=np.int16)
     since, gen = 0, 0
@@ -933,6 +967,9 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     try:
         while not stop_ev.is_set():
             try:
+                if VLOG.enabled and time.monotonic() - up_at >= 10:     # 업링크 누적 바이트(측정 V9)
+                    up_at = time.monotonic()
+                    vev_uplink(mic.bytes_total, mic.connected)
                 if mic.closed:
                     log("업링크 종료 — 리허설 끝")
                     return
@@ -1007,6 +1044,7 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     finally:
         stop_ev.set()                     # 상태 감시 스레드를 끝낸다
         mic.stop()
+        VLOG.close()                      # 🔑 데몬이 다시 떠도 MeasureLog 가 이어 쓴다(머리줄은 한 번)
 
 
 def main():

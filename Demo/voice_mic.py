@@ -43,6 +43,7 @@ class MicReceiver:
         self.connected_ip = None
         self.closed = False                 # once 모드에서 상대가 닫았다
         self.dropped = 0                    # 밀려서 버린 표본 수(누적)
+        self.bytes_total = 0                # 받은 업링크 바이트(누적 · 측정 기록 V9)
         self._thread = None
 
     def start(self):
@@ -142,6 +143,7 @@ class MicReceiver:
             if not b:
                 return "끊김(EOF)"
             last = time.monotonic()
+            self.bytes_total += len(b)
             data = rest + b
             cut = len(data) // 2 * 2
             rest = data[cut:]
