@@ -2,7 +2,7 @@
 
 왜 별도 모듈인가 (2026-08-26):
     ESP32 장착 구도가 시계방향 90° 로 바뀌어 반시계 90° 회전 보정이 생겼다.
-    같은 보정을 런타임(`camera_thread`)과 측정 도구(`test/tool_live`·
+    같은 보정을 런타임(`camera_thread`)과 측정 도구(`test/tool_probe`·
     `test/bench_detector`)가 **각자 복제**하면 반드시 한쪽이 어긋난다 —
     도구 기본값이 config 를 안 따라 이미 4번 물렸다(conf·ring·dwell·gap).
     `camera_thread` 는 Qt·Hailo 를 끌어와 도구가 import 할 수 없어서

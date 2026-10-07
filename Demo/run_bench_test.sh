@@ -77,12 +77,8 @@ status=$?
 echo
 if [ $status -ne 0 ]; then
     echo "❌ 벤치마크가 비정상 종료했습니다 (exit $status)."
-else
-    echo "══════════════════════════════════════════════"
-    echo "  자동 판정"
-    echo "══════════════════════════════════════════════"
-    python3 test/verdict.py --condition "$COND"
 fi
+# 자동 판정(test/verdict.py)은 2026-10-07 백업했다 — 백업/도구-20261007/README.md
 
 echo
 read -rp "Enter 키를 누르면 닫힙니다..."
