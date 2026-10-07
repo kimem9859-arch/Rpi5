@@ -181,7 +181,11 @@ class SafetyConsole(QMainWindow):
         self.interlock = InterlockController(
             log=self.bg_log_signal.emit,
             on_fault=self.interlock_fault_signal.emit,
-            on_give_up=lambda n: self.connect_gave_up_signal.emit("인터락", n))
+            on_give_up=lambda n: self.connect_gave_up_signal.emit("인터락", n),
+            on_cmd=((lambda cmd, ts, ta, ok, n: self._measure.event(
+                "interlock", t=ts, cmd=cmd, t_send_ms=measure_log.now_ms(ts),
+                t_ack_ms=measure_log.now_ms(ta) if ta else None, ack=ok, tries=n))
+                if self._measure.enabled else None))
 
         # 트랙 A 물리 입력 — 버튼 B1~B4·EMO(GPIO) → FSM. gpiozero 콜백은 별도 스레드라
         # 시그널로 GUI 스레드의 _press_button 에 마샬링(직접 GUI 접근 금지). 미연결·비-Pi

@@ -51,7 +51,7 @@ class InterlockController:
     """
 
     def __init__(self, port=None, baud=None, timeout=None,
-                 enabled=None, log=None, on_fault=None, on_give_up=None):
+                 enabled=None, log=None, on_fault=None, on_give_up=None, on_cmd=None):
         # 🔑 port 를 주면 그것만 쓰고, 안 주면 **연결할 때마다** config 로 다시 찾는다(I1·I2)
         self._fixed_port = port
         self._port    = port if port is not None else config.INTERLOCK_PORT
@@ -71,6 +71,8 @@ class InterlockController:
         self._log = log or (lambda msg: print(msg))
         # BLOCK 차단 미확인 알람(무ACK·미연결). 역시 워커 스레드에서 호출됨.
         self._on_fault = on_fault
+        # 명령마다 (명령, 보낸 시각, 응답 시각, ACK, 재시도 수) — 측정 기록(측정 도구 정합 14) · 워커 스레드에서 불린다
+        self._on_cmd = on_cmd
 
         self._lock   = threading.Lock()
         self._ser    = None
@@ -272,6 +274,7 @@ class InterlockController:
                 #    경로에 오지 않았고, 이제는 차단 배너가 「화면에서만 차단 중」을 알린다(I1).
                 #    붙어 있다가 쓰기·ACK 가 실패한 경우는 아래에서 그대로 알람한다.
                 self._log(f"[인터락] (미연결) 명령 보류: {cmd}")
+                self._cmd_done(cmd, time.monotonic(), None, False, 0)
                 return
             attempts = 1 + (self._block_retries if cmd == "BLOCK" else 0)
             for i in range(attempts):
@@ -280,10 +283,12 @@ class InterlockController:
                     #    넘겨 늦게 온 ACK 가 남아 있으면 **다음 명령의 ACK 로 읽혔다**(릴레이가 안
                     #    움직였어도 BLOCK 「(ACK)」). 늦은 ACK 는 버리고 이번 명령의 응답만 본다.
                     ser.reset_input_buffer()
+                    t_send = time.monotonic()
                     ser.write((cmd + "\n").encode("ascii"))
                     ser.flush()
                 except Exception as e:
                     self._log(f"[인터락] 송신 실패({cmd}): {e} — 재연결 대기")
+                    self._cmd_done(cmd, time.monotonic(), None, False, i)
                     self._drop()
                     if cmd == "BLOCK":
                         self._fault(f"BLOCK 송신 실패({e}) — 릴레이 차단 미확인")
@@ -292,20 +297,33 @@ class InterlockController:
                     ack = ser.readline().decode("ascii", "replace").strip()
                 except Exception:
                     ack = ""
+                t_ack = time.monotonic()
                 if ack == "ACK":
                     self._verified = True
                     tag = f" (재시도 {i}회 후)" if i else ""
                     self._log(f"[인터락] → {cmd} (ACK){tag}")
+                    self._cmd_done(cmd, t_send, t_ack, True, i)
                     return
                 if cmd != "BLOCK":
                     self._verified = False
                     self._log(f"[인터락] → {cmd} (ACK 없음: '{ack}')")
+                    self._cmd_done(cmd, t_send, t_ack, False, i)
                     return
                 self._log(f"[인터락] → BLOCK ACK 없음('{ack}') — 재시도 {i + 1}/{attempts - 1}"
                           if i < attempts - 1 else
                           f"[인터락] → BLOCK ACK 없음('{ack}')")
             self._verified = False
+            self._cmd_done(cmd, t_send, t_ack, False, attempts - 1)
             self._fault(f"BLOCK ACK {attempts}회 미수신 — 릴레이 차단 미확인, 배선·Arduino 점검")
+
+    def _cmd_done(self, cmd, t_send, t_ack, ok, tries):
+        """송신·응답 시각을 알린다(측정 기록 · 측정 도구 정합 14) — 콜백 오류는 흡수."""
+        if self._on_cmd is None:
+            return
+        try:
+            self._on_cmd(cmd, t_send, t_ack, ok, tries)
+        except Exception as e:                       # noqa: BLE001
+            self._log(f"[인터락] 측정 콜백 오류: {e}")
 
     def _fault(self, msg):
         """차단 미확인 등 안전 폴트 통지. 로그 + on_fault 콜백(예외 흡수)."""
