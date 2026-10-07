@@ -1,4 +1,5 @@
 import os
+import statistics
 import time
 import subprocess
 from datetime import datetime
@@ -43,6 +44,25 @@ import precheck
 from fps import fps_from_intervals, fps_stale
 from demo_recorder import DemoRecorder
 from state_publisher import StatePublisher
+import measure_log
+
+
+def _pi_resources():
+    """파이 CPU·온도(측정 기록 · 10초마다 — 측정 도구 정합 30). psutil·온도 파일이 없으면 빈 값.
+    ⚠️ cpu_percent(간격 없음)는 직전 호출 이후를 잰다 — 세션 첫 값은 의미가 없다(세기에서 버린다)."""
+    out = {"cpu_avg": None, "cpu_max": None, "temp": None}
+    try:
+        import psutil
+        per = psutil.cpu_percent(percpu=True)
+        out["cpu_avg"], out["cpu_max"] = round(sum(per) / len(per), 1), max(per)
+    except Exception:                                # noqa: BLE001
+        pass
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            out["temp"] = round(int(f.read()) / 1000, 1)
+    except Exception:                                # noqa: BLE001
+        pass
+    return out
 
 
 # =============================================================================
@@ -149,6 +169,13 @@ class SafetyConsole(QMainWindow):
         # 로그·폴트는 워커/재연결 스레드에서 오므로 시그널로 GUI 스레드에 마샬링.
         # _append_log 가 쓰는 log_browser·_log_file_path 가 준비된 _init_ui 이후 생성.
         self.bg_log_signal.connect(self._append_log)
+        # 측정 기록(측정 도구 정합 §4.3) — 측정 실행기(run_measure.sh)가 SOP_MEASURE_DIR 를 줄 때만 켠다
+        # 🔑 로그 신호를 이은 뒤라야 「측정 기록을 열 수 없다」 줄이 화면에 남는다 · 인터락·GPIO 콜백이 쓴다
+        self._measure = measure_log.open_from_env(["frames", "boxes", "fsm", "env", "events"],
+                                                  log=self.bg_log_signal.emit)
+        self._last_frame_t = None          # 마지막 프레임을 받은 시각(상태 전이 사건에 붙인다)
+        self._res_at = 0.0                 # 자원 사건(10초마다)을 마지막으로 남긴 시각
+        self._show_ms = []                 # 화면 그리기 시간(ms) — FPS 사건 때 요약하고 비운다(측정 26 「화면」)
         self.interlock_fault_signal.connect(self._on_interlock_fault)
         self.connect_gave_up_signal.connect(self._on_connect_gave_up)
         self.interlock = InterlockController(
@@ -162,9 +189,12 @@ class SafetyConsole(QMainWindow):
         self.gpio_button_signal.connect(self._press_gpio_button)
         self.gpio_input = GpioInputController(
             on_button=self.gpio_button_signal.emit, log=self.bg_log_signal.emit,
-            on_emo_at_start=self._mark_emo_no_signal)
+            on_emo_at_start=self._mark_emo_no_signal,
+            on_edge=((lambda b, t, src: self._measure.event("gpio_edge", t=t, button=b, src=src))
+                     if self._measure.enabled else None))
 
         self.camera_thread = CameraThread()
+        self.camera_thread.set_measure(self._measure)
         self.camera_thread.change_pixmap_signal.connect(self._update_camera_frame)
         self.camera_thread.log_signal.connect(self._append_log)
         self.camera_thread.yolo_detections_signal.connect(self._on_yolo_detections)
@@ -466,13 +496,19 @@ class SafetyConsole(QMainWindow):
     # =========================================================================
     @pyqtSlot(QImage)
     def _update_camera_frame(self, qt_image):
-        self._note_frame(qt_image)
-        if config.DEMO_HIDE_VIDEO:
-            # 🔴 표시만 검정이다 — _note_frame 은 위에서 이미 돌았고, 검출·판정·
-            #    1인칭 녹화는 그대로다. 「UI만」 회차용.
-            self.camera_label.clear()
-            return
-        self.camera_label.setPixmap(QPixmap.fromImage(self._fit_to_label(qt_image)))
+        t0 = time.perf_counter()
+        try:
+            self._note_frame(qt_image)
+            if config.DEMO_HIDE_VIDEO:
+                # 🔴 표시만 검정이다 — _note_frame 은 위에서 이미 돌았고, 검출·판정·
+                #    1인칭 녹화는 그대로다. 「UI만」 회차용.
+                self.camera_label.clear()
+                return
+            self.camera_label.setPixmap(QPixmap.fromImage(self._fit_to_label(qt_image)))
+        finally:
+            # 화면 그리기 시간(측정 26 「화면」) — FPS 사건 때 요약한다 · 넘치면 버린다(끊긴 채 쌓이지 않게)
+            if self._measure.enabled and len(self._show_ms) < 5000:
+                self._show_ms.append((time.perf_counter() - t0) * 1000)
 
     def _fit_to_label(self, qt_image):
         """카메라 라벨 크기에 맞춘 이미지.
@@ -659,6 +695,11 @@ class SafetyConsole(QMainWindow):
             self._fps_log_at = time.time()
             self._append_log(
                 f"[FPS] {fps:.1f} (애니메이션 {'on' if config.UI_ANIMATION else 'off'})")
+            if self._measure.enabled:
+                s, self._show_ms = self._show_ms, []
+                self._measure.event("fps", fps=round(fps, 2), show_n=len(s),
+                                    show_med_ms=round(statistics.median(s), 3) if s else None,
+                                    show_max_ms=round(max(s), 3) if s else None)
         if config.SHOW_FPS:
             self.fps_label.setText("" if fps is None else f"{fps:.1f} fps")
 
@@ -673,6 +714,11 @@ class SafetyConsole(QMainWindow):
         if (self.alert.mode == "block"
                 and self.interlock.connected != getattr(self, "_block_banner_linked", None)):
             self._show_block_banner(emo=self.fsm.emo_active)
+
+        # 파이 CPU·온도 — 측정 기록에만(10초마다 · 측정 30)
+        if self._measure.enabled and time.time() - self._res_at >= 10:
+            self._res_at = time.time()
+            self._measure.event("res", **_pi_resources())
 
     def _check_ctx(self, with_frame=True):
         """점검이 보는 대상 묶음. 1·2차·수동이 같은 것을 본다.
@@ -900,6 +946,7 @@ class SafetyConsole(QMainWindow):
 
     def _on_stream_reset(self):
         """카메라 (재)연결 — 끊기기 전 손 관측을 판정기에서 지운다(R5)."""
+        self._measure.event("stream_reset")
         self.fsm.forget_observation()
         if self._cam_connected_once:
             self._append_log("[카메라] 연결 — 끊기기 전 손 관측을 버렸다")
@@ -917,6 +964,12 @@ class SafetyConsole(QMainWindow):
            않는다. GUI 가 신호를 처리한 시각은 GUI 가 멈췄다 풀리면 몰려 체류가 흔들렸다(검토 C16·U18).
         """
         self.fsm.update_vision(roi or None, t, level or ZONE_INSIDE)
+        self._last_frame_t = t
+        if self._measure.enabled:
+            # 판정기 시점 — 갭메우기 뒤 보고 있는 버튼(도구가 갭메우기를 다시 구현하지 않게 · 측정 도구 정합 §4.3)
+            self._measure.row("fsm", [measure_log.now_ms(t), measure_log.now_ms(), self.fsm.last_roi or "",
+                                      getattr(self.fsm, "_last_level", None) or "",
+                                      self.fsm.state.name, self.fsm.correct_roi or ""])
         self._last_frame_done = time.monotonic()
         p = self._press_pending
         if p is not None and p.get("verdict") is None and t >= p["t"] + config.PRESS_CONFIRM_GRACE_SEC:
@@ -943,6 +996,8 @@ class SafetyConsole(QMainWindow):
         before = self._tool_state.phase
         wrong_before = self._sub.wrong_tool
         tool = self._tool_state.update(dets, fingertip)
+        self._measure.event("tool_scan", hand=fingertip is not None, seen=[d[0] for d in dets], tool=tool,
+                            phase=self._tool_state.phase, want=self._tool_state.want_tool)
         self._sub.set_tool(tool)
         # 🔑 손이 보이는데 쥔 공구가 없는 스캔이 **연달아** TOOL_PUT_DOWN_SCANS 번이면
         #    「내려놓음」으로 본다 — 같은 오답 공구를 다시 쥐면 다시 센다(G11). 한두 번은 쥔 채
@@ -993,6 +1048,7 @@ class SafetyConsole(QMainWindow):
         if self._tool_state is not None:
             self._tool_state.force_grasped()     # 🔴 판정기도 확정해야 다음 스캔이 안 덮는다(G9)
         sub.set_tool(sub.want_tool)
+        self._measure.event("tool_sim", want=sub.want_tool)      # 키보드 우회 — 세기에서 뺀다
         self._stats.tool_grasped(sub.want_tool, True)
         self._append_log(f"[시험] t — 공구 「{sub.want_tool_name}」를 쥔 것으로 "
                          f"처리(키보드 우회)")
@@ -1004,6 +1060,7 @@ class SafetyConsole(QMainWindow):
         self._last_result = None     # 앞 회차 완료 결과는 여기서 버린다(A-M3)
         self._wrong_tool_noted = None  # 새 작업 = 새 공구 기록 — 쥐고 있던 오답 공구도 다시 센다(A-M5)
         self.fsm.load_recipe()
+        self._measure.event("run_start")
         self._append_log(f"[FSM] 작업 시작 — {self.fsm.expected_step}단계: "
                          f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
         self._notify("work", "작업 시작",
@@ -1035,6 +1092,8 @@ class SafetyConsole(QMainWindow):
         #    받으면 차단 중에 서브 작업이 시작돼, 해제가 먼저 끝나면 그 눌림이 단계
         #    완료로 인정됐다(리뷰 U4 · 인터락이 GND 를 못 끊는 fallback·키보드에서).
         t_press = time.monotonic() if now is None else now
+        self._measure.event("press", t=t_press, button=button, source=source,     # 차단 중 무시된 누름도
+                            expected=self.fsm.correct_roi, state=self.fsm.state.name)
         if self.fsm.state == State.BLOCK and button != self._emo_button():
             self._append_log(f"[버튼] {button} 눌림 — 차단 중이라 무시")
             return
@@ -1160,6 +1219,10 @@ class SafetyConsole(QMainWindow):
         before, after = (now_seen[i] if now_seen[i] is not None else p["seen"][i] for i in (0, 1))
         p["seen"] = (before, after)
         p["verdict"] = before is not None or after is not None
+        self._measure.event("confirm", button=button, order=p["order"], verdict=p["verdict"],
+                            before_ms=round((p["t"] - before) * 1000, 1) if before is not None else None,
+                            after_ms=round((after - p["t"]) * 1000, 1) if after is not None else None,
+                            why=why or "프레임")
         tail = f" · {why}" if why else ""
         if p["verdict"]:
             # 🔑 누르기 전 관측을 먼저 적는다 — 손은 누른 뒤에도 버튼 위라 「뒤」가 늘 있어,
@@ -1198,6 +1261,7 @@ class SafetyConsole(QMainWindow):
             self._publish_state()
         if self.fsm.expected_step != before and self.fsm.state != State.IDLE:
             self._stats.step_done(before, button, self._step_name(before))
+            self._measure.event("step_done", order=before, button=button)
             self._check_press(before, button, last_step=False)
             self._append_log(f"[FSM] 단계 진행 → {self.fsm.expected_step}단계: "
                              f"{self.fsm.current_step_name} ({self.fsm.correct_roi})")
@@ -1207,11 +1271,13 @@ class SafetyConsole(QMainWindow):
         # 마지막 단계의 정답 눌림 → 공정 완료. 작업 초기화는 이 경로를 타지 않는다.
         if before == self.fsm.step_count and self.fsm.state == State.IDLE:
             self._stats.step_done(before, button, self._step_name(before))
+            self._measure.event("step_done", order=before, button=button)
             self._check_press(before, button, last_step=True)
             self._show_result()
 
     def _show_result(self):
         data = self._stats.finish()
+        self._measure.event("run_end", ok=data["ok"], total_sec=round(data["total_sec"], 1))
         self._last_result = data
         self._publish_state()
         self._close_sheets()
@@ -1333,6 +1399,7 @@ class SafetyConsole(QMainWindow):
         self._empty_hand_scans = 0
         self._sub_timer.start()
         self._append_log(f"[서브] {spec['label']} 시작 ({spec['sec']}초)")
+        self._measure.event("sub", what="start", button=button, label=spec.get("label"))
         # 공구 판정(A-2) — wait_tool 일 때만 상태기계를 만들고 스캔을 켠다.
         # 🔑 요구 공구는 spec 에서 읽는다 — _press_button 이 설정값(_tool_override)을
         #    이미 spec 에 반영해 넘겨준다(safety_console.py 의 spec 덮어쓰기).
@@ -1390,6 +1457,7 @@ class SafetyConsole(QMainWindow):
         """
         if self._sub is not None and self._sub.is_active:
             self._append_log(f"[서브] {self._sub.label} 취소 — {why}")
+            self._measure.event("sub", what="cancel", button=self._sub_button, why=why)
         self._sub_timer.stop()
         self._end_tool_scan()
         self._sub = None
@@ -1428,6 +1496,7 @@ class SafetyConsole(QMainWindow):
             noted = (self._sub_button, sub.wrong_tool)
             if noted != self._wrong_tool_noted:
                 self._wrong_tool_noted = noted
+                self._measure.event("wrong_tool", want=sub.want_tool, got=sub.wrong_tool)
                 self._notify("warn", "다른 공구입니다",
                              f"{sub.wrong_tool_name} → {sub.want_tool_name} 필요")
                 self._stats.tool_grasped(sub.wrong_tool, False)
@@ -1450,6 +1519,8 @@ class SafetyConsole(QMainWindow):
         진행 조건 충족 시 _update_sub_view() 가 스스로 부른다(2026-08-19 자동 진행).
         종전에는 「다음 단계 진행」 버튼 클릭이 이 자리였다. 사양 = 통합문서 §6.1.1.
         """
+        self._measure.event("sub", what="finish", button=self._sub_button,
+                            label=self._sub.label if self._sub is not None else None)
         button = self._sub_button
         self._sub_timer.stop()
         self._end_tool_scan()
@@ -1475,6 +1546,7 @@ class SafetyConsole(QMainWindow):
         if self.alert.mode == "block":
             self._release_block()
         elif self.alert.mode == "order":
+            self._measure.event("release", what="warning", ok=True)
             self.fsm.release_warning()
 
     def _release_block(self):
@@ -1485,6 +1557,7 @@ class SafetyConsole(QMainWindow):
         """
         if self.gpio_input.emo_active():
             self._append_log("[FSM] 🚫 BLOCK 해제 거부 — EMO 미복귀(눌림/단선)")
+            self._measure.event("release", what="block", ok=False, why="EMO 미복귀")
             self._popup("release_refused", QMessageBox.Icon.Warning, "해제 거부",
                         "EMO가 아직 복귀되지 않았습니다.\n"
                         "비상정지 버튼을 돌려 복귀(또는 EMO 배선 점검) 후 다시 시도하세요.")
@@ -1492,6 +1565,7 @@ class SafetyConsole(QMainWindow):
         was_running = self._stats.running
         no_signal = self._emo_no_signal  # release_block 이 _on_fsm_state 에서 끈다 — 먼저 읽어 둔다
         self.fsm.release_block()
+        self._measure.event("release", what="block", ok=True)
         if self.fsm.state == State.IDLE:
             # EMO 차단 해제 → 「작업 시작」 전 대기(P5 · 설계 D4). 진행 중이던 작업은 여기서
             # 끝난다 — 결과창 없이 알림 하나로 마무리하고 집계를 비운다(G4).
@@ -1549,6 +1623,7 @@ class SafetyConsole(QMainWindow):
     def _reset_work(self):
         """실제 되돌리기. 확인창 없이 부르는 경로가 생길 수 있어 따로 둔다."""
         self._append_log("[FSM] 작업 초기화 — 「작업 시작」 전 상태로 되돌립니다")
+        self._measure.event("run_reset", why="작업 초기화")
         # 🔴 집계도 비운다 — 판정기만 되돌리면 `running` 이 켜진 채 남아, 초기화 뒤 EMO 를 풀 때
         #    진행 중인 작업이 없는데 「비상정지로 작업 중단」이 떴다(종합 리뷰 A-M2). 완주 때
         #    `finish()` 가 running 을 끄는 것과 같다.
@@ -1618,6 +1693,11 @@ class SafetyConsole(QMainWindow):
     #   종전의 _STATE_COLOR 표는 config 의 단일 테마 색을 직접 쓰고 있어 제거했다.
 
     def _on_fsm_state(self, old, new):
+        self._measure.event("state", old=old.name, new=new.name, expected=self.fsm.correct_roi,
+                            frame_t_ms=measure_log.now_ms(self._last_frame_t) if self._last_frame_t else None,
+                            dwell_roi=getattr(self.fsm, "_dwell_roi", None),
+                            dwell_start_ms=(measure_log.now_ms(self.fsm._dwell_start)
+                                            if getattr(self.fsm, "_dwell_start", None) else None))
         self.status_panel.update_view(new.value, self.fsm.expected_step)
         self._append_log(f"[FSM] {old.value} → {new.value}")
 
@@ -1630,12 +1710,14 @@ class SafetyConsole(QMainWindow):
                 self._cancel_sub("차단")
             elif new == State.WARNING:
                 sub.pause()
+                self._measure.event("sub", what="pause", button=self._sub_button)
                 self._append_log(f"[서브] {sub.label} 일시정지 — 경고 중")
                 self.gauge_panel.update_view(sub)
             elif old == State.WARNING and sub.paused and new != State.IDLE:
                 # IDLE(작업 초기화·EMO 해제)은 아래 IDLE 분기가 서브를 정리한다 — 여기서 이으면
                 # 곧 버려질 작업에 「이어서」가 찍혔다(② 리뷰 4)
                 sub.resume()
+                self._measure.event("sub", what="resume", button=self._sub_button)
                 self._append_log(f"[서브] {sub.label} 이어서 — 경고 해제")
                 self.gauge_panel.update_view(sub)
         # 🔑 공개는 서브 작업을 판정기 상태에 맞춘 **뒤**다 — 앞에서 하면 멈춤·취소가 안 실린다(음성 §4.4)
@@ -1719,6 +1801,7 @@ class SafetyConsole(QMainWindow):
         self._relayout()
 
     def _on_interlock(self, engaged):
+        self._measure.event("interlock_req", what="engage", value=bool(engaged))
         self._stats.interlock(engaged)
         # Arduino Serial 로 릴레이 차단/복구 (트랙 A, interlock.py). BLOCK 진입 시
         # 가장 빠른 차단 경로(engaged=True → 즉시 BLOCK 송신). 해제는 뒤따르는
@@ -1727,6 +1810,7 @@ class SafetyConsole(QMainWindow):
         self.interlock.set_interlock(engaged)
 
     def _on_feedback(self, level):
+        self._measure.event("interlock_req", what="feedback", value=level.name)
         if level == Feedback.WARNING:
             self._append_log("[피드백] ⚠ 경고 — 시각 팝업 + 청각 타워램프")
         elif level == Feedback.BLOCK:
@@ -1821,6 +1905,7 @@ class SafetyConsole(QMainWindow):
         if self._demo is None or self._demo_on or self._demo_done:
             return
         self._demo_on = True
+        self._measure_recording_on("demo")
         # 🔴 잘라낼 사각형 안에 다른 창이 겹치면 그대로 찍힌다 — 런처 터미널을 덮는다.
         self.raise_()
         self.activateWindow()
@@ -1851,6 +1936,12 @@ class SafetyConsole(QMainWindow):
     # =========================================================================
     # [녹화]
     # =========================================================================
+    def _measure_recording_on(self, mode):
+        """측정 중 녹화를 켰다 — 그 세션 속도 값을 쓰지 않게 표시한다(측정 도구 정합 D14)."""
+        if self._measure.enabled:
+            self._measure.event("recording_on", mode=mode)
+            self._append_log("[측정] ⚠️ 측정 중 녹화를 켰다 — 이 세션의 속도 값은 쓰지 않는다")
+
     def _start_recording(self, mode="full"):
         """녹화 시작. 🔴 상시 자동이 아니라 **메뉴에서 켤 때만** 돈다.
 
@@ -1876,6 +1967,7 @@ class SafetyConsole(QMainWindow):
             if size is not None and not self._open_video_writer(size):
                 return
             self._recording = True
+            self._measure_recording_on(mode)
             self._recording_started = time.time()
             if mode == "full":
                 self._recording_timer.start()      # 창 캡처는 타이머가 민다
@@ -1972,4 +2064,5 @@ class SafetyConsole(QMainWindow):
         close_detector()
         self.gpio_input.close()
         self.interlock.close()
+        self._measure.close()            # 남은 기록을 쓰고 끝 사건(버린 수)을 남긴다
         event.accept()

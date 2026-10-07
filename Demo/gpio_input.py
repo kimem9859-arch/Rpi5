@@ -19,6 +19,8 @@ gpiozero `Button(pin, pull_up=True)` 의미:
   - EMO  : 비상=HIGH이므로 when_released → "EMO" 발사 (정상복귀 LOW는 UI가 처리).
 """
 
+import time
+
 import config
 
 try:
@@ -34,8 +36,9 @@ class GpioInputController:
     호출부에서 GUI 스레드로 마샬링할 것(예: pyqtSignal.emit 를 on_button 으로 주입).
     """
 
-    def __init__(self, on_button, log=None, enabled=None, on_emo_at_start=None):
+    def __init__(self, on_button, log=None, enabled=None, on_emo_at_start=None, on_edge=None):
         self._on_button = on_button
+        self._on_edge = on_edge          # (버튼, 엣지 시각 monotonic, src) — GPIO 스레드에서 불린다(측정 기록)
         # 켤 때 이미 HIGH 면 EMO 발사 **전에** 부른다 — 누름과 배선 끊김을 구별할 수 없어 콘솔이
         # 「비상정지」로 단정하지 않게 한다(2026-09-30 실HW · 선이 옆 핀에 꽂혀 있었다).
         self._on_emo_at_start = on_emo_at_start
@@ -62,7 +65,8 @@ class GpioInputController:
         for bid, pin in config.GPIO_BUTTON_PINS.items():
             try:
                 btn = Button(pin, pull_up=True, bounce_time=bounce)
-                btn.when_pressed = (lambda b=bid: self._fire(b))   # b 캡처(루프 클로저)
+                # b·dev 캡처(루프 클로저) — gpiozero 는 필수 인자가 없는 함수를 인자 없이 부른다(mixins._wrap_callback)
+                btn.when_pressed = (lambda b=bid, dev=btn: self._fire(b, dev))
                 self._devices.append(btn)
             except Exception as e:
                 failures.append(f"{bid}(GPIO{pin}) 초기화 실패")
@@ -72,7 +76,7 @@ class GpioInputController:
         try:
             emo_pin = config.GPIO_EMO_PIN
             emo = Button(emo_pin, pull_up=True, bounce_time=bounce)
-            emo.when_released = (lambda: self._fire("EMO"))        # HIGH 전이 = 비상
+            emo.when_released = (lambda dev=emo: self._fire("EMO", dev))   # HIGH 전이 = 비상
             self._devices.append(emo)
             self._emo_device = emo
             # 시작 시 이미 HIGH(비상 눌림/단선/미배선)면 즉시 EMO 발사 — fail-safe.
@@ -126,8 +130,25 @@ class GpioInputController:
         except Exception:
             return False
 
-    def _fire(self, button_id):
-        """엣지 콜백 → 호출부로 전달(GUI 마샬링은 호출부 책임). 예외는 흡수."""
+    def _fire(self, button_id, dev=None):
+        """엣지 콜백 → 호출부로 전달(GUI 마샬링은 호출부 책임). 예외는 흡수.
+
+        dev 가 있으면 엣지가 난 시각(= 지금 − active_time/inactive_time)을 on_edge 로 먼저 알린다(측정 기록).
+        🔴 active_time 은 lgpio 엣지 시각으로 잰다 — lgpio 원문: 「커널마다 기준이 다른 ns · 기준을 가정하지
+           말 것」. 0~1초 밖이면 시계가 어긋난 것으로 보고 콜백 시각으로 대신한다(src="callback").
+        """
+        if self._on_edge is not None:
+            try:
+                now = time.monotonic()
+                ago = None
+                if dev is not None:
+                    ago = dev.active_time if dev.active_time is not None else dev.inactive_time
+                if ago is not None and 0.0 <= ago < 1.0:
+                    self._on_edge(button_id, now - ago, "edge")
+                else:
+                    self._on_edge(button_id, now, "callback")
+            except Exception as e:
+                self._log(f"[입력] 엣지 시각 콜백 오류({button_id}): {e}")
         try:
             self._on_button(button_id)
         except Exception as e:
