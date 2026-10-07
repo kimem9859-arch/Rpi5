@@ -25,6 +25,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 
 import cv2
 
@@ -235,7 +236,11 @@ class HailoToolGate:
       결과는 그 프레임의 손끝과 함께 보관하고 poll() 이 한 번 돌려준다.
     - 🔴 적재 실패(파일 없음·장치 오류)면 available False + 로그 — **CPU 로 저절로 바꾸지 않는다**
       (다른 모델이 조용히 돌면 시연 기준이 흐려진다).
+    - 🔴 생성 때 낸 로그는 화면 로그에 안 붙는다(CameraThread.__init__ 시점 — 손 검출과 같은 함정) →
+      `loaded`·`reason` 을 두어 시연 화면이 시작 로그에 다시 적고, start() 도 실패면 다시 알린다(리뷰 I-1).
     """
+
+    _ERR_LOG_SEC = 5.0               # 추론 오류가 이어져도 로그는 이 간격에 한 번(camera_thread C12 와 같은 값)
 
     def __init__(self, hef=None, names=None, conf=None, log=None, detector_factory=None):
         import config
@@ -245,8 +250,12 @@ class HailoToolGate:
         self._log = log or (lambda m: None)
         self._lock = threading.Lock()
         self._on = False
+        self._gen = 0                # start·stop 마다 올린다 — 추론 도중 꺼졌다 켜져도 옛 결과가 새지 않게(리뷰 m3)
         self._result = None          # (dets, fingertip) — poll() 이 한 번 돌려준다
+        self._err_at = None
         self._det = None
+        self.loaded = False
+        self.reason = ""
         try:
             if not os.path.exists(self._hef):
                 raise FileNotFoundError(self._hef)
@@ -255,20 +264,32 @@ class HailoToolGate:
                 detector_factory = lambda: HailoDetector(hef_path=self._hef,          # noqa: E731
                                                          names=dict(enumerate(self._names)))
             self._det = detector_factory()
-            self._log(f"[공구] NPU 적재 — {os.path.basename(self._hef)} · 문턱 {self._conf} · {', '.join(self._names)}")
+            self.loaded = True
+            self.reason = f"NPU 적재 — {os.path.basename(self._hef)} · 문턱 {self._conf}"
+            self._log(f"[공구] {self.reason} · {', '.join(self._names)}")
         except Exception as e:                                # noqa: BLE001
             self._det = None
-            self._log(f"[공구] ⚠️ 비활성 — NPU 공구 모델을 올리지 못했습니다({e}). "
-                      "공구 지참 단계가 자동으로 넘어가지 않습니다.")
+            self.reason = f"NPU 공구 모델을 올리지 못했습니다({e})"
+            self._log(f"[공구] ⚠️ 비활성 — {self.reason}. 공구 지참 단계가 자동으로 넘어가지 않습니다.")
+        # 🔴 검출기(HailoDetector.detect)가 먼저 YOLO_CONF_LOW(버튼 설정)로 거른다 — 그보다 낮은 공구 문턱은 안 먹는다(리뷰 m5)
+        low = getattr(config, "YOLO_CONF_LOW", 0.0)
+        if self._conf < low:
+            self._log(f"[공구] ⚠️ 공구 문턱 {self._conf} 이 검출기 하한 YOLO_CONF_LOW {low} 보다 낮다 — "
+                      f"실제 문턱은 {low} 이다")
 
     def start(self):
         with self._lock:
             self._on = True
+            self._gen += 1
             self._result = None
+            det = self._det
+        if det is None:
+            self._log(f"[공구] ⚠️ 비활성 — {self.reason}. 공구 지참 단계가 자동으로 넘어가지 않습니다.")
 
     def stop(self):
         with self._lock:
             self._on = False
+            self._gen += 1
             self._result = None       # 서브 작업이 끝난 뒤 늦게 남은 결과를 내지 않는다
 
     @property
@@ -280,16 +301,19 @@ class HailoToolGate:
         with self._lock:
             if not (self._on and self._det is not None):
                 return
-            det = self._det
+            det, gen = self._det, self._gen
         try:
             raw = det.detect(frame)
         except Exception as e:                                # noqa: BLE001 — 그 요청만 버린다(카메라는 계속)
-            self._log(f"[공구] NPU 추론 오류 — 그 요청만 버린다: {e!r}")
+            now = time.monotonic()
+            if self._err_at is None or now - self._err_at >= self._ERR_LOG_SEC:
+                self._err_at = now
+                self._log(f"[공구] NPU 추론 오류 — 그 요청만 버린다: {e!r}")
             return
         dets = [(det.class_name(c), float(s), float(x1), float(y1), float(x2), float(y2))
                 for c, s, x1, y1, x2, y2 in raw if s >= self._conf]
         with self._lock:
-            if self._on:
+            if self._on and self._gen == gen:
                 self._result = (dets, fingertip)
 
     def poll(self):
@@ -298,16 +322,25 @@ class HailoToolGate:
             return got
 
     def close(self):
-        if self._det is not None:
+        with self._lock:
+            det, self._det = self._det, None
+            self._on = False
+            self._result = None
+        if det is not None:
             try:
-                self._det.close()
+                det.close()
             except Exception:                                 # noqa: BLE001
                 pass
 
 
 def create_tool_gate(log=None):
-    """설정(`config.TOOL_BACKEND`)대로 공구 추론 갈래를 만든다 — "cpu" = 종전 워커 · 그 밖 = NPU."""
+    """설정(`config.TOOL_BACKEND`)대로 공구 추론 갈래를 만든다 — "cpu" = 종전 워커 · "hailo" = NPU.
+    모르는 값은 공구 없음(None) + 로그 — 오타가 조용히 어느 한쪽으로 가지 않게(리뷰 m7 · 시작 로그가 「비활성」으로 적는다)."""
     import config
-    if getattr(config, "TOOL_BACKEND", "cpu") == "cpu":
+    backend = getattr(config, "TOOL_BACKEND", "cpu")
+    if backend == "cpu":
         return ToolGate(log=log)
-    return HailoToolGate(log=log)
+    if backend == "hailo":
+        return HailoToolGate(log=log)
+    (log or (lambda m: None))(f"[공구] ⚠️ 알 수 없는 TOOL_BACKEND {backend!r} — \"hailo\" 또는 \"cpu\" · 공구 검출 꺼짐")
+    return None

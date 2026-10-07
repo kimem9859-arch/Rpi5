@@ -275,8 +275,8 @@ class CameraThread(QThread):
     def set_tool_scan(self, on):
         """공구 추론을 켜고 끈다 — `wait_tool` 서브 작업 동안에만 켠다.
 
-        🔴 끄는 것을 빠뜨리면 워커가 계속 CPU 를 먹는다. 서브 작업이 끝나거나
-           중단되는 **모든 경로**에서 꺼야 한다(safety_console 쪽 책임).
+        🔴 끄는 것을 빠뜨리면 CPU 갈래는 워커가 계속 CPU 를 먹고, NPU 갈래는 1초마다 추론을 계속한다.
+           서브 작업이 끝나거나 중단되는 **모든 경로**에서 꺼야 한다(safety_console 쪽 책임).
         """
         if self._tool_gate is None:
             if on:

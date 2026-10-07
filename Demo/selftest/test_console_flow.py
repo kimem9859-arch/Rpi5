@@ -2268,6 +2268,22 @@ def test_review_bm5_first_camera_connect_quiet():
     check(len(_logs(win, "손 관측을 버렸다")) == 1, "재연결 — 적는다")
     win.close()
 
+def test_tool_npu_load_failure_in_start_log():
+    """시연 모델 전환 리뷰 I-1 — NPU 공구 모델을 못 올리면 시작 로그가 「비활성 — 사유」를 적는다.
+    🔴 공구 연결부는 CameraThread 생성 때 만들어져 그때 낸 로그는 화면에 안 붙는다(손 검출과 같은 함정)."""
+    print("\n[공구 NPU] 적재 실패가 시작 로그에 남는다")
+    import config
+    old = config.TOOL_BACKEND, config.TOOL_HEF_PATH, config.TOOL_ENABLED
+    config.TOOL_BACKEND, config.TOOL_HEF_PATH, config.TOOL_ENABLED = "hailo", "/없는/공구.hef", True
+    try:
+        win = make_console()
+        line = [m for m in _logs(win, "[시스템] 공구 검출") ]
+        check(line and "비활성" in line[0] and "/없는/공구.hef" in line[0], f"시작 줄 {line}")
+        win.close()
+    finally:
+        config.TOOL_BACKEND, config.TOOL_HEF_PATH, config.TOOL_ENABLED = old
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

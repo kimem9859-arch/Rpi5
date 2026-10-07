@@ -86,8 +86,63 @@ def test_적재_실패는_비활성_로그():
                          detector_factory=lambda: _Det())
     g.start()
     g.request(F, None)
-    check(not g.available and g.poll() is None, "비활성")
-    check(any("비활성" in s for s in said), f"로그 {said}")
+    check(not g.available and g.poll() is None, "start 뒤에도 비활성")
+    check(not g.loaded and "/없는/모델.hef" in g.reason, f"적재 상태·사유 {g.loaded} {g.reason!r}")
+    n = sum("비활성" in s for s in said)
+    check(n >= 2, f"start 때 다시 알린다(생성 때 로그는 화면에 안 붙어 있을 수 있다 — 리뷰 I-1) {said}")
+
+
+def test_적재_성공_상태():
+    print("\n[NPU 공구] 적재 성공 = loaded · 사유에 파일 이름(시작 로그가 쓴다)")
+    g, _ = make()
+    check(g.loaded and "t.hef" in g.reason and "NPU" in g.reason, f"{g.loaded} {g.reason!r}")
+
+
+def test_추론_도중_꺼짐():
+    print("\n[NPU 공구] 추론 도중 stop(·다시 start) — 그 결과는 새 서브 작업으로 새지 않는다(리뷰 m3·m4)")
+    holder = {}
+
+    class _Mid(_Det):
+        def detect(self, frame):
+            holder["g"].stop()
+            if holder.get("restart"):
+                holder["g"].start()
+            return super().detect(frame)
+
+    for restart in (False, True):
+        holder["restart"] = restart
+        g, _ = make(_Mid())
+        holder["g"] = g
+        g.start()
+        g.request(F, (1, 1))
+        check(g.poll() is None, f"{'stop→start' if restart else 'stop'} 사이 끝난 추론은 버린다")
+
+
+def test_문턱_경고():
+    print("\n[NPU 공구] 공구 문턱이 검출기 하한(YOLO_CONF_LOW)보다 낮으면 경고(리뷰 m5)")
+    said = []
+    TG.HailoToolGate(hef=_hef(), names=_Det.NAMES, conf=config.YOLO_CONF_LOW - 0.1, log=said.append,
+                     detector_factory=lambda: _Det())
+    check(any("YOLO_CONF_LOW" in s for s in said), f"{said}")
+
+
+def test_오류_로그_줄임():
+    print("\n[NPU 공구] 추론 오류가 이어져도 로그는 5초에 한 번(리뷰 m6)")
+    said = []
+    g, _ = make(_Det(boom=True), log=said.append)
+    g.start()
+    for _ in range(3):
+        g.request(F, None)
+    check(sum("추론 오류" in s for s in said) == 1, f"{[s for s in said if '추론 오류' in s]}")
+
+
+def test_닫은_뒤():
+    print("\n[NPU 공구] close 뒤에는 쓸 수 없다(리뷰 m12)")
+    g, det = make()
+    g.close()
+    g.start()
+    g.request(F, None)
+    check(det.closed and not g.available and g.poll() is None and det.calls == 0, "닫힘")
 
 
 def test_추론_예외는_그_요청만():
@@ -112,6 +167,10 @@ def test_만드는_갈래():
         config.TOOL_BACKEND, config.TOOL_HEF_PATH = "hailo", "/없는/모델.hef"
         g = TG.create_tool_gate()
         check(isinstance(g, TG.HailoToolGate) and not g.available, "hailo → HailoToolGate(파일 없으면 비활성)")
+        said = []
+        config.TOOL_BACKEND = "npu"
+        check(TG.create_tool_gate(log=said.append) is None and any("TOOL_BACKEND" in s for s in said),
+              f"모르는 값 → 공구 없음 + 로그(오타가 NPU 로 가지 않게 · 리뷰 m7) {said}")
     finally:
         config.TOOL_BACKEND, config.TOOL_HEF_PATH = old
 
@@ -120,6 +179,11 @@ if __name__ == "__main__":
     test_문턱_이름_손끝()
     test_꺼져_있으면_추론하지_않음()
     test_적재_실패는_비활성_로그()
+    test_적재_성공_상태()
+    test_추론_도중_꺼짐()
+    test_문턱_경고()
+    test_오류_로그_줄임()
+    test_닫은_뒤()
     test_추론_예외는_그_요청만()
     test_만드는_갈래()
     print()

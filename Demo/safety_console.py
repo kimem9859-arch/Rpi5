@@ -193,11 +193,17 @@ class SafetyConsole(QMainWindow):
         self._append_log(f"[시스템] 손 검출(HOI): {'사용 가능' if _hand.available else '비활성 — ' + _hand.reason}")
         # 공구 검출(A-2)도 같은 이유로 시작 로그에 못 박는다 — 비활성이면 공구 지참
         # 단계의 게이트가 **영영 안 열린다**. 그 사실을 2단계에 가서야 알면 늦다.
-        # ⚠️ 여기서는 「띄울 준비가 됐는가」까지만 안다 — 워커는 서브 작업 시작 시에
-        #    비로소 뜬다(상시 추론이 아니다).
-        self._append_log("[시스템] 공구 검출: " + (
-            "사용 가능" if self.camera_thread._tool_gate is not None
-            else "비활성 — 공구 지참 단계가 자동으로 넘어가지 않습니다"))
+        # ⚠️ CPU 갈래는 「띄울 준비가 됐는가」까지만 안다(워커는 서브 작업 시작 때 뜬다) · NPU 갈래는
+        #    시작 때 이미 적재했으므로 그 결과(loaded·reason)를 여기서 다시 적는다 — 적재 로그는 손 검출처럼
+        #    CameraThread 생성 때 나서 화면에 안 붙는다(시연 모델 전환 리뷰 I-1).
+        _gate = self.camera_thread._tool_gate
+        if _gate is None:
+            _tool_line = "비활성 — 공구 지참 단계가 자동으로 넘어가지 않습니다"
+        elif not getattr(_gate, "loaded", True):
+            _tool_line = f"비활성 — {_gate.reason} — 공구 지참 단계가 자동으로 넘어가지 않습니다"
+        else:
+            _tool_line = "사용 가능" + (f" — {_gate.reason}" if getattr(_gate, "reason", "") else "")
+        self._append_log("[시스템] 공구 검출: " + _tool_line)
         # 🔴 폰트가 조용히 폴백되면 알 방법이 없다 — 2026-08-03 이전 3개월간 Consolas 요청이
         #    중국어 폰트로 대체되고 있었다. 요청/실제를 여기서 못 박는다.
         self._append_log(f"[시스템] UI 폰트: {config.font_report()}")

@@ -10,7 +10,7 @@
     그래서 스캔마다 이 넷을 **분리해서** 기록한다. 판정 결과 = 통합문서 §10.54.
 
 🔑 검출·촬영 경로는 런타임과 같다 — 같은 ESP32 TCP 수신, 같은 방향·왜곡 보정,
-   같은 `hand_tracker`, 같은 `ToolGate`(config 의 conf·주기 그대로),
+   같은 `hand_tracker`, 같은 공구 갈래(`create_tool_gate` — config 의 갈래·conf·주기 그대로),
    같은 `ToolState`·`SubTask`. **판정 규칙을 여기서 바꾸지 않는다** — 지금
    시스템이 무엇을 보고 무엇을 놓치는지 그대로 재는 것이 목적이다.
    🔴 임계·주기·핀 등은 전부 **config 에서 읽는다**(도구 기본값이 config 를 안 따라
@@ -21,8 +21,8 @@
    달면 시험지에 답이 인쇄된 것과 같다(설계 = `specs/2026-09-03-공구-쥔상태-검출-design.md` §4).
 
 ⚠️ 데모와 **동시에 돌릴 수 없다** — ESP32 스트림도 Hailo 장치도 하나뿐이다.
-⚠️ 시스템 파이썬으로 돈다(데모와 같은 환경). 공구 추론만 ToolGate 가 rfenv 워커를
-   따로 띄운다 — 이것도 데모와 같다.
+⚠️ 시스템 파이썬으로 돈다(데모와 같은 환경). 공구 추론은 config.TOOL_BACKEND 대로 —
+   "hailo" = NPU(같은 공유 장치) · "cpu" = rfenv 워커를 따로 띄운다. 이것도 데모와 같다.
 
 쓰는 법:
     python3 Demo/test/tool_probe.py --sec 60 --label B쥠
@@ -232,7 +232,7 @@ def main():
     umap = None
     writer = None
     state = ToolState(want)
-    sub = None                    # 워커가 준비된 뒤 시작한다(모델 로딩 시간을 안 까먹게)
+    sub = None                    # 공구 추론이 준비된 뒤 시작한다(CPU 워커 모델 로딩 시간을 안 까먹게)
     scans = []
     tool_dets, tool_dets_at = [], 0.0
     last_scan = 0.0

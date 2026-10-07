@@ -696,6 +696,10 @@ def cmd_convert(a):
     calib = convert_calib(d, g, cfg)
     bad = H.count_problems(cfg, g)
     want = calib_target(d, g, cfg)
+    if want == 0:
+        sys.exit(f"🔴 {g} 학습 몫이 0장 — 보정 사진이 없다(나눔 {job_cfg['나눔']['name']})")
+    if want < cfg["calib_n"][g]:
+        print(f"⚠️ 보정 {want}장 — 결정표 calib_n {cfg['calib_n'][g]} 보다 적다(학습 몫 전부 · 변환.json 에 장수가 남는다)")
     if len(calib) != want or bad:
         sys.exit(f"🔴 보정 {len(calib)}장 · 목표 {want}(결정표 calib_n {cfg['calib_n'][g]} · 학습 몫이 적으면 전부) · {bad} — 같아야 한다")
     deploy_code(head)

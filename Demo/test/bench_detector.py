@@ -79,7 +79,7 @@ _RAW_DIR    = os.path.join(_TEST_DIR, "raw")
 CLASS_NAMES = ["B1", "B2", "B3", "B4", "EMO"]
 CONF_WARN   = 0.70  # 이 미만이면 취약 경고
 # 공구 HEF 의 클래스 순서 — 학습 이름표와 같다(T-full-base best.pt names 2026-10-06 확인).
-TOOL_NAMES  = ["driver", "wrench", "pliers"]
+TOOL_NAMES  = list(config.TOOL_NAMES)   # HEF 클래스 순서 — config 가 단일 출처(시연 공구 NPU 갈래와 같다)
 
 
 def _hef_label(path):

@@ -7,8 +7,7 @@
 #   ./run_bench_test.sh cleanroom            # 300프레임, raw 5프레임마다
 #   ./run_bench_test.sh cleanroom 300 1      # raw 전 프레임 (test 이미지 수집 겸용)
 #
-# 결과 판정 기준(설계 승인분): 5클래스 중 raw 검출 0회가 있거나 평균 conf < 0.70 이면 중단.
-# 세션 종료 후 이 스크립트가 그 판정을 자동 출력한다 — 현장에서 바로 읽을 수 있게.
+# (7월 클린룸 중단 규칙 자동 판정 test/verdict.py 는 2026-10-07 백업했다 — 백업/도구-20261007/README.md)
 
 cd "$(dirname "$(readlink -f "$0")")" || exit 1
 
