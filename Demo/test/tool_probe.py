@@ -50,7 +50,7 @@ import config
 import frame_orient
 from hand_tracker import HandTracker
 from sub_task import SubTask
-from tool_gate import ToolGate
+from tool_gate import create_tool_gate
 from tool_state import ToolState
 
 OUT_DIR = os.path.join(config.RECORDING_SAVE_DIR, "공구점검")
@@ -226,7 +226,7 @@ def main():
         return 1
 
     hand = HandTracker(log=log)
-    gate = ToolGate(log=log)
+    gate = create_tool_gate(log=log)        # 시연과 같은 갈래(config.TOOL_BACKEND)
     gate.start()
 
     umap = None

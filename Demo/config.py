@@ -440,6 +440,11 @@ TOOL_SCAN_INTERVAL_SEC = 1.0
 TOOL_PUT_DOWN_SCANS   = 3
 # 🗑️ TOOL_PLACED_COUNT 는 2026-08-16 에 사라졌다 — 「넣음」 마디를 없애면서
 #    연속 미검출을 셀 일이 없어졌다(경위 = 통합문서 §10.44).
+# 공구 추론 갈래(시연 모델 설계 2026-10-07) — "hailo" = NPU(HEF · 카메라 스레드에서 1초에 한 번 · tool_gate.HailoToolGate) ·
+# "cpu" = 종전 tool_v3.pt 워커(되돌리기 스위치 · tool_worker.py). 🔴 NPU 를 못 올려도 CPU 로 저절로 바꾸지 않는다.
+TOOL_BACKEND           = "cpu"
+TOOL_HEF_PATH          = os.path.join(_BASE_DIR, 'models', 'T-full-base-albu-s0_ours-L2.hef')
+TOOL_NAMES             = ("driver", "wrench", "pliers")   # HEF 클래스 순서(§12.89 채점 --names 와 같다)
 TOOL_MODEL_PATH        = os.path.join(_BASE_DIR, 'models', 'tool_v3.pt')
 TOOL_WORKER_PYTHON     = os.path.expanduser("~/env/rfenv/bin/python")
 TOOL_SHM_DIR           = "/dev/shm/sop_tool"

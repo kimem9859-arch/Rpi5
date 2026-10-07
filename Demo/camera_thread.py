@@ -32,10 +32,10 @@ import frame_orient
 # ⚠️ HandTracker 와 같은 방침 — 없으면 조용히 비활성되고 종전과 같이 동작한다.
 # =============================================================================
 try:
-    from tool_gate import ToolGate
+    from tool_gate import create_tool_gate           # 갈래(NPU·CPU)는 config.TOOL_BACKEND 가 고른다
     TOOL_GATE_AVAILABLE = True
 except Exception:                                    # noqa: BLE001
-    ToolGate = None
+    create_tool_gate = None
     TOOL_GATE_AVAILABLE = False
 
 # =============================================================================
@@ -254,7 +254,7 @@ class CameraThread(QThread):
         self._hand = HandTracker(log=lambda m: self.log_signal.emit(m))
 
         # 공구 검출(A-2) — 서브 작업(wait_tool) 동안에만 돈다. 상시 작업이 아니다.
-        self._tool_gate = (ToolGate(log=lambda m: self.log_signal.emit(m))
+        self._tool_gate = (create_tool_gate(log=lambda m: self.log_signal.emit(m))
                            if (TOOL_GATE_AVAILABLE and config.TOOL_ENABLED) else None)
         self._tool_scan = False
         self._tool_last = 0.0

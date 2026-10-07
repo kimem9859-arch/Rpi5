@@ -7,6 +7,8 @@
    그대로 두고**, 안을 Hailo 호출로 바꾸면 된다(그때 `tool_worker.py` 는 삭제).
    그러면 `camera_thread`·`safety_console` 은 한 줄도 안 고쳐도 된다 —
    이 파일을 둔 목적이 정확히 그것이다.
+   → 2026-10-07 NPU 갈래 `HailoToolGate` 를 더했다(시연 모델 설계 2026-10-07 §2.3). CPU 워커는 되돌리기로
+     남기고(`config.TOOL_BACKEND="cpu"`) 삭제는 최종 모델 때 · 만드는 곳은 `create_tool_gate()` 하나.
 
 지금은 왜 프로세스를 띄우나:
     🔴 GUI 는 시스템 파이썬(PyQt6+Hailo)이고 거기엔 ultralytics·torch 가 없다.
@@ -220,3 +222,92 @@ class ToolGate:
         dets = [(d[0], float(d[1]), float(d[2]), float(d[3]), float(d[4]), float(d[5]))
                 for d in raw]
         return dets, fingertip
+
+
+class HailoToolGate:
+    """공구 추론 — NPU(HEF) 갈래. 바깥 인터페이스는 `ToolGate` 와 같다(start·stop·available·request·poll).
+
+    정본: 상위 docs/superpowers/specs/2026-10-07-시연모델-재학습HEF-design.md §2.3
+
+    - 생성 때(프로그램 시작 · 카메라 스레드가 돌기 전) 한 번 적재한다 — 버튼·손과 같은 공유 장치.
+      start() 는 화면 스레드에서 불리므로 거기서 장치를 구성하면 카메라 추론과 겹친다.
+    - request() 는 카메라 스레드에서 **그 자리에서** 추론한다(재압축 없음 · 640 늘리기 = 학습·채점과 같은 입력).
+      결과는 그 프레임의 손끝과 함께 보관하고 poll() 이 한 번 돌려준다.
+    - 🔴 적재 실패(파일 없음·장치 오류)면 available False + 로그 — **CPU 로 저절로 바꾸지 않는다**
+      (다른 모델이 조용히 돌면 시연 기준이 흐려진다).
+    """
+
+    def __init__(self, hef=None, names=None, conf=None, log=None, detector_factory=None):
+        import config
+        self._hef = hef if hef is not None else config.TOOL_HEF_PATH
+        self._names = tuple(names if names is not None else config.TOOL_NAMES)
+        self._conf = float(conf if conf is not None else config.TOOL_CONF)
+        self._log = log or (lambda m: None)
+        self._lock = threading.Lock()
+        self._on = False
+        self._result = None          # (dets, fingertip) — poll() 이 한 번 돌려준다
+        self._det = None
+        try:
+            if not os.path.exists(self._hef):
+                raise FileNotFoundError(self._hef)
+            if detector_factory is None:
+                from detector import HailoDetector
+                detector_factory = lambda: HailoDetector(hef_path=self._hef,          # noqa: E731
+                                                         names=dict(enumerate(self._names)))
+            self._det = detector_factory()
+            self._log(f"[공구] NPU 적재 — {os.path.basename(self._hef)} · 문턱 {self._conf} · {', '.join(self._names)}")
+        except Exception as e:                                # noqa: BLE001
+            self._det = None
+            self._log(f"[공구] ⚠️ 비활성 — NPU 공구 모델을 올리지 못했습니다({e}). "
+                      "공구 지참 단계가 자동으로 넘어가지 않습니다.")
+
+    def start(self):
+        with self._lock:
+            self._on = True
+            self._result = None
+
+    def stop(self):
+        with self._lock:
+            self._on = False
+            self._result = None       # 서브 작업이 끝난 뒤 늦게 남은 결과를 내지 않는다
+
+    @property
+    def available(self):
+        with self._lock:
+            return self._on and self._det is not None
+
+    def request(self, frame, fingertip):
+        with self._lock:
+            if not (self._on and self._det is not None):
+                return
+            det = self._det
+        try:
+            raw = det.detect(frame)
+        except Exception as e:                                # noqa: BLE001 — 그 요청만 버린다(카메라는 계속)
+            self._log(f"[공구] NPU 추론 오류 — 그 요청만 버린다: {e!r}")
+            return
+        dets = [(det.class_name(c), float(s), float(x1), float(y1), float(x2), float(y2))
+                for c, s, x1, y1, x2, y2 in raw if s >= self._conf]
+        with self._lock:
+            if self._on:
+                self._result = (dets, fingertip)
+
+    def poll(self):
+        with self._lock:
+            got, self._result = self._result, None
+            return got
+
+    def close(self):
+        if self._det is not None:
+            try:
+                self._det.close()
+            except Exception:                                 # noqa: BLE001
+                pass
+
+
+def create_tool_gate(log=None):
+    """설정(`config.TOOL_BACKEND`)대로 공구 추론 갈래를 만든다 — "cpu" = 종전 워커 · 그 밖 = NPU."""
+    import config
+    if getattr(config, "TOOL_BACKEND", "cpu") == "cpu":
+        return ToolGate(log=log)
+    return HailoToolGate(log=log)
