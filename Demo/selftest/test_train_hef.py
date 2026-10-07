@@ -141,6 +141,17 @@ def test_장수_대조():
     bad = json.loads(json.dumps(CFG))
     bad["calib_n"]["tool"] = 600
     check(H.count_problems(bad, "tool") != [], "calib_n 만 바꾸면 → 문제")
+    # 학습 몫이 calib_n 보다 적은 나눔(place1_v2b 버튼 1022 — 세션 하나를 뺐다) = 있는 만큼 전부(2026-10-07)
+    v2b = SP.load_split(Path(_RPI5) / "학습" / "나눔" / "place1_v2b.json")
+    n = T.calib_target(v2b, "button", CFG)
+    check(n == len(SP.lists_for(v2b, "button")[0]) == 1022 and len(T.convert_calib(v2b, "button", CFG)) == n,
+          f"place1_v2b 버튼 보정 = 학습 몫 전부 {n}")
+    v1 = SP.load_split(Path(_RPI5) / "학습" / "나눔" / "place1_v1.json")
+    check(T.calib_target(v1, "button", CFG) == 1024 and T.calib_target(v1, "tool", CFG) == 634, "place1_v1 = 결정표 그대로")
+    s = H.model_script(CFG, "button", OUTS, "/x/n.json", n=1022)
+    got = [int(x) for x in __import__("re").findall(r"(?:calibset_size|dataset_size)=(\d+)", s)]
+    check(got and all(x == 1022 for x in got), f"모델 스크립트 장수 = 실제 보정 장수 {got}")
+    check("calibset_size=1024" in H.model_script(CFG, "button", OUTS, "/x/n.json"), "n 없으면 결정표 그대로")
 
 
 def test_로그_증거():

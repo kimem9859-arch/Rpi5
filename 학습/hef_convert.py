@@ -44,10 +44,14 @@ def _need_six(outs):
         raise ValueError(f"HN 출력층이 6개가 아니다({len(outs)}): {outs} — 끝 노드를 확인한다")
 
 
-def model_script(cfg, group, outs, nms_path, level=None):
-    """결정표 줄의 자리(<cls_s*> · NMS json 이름)를 파싱 결과로 채운다. level 이 있으면 최적화 수준만 바꿔 시험한다."""
+def model_script(cfg, group, outs, nms_path, level=None, n=None):
+    """결정표 줄의 자리(<cls_s*> · NMS json 이름)를 파싱 결과로 채운다. level 이 있으면 최적화 수준만 바꿔 시험한다.
+    n = 실제로 넘기는 보정 장수 — 학습 몫이 calib_n 보다 적은 나눔(예: place1_v2b 버튼 1022)이면 보정·미세 학습 장수를
+    그 수로 맞춘다(크면 DFC 오류 · 작으면 조용히 덜 쓴다 — count_problems). None 이면 결정표 그대로."""
     _need_six(outs)
     s = alls_text(cfg, group)
+    if n is not None:
+        s = re.sub(r"(calibset_size|dataset_size)=\d+", lambda m: f"{m.group(1)}={int(n)}", s)
     if not LEVEL_RE.search(s):
         raise ValueError("모델 스크립트에 optimization_level 줄이 없다 — CPU 에서는 조용히 수준 0 이 된다")
     if level is not None:
@@ -213,7 +217,7 @@ def stage_hef(work):
         sys.exit("🔴 " + " · ".join(bad))
     nms = nms_config(cfg, g, outs, job["names"])
     _dump(work / "nms_config.json", nms)
-    script = model_script(cfg, g, outs, str((work / "nms_config.json").resolve()), job.get("수준"))
+    script = model_script(cfg, g, outs, str((work / "nms_config.json").resolve()), job.get("수준"), n=len(job["calib"]))
     (work / "model.alls").write_text(script, encoding="utf-8")
     r.load_model_script(script)
     arr = None                                               # 목록 + 쌓은 배열을 함께 들지 않는다(데스크톱 메모리)

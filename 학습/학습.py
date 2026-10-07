@@ -187,6 +187,12 @@ def convert_calib(d, group, cfg):
     return H.pick_calib(SP.lists_for(d, group)[0], cfg["calib_n"][group], CALIB_SEED)
 
 
+def calib_target(d, group, cfg):
+    """보정 장수 = 결정표 calib_n · 학습 몫이 그보다 적으면 학습 몫 전부(결정표 규칙 「학습 몫에서 섞어 calib_n 장」의 끝 —
+    세션을 뺀 나눔 place1_v2b 버튼 1022 · 2026-10-07)."""
+    return min(cfg["calib_n"][group], len(SP.lists_for(d, group)[0]))
+
+
 def input_problems(job_cfg, cfg):
     """학습 입력 = 변환 입력 — 실험의 늘리기 크기([가로, 세로]) 또는 추론 크기([세로, 가로] · 숫자면 정사각)가 결정표 onnx.imgsz 와 같아야 한다(§8.6)."""
     if job_cfg.get("stretch"):
@@ -689,8 +695,9 @@ def cmd_convert(a):
         sys.exit("🔴 " + " · ".join(bad))
     calib = convert_calib(d, g, cfg)
     bad = H.count_problems(cfg, g)
-    if len(calib) != cfg["calib_n"][g] or bad:
-        sys.exit(f"🔴 보정 {len(calib)}장 · 결정표 calib_n {cfg['calib_n'][g]} · {bad} — 셋이 같아야 한다")
+    want = calib_target(d, g, cfg)
+    if len(calib) != want or bad:
+        sys.exit(f"🔴 보정 {len(calib)}장 · 목표 {want}(결정표 calib_n {cfg['calib_n'][g]} · 학습 몫이 적으면 전부) · {bad} — 같아야 한다")
     deploy_code(head)
     if sh(f"mkdir -p {RROOT}/변환 && mkdir {wd} 2>/dev/null && echo 새로 || echo 있음").strip() != "새로":   # 폴더 = 잠금(두 번 동시에 쳐도 하나만)
         sys.exit(f"🔴 {wd} 가 이미 있다 — 다른 창에서 막 띄웠는지 확인한다")
