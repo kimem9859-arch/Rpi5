@@ -21,9 +21,11 @@
   - `class_name`/`_names` = **5클래스(0=B1·1=B2·2=B3·3=B4·4=EMO)** 매핑 완료(`detector.py:112`).
   - .hef(빌드 환경 `D:\Hailo_DFC\console_v1.hef`) → 파이 `Demo/models/console_v1.hef`(`config.HEF_MODEL_PATH`).
 - **`console_v2.hef`** — `Demo/models/console_v2.hef`(4.4MB, 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652. 수치 = 상위 통합문서 **§12.14·§12.15**). 규격은 v1과 동일(uint8 640·NMS 포함(HEF 안 · 실행은 파이 CPU 의 HailoRT — yolov8 은 `engine=cpu` 만 된다 · `조사/HEF변환-20261004/원문대조.md` 57)·5클래스·HailoRT 4.x)이라 **코드 수정 불필요**.
-  - ✅ **`config.HEF_MODEL_PATH` 의 현재 값은 `console_v2.hef`** — `bench_detector.py`·`run_demo.sh` 등 **config를 읽는 모든 경로가 v2로 동작**한다(이 둘엔 `--hef` 옵션이 없어 config가 유일한 선택 수단).
-  - 🔴 **전환 = 검증이 아니다.** **B4 해결 여부는 여전히 미판정**(§12.16). 기본값이 v2라고 해서 "v2가 검증됐다"고 읽지 말 것.
-  - **v1과 대조하려면**: `replay_raw.py`는 `--hef models/console_v1.hef`로 런타임 지정(권장) / `bench_detector.py`·데모는 **config를 `console_v1.hef`로 되돌려야** 한다(`--hef` 미지원).
+- **시연 모델 = 학습 체계 기준 설정의 HEF**(상위 통합문서 §6.4 (4) · 변환 관문 = `조사/HEF변환-20261004/기준모델변환-20261007/`) — 버튼 `config.HEF_MODEL_PATH` = `B-full-base-s0_ours-L2.hef` · 공구 `config.TOOL_BACKEND = "hailo"` + `TOOL_HEF_PATH` = `T-full-base-albu-s0_ours-L2.hef`(NPU · 카메라 스레드에서 1초에 한 번 · `tool_gate.HailoToolGate` · 만드는 곳 `create_tool_gate()` 하나). config 를 읽는 모든 경로(`run_demo.sh`·측정 도구 기본값)가 이 모델로 돈다.
+  - 🔴 **전환 = 검증이 아니다.** 장소1 채점과 「HEF 가 `.pt` 와 같은 자리를 잡는가」 관문까지다 — 장소2(c001)·장소3 은 미판정(장소1 조건부). `console_v2` 의 **B4 해결 여부도 미판정**(§12.16).
+  - **되돌리기** = config 의 `console_v2.hef` 주석 줄 · `TOOL_BACKEND = "cpu"`(`tool_v3.pt` · rfenv 워커 `tool_worker.py`). 🔴 NPU 공구를 못 올려도 CPU 로 저절로 바뀌지 않는다 — 시작 로그 `[시스템] 공구 검출: 비활성 — <사유>` 로 보인다.
+  - **모델을 바꿔 대조하려면** `bench_detector.py --hef`·`--tool-hef` · `replay_raw.py --hef` · `score_hef.py --hef` 로 그 실행만 지정한다 / 데모는 config 만 따른다.
+  - 🔴 **한 프로세스에서 같은 HEF 로 검출기를 두 번 만들면 두 번째 추론이 멈춘다**(공유 장치가 같은 HEF 를 한 network group 으로 묶는다) — 경로 대조는 다른 프로세스로(`조사/HEF변환-20261004/시연경로대조.py`). 시연은 HEF 마다 하나라 해당 없다.
 
 ## GUI·카메라·설정 (기존 모듈 — 현행 유효)
 ### `safety_console.py` (메인 GUI, QMainWindow)
