@@ -1,0 +1,159 @@
+{
+ "id": "E15-button-base",
+ "group": "button",
+ "시각": "2026-10-07T17:22:07",
+ "코드해시": "93674ad71d",
+ "판": {
+  "ultralytics": "8.4.171",
+  "torch": "2.12.1+cu130",
+  "onnx": "1.23.1",
+  "onnxslim": "0.1.97",
+  "dfc": "3.33.1",
+  "tensorflow": "2.18.0",
+  "numpy": "1.26.4",
+  "cv2": "4.11.0",
+  "hailort_요구": "4.23.0 (파이 python3-hailort 4.23.0-1 · hailo-all 5.1.1)"
+ },
+ "결정표": {
+  "파일": "조사/HEF변환-20261004/변환설정.json",
+  "sha256": "3c739f65902cfdf9b343e2a5305e603bee7628bbd9d430d775ed7e0f3ba6bbd9"
+ },
+ "수준": {
+  "지정": 2,
+  "결정표와_다름": false,
+  "미세학습": "enabled",
+  "DFC_로그": [
+   "[info] Starting Model Optimization",
+   "[info] MatmulDecompose skipped",
+   "[info] Starting Mixed Precision",
+   "[info] Model Optimization Algorithm Mixed Precision is done (completion time is 00:00:00.20)",
+   "[info] LayerNorm Decomposition skipped",
+   "[info] Starting Statistics Collector",
+   "[info] Using dataset with 1022 entries for calibration",
+   "[info] Model Optimization Algorithm Statistics Collector is done (completion time is 00:01:54.85)",
+   "[info] Starting Fix zp_comp Encoding",
+   "[info] Model Optimization Algorithm Fix zp_comp Encoding is done (completion time is 00:00:00.00)",
+   "[info] Matmul Equalization skipped",
+   "[info] Starting MatmulDecomposeFix",
+   "[info] Model Optimization Algorithm MatmulDecomposeFix is done (completion time is 00:00:00.00)",
+   "[info] Finetune encoding skipped",
+   "[info] Bias Correction skipped",
+   "[info] Adaround skipped",
+   "[info] Starting Quantization-Aware Fine-Tuning",
+   "[info] Using dataset with 1022 entries for finetune",
+   "[info] Model Optimization Algorithm Quantization-Aware Fine-Tuning is done (completion time is 00:30:20.51)",
+   "[info] Starting Layer Noise Analysis",
+   "[info] Model Optimization Algorithm Layer Noise Analysis is done (completion time is 00:01:30.73)",
+   "[info] Starting Hailo allocation and compilation flow"
+  ]
+ },
+ "클래스": [
+  "B1",
+  "B2",
+  "B3",
+  "B4",
+  "EMO"
+ ],
+ "내보내기_인자": {
+  "opset": 11,
+  "imgsz": [
+   640,
+   640
+  ],
+  "batch": 1,
+  "dynamic": false,
+  "simplify": true,
+  "device": "cpu"
+ },
+ "hw_arch": "hailo8",
+ "끝_노드": [
+  "/model.22/cv2.0/cv2.0.2/Conv",
+  "/model.22/cv3.0/cv3.0.2/Conv",
+  "/model.22/cv2.1/cv2.1.2/Conv",
+  "/model.22/cv3.1/cv3.1.2/Conv",
+  "/model.22/cv2.2/cv2.2.2/Conv",
+  "/model.22/cv3.2/cv3.2.2/Conv"
+ ],
+ "HN_출력층": [
+  {
+   "이름": "conv41",
+   "채널": 64
+  },
+  {
+   "이름": "conv42",
+   "채널": 5
+  },
+  {
+   "이름": "conv52",
+   "채널": 64
+  },
+  {
+   "이름": "conv53",
+   "채널": 5
+  },
+  {
+   "이름": "conv62",
+   "채널": 64
+  },
+  {
+   "이름": "conv63",
+   "채널": 5
+  }
+ ],
+ "모델_스크립트": "normalization1 = normalization([0.0, 0.0, 0.0], [255.0, 255.0, 255.0])\nmodel_optimization_flavor(optimization_level=2, compression_level=0)\nmodel_optimization_config(calibration, batch_size=8, calibset_size=1022)\npost_quantization_optimization(finetune, policy=enabled, dataset_size=1022)\nchange_output_activation(conv42, sigmoid)\nchange_output_activation(conv53, sigmoid)\nchange_output_activation(conv63, sigmoid)\nnms_postprocess(\"~/학습실험/변환/E15-button-base/nms_config.json\", meta_arch=yolov8, engine=cpu)\nallocator_param(width_splitter_defuse=disabled)\n",
+ "NMS": {
+  "nms_scores_th": 0.25,
+  "nms_iou_th": 0.7,
+  "image_dims": [
+   640,
+   640
+  ],
+  "max_proposals_per_class": 100,
+  "classes": 5,
+  "regression_length": 16,
+  "background_removal": false,
+  "background_removal_index": 0,
+  "bbox_decoders": [
+   {
+    "name": "bbox_decoder_8",
+    "stride": 8,
+    "reg_layer": "conv41",
+    "cls_layer": "conv42"
+   },
+   {
+    "name": "bbox_decoder_16",
+    "stride": 16,
+    "reg_layer": "conv52",
+    "cls_layer": "conv53"
+   },
+   {
+    "name": "bbox_decoder_32",
+    "stride": 32,
+    "reg_layer": "conv62",
+    "cls_layer": "conv63"
+   }
+  ]
+ },
+ "보정": {
+  "장수": 1022,
+  "나눔": "place1_v2b",
+  "나눔해시": "53da43672db6a5a7",
+  "몫": "train",
+  "시드": 0,
+  "목록_sha256": "5878f4cda1acd81fdfdf750a1107c6dc973a3965d3ecbd10eb386ac7d3192643",
+  "전처리": "def preprocess(bgr, imgsz):\n    \"\"\"런타임 HailoDetector.detect(Demo/detector.py)와 같은 늘리기 — imgsz = 결정표 onnx.imgsz [세로, 가로] · 비율 무시 · 보간 기본 · RGB · uint8 0~255.\"\"\"\n    import cv2\n    h, w = imgsz\n    return cv2.cvtColor(cv2.resize(bgr, (w, h)), cv2.COLOR_BGR2RGB)\n"
+ },
+ "해시": {
+  "best.pt": "dee7da351c4091b8af6d468d022c0b7e74cfda6326d8c7d247eb671ddadabfa6",
+  "model.onnx": "2dd25e73b7976402f78e5f20d07e77fbcf67d7b5e86f1ae29f5b458b45fb889f",
+  "model.har": "3a51b678d683202f4d01a10501928695f3e72b354d41603d3c69a79c3d67659e",
+  "model.hef": "79c3180727fb065931a8ba9c680adf8adb41fbe7022dfd06e207354bd14e48b0"
+ },
+ "시간_s": {
+  "onnx": 0.9,
+  "파싱": 1.2,
+  "최적화": 2045.3,
+  "컴파일": 24.9
+ },
+ "출력_vstream": "파이 hailortcli parse-hef 로 확인(관문 2 · 데스크톱엔 HailoRT 없음)"
+}
