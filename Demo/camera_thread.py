@@ -44,11 +44,17 @@ except Exception:                                    # noqa: BLE001
 DETECTOR_AVAILABLE = False
 _detector = None
 
+
+def _detector_model_name():
+    """버튼 검출기 모델 파일 이름(로그용) — create_detector() 가 config 에서 고르는 것과 같은 경로."""
+    path = config.HEF_MODEL_PATH if config.INFERENCE_BACKEND == "hailo" else config.PT_MODEL_PATH
+    return os.path.basename(path)
+
 try:
     from detector import create_detector
     _detector = create_detector()
     DETECTOR_AVAILABLE = True
-    print(f"[Detector] '{_detector.backend_name}' 백엔드 로드 완료.")
+    print(f"[Detector] '{_detector.backend_name}' 백엔드 로드 완료 — {_detector_model_name()}")
 except Exception as e:
     print(f"[Detector] 로드 실패: {e}")
 
@@ -438,7 +444,8 @@ class CameraThread(QThread):
             self.log_signal.emit("[손검출] 비활성 — 버튼 검출만 동작합니다.")
 
         if DETECTOR_AVAILABLE:
-            self.log_signal.emit(f"[Detector] '{_detector.backend_name}' 백엔드 로드 완료.")
+            # 🔑 모델 파일 이름까지 — 시연 기준 모델이 바뀌었을 때 로그만 보고 어느 모델로 돌았는지 알게(2026-10-07)
+            self.log_signal.emit(f"[Detector] '{_detector.backend_name}' 백엔드 로드 완료 — {_detector_model_name()}")
         else:
             self.log_signal.emit("[Detector] 사용 불가!")
 

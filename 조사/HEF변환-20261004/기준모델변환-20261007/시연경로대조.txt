@@ -1,0 +1,11 @@
+config.TOOL_BACKEND: hailo · 덮어쓴 것: 없음(관문)
+버튼 HEF: B-full-base-s0_ours-L2.hef · 공구 HEF: T-full-base-albu-s0_ours-L2.hef · 공구 갈래: HailoToolGate
+시연 경로 로그: [공구] NPU 적재 — T-full-base-albu-s0_ours-L2.hef · 문턱 0.65 · driver, wrench, pliers
+f00259: 버튼 같음(3개 ['B2', 'B3', 'B4']) · 공구 같음([('wrench', 0.975)])
+f00273: 버튼 같음(3개 ['B2', 'B3', 'B4']) · 공구 같음([('wrench', 0.904)])
+f00286: 버튼 같음(4개 ['B2', 'B3', 'B4', 'EMO']) · 공구 같음([('wrench', 0.967)])
+f00299: 버튼 같음(4개 ['B2', 'B3', 'B4', 'EMO']) · 공구 같음([('wrench', 0.971)])
+f00390: 버튼 같음(4개 ['B2', 'B3', 'B4', 'EMO']) · 공구 같음([('wrench', 0.971)])
+f00403: 버튼 같음(4개 ['B2', 'B3', 'B4', 'EMO']) · 공구 같음([('wrench', 0.948)])
+f00001: 버튼 같음(0개 []) · 공구 같음([])
+판정: ✅ 모두 같다

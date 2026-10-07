@@ -24,3 +24,12 @@
 
 - 원출력 = 이 폴더 `공구_*.txt` · `버튼_*.txt` · `한장_버튼_*.json`.
 - ⚠️ 채점 292장은 장소1(2026-09-23) · 학습과 같은 날 — 성능 수치로 인용하지 않는다(§12.89 와 같은 조건).
+
+## 시연 배치 (계획 Task 3)
+
+- `Demo/models/B-full-base-s0_ours-L2.hef`(sha `79c3180727fb0659`) · `T-full-base-albu-s0_ours-L2.hef`(sha `fcbf9d77cc6a61fa`) — 변환 결과와 같다 · git 추적.
+- config — `HEF_MODEL_PATH` = 새 버튼 HEF(되돌리기 = `console_v2.hef` 주석 줄) · `TOOL_BACKEND = "hailo"` · `TOOL_HEF_PATH` = 새 공구 HEF.
+- 시연 경로 대조(`../시연경로대조.py` · 관문 모드 = 덮어쓰기 없음 · 10-06 장소2 R3 원본 7장) ✅ 모두 같음 — 원출력 `시연경로대조.txt`.
+- 기동(`../기동확인.py` · 화면 없이 · 카메라·GPIO·인터락 없이) ✅ — GUI 로그 `[Detector] 'hailo' 백엔드 로드 완료 — B-full-base-s0_ours-L2.hef` · `[시스템] 공구 검출: 사용 가능 — NPU 적재 — T-full-base-albu-s0_ours-L2.hef · 문턱 0.65` · 창 닫기 → 종료 코드 0.
+- 자가 테스트 67/0.
+- ⏸ 실물 시연(콘솔 · 안경 · B2 렌치 「쥠」) — 다음 콘솔 작업.

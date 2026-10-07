@@ -106,7 +106,11 @@ PT_MODEL_PATH  = os.path.join(_BASE_DIR, 'models', 'person_v1.pt')
 # console_v2 = 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652 (수치 = 상위 통합문서 §10.14·§10.15).
 # ⚠️ B4 해결 여부는 아직 미판정 — 판정 기준·한계는 §10.16. v1과 대조하려면 이 줄을
 #    console_v1.hef 로 바꾸거나, replay_raw.py 는 --hef 로 런타임 지정할 수 있다.
-HEF_MODEL_PATH = os.path.join(_BASE_DIR, 'models', 'console_v2.hef')
+# 🆕 2026-10-07 시연 기준 모델 = 재학습 HEF(사용자 결정 · 설계 specs/2026-10-07-시연모델-재학습HEF-design.md) —
+#    B-full-base-s0_ours-L2(지금 버튼 학습 기준 설정 · 장소1 조건부 · 변환 관문 = 조사/HEF변환-20261004/기준모델변환-20261007).
+#    되돌리기 = 'console_v2.hef'(아래 주석 줄 — 지난 측정값의 조건).
+HEF_MODEL_PATH = os.path.join(_BASE_DIR, 'models', 'B-full-base-s0_ours-L2.hef')
+# HEF_MODEL_PATH = os.path.join(_BASE_DIR, 'models', 'console_v2.hef')
 
 # =============================================================================
 # [YOLO 설정]
@@ -442,7 +446,7 @@ TOOL_PUT_DOWN_SCANS   = 3
 #    연속 미검출을 셀 일이 없어졌다(경위 = 통합문서 §10.44).
 # 공구 추론 갈래(시연 모델 설계 2026-10-07) — "hailo" = NPU(HEF · 카메라 스레드에서 1초에 한 번 · tool_gate.HailoToolGate) ·
 # "cpu" = 종전 tool_v3.pt 워커(되돌리기 스위치 · tool_worker.py). 🔴 NPU 를 못 올려도 CPU 로 저절로 바꾸지 않는다.
-TOOL_BACKEND           = "cpu"
+TOOL_BACKEND           = "hailo"
 TOOL_HEF_PATH          = os.path.join(_BASE_DIR, 'models', 'T-full-base-albu-s0_ours-L2.hef')
 TOOL_NAMES             = ("driver", "wrench", "pliers")   # HEF 클래스 순서(§12.89 채점 --names 와 같다)
 TOOL_MODEL_PATH        = os.path.join(_BASE_DIR, 'models', 'tool_v3.pt')
