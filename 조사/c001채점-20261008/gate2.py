@@ -23,6 +23,11 @@ def parse(out, names):
 
 
 def main():
+    from score_hef_c001 import npu_users
+    busy = npu_users()
+    if busy:
+        print(f"🔴 다른 프로세스가 NPU 를 쓰고 있다 — {busy} · 끄고 다시")
+        return 1
     bad = []
     sd = C.set_dir("c001")
     for name, path, g, _pair, _s in C.HEFS:

@@ -1,9 +1,12 @@
 """Task 1 — 작업 폴더 · 라벨 고정 · 무리별 라벨 · 늘린 사진 · 크기 경계 · 관문 ③④⑤ (설계 §4.7 · §6).
 
-실행(시스템 python3): python3 prep.py
+실행(시스템 python3): python3 prep.py [--refreeze]
 출력: ~/data/c001채점/sets/<c001|dark|place1_292>/ · ~/data/c001채점/prep.json
 종료 코드 0 = 관문 ③④⑤ 모두 통과 · 1 = 하나라도 실패(중단 규칙 ①).
+🔒 이 폴더에 라벨고정.json 이 있으면 지금 라벨을 그 고정본과 먼저 대조하고, 다르면 작업 폴더를 건드리지 않고 멈춘다.
+   라벨을 바꿔 다시 채점할 때만(예: c001_2 회수 뒤) --refreeze — 그 뒤 채점은 모두 --force 로 다시(README §6 · 최종 리뷰 I2).
 """
+import argparse
 import datetime
 import hashlib
 import os
@@ -34,6 +37,19 @@ def set_lists():
     p1 = sorted(d1["공통"]["test"])
     src1 = {n: ((C.STAGE1 / "images" / f"{n}.png").resolve(), C.STAGE1 / "labels8" / f"{n}.txt") for n in p1}
     return {"c001": (c001, src2), "dark": (dark, src2), "place1_292": (p1, src1)}
+
+
+def source_shas(lists):
+    """묶음 → {이름: 지금 라벨 파일 sha256} — 작업 폴더를 만들기 전에 고정본과 대조한다."""
+    return {s: {n: sha(src[n][1]) for n in names if src[n][1].exists()} for s, (names, src) in lists.items()}
+
+
+def freeze_problems(new, frozen):
+    """다시 실행할 때 — 고정본(라벨고정.json)과 이름·내용이 다른 라벨 목록(설계 §2.1 🔒 · 최종 리뷰 I2)."""
+    probs = [f"{n} 라벨 내용이 고정본과 다름" for n in sorted(set(new) & set(frozen)) if new[n] != frozen[n]]
+    probs += [f"{n} 고정본에 있는데 지금 없음" for n in sorted(set(frozen) - set(new))]
+    probs += [f"{n} 고정본에 없는 새 라벨" for n in sorted(set(new) - set(frozen))]
+    return probs
 
 
 def split_line(line):
@@ -182,7 +198,19 @@ def train_composition():
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--refreeze", action="store_true", help="라벨이 바뀐 것을 알고 새로 고정한다(그 뒤 채점은 --force)")
+    a = ap.parse_args()
     lists = set_lists()
+    frozen_path = C.HERE / "라벨고정.json"
+    if frozen_path.exists() and not a.refreeze:
+        frozen = C.load_json(frozen_path)["묶음"]
+        now = source_shas(lists)
+        probs = [f"{s}: {p}" for s in lists for p in freeze_problems(now[s], frozen.get(s, {}).get("라벨_sha256", {}))]
+        if probs:
+            print("🔴 라벨이 고정본(라벨고정.json)과 다르다 — 작업 폴더를 건드리지 않고 멈춘다 · 일부러 바꿨으면 --refreeze 뒤 모든 채점 --force")
+            print("\n".join(probs[:20]))
+            return 1
     built = {s: build(s, names, src) for s, (names, src) in lists.items()}
     g3 = gate3(lists, built)
     g4, splits = gate4(lists)

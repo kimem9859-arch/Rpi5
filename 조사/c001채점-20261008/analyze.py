@@ -87,19 +87,26 @@ def box_axes(n, g, gt, wh, info, tags, bounds):
 
 
 def tally(model_recs, g, info, tags, bounds):
-    """모델들(시드 · HEF)의 사진별 기록 → {축: {칸: [정답, [모델별 놓침], [놓친 사진]]}} · 사진 단위 잘못 찾음."""
+    """모델들(HEF · 시드)의 사진별 기록 → 놓침 {축: {칸: [정답, [모델별 놓침], 놓친 사진, 칸의 사진]}} · 잘못 찾음 {축: {칸: [사진, [모델별]]}}.
+
+    칸(크기 · 끝 등)은 모델 0 의 정답(원본 좌표)으로 (사진, 종류)마다 한 번 정해 모든 모델에 쓴다 —
+    .pt 의 늘린 좌표 반올림으로 같은 박스가 다른 칸에 들지 않게(최종 리뷰 M5).
+    """
     names = C.NAMES[g]
-    T = defaultdict(lambda: defaultdict(lambda: [0, [0] * len(model_recs), set()]))
-    F = defaultdict(lambda: defaultdict(lambda: [0, [0] * len(model_recs)]))
+    T = defaultdict(lambda: defaultdict(lambda: [0, [0] * len(model_recs), set(), set()]))
+    F = defaultdict(lambda: defaultdict(lambda: [0, [0] * len(model_recs), set()]))
     for n in model_recs[0]:
+        r0 = model_recs[0][n]
+        axes = dict(box_axes(n, g, gt, r0.get("wh", [768, 1024]), info[n], tags, bounds) for gt in r0["gt"])
+        for name, ax in axes.items():
+            for a, v in ax.items():
+                T[a][v][0] += 1
+                T[a][v][3].add(n)
         for m, rec in enumerate(model_recs):
             st, _mis = image_status(rec[n]["gt"], rec[n]["pred"], names)
-            for gt in rec[n]["gt"]:
-                name, ax = box_axes(n, g, gt, rec[n].get("wh", [768, 1024]), info[n], tags, bounds)
-                for a, v in ax.items():
-                    if m == 0:
-                        T[a][v][0] += 1
-                    if st[name]["놓침"]:
+            for name, ax in axes.items():
+                if st[name]["놓침"]:
+                    for a, v in ax.items():
                         T[a][v][1][m] += 1
                         T[a][v][2].add(n)
             fp = sum(st[x]["잘못"] for x in names)
@@ -109,25 +116,34 @@ def tally(model_recs, g, info, tags, bounds):
                 if m == 0:
                     F[a][v][0] += 1
                 F[a][v][1][m] += fp
+                if fp:
+                    F[a][v][2].add(n)
     return T, F
 
 
+FEW = 10          # 칸의 사진이 이보다 적으면 비율 대신 사진 목록(설계 §6 · 사진 수 기준 — 최종 리뷰 I1)
+
+
 def render(title, labels, T, F):
-    md = [f"### {title}", "", f"> 칸 = {' · '.join(labels)} 의 놓침(정답 박스 기준) · 잘못 찾음(사진 기준)", ""]
+    md = [f"### {title}", "", f"> 칸 = {' · '.join(labels)} 의 놓침(정답 박스 기준) · 잘못 찾음(사진 기준) · "
+          f"「적음」 = 칸의 사진 {FEW}장 미만(비율을 읽지 않는다 · 사진 목록)", ""]
     for a, cells in T.items():
-        md += [f"#### 놓침 — {a}", "", "| 칸 | 정답 | 놓침 | 놓친 사진(정답 < 10 일 때) |", "|---|---|---|---|"]
-        for v, (tot, miss, imgs) in sorted(cells.items(), key=lambda kv: cell_key(kv[0])):
-            md.append(f"| {v} | {tot} | {' · '.join(map(str, miss))} | {', '.join(sorted(imgs)) if tot < 10 and imgs else ''} |")
+        md += [f"#### 놓침 — {a}", "", "| 칸 | 정답 | 사진 | 놓침 | 적음 · 놓친 사진 |", "|---|---|---|---|---|"]
+        for v, (tot, miss, imgs, allimgs) in sorted(cells.items(), key=lambda kv: cell_key(kv[0])):
+            few = len(allimgs) < FEW
+            md.append(f"| {v} | {tot} | {len(allimgs)} | {' · '.join(map(str, miss))} | "
+                      f"{('적음' + (' — ' + ', '.join(sorted(imgs)) if imgs else '')) if few else ''} |")
         md.append("")
     for a, cells in F.items():
-        md += [f"#### 잘못 찾음 — {a}", "", "| 칸 | 사진 | 잘못 찾음 |", "|---|---|---|"]
-        md += [f"| {v} | {tot} | {' · '.join(map(str, fp))} |" for v, (tot, fp) in sorted(cells.items(), key=lambda kv: cell_key(kv[0]))] + [""]
+        md += [f"#### 잘못 찾음 — {a}", "", "| 칸 | 사진 | 잘못 찾음 | 적음 · 잘못 찾은 사진 |", "|---|---|---|---|"]
+        md += [f"| {v} | {tot} | {' · '.join(map(str, fp))} | {('적음' + (' — ' + ', '.join(sorted(imgs)) if imgs else '')) if tot < FEW else ''} |"
+               for v, (tot, fp, imgs) in sorted(cells.items(), key=lambda kv: cell_key(kv[0]))] + [""]
     return md
 
 
 def ser(T, F):
-    return {"놓침": {a: {v: {"정답": t, "놓침": m, "사진": sorted(i)} for v, (t, m, i) in c.items()} for a, c in T.items()},
-            "잘못": {a: {v: {"사진": t, "잘못": f} for v, (t, f) in c.items()} for a, c in F.items()}}
+    return {"놓침": {a: {v: {"정답": t, "놓침": m, "사진": sorted(i), "사진수": len(al)} for v, (t, m, i, al) in c.items()} for a, c in T.items()},
+            "잘못": {a: {v: {"사진": t, "잘못": f, "잘못사진": sorted(i)} for v, (t, f, i) in c.items()} for a, c in F.items()}}
 
 
 def overlay(n, set_name, rec, g):

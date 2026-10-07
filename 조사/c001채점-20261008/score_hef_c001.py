@@ -17,7 +17,8 @@ SWEEP = [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90]       # score_hef
 
 
 def npu_users():
-    """/dev/hailo0 을 연 다른 프로세스(pid · 명령줄) — 시연은 Demo/main.py 로 뜨므로 이름이 아니라 장치로 본다."""
+    """/dev/hailo0 을 연 다른 프로세스(pid · 명령줄) — 시연은 Demo/main.py 로 뜨므로 이름이 아니라 장치로 본다.
+    ⚠️ 다른 사용자(root 등)의 프로세스는 fd 를 볼 수 없어 건너뛴다 — 그때 장치 경쟁은 HailoRT 오류로 크게 드러난다(조용히 틀리지 않음)."""
     me, out = os.getpid(), []
     for pdir in Path("/proc").glob("[0-9]*"):
         try:
@@ -59,7 +60,8 @@ def main():
              for c in SWEEP}
     C.write_json(C.W / "out" / "hef" / a.set / f"{name}.json",
                  {"hef": name, "group": g, "set": a.set, "요약": scoring.summarize(per_image, names, C.CONF),
-                  "사진별": rec, "훑기": sweep, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+                  "사진별": rec, "훑기": sweep, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                  "라벨지문": C.load_json(C.W / "prep.json")["묶음"][a.set]["지문"]})
     s = scoring.summarize(per_image, names, C.CONF)
     print(f"{name} {a.set} 사진 {s['사진']} · 정답 {s['정답박스']} — 저장")
 

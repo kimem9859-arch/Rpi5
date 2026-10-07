@@ -119,10 +119,11 @@ def f2(J):
                     ax.text(1.02, y, "▲ 위로" if v == "위로 갈림" else "▼ 아래로", transform=ax.get_yaxis_transform(),
                             va="center", fontsize=8.5, color=INK, clip_on=False)
             pad = max(0.01, (max(allv) - min(allv)) * 0.15)
-            ax.set_xlim(min(allv) - pad, max(allv) + pad)
+            ax.set_xlim(min(allv) - pad, min(max(allv) + pad, 1.0) if max(allv) <= 1.0 else max(allv) + pad)   # 재현율·정밀도 축은 1.0 에서 멈춘다(M4)
             ax.set_yticks(range(len(rows)))
             ax.set_yticklabels([s + (" (초벌 편향)" if s in C.DRAFT_BIASED else "") for s in rows][::-1])
-            ax.set_title("정밀도(전체)" if k == "P" else f"{kn(k)} 재현율", loc="left", fontsize=10)
+            n_gt = C.C001_BOXES.get(C.KEY_CLASS.get(k, ""), 0)
+            ax.set_title("정밀도(전체)" if k == "P" else f"{kn(k)} 재현율 · 박스 1개 = {1 / n_gt:.3f}", loc="left", fontsize=10)   # 칸 폭을 개수로 읽게(M4)
             style(ax)
         for ax in list(axes.flat)[len(keys):]:
             ax.axis("off")
@@ -147,7 +148,7 @@ def f3(J):
             vs = [value(J["모델요약"]["c001"][i], k) for i in C.setting(hd[4])[2]]
             ax.plot([min(vs), max(vs)], [y, y], color=MUTED, linewidth=2, solid_capstyle="round")
             ax.scatter(vs, [y] * 3, s=40, color=MUTED, edgecolors=SURF, linewidths=2, zorder=3, clip_on=False)
-            ax.scatter([v["지표"][k]["hef"]], [y], s=80, marker="D", color=ACCENT, edgecolors=SURF, linewidths=2, zorder=4, clip_on=False)
+            ax.scatter([v["지표"][k]["hef"]], [y], s=110, marker="D", facecolors="none", edgecolors=ACCENT, linewidths=2.2, zorder=4, clip_on=False)   # 속 빈 마름모 — 아래 시드 점이 보이게(최종 리뷰 M3)
             if v["지표"][k]["판정"] != "같은 수준":
                 ax.text(1.02, y, "손실 의심", transform=ax.get_yaxis_transform(), va="center", fontsize=8.5, clip_on=False)
         ax.set_yticks(range(len(keys)))
@@ -155,7 +156,7 @@ def f3(J):
         ax.set_title(f"{v['hef']}\n↔ .pt {hd[4]}", loc="left", fontsize=9.5)
         style(ax)
     fig.legend(handles=[Line2D([], [], marker="o", color=MUTED, linewidth=2, markersize=7, label=".pt 시드 3개(파이 CPU)"),
-                        Line2D([], [], marker="D", color=ACCENT, linestyle="none", markersize=8, label="HEF(파이 Hailo-8 · 시연 검출기)")],
+                        Line2D([], [], marker="D", markerfacecolor="none", markeredgecolor=ACCENT, markeredgewidth=2, linestyle="none", markersize=9, label="HEF(파이 Hailo-8 · 시연 검출기)")],
                loc="upper left", bbox_to_anchor=(0.01, 0.93), ncol=2, frameon=False, fontsize=9)
     fig.suptitle("c001 변환 손실 — HEF 가 같은 설정 .pt 의 시드 범위 안인가(재현율 · 정밀도)", x=0.01, y=0.99, ha="left", fontsize=13, fontweight="semibold")
     fig.text(0.01, -0.05, CITE + " · 「같은 수준」 = 시드 범위 안 또는 짝 .pt 와 1개 차이 이내(설계 §5.4)", fontsize=8, color=MUTED)
@@ -176,7 +177,7 @@ def f4(E):
             rates = [c["놓침"][0] / c["정답"] for _v, c in cells]
             ax.barh(ys, rates, height=0.42, color=ACCENT)
             for y, (_v, c), r in zip(ys, cells, rates):
-                ax.text(r + 0.01, y, f"{c['놓침'][0]}/{c['정답']}" + (" · 적음" if c["정답"] < 10 else ""),
+                ax.text(r + 0.01, y, f"{c['놓침'][0]}/{c['정답']}" + (f" · 사진 {c['사진수']}장 · 적음" if c["사진수"] < 10 else ""),
                         va="center", color=INK2, fontsize=8.5)
             ax.set_yticks(ys)
             ax.set_yticklabels([v for v, _c in cells])
@@ -185,7 +186,7 @@ def f4(E):
             style(ax)
         hname = next(h[0] for h in C.HEFS if h[4] == sname)
         fig.suptitle(f"c001 놓침 비율 — {hname}(원인 분석용 · 사후 층화 · 성능 수치 아님)", x=0.01, y=1.06, ha="left", fontsize=12, fontweight="semibold")
-        fig.text(0.01, -0.06, "칸 글자 = 놓침/정답 박스 · 「적음」 = 정답 10개 미만(비율을 읽지 않는다)"
+        fig.text(0.01, -0.06, "칸 글자 = 놓침/정답 박스 · 「적음」 = 칸의 사진 10장 미만(비율을 읽지 않는다 · 설계 §6)"
                  + (f" · 칸이 하나뿐이라 뺀 축: {', '.join(one)}" if one else "") + " · " + CITE, fontsize=8, color=MUTED)
         save(fig, fname)
 

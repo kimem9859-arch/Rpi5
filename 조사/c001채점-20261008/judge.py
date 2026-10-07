@@ -8,6 +8,7 @@ import sys
 
 import common as C
 import ledger
+from score_lib import operating_point
 
 
 
@@ -33,8 +34,61 @@ def label(kind, cand, verdict):
     if down and not up:
         return f"장소2 손해 표시({show(down)})"
     if up and down:
-        return f"엇갈림(위: {show(up)} · 아래: {show(down)})"
+        return f"엇갈림(위: {show(up)} · 아래: {show(down)})" + (" · 위쪽은 초벌 편향 가능" if cand in C.DRAFT_BIASED else "")
     return "장소2 에서도 못 가림"
+
+
+def pan_of_settings():
+    """설정 → 판(albumentations 유무) — 시드 3개가 같은 판인지도 확인한다(최종 리뷰 M8)."""
+    out = {}
+    for name, _g, ids, _use in C.SETTINGS:
+        v = {C.load_json(C.RESULTS / i / "요약.json")["판"].get("albumentations") for i in ids}
+        if len(v) != 1:
+            raise ValueError(f"{name} 시드끼리 판이 다르다 {v}")
+        out[name] = v.pop()
+    return out
+
+
+def pan_problems(compare, pan):
+    """Q4 = 같은 판의 기준과 · 판 확인 = 다른 판끼리 — 설계 §5.2·§5.3 의 짝이 요약.json 「판」과 맞는지."""
+    probs = []
+    for kind, cand, base, _d in compare:
+        if kind == "Q4" and pan[cand] != pan[base]:
+            probs.append(f"Q4 {cand} ↔ {base} 판이 다르다")
+        if kind == "판" and pan[cand] == pan[base]:
+            probs.append(f"판 확인 {cand} ↔ {base} 가 같은 판이다")
+    return probs
+
+
+def fp_problems(outs, prep):
+    """모든 출력의 라벨 지문 = 지금 prep.json 의 묶음 지문 — 옛 라벨 결과가 섞이지 않게(최종 리뷰 I2)."""
+    return [f"{k} 라벨지문 {o.get('라벨지문')} ≠ {prep[o['set']]['지문']}" for k, o in outs.items() if o.get("라벨지문") != prep[o["set"]]["지문"]]
+
+
+def model_info():
+    """모델마다 종료이유 · 에폭 · conf · 판 · 이상 · 이어서 — 결과 폴더 요약.json(설계 §3.2 · 최종 리뷰 M9)."""
+    out = {}
+    for i in C.all_ids():
+        su = C.load_json(C.RESULTS / i / "요약.json")
+        out[i] = {"설정": C.setting_of_id(i), "종료이유": su.get("종료이유"), "에폭": su.get("에폭"), "best_epoch": su.get("best_epoch"),
+                  "conf": su.get("conf"), "판": "B" if su["판"].get("albumentations") else "A",
+                  "나눔": (su.get("나눔") or {}).get("name"), "이상": bool(su.get("이상")), "이어서": bool(su.get("이어서"))}
+    return out
+
+
+def pair_disagree(hef_rec, pt_rec, names):
+    """짝 단위 불일치(참고 · 판정 규칙 아님 · 최종 리뷰 제안 3) — 같은 사진·같은 종류에서 HEF 만 놓침 / .pt 만 놓침.
+    종류마다 사진에 박스가 많아야 1개라(설계 §2.1) 좌표계가 달라도(.pt = 640 늘린 좌표) 종류로 짝지을 수 있다."""
+    hef_only, pt_only = [], []
+    for n in hef_rec:
+        h = operating_point({"x": ([tuple(g) for g in hef_rec[n]["gt"]], [tuple(p) for p in hef_rec[n]["pred"]])}, names, C.CONF)
+        q = operating_point({"x": ([tuple(g) for g in pt_rec[n]["gt"]], [tuple(p) for p in pt_rec[n]["pred"]])}, names, C.CONF)
+        for k in names:
+            if h[k]["fn"] and not q[k]["fn"]:
+                hef_only.append((n, k))
+            if q[k]["fn"] and not h[k]["fn"]:
+                pt_only.append((n, k))
+    return len(hef_only), len(pt_only), hef_only, pt_only
 
 
 def count_of(sc, key):
@@ -115,6 +169,14 @@ def tool_fp_on_empty(rec):
 
 
 def main():
+    probs = pan_problems(C.COMPARE, pan_of_settings())
+    prep = C.load_json(C.W / "prep.json")["묶음"]
+    outs = {f"pt/{s}/{i}": C.load_json(C.W / "out" / "pt" / s / f"{i}.json") for s in ("c001", "dark") for i in C.all_ids()}
+    outs.update({f"hef/{s}/{h[0]}": C.load_json(C.W / "out" / "hef" / s / f"{h[0]}.json") for s in ("c001", "dark") for h in C.HEFS})
+    probs += fp_problems(outs, prep)
+    if probs:
+        print("🔴 판정 전 확인 실패 — " + " · ".join(probs[:10]))
+        return 1
     md, js = ["# c001 채점 판정 (자동 생성 — judge.py · 손으로 고치지 않는다)", "",
               "> 칸의 재현율 = 맞게 찾은 수/정답 · 정밀도 = 소수 · 시드 칸 = 시드 0 · 1 · 2 · conf 0.65 · IoU 0.5 · 규칙 = 설계 §5(채점 전 고정)", ""], {}
     js["모델요약"] = {s: {i: pt(s, i) for i in C.all_ids()} for s in ("c001", "dark")}
@@ -148,6 +210,14 @@ def main():
         md += [f"### {name} ↔ {sname}", "", "| 지표 | HEF | .pt 시드 0 | .pt 시드 3개 범위 | 개수 차(HEF − 시드 0) | 판정 |", "|---|---|---|---|---|---|"]
         md += [f"| {C.KEY_CLASS.get(k, '정밀도')} | {v['hef']:.3f} | {v['pt_s0']:.3f} | {v['pt_범위'][0]:.3f}~{v['pt_범위'][1]:.3f} | {v['개수차']:+d} | {v['판정']} |"
                for k, v in r.items()] + [""]
+        dis = {}
+        for s in ("c001", "dark"):
+            a, b, ha, pb = pair_disagree(hef(s, name)["사진별"], C.load_json(C.W / "out" / "pt" / s / f"{pair}.json")["사진별"], C.NAMES[g])
+            dis[s] = {"HEF만": a, "pt만": b, "HEF만_목록": ha, "pt만_목록": pb}
+            md.append(f"- 짝 단위 불일치(참고 · 판정 규칙 아님) {s} — HEF 만 놓침 {a}" + (f"({', '.join(f'{x}·{k}' for x, k in ha)})" if s == "dark" and ha else "")
+                      + f" · .pt 시드 0 만 놓침 {b}")
+        js["변환"][-1]["짝불일치"] = dis
+        md.append("")
 
     # Q3 · 판 · Q4
     js["비교"] = []
@@ -168,6 +238,16 @@ def main():
                    f"{' · '.join(str(s['오분류']) for s in bs)} / {' · '.join(str(s['오검출']) for s in bs)} | (참고) |", ""]
         if kind == "Q4":
             md += ["> 🔴 후보 15개 × 지표 4~6개를 견줬다 — 효과가 없어도 몇 개는 우연히 위로 갈린다(1/20 씩). 「재시험 후보」는 2단계에서 시드 3개로 다시 보고 장소3 으로 확인한다.", ""]
+
+    # 모델 정보(설계 §3.2)
+    js["모델정보"] = model_info()
+    md += ["## 모델 정보 (결과 폴더 요약.json · 설계 §3.2)", "", "| 설정 | 판 · 나눔 | 종료이유(시드 0 · 1 · 2) | 에폭(끝 / 가장 좋은) | conf | 이상 · 이어서 |", "|---|---|---|---|---|---|"]
+    for sname, _g, ids, _use in C.SETTINGS:
+        v = [js["모델정보"][i] for i in ids]
+        md.append(f"| {sname} | {v[0]['판']} · {v[0]['나눔']} | {' · '.join(str(x['종료이유']) for x in v)} | "
+                  f"{' · '.join(str(x['에폭']) + '/' + str(x['best_epoch']) for x in v)} | {v[0]['conf']} | "
+                  f"{'없음' if not any(x['이상'] or x['이어서'] for x in v) else '있음'} |")
+    md.append("")
 
     # 장소1 참고
     md += ["## 장소1 채점 292장 (참고 · 다른 사진 · 저장된 채점.json)", "", "| 설정 | 지표별 시드 0 · 1 · 2 |", "|---|---|"]

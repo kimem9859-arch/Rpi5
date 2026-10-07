@@ -38,7 +38,7 @@
 | `.pt`(파이 CPU · rfenv ultralytics 8.4.117) | `score_pt.py` | 설정.json 「입력」대로(640 늘리기 / 원본 768×1024) → `predict(conf 0.001)` → `학습/scoring.py` `gts_from_lines` · `preds_from` · `summarize` — `score_model` 과 같은 순서 + 사진별 기록 |
 | HEF(파이 Hailo-8) | `score_hef_c001.py` | `detector.create_detector()`(시연 검출기 · 640 늘리기 · HEF 안 NMS 0.25/0.7 · 0.50 미만 버림) → `score_hef.load_labels`(무리별 라벨) → `summarize` · conf 훑기 · HEF 마다 프로세스 하나 · NPU 를 다른 프로세스가 쓰면 멈춤 |
 | 정답 맞추기 | `Demo/test/score_lib.py` | 종류별 · 점수 순 · IoU ≥ 0.5 짝 · 운용점 0.65 · 혼동표(오분류 = 대각선 밖) |
-| 판정 | `judge.py` | `학습/ledger.py` `adopt`(시드 3개 · 후보 최저 > 기준 최고 = 위로 갈림) · 규칙 = 설계 §5(채점 전 고정) · 자체 시험 12종 |
+| 판정 | `judge.py` | `학습/ledger.py` `adopt`(시드 3개 · 후보 최저 > 기준 최고 = 위로 갈림) · 규칙 = 설계 §5(채점 전 고정) · 자체 시험 12종 · 판정 전에 같은 판 짝(요약.json 「판」)과 라벨 지문을 확인 · 모델 정보 · Q2 짝 단위 불일치(참고) |
 | 오류 분석 | `analyze.py` | 사진 한 장씩 `score_lib` → 축(종류 · 장면 · 밝기 · 크기 · 끝 · 쥠/놓임 · 가위 세션 · 공구 없는 사진) · 🔴 사후 층화(원인 분석용) · 자체 시험 |
 | 그림 | `charts.py` | 판정.json · 오류분석.json · 라벨고정.json → `그림/` (dataviz 기준 팔레트 · 검사기 통과) |
 
@@ -56,7 +56,8 @@
 
 ```bash
 cd ~/sop-project/Rpi5/조사/c001채점-20261008
-python3 prep.py                                      # 작업 폴더 · 라벨 고정 · 관문 ③④⑤ (약 20초)
+python3 selftest_c001.py                             # 스크립트 자체 시험(최종 리뷰 지적 고정 · 20개)
+python3 prep.py                                      # 작업 폴더 · 라벨 고정 · 관문 ③④⑤ (약 20초) — 라벨이 라벨고정.json 과 다르면 멈춘다
 python3 crops.py && python3 crops.py --check         # 쥠/놓임 모음 사진 · 표시 검사(표시는 쥠놓임.json)
 ~/env/rfenv/bin/python score_pt.py --set place1_292 --ids E15-button-base E13-tool-base E1c-tool-f120in1024 && python3 gate1.py   # 관문 ① (약 6분)
 for h in B-full-base-s0_ours-L2 T-full-base-albu-s0_ours-L2 B-early-base-s0_ours-L2 T-full-base-s0_ours-L2; do python3 score_hef_c001.py --hef $h --set c001; python3 score_hef_c001.py --hef $h --set dark; done
@@ -66,6 +67,9 @@ python3 judge.py --self-test && python3 judge.py     # 판정.md · 판정.json
 python3 analyze.py --self-test && python3 analyze.py # 오류분석.md · 오류분석.json · 오류 사진
 ~/env/rfenv/bin/python charts.py                     # 그림/
 ```
+
+- 🔒 **라벨을 바꿔 다시 채점할 때**(예: `c001_2` 회수 뒤) — `python3 prep.py --refreeze` → `라벨고정.json` 을 새 `prep.json` 으로 바꿔 커밋 → `score_pt.py --force` · `score_hef_c001.py` 를 모든 묶음에 다시. 출력마다 「라벨지문」이 있고 `score_pt` 는 지문까지 같을 때만 건너뛰며, `judge.py` 는 지문이 `prep.json` 과 다른 출력이 하나라도 있으면 멈춘다(최종 리뷰 I2 — 옛 라벨 결과가 섞이지 않게).
+- 기존 출력 131개의 「라벨지문」은 최종 리뷰 뒤에 채웠다 — 채우기 전에 작업 폴더 라벨 216개가 고정본 sha256 과 모두 같음을 확인했다(채점 때와 같은 라벨).
 
 ## 7. 작업 폴더 (저장소 밖 · `~/data/c001채점/`)
 

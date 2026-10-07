@@ -8,23 +8,39 @@ import argparse
 import platform
 import sys
 import time
+from pathlib import Path
 
 import common as C
 import scoring
+import trainconf as TC
 
 KEEP = 0.25            # 사진별 기록에 남길 예측 점수 하한(분석용 · mAP 는 실행 중 0.001 까지로 계산) — 설계 §4.2
 
 
-MODES = {"늘리기640": (640, [640, 640]), "원본768x1024": ([1024, 768], None)}   # 학습/trainconf.py INPUT_MODES 의 (predict_imgsz, stretch)
+MODES = TC.INPUT_MODES          # 입력 방식 표 = 학습 체계 그대로(복제하지 않는다 · 최종 리뷰 M6)
 
 
 def model_input(rid):
     """입력 방식 · 추론 크기 = 결과 폴더 설정.json(학습 때 job 이 쓴 값) — trainconf 표와 어긋나면 멈춘다."""
     cfg, su = C.load_json(C.RESULTS / rid / "설정.json"), C.load_json(C.RESULTS / rid / "요약.json")
     mode, imgsz = cfg["입력"], cfg["predict_imgsz"]
-    if MODES.get(mode) != (imgsz, cfg.get("stretch")):
+    m = MODES.get(mode)
+    if m is None or (m["predict_imgsz"], m["stretch"]) != (imgsz, cfg.get("stretch")):
         sys.exit(f"🔴 {rid} 입력 방식 {mode} · 추론 크기 {imgsz} · 늘리기 {cfg.get('stretch')} 가 trainconf 표와 다르다")
     return mode, imgsz, su.get("best_sha256")
+
+
+def label_fp(set_name):
+    """그 묶음의 라벨 고정 지문(prep.json) — 출력에 남겨, 라벨이 바뀐 뒤 옛 결과를 조용히 다시 쓰지 않게(최종 리뷰 I2)."""
+    return C.load_json(C.W / "prep.json")["묶음"][set_name]["지문"]
+
+
+def up_to_date(out, want_n, fp):
+    """건너뛸 수 있나 — 출력이 있고 사진 수와 라벨 지문이 모두 같을 때만."""
+    if not Path(out).exists():
+        return False
+    o = C.load_json(out)
+    return o["요약"]["사진"] == want_n and o.get("라벨지문") == fp
 
 
 def score_one(rid, set_name, env):
@@ -46,7 +62,8 @@ def score_one(rid, set_name, env):
         per_image[n] = (gts, preds)
         rec[n] = {"wh": [w, h], "gt": [list(x) for x in gts], "pred": [list(p) for p in preds if p[1] >= KEEP]}
     return {"id": rid, "setting": C.setting_of_id(rid), "group": g, "set": set_name, "입력": mode, "imgsz": imgsz,
-            "요약": scoring.summarize(per_image, names, C.CONF), "사진별": rec, "환경": env, "best_sha256": best_sha}
+            "요약": scoring.summarize(per_image, names, C.CONF), "사진별": rec, "환경": env, "best_sha256": best_sha,
+            "라벨지문": label_fp(set_name)}
 
 
 def main():
@@ -59,10 +76,10 @@ def main():
     import ultralytics
     env = {"ultralytics": ultralytics.__version__, "torch": torch.__version__, "장치": "cpu", "기계": platform.machine()}
     ids = a.ids or C.all_ids()
-    want = len(C.set_names(a.set))
+    want, fp = len(C.set_names(a.set)), label_fp(a.set)
     for k, rid in enumerate(ids, 1):
         out = C.W / "out" / "pt" / a.set / f"{rid}.json"
-        if out.exists() and not a.force and C.load_json(out)["요약"]["사진"] == want:
+        if not a.force and up_to_date(out, want, fp):
             print(f"[{k}/{len(ids)}] {rid} 건너뜀(있음)", flush=True)
             continue
         t0 = time.time()
