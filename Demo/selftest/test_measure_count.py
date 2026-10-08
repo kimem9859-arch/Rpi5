@@ -270,6 +270,13 @@ def test_count_all_keys():
                    "V1", "V2", "V3", "V4", "V9"}, f"{sorted(keys)}")
 
 
+def test_fps_short_session():
+    print("\n[13] 창(60간격)이 한 번도 안 찼으면 최저·최장을 내지 않는다 — 「0초」로 읽히지 않게")
+    fs = [FS(100 * i, t_gui=100 * i) for i in range(10)]
+    f = MC.v_fps(S_(fsm=fs), below=15.0)
+    check(f["roll_min"] == [] and f["low_longest"] == [] and len(f["iv"]) == 9, f"{f['roll_min']} {f['low_longest']}")
+
+
 if __name__ == "__main__":
     for _name, _fn in list(globals().items()):
         if _name.startswith("test_") and callable(_fn):

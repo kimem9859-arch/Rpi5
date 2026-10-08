@@ -356,7 +356,7 @@ def v_fps(S, below=None):
         else:
             low_start = None
     return {"iv": keep, "roll_min": [round(min(mins), 2)] if mins else [],
-            "low_longest": [round(longest, 3)] if below is not None else [],
+            "low_longest": [round(longest, 3)] if below is not None and mins else [],   # 창이 안 찼으면 잰 적이 없다
             "fps_ev": [d["fps"] for _, k, d in S["events"] if k == "fps" and d.get("fps") is not None]}
 
 
