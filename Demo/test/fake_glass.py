@@ -12,7 +12,7 @@
           쓰기가 `write_block_sec` 넘게 막히면 펌웨어처럼 끊는다(c.write 실패 → c.stop()).
     8890  명령/스피커 — 펌웨어와 **같은 응답 줄**:
           W → `[준비] …` · 2048바이트마다 `[다음]` · `[적재] … ok` / `[FAIL] …`
-          P → `[재생] …` · (재생 시간) · `[재생 완료]`   B → 띠링(응답 없음)   1~5 → 음량(응답 없음)
+          P → `[재생] …` · (재생 시간) · `[재생 완료]`   B → 띠링 · C → 닫힘음(둘 다 응답 없음)   1~5 → 음량(응답 없음)
           S → 재생 중이면 `[재생 중단]`(2단계 펌웨어 · 설계 2026-10-04 §4.3) · 아니면 그냥 지나감
               (`supports_stop=False` = 옛 펌웨어 — 재생을 끝까지 하고 S 는 뒤에 그냥 지나감)
           새 손님이 오면 옛 손님을 끊고 갈아탄다(펌웨어 규칙).
@@ -266,6 +266,11 @@ class FakeGlass:
                     f.readline()
                     self._event("chime", time.time())
                     self._log("🔔 띠링")
+                    time.sleep(0.43 * self.play_speed)
+                elif ch == b"C":
+                    f.readline()
+                    self._event("close_chime", time.time())
+                    self._log("🔕 닫힘음")
                     time.sleep(0.43 * self.play_speed)
                 elif ch == b"W":
                     held = self._cmd_write(f, say)

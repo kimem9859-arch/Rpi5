@@ -16,6 +16,7 @@
  *
  * 포트: 8888 카메라(기존) · 8889 마이크 업링크 · 8890 명령/스피커
  * 멈춤 명령(8890): S — 재생 중이면 멈추고 [재생 중단] · 아니면 무시(음성 설계 2026-10-04 §4.3)
+ * 소리 명령(8890): B — 띠링(대화창 열림) · C — 닫힘음(대화창 닫힘 · 2026-10-09) · 둘 다 응답 줄 없음
  *
  * 🔴 **응답은 반드시 `io->` 로 낸다**(2026-09-07 에 물렸다) — 흐름 제어만 io-> 이고
  *    나머지가 Serial. 이면 **USB 에서는 멀쩡하고 무선에서만 터진다**(io==Serial 이라
@@ -357,39 +358,77 @@ static void cmdDump() {
 }
 
 
-/** 「띠링」 — 호출을 들었다는 표시. 명령 1바이트로 즉시 난다.
+/** 띠링·닫힘음의 음 높이(Hz) — 🔴 1175Hz 는 쓰지 않는다(2026-10-08 · 안경 프레임 안 실측).
+ *  같은 진폭으로 냈는데 1175Hz 는 마이크에 1568Hz 의 약 8%(−11dB)로만 들어오고, 대신 2배음(2350Hz)이
+ *  그 음보다 크게 났다 — 사용자가 들은 「선명하지 않고 지지직」. 1568Hz 는 배음 1.9% 로 깨끗했다.
+ *  펌웨어는 깨끗한 사인을 만든다 — 일그러짐은 스피커·프레임(음향) 쪽이라 스피커가 잘 내는 높이로 옮긴다.
+ *  🔑 열림(호출) = 낮은 음 → 높은 음 두 음 · 닫힘 = 높은 음 → 낮은 음으로 미끄러지며 사라짐(같은 두 높이).
+ */
+static const float CHIME_LO = 1568.0f;   // G6
+static const float CHIME_HI = 2093.0f;   // C7
+static const float FADE_MS  = 5.0f;      // 🔑 음마다 앞뒤를 이만큼 서서히 켜고 끈다 — 갑자기 켜면 「딸깍」(10/8 띠링 10번 중 3번)
+
+/** 한 음(또는 무음)을 I2S 에 써 넣는다 — 띠링·닫힘음 공통.
+ *  주파수는 f0 → f1 로 지수 곡선을 따라 미끄러진다(f0 == f1 이면 고정음) · amp 0 = 무음.
+ *  decay = 진폭이 끝으로 갈수록 0 으로 줄어든다(닫힘음 「꺼지는」 느낌).
+ *  🔑 위상 `ph` 를 음 사이에 이어 받는다 — 끊기지 않는 한 덩어리로 써야 DMA 가 직전 버퍼를 되풀이하지 않는다.
+ */
+static void toneSeg(float f0, float f1, int ms, int amp, bool decay, float &ph) {
+  static int16_t buf[256 * 2];
+  const size_t frames = (size_t)((uint64_t)RATE * ms / 1000);
+  const size_t fade = (size_t)(RATE * FADE_MS / 1000.0f);
+  for (size_t done = 0; done < frames; done += 256) {
+    const size_t n = (frames - done < 256) ? (frames - done) : 256;
+    for (size_t i = 0; i < 256; i++) {
+      int16_t v = 0;
+      if (i < n && amp > 0) {
+        const size_t k = done + i;
+        const float x = (float)k / (float)frames;               // 0 → 1
+        const float f = (f0 == f1) ? f0 : f0 * powf(f1 / f0, x);
+        ph += 2.0f * (float)M_PI * f / (float)RATE;
+        if (ph > 2.0f * (float)M_PI) ph -= 2.0f * (float)M_PI;
+        float env = 1.0f;
+        if (k < fade)               env = 0.5f - 0.5f * cosf((float)M_PI * k / fade);
+        else if (k + fade >= frames) env = 0.5f - 0.5f * cosf((float)M_PI * (frames - 1 - k) / fade);
+        if (decay) env *= (1.0f - x);
+        v = (int16_t)(sinf(ph) * amp * env);
+      }
+      buf[i * 2 + 0] = v;        // 🔴 SD=3V3 라 왼쪽 채널만 난다
+      buf[i * 2 + 1] = 0;
+    }
+    spk.write((uint8_t *)buf, sizeof(buf));
+  }
+}
+
+/** 「띠링」 — 호출을 들었다는 표시(대화창이 열림). 명령 한 글자 `B` 로 즉시 난다.
  *  🔑 wav 로 보내면 0.3초가 더 붙는데, 호출 응답은 즉각적이어야 한다.
  *
  *  🔴 **중간에 delay() 를 두지 않는다** — I2S 가 비어 도는 동안 DMA 가 직전
  *     버퍼를 반복해 「지지직」 이 난다(2026-09-07 에 실제로 그렇게 들렸다).
- *     앞뒤 여백까지 **끊김 없는 한 덩어리**로 써 넣는다.
+ *     앞뒤 여백까지 **끊김 없는 한 덩어리**로 써 넣는다(toneSeg 를 이어 부른다).
+ *  길이 = 30 + 120 + 40 + 180 + 60 = 430ms — 파이는 띠링 뒤 0.8초 마이크 소리를 버린다(CHIME_MUTE_SEC).
  */
 static void chime() {
   setSpkRate(RATE);
   const int AMP = TARGET[volIdx];
-  static int16_t buf[256 * 2];
-  // (주파수, ms) — 0Hz 는 무음. 앞 여백이 있어야 첫 음이 안 잘린다.
-  const struct { float hz; int ms; } SEQ[] = {
-    {0, 30}, {1175, 120}, {0, 40}, {1568, 180}, {0, 60}
-  };
   float ph = 0.0f;
-  for (size_t k = 0; k < sizeof(SEQ) / sizeof(SEQ[0]); k++) {
-    const size_t frames = (size_t)((uint64_t)RATE * SEQ[k].ms / 1000);
-    for (size_t done = 0; done < frames; done += 256) {
-      const size_t n = (frames - done < 256) ? (frames - done) : 256;
-      for (size_t i = 0; i < 256; i++) {
-        int16_t v = 0;
-        if (i < n && SEQ[k].hz > 0) {
-          ph += 2.0f * (float)M_PI * SEQ[k].hz / (float)RATE;
-          if (ph > 2.0f * (float)M_PI) ph -= 2.0f * (float)M_PI;
-          v = (int16_t)(sinf(ph) * AMP);
-        }
-        buf[i * 2 + 0] = v;        // 🔴 SD=3V3 라 왼쪽 채널만 난다
-        buf[i * 2 + 1] = 0;
-      }
-      spk.write((uint8_t *)buf, sizeof(buf));
-    }
-  }
+  toneSeg(0, 0, 30, 0, false, ph);                 // 앞 여백 — 첫 음이 안 잘린다
+  toneSeg(CHIME_LO, CHIME_LO, 120, AMP, false, ph);
+  toneSeg(0, 0, 40, 0, false, ph);
+  toneSeg(CHIME_HI, CHIME_HI, 180, AMP, false, ph);
+  toneSeg(0, 0, 60, 0, false, ph);
+}
+
+/** 닫힘음 — 대화창이 닫힘(질문 없이 20초 · 답을 마침). 명령 한 글자 `C`.
+ *  높은 음에서 낮은 음으로 미끄러지며 작아진다 — 띠링의 거꾸로(사용자 2026-10-09).
+ *  길이 = 30 + 340 + 60 = 430ms(띠링과 같게 — 파이의 메아리 버림 0.8초가 그대로 덮는다).
+ */
+static void closeChime() {
+  setSpkRate(RATE);
+  float ph = 0.0f;
+  toneSeg(0, 0, 30, 0, false, ph);
+  toneSeg(CHIME_HI, CHIME_LO, 340, TARGET[volIdx], true, ph);
+  toneSeg(0, 0, 60, 0, false, ph);
 }
 
 /** 한 글자 명령을 처리한다 — 유선/무선 공통. */
@@ -401,6 +440,7 @@ static void handleCmd(char c) {
   } else if (c == 'D') { readLine(50); cmdDump(); }
   else if (c == 'P')   { readLine(50); play(); }
   else if (c == 'B')   { readLine(50); chime(); }
+  else if (c == 'C')   { readLine(50); closeChime(); }   // 🔑 옛 펌웨어는 C 를 모르면 그냥 지나간다(파이를 먼저 넣어도 된다)
   else if (c == 'r')   { record(3); if (hasRec) { delay(200); play(); } }
   else if (c == 'p')   { play(); }
   else if (c >= '1' && c <= '5') {

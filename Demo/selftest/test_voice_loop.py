@@ -51,6 +51,10 @@ class FakeSpk:
         self.calls.append(("chime",))
         return True
 
+    def close_chime(self):
+        self.calls.append(("close",))
+        return True
+
     def play(self, key, alog=None, still_valid=None):
         if still_valid is not None and not still_valid():
             self.calls.append(("dropped",))
@@ -142,6 +146,57 @@ def test_wake_only_chimes():
     m = {}
     check(b.on_text("가디언", m) is False, "답한 것이 아니다(소리를 버리지 않는다)")
     check(b.spk.calls == [("chime",)] and b.awake_until > time.time(), "띠링 + 깨어남")
+
+
+def test_close_after_answer():
+    """닫힘음(사용자 2026-10-09) — 답을 마쳐 대화창이 닫히면 닫힘음 + 그 메아리를 버린다."""
+    print("\n[갈래] 답 끝 → 닫힘음")
+    b = bot()
+    ok, m = ask(b, "지금 몇 단계야")
+    check(ok and b.spk.calls[-1] == ("close",), f"답 뒤 마지막이 닫힘음 · {b.spk.calls}")
+    check(b.awake_until == 0.0 and b.chime_muted(), "창 닫힘 · 닫힘음 메아리 버림 중")
+
+
+def _clocked(states=None):
+    t, st = [1000.0], [STATE]
+    b = va.Assistant(FakeSpk(), FakeTts(), FakeLlm(), read_state=lambda: st[0], read_tools=lambda: WRENCH,
+                     clock=lambda: t[0])
+    return b, t, st
+
+
+def test_close_on_timeout():
+    """닫힘음 — 「가디언」 뒤 질문 없이 LISTEN_SEC 가 지나면 한 번만 닫힘음."""
+    print("\n[갈래] 질문 없이 20초 → 닫힘음")
+    b, t, _ = _clocked()
+    b.on_text("가디언", {})
+    b.tick()
+    check(b.spk.calls == [("chime",)], f"창 안 — 아직 안 닫힘 · {b.spk.calls}")
+    t[0] += va.LISTEN_SEC + 0.1
+    b.tick()
+    b.tick()
+    check(b.spk.calls == [("chime",), ("close",)], f"시간이 다 되면 한 번만 닫힘음 · {b.spk.calls}")
+    check(b.awake_until == 0.0 and b.chime_muted(), "창 닫힘 · 닫힘음 메아리 버림 중")
+
+
+def test_no_close_when_alert_closes():
+    """알림·비상이 창을 닫으면 닫힘음을 내지 않는다 — 알림이 대신 말한다(대화창은 해제 전까지 다시 안 열린다 · §4.7)."""
+    print("\n[갈래] 알림·비상으로 닫힘 → 닫힘음 없음")
+    gen = [0]
+
+    class BumpLlm(FakeLlm):
+        def ask(self, card, q):
+            gen[0] += 1                      # 답을 만드는 사이 알림이 나갔다
+            return super().ask(card, q)
+
+    b = bot(llm=BumpLlm(), alert_gen=lambda: gen[0])
+    ask(b, "지금 몇 단계야")
+    check(("close",) not in b.spk.calls and b.awake_until == 0.0, f"낡은 답 → 닫힘음 없음 · {b.spk.calls}")
+    b2, t, st = _clocked()
+    b2.on_text("가디언", {})
+    st[0] = dict(STATE, 상태="BLOCK")
+    t[0] += va.LISTEN_SEC + 0.1
+    b2.tick()
+    check(b2.spk.calls == [("chime",)] and b2.awake_until == 0.0, f"시간이 다 될 때 비상 상황 → 닫힘음 없음 · {b2.spk.calls}")
 
 
 def test_not_awake_ignored():
@@ -560,6 +615,22 @@ def test_loop_chime_echo_dropped():
     check(len(asked) == 1 and "몇 단계" in asked[0], f"버림 켬 — 진짜 질문에 답한다 · {asked}")
     heard0, asked0 = res[0.0]
     check("아아" in heard0 and asked0[:1] == ["아아"], f"버림 끔(0) = 지금 동작 — 메아리가 질문으로 간다 · {heard0} · {asked0}")
+
+
+def test_loop_close_chime_on_timeout():
+    """닫힘음 — 메인 루프가 창 시간 끝을 본다(호출어만 하고 질문이 없을 때)."""
+    print("\n[루프] 질문 없이 창 시간 끝 → 닫힘음")
+    va.WAV_DIR = _wavdir()
+    old = va.LISTEN_SEC
+    va.LISTEN_SEC = 1.5
+    try:
+        fg = FakeGlass([tone(0.8)], mic_port=0, cmd_port=0, lead_sec=1.0, tail_sec=4.0, play_speed=0.05,
+                       quiet=True).start()
+        _run_once(fg, lambda s: "가디언")
+    finally:
+        va.LISTEN_SEC = old
+    check(fg.count("chime") == 1 and fg.count("close_chime") == 1,
+          f"띠링 1 · 닫힘음 1 · {fg.count('chime')} · {fg.count('close_chime')}")
 
 
 def test_loop_halfopen_reattaches_speaker():

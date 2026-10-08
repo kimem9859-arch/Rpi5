@@ -525,6 +525,10 @@ class Speaker:
     def chime(self):
         return self.send(b"B\n")
 
+    def close_chime(self):
+        """닫힘음(펌웨어 `C` · 2026-10-09) — 대화창이 닫혔다는 표시. 옛 펌웨어는 C 를 모르면 소리 없이 지나간다."""
+        return self.send(b"C\n")
+
     def play(self, key, alog=None, still_valid=None):
         """고정 wav 를 낸다 → 끝까지 나갔거나 도중에 멈췄으면 True(멈춤은 `last_stopped`) · 못 냈으면 False."""
         self.last_stopped = False
@@ -712,6 +716,28 @@ class Assistant:
     def alert_gen(self):
         return self._alert_gen()
 
+    def close_window(self, why):
+        """대화창을 닫는다 — 닫힘음 + 그 메아리 버림(사용자 2026-10-09 「꺼질 때 꺼지는 띠링」). 닫았으면 True.
+
+        🔑 비상 알림이 닫을 때는 소리를 내지 않는다 — 알림이 대신 말하고, 창은 해제 전까지 다시 안 열린다(§4.7).
+           alert_hold · 비상 중 on_text 는 이 함수를 거치지 않고 awake_until 을 바로 0 으로 둔다. 여기서도 낡은 답
+           (답하는 사이 알림)·비상 상황이면 조용히 닫기만 한다.
+        """
+        if self.awake_until <= 0.0:
+            return False
+        self.awake_until = 0.0
+        if self._stale():
+            return False
+        self.spk.close_chime()
+        self.mute_until = self._clock() + CHIME_MUTE_SEC
+        log(f"대화창 닫힘({why}) → 닫힘음")
+        return True
+
+    def tick(self):
+        """메인 루프가 자주 부른다 — 깨어난 창이 시간으로 끝났으면(질문 없이 LISTEN_SEC) 닫는다."""
+        if self.awake_until > 0.0 and self._clock() >= self.awake_until:
+            self.close_window("질문 없음")
+
     def chime_muted(self):
         """띠링을 낸 뒤 CHIME_MUTE_SEC 안인가 — 메인 루프가 그동안 들어온 소리를 버린다(띠링 메아리)."""
         return self._clock() < self.mute_until
@@ -753,7 +779,7 @@ class Assistant:
         if not (awake and is_question(text, awake)):
             return False
         self._answer(text, tool_q, m)
-        self.awake_until = 0.0
+        self.close_window("답 끝")
         return True
 
     def _answer(self, text, tool_q, m):
@@ -1017,6 +1043,7 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                     bot.awake_until = 0.0
                     time.sleep(0.02)
                     continue
+                bot.tick()                     # 질문 없이 창 시간이 끝났으면 닫힘음
                 if bot.chime_muted():
                     # 🔑 띠링 메아리 — 띠링이 마이크로 되들어오는 동안의 소리는 버린다(깨어난 창은 그대로 둔다)
                     mic.clear()
