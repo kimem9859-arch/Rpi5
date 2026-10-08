@@ -211,3 +211,119 @@ def v_precision(S):
                     left.remove(d.get("dwell_roi"))
                     k += 1
     return {"script": 1, "n": n, "k": k}
+
+
+# ── 5·7 · 23 · 28 · 21 — 구역 ──────────────────────────────────────────────
+def series(S):
+    """프레임 순서의 (번호, 시각초, 갭메우기 앞 구역(frames.roi), 갭메우기 뒤 구역(fsm.fsm_roi — t_recv_ms 로 잇는다))."""
+    by_t = {r["t"]: r["roi"] for r in S["fsm"]}
+    F = [f["frame"] for f in S["frames"]]
+    T = [f["t"] / 1000 for f in S["frames"]]
+    raw = [f["roi"] for f in S["frames"]]
+    filled = [by_t.get(f["t"]) for f in S["frames"]]
+    return F, T, raw, filled
+
+
+def _frame_at(F, T, t_sec):
+    i = bisect.bisect_right(T, t_sec) - 1
+    return F[i] if i >= 0 else (F[0] - 1 if F else -1)
+
+
+def v_zone(S):
+    """5 사전 감지율 · 7 ROI 오분류 · 창 능력 상한 — hoi_metrics.analyze_presses 그대로(EMO 빼고 · 판 안 gpio 누름)."""
+    F, T, raw, filled = series(S)
+    runs = split_runs(S["events"])
+    ps = [p for p in pair_presses(S["events"])
+          if p["source"] == "gpio" and p["button"] != S["emo"] and run_of(runs, p["t"]) is not None]
+    presses = [(p["t_at"] / 1000, p["button"], _frame_at(F, T, p["t_at"] / 1000)) for p in ps]
+    rows = hoi_metrics.analyze_presses(presses, filled, F, T, None, raw_series=raw)
+    return {"n": len(rows),
+            "k5": sum(1 for r in rows if r[4] == "OK" and r[2] is not None and r[2] > 0),
+            "k7": sum(1 for r in rows if r[4] == "ROI 불일치"),
+            "kwin": sum(1 for r in rows if r[5]),
+            "leads": [round(r[2], 3) for r in rows if r[4] == "OK" and r[2] is not None]}
+
+
+def v_graze(S):
+    """23 스침 통과율 · 체류 두 곡선 재료 — fsm 구역 구간(EMO 빼고). 그 버튼 누름이 구간 안(끝 + 갭메우기)이면 누름 구간."""
+    F, T, _raw, filled = series(S)
+    tmap = dict(zip(F, T))
+    gap = float(S["settings"].get("FSM_GAP_FILL_SEC") or 0)
+    ps = [p for p in pair_presses(S["events"]) if p["source"] == "gpio"]
+    warns = [d for _, k, d in S["events"] if k == "state" and d.get("new") == "WARNING"]
+    press_dwell, pass_dur, passes = [], [], []
+    for roi, f0, f1, dur in hoi_metrics.segments(filled, F, T):
+        if roi == S["emo"]:
+            continue
+        t0, t1 = tmap[f0], tmap[f1]
+        hit = [p for p in ps if p["button"] == roi and t0 <= p["t_at"] / 1000 <= t1 + gap]
+        if hit:
+            press_dwell.append(round(hit[0]["t_at"] / 1000 - t0, 3))
+            continue
+        warned = any(w.get("dwell_roi") == roi and w.get("frame_t_ms") is not None
+                     and t0 <= w["frame_t_ms"] / 1000 <= t1 for w in warns)
+        pass_dur.append(round(dur, 3))
+        passes.append((t0, t1, roi, warned))
+    out = {"pass_n": len(passes), "pass_k": sum(1 for x in passes if not x[3]),
+           "press_dwell": press_dwell, "pass_dur": pass_dur, "stay_n": 0, "stay_warned": 0}
+    if S["script"] is not None:
+        for r in split_runs(S["events"]):
+            t_end = r["t1"] if r["t1"] is not None else float("inf")
+            cand = [x for x in passes if r["t0"] / 1000 <= x[0] <= t_end / 1000]
+            for row in S["script"]:
+                if int(row["판"]) != r["i"] or row["행동"] != "머묾":
+                    continue
+                m = next((x for x in cand if x[2] == row["대상"]), None)
+                if m is None:
+                    continue
+                cand.remove(m)
+                out["stay_n"] += 1
+                out["stay_warned"] += int(m[3])
+    return out
+
+
+def curve(press_dwell, pass_dur, steps=CURVE_STEPS):
+    """문턱 t 마다 (t, 잡음 = 누름 구간 체류 > t 비율, 거름 = 지나감 구간 길이 < t 비율) — 표본 없으면 None."""
+    out = []
+    for t in steps:
+        a = sum(1 for x in press_dwell if x > t) / len(press_dwell) if press_dwell else None
+        b = sum(1 for x in pass_dur if x < t) / len(pass_dur) if pass_dur else None
+        out.append((t, a, b))
+    return out
+
+
+def fit_range(cv, catch, filt):
+    """잡음 ≥ catch 이고 거름 ≥ filt 인 문턱 범위(최소, 최대) — 없으면 None."""
+    ok = [t for t, a, b in cv if a is not None and b is not None and a >= catch and b >= filt]
+    return (min(ok), max(ok)) if ok else None
+
+
+def v_gap(S):
+    """28 손 놓침 공백 — 갭메우기 앞 구역(frames.roi)에서 같은 버튼 구간 사이 빈 구간 길이(초)."""
+    F, T, raw, _filled = series(S)
+    tmap = dict(zip(F, T))
+    segs = hoi_metrics.segments(raw, F, T)
+    return {"gaps": [round(tmap[b[1]] - tmap[a[2]], 3) for a, b in zip(segs, segs[1:]) if a[0] == b[0]]}
+
+
+def v_confirm(S):
+    """21 누름 카메라 확인 — confirm 사건 · 가짜 미확인 = 미확인인데 누른 뒤 여유(session.json) 안 프레임 구역이 그 버튼."""
+    grace = float(S["settings"].get("PRESS_CONFIRM_GRACE_SEC") or 0) * 1000
+    ps = pair_presses(S["events"])
+    out = {"n": 0, "k": 0, "before": [], "why": {}, "fake": 0}
+    for t, k, d in S["events"]:
+        if k != "confirm":
+            continue
+        out["n"] += 1
+        out["k"] += int(bool(d.get("verdict")))
+        if d.get("before_ms") is not None:
+            out["before"].append(d["before_ms"])
+        w = d.get("why") or "?"
+        out["why"][w] = out["why"].get(w, 0) + 1
+        if d.get("verdict"):
+            continue
+        prev = [p for p in ps if p["button"] == d.get("button") and p["t"] <= t]
+        if prev and any(f["roi"] == d.get("button") and prev[-1]["t_at"] <= f["t"] <= prev[-1]["t_at"] + grace
+                        for f in S["frames"]):
+            out["fake"] += 1
+    return out

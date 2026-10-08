@@ -138,6 +138,56 @@ def test_merge():
     check(m == {"n": 3, "l": [1, 2], "d": {"a": 3, "b": 1}}, f"{m}")
 
 
+def test_zone():
+    print("\n[5·7] analyze_presses — 갭메우기 뒤(fsm) 구역 · 앞(frames) = 창 · 누른 시각 = 엣지")
+    fr = [FR(i + 1, 1000 + 100 * i, roi=r) for i, r in enumerate([None, "B2", "B2", None, "B2", "B2"])]
+    fs = [FS(1000 + 100 * i, roi=r) for i, r in enumerate([None, "B2", "B2", "B2", "B2", "B2"])]
+    ev = [E(900, "run_start"), E(1450, "gpio_edge", button="B2", src="edge"), P(1460, "B2"), P(1250, "B4"),
+          P(1300, "EMO")]
+    z = MC.v_zone(S_(ev, frames=fr, fsm=fs))
+    check((z["n"], z["k5"], z["k7"], z["kwin"], z["leads"]) == (2, 1, 1, 1, [0.35]), f"{z}")
+
+
+def test_graze():
+    print("\n[23] 지나감 구간(눌리지 않음 · EMO 빼고) 가운데 경고 없이 끝난 비율 · 누름 구간 체류 · 대본 머묾")
+    rois = ["B3", "B3", None, None, "B2", "B2", "B2", None, "EMO", "EMO"]
+    fr = [FR(i + 1, 1000 + 100 * i, roi=r) for i, r in enumerate(rois)]
+    fs = [FS(1000 + 100 * i, roi=r) for i, r in enumerate(rois)]
+    ev = [E(900, "run_start"), E(1150, "state", new="WARNING", dwell_roi="B3", frame_t_ms=1100.0),
+          P(1650, "B2"), E(2000, "run_end", ok=False)]
+    g = MC.v_graze(S_(ev, frames=fr, fsm=fs))
+    check((g["pass_n"], g["pass_k"], g["press_dwell"], g["pass_dur"]) == (1, 0, [0.25], [0.1]), f"{g}")
+    g2 = MC.v_graze(S_(ev, frames=fr, fsm=fs, script=SCR((1, "머묾", "B3"))))
+    check((g2["stay_n"], g2["stay_warned"]) == (1, 1), f"머묾 = {(g2['stay_n'], g2['stay_warned'])}")
+
+
+def test_curve():
+    print("\n[23-곡선] 문턱 t 에서 잡음 = 체류 > t 비율 · 거름 = 길이 < t 비율 · 참고 범위")
+    cv = MC.curve([0.2, 0.4, 0.6, 0.8], [0.05, 0.1, 0.15, 0.5])
+    check(len(cv) == 19 and cv[0][0] == 0.1 and cv[-1][0] == 1.0, "문턱 0.10~1.00 · 19개")
+    row = {t: (a, b) for t, a, b in cv}
+    check(row[0.15] == (1.0, 0.5) and row[0.2] == (0.75, 0.75) and row[0.4] == (0.5, 0.75), f"{row[0.15]} {row[0.2]} {row[0.4]}")
+    check(MC.fit_range(cv, 0.75, 0.75) == (0.2, 0.35), f"범위 = {MC.fit_range(cv, 0.75, 0.75)}")
+    check(MC.curve([], [])[0][1:] == (None, None), "표본 없으면 None")
+
+
+def test_gap():
+    print("\n[28] 갭메우기 앞 구역에서 같은 버튼 구간 사이 빈 구간 길이")
+    rois = ["B1", "B1", None, None, "B1", "B2", None, "B2"]
+    fr = [FR(i + 1, 1000 + 100 * i, roi=r) for i, r in enumerate(rois)]
+    g = MC.v_gap(S_(frames=fr))
+    check([round(x, 3) for x in g["gaps"]] == [0.3, 0.2], f"{g}")
+
+
+def test_confirm():
+    print("\n[21] 확인 비율 · 누르기 전 · 경로 · 가짜 미확인(미확인인데 여유 안 프레임에 그 버튼)")
+    ev = [P(1000, "B2"), E(3500, "confirm", button="B2", order=2, verdict=False, before_ms=None, why="프레임"),
+          P(4000, "B1", expected="B1"), E(5000, "confirm", button="B1", order=1, verdict=True, before_ms=120.0, why="프레임")]
+    fr = [FR(1, 1200, roi="B2")]
+    c = MC.v_confirm(S_(ev, frames=fr))
+    check(c == {"n": 2, "k": 1, "before": [120.0], "why": {"프레임": 2}, "fake": 1}, f"{c}")
+
+
 if __name__ == "__main__":
     for _name, _fn in list(globals().items()):
         if _name.startswith("test_") and callable(_fn):
