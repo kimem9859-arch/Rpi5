@@ -379,24 +379,26 @@ static void toneSeg(float f0, float f1, int ms, int amp, bool decay, float &ph) 
   const size_t fade = (size_t)(RATE * FADE_MS / 1000.0f);
   for (size_t done = 0; done < frames; done += 256) {
     const size_t n = (frames - done < 256) ? (frames - done) : 256;
-    for (size_t i = 0; i < 256; i++) {
+    for (size_t i = 0; i < n; i++) {
       int16_t v = 0;
-      if (i < n && amp > 0) {
+      if (amp > 0) {
         const size_t k = done + i;
         const float x = (float)k / (float)frames;               // 0 → 1
         const float f = (f0 == f1) ? f0 : f0 * powf(f1 / f0, x);
         ph += 2.0f * (float)M_PI * f / (float)RATE;
         if (ph > 2.0f * (float)M_PI) ph -= 2.0f * (float)M_PI;
-        float env = 1.0f;
-        if (k < fade)               env = 0.5f - 0.5f * cosf((float)M_PI * k / fade);
-        else if (k + fade >= frames) env = 0.5f - 0.5f * cosf((float)M_PI * (frames - 1 - k) / fade);
+        // 앞뒤 페이드 중 작은 쪽 — 음이 2×FADE_MS 보다 짧아도 끝이 0 으로 떨어진다
+        const float fin  = (k < fade) ? 0.5f - 0.5f * cosf((float)M_PI * k / fade) : 1.0f;
+        const float fout = (k + fade >= frames) ? 0.5f - 0.5f * cosf((float)M_PI * (frames - 1 - k) / fade) : 1.0f;
+        float env = fminf(fin, fout);
         if (decay) env *= (1.0f - x);
         v = (int16_t)(sinf(ph) * amp * env);
       }
       buf[i * 2 + 0] = v;        // 🔴 SD=3V3 라 왼쪽 채널만 난다
       buf[i * 2 + 1] = 0;
     }
-    spk.write((uint8_t *)buf, sizeof(buf));
+    // 🔑 쓴 만큼만 보낸다 — 256 단위로 0 을 채우면 띠링이 430 → 464ms 로 늘었다(최종 리뷰 · beep() 와 같은 방식)
+    spk.write((uint8_t *)buf, n * 2 * sizeof(int16_t));
   }
 }
 

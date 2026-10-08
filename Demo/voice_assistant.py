@@ -82,7 +82,7 @@ METRICS_PATH = os.environ.get("SOP_VOICE_METRICS")
 # 🔑 보고서용 오디오 기록 — 환경변수 SOP_VOICE_AUDIO 로 폴더를 준다(없으면 안 남긴다).
 #    귀에 들린 것과 기계가 받은 것을 나중에 대조할 수 있어야 한다.
 #      마이크_전체.wav      ESP32 가 보낸 업링크 전부(16kHz)
-#      발화_NNN.wav / .txt  잘라낸 발화 구간과 그 STT 결과
+#      발화_NNN.wav / .txt  잘라낸 발화 구간과 그 STT 결과 — 🔴 마이크 증폭(config.MIC_GAIN) 뒤 소리다(다시 돌릴 때 또 키우지 않는다)
 #      재생_NNN_<키>.wav    스피커로 내보낸 것(사전 합성된 TTS 원본)
 AUDIO_DIR = os.environ.get("SOP_VOICE_AUDIO")
 
@@ -525,9 +525,10 @@ class Speaker:
     def chime(self):
         return self.send(b"B\n")
 
-    def close_chime(self):
-        """닫힘음(펌웨어 `C` · 2026-10-09) — 대화창이 닫혔다는 표시. 옛 펌웨어는 C 를 모르면 소리 없이 지나간다."""
-        return self.send(b"C\n")
+    def close_chime(self, still_valid=None):
+        """닫힘음(펌웨어 `C` · 2026-10-09) — 대화창이 닫혔다는 표시. 옛 펌웨어는 C 를 모르면 소리 없이 지나간다.
+        `still_valid` 는 보내기 잠금 안에서 본다(send) — 알림이 끼면 보내지 않고 DROPPED."""
+        return self.send(b"C\n", still_valid=still_valid)
 
     def play(self, key, alog=None, still_valid=None):
         """고정 wav 를 낸다 → 끝까지 나갔거나 도중에 멈췄으면 True(멈춤은 `last_stopped`) · 못 냈으면 False."""
@@ -726,10 +727,14 @@ class Assistant:
         if self.awake_until <= 0.0:
             return False
         self.awake_until = 0.0
-        if self._stale():
+        # 🔑 낡음 확인은 보내기 잠금 안에서도 한 번 더 — 확인과 전송 사이에 알림이 끼면 닫힘음이 알림에 붙어 났다(최종 리뷰)
+        r = self.spk.close_chime(still_valid=lambda: not self._stale())
+        if r is DROPPED:
             return False
-        self.spk.close_chime()
-        self.mute_until = self._clock() + CHIME_MUTE_SEC
+        if not r:
+            log(f"🔴 대화창 닫힘({why}) — 닫힘음을 못 보냈다")
+            return False
+        self.mute_until = time.monotonic() + CHIME_MUTE_SEC
         log(f"대화창 닫힘({why}) → 닫힘음")
         return True
 
@@ -739,8 +744,9 @@ class Assistant:
             self.close_window("질문 없음")
 
     def chime_muted(self):
-        """띠링을 낸 뒤 CHIME_MUTE_SEC 안인가 — 메인 루프가 그동안 들어온 소리를 버린다(띠링 메아리)."""
-        return self._clock() < self.mute_until
+        """띠링을 낸 뒤 CHIME_MUTE_SEC 안인가 — 메인 루프가 그동안 들어온 소리를 버린다(띠링 메아리).
+        🔑 단조 시계 — 벽시계는 NTP 가 뒤로 돌리면 그만큼 귀가 먹는다(대화창 시각 awake_until 은 종전대로 _clock)."""
+        return time.monotonic() < self.mute_until
 
     def on_text(self, text, m, gen0=None):
         """STT 결과 하나. 질문에 답했으면 True — 호출부가 그동안 들어온 소리를 버린다(G11).
@@ -766,7 +772,7 @@ class Assistant:
             VLOG.event("wake")
             t_c = time.time()
             self.spk.chime()
-            self.mute_until = self._clock() + CHIME_MUTE_SEC
+            self.mute_until = time.monotonic() + CHIME_MUTE_SEC
             m["띠링_ms"] = round((time.time() - t_c) * 1000)
             self.awake_until = now + LISTEN_SEC
             awake = True
@@ -1009,6 +1015,7 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     errs = 0                          # 이어진 오류 수 — 답을 마친 발화가 있으면 0
     buf = np.zeros(0, dtype=np.int16)
     since, gen = 0, 0
+    in_speech = False                  # 지난 판정에서 끝나지 않은 발화가 있었나 — 있으면 창 닫기를 미룬다
     hop = int(RATE * VAD_HOP_SEC)
     gain = config.MIC_GAIN
     if gain != 1.0:
@@ -1032,22 +1039,23 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                         spk.reset()
                         spk.send(b"")
                     gen = mic.generation
-                    buf, since = np.zeros(0, dtype=np.int16), 0
+                    buf, since, in_speech = np.zeros(0, dtype=np.int16), 0, False
                     log(ready_line(mic, spk, tts, llm))
                 hold, seen_alert = alert_hold(alerts, seen_alert)
                 if hold:
                     # 🔑 알림을 내보내는 동안·직후 들어온 소리는 버리고 대화창을 닫는다 — 알림을 질문으로
                     #    받아쓰지 않게 · 알림 뒤는 비상 상황이라 해제 전까지 질문을 받지 않는다(사용자 2026-10-04 · §4.7)
                     mic.clear()
-                    buf, since = np.zeros(0, dtype=np.int16), 0
+                    buf, since, in_speech = np.zeros(0, dtype=np.int16), 0, False
                     bot.awake_until = 0.0
                     time.sleep(0.02)
                     continue
-                bot.tick()                     # 질문 없이 창 시간이 끝났으면 닫힘음
+                if not in_speech:
+                    bot.tick()                 # 질문 없이 창 시간이 끝났으면 닫힘음 — 말하는 중이면 끝날 때까지 미룬다
                 if bot.chime_muted():
                     # 🔑 띠링 메아리 — 띠링이 마이크로 되들어오는 동안의 소리는 버린다(깨어난 창은 그대로 둔다)
                     mic.clear()
-                    buf, since = np.zeros(0, dtype=np.int16), 0
+                    buf, since, in_speech = np.zeros(0, dtype=np.int16), 0, False
                     time.sleep(0.02)
                     continue
                 new = amplify(mic.pull(), gain)
@@ -1066,6 +1074,7 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                     continue
                 since = 0
                 seg = find_utterance(buf, RATE)
+                in_speech = seg is not None
                 if seg is None:
                     if len(buf) > RATE * WINDOW_SEC:       # 무음만 길게 쌓이면 앞을 잘라 둔다
                         buf = buf[len(buf) - int(RATE * 1.0):]
@@ -1073,6 +1082,7 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                 s, e = seg
                 if len(buf) - e < int(RATE * QUIET_TAIL):  # 발화가 아직 안 끝났다
                     continue
+                in_speech = False
                 seg_samples, buf = buf[s:e], buf[e:]
                 answered = handle_utterance(bot, stt, alog, seg_samples)
                 errs = 0
@@ -1095,7 +1105,7 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                     log(f"🔴 메인 루프 오류가 {errs}번 연속 — 데몬을 끝낸다(감시가 다시 띄운다): {type(e).__name__}: {e}")
                     return
                 log(f"🔴 메인 루프 오류 — 이 발화만 버리고 계속한다: {type(e).__name__}: {e}")
-                buf, since = np.zeros(0, dtype=np.int16), 0
+                buf, since, in_speech = np.zeros(0, dtype=np.int16), 0, False
                 time.sleep(0.5)
     finally:
         stop_ev.set()                     # 상태 감시 스레드를 끝낸다

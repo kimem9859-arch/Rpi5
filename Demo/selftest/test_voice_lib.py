@@ -210,6 +210,15 @@ _c = amplify(np.array([10000, -10000], dtype=np.int16), 4.0)
 check(_c.tolist() == [32767, -32768], f"넘는 값은 최대치로 자른다(int16 으로 뒤집히지 않는다) · {_c.tolist()}")
 check(len(amplify(np.zeros(0, dtype=np.int16), 4.0)) == 0, "빈 조각도 된다")
 
+print("[증폭 설정] SOP_MIC_GAIN — 못 쓰는 값은 ×4 로(설정이 시연 전체를 죽이지 않게 · config 는 화면도 읽는다)")
+import subprocess
+for raw, want in [("", 4.0), ("0", 4.0), ("-1", 4.0), ("inf", 4.0), ("nan", 4.0), ("abc", 4.0), ("1", 1.0), ("4", 4.0), ("2.5", 2.5)]:
+    env = dict(os.environ, SOP_MIC_GAIN=raw)
+    out = subprocess.run([sys.executable, "-c", "import config; print('GAIN', config.MIC_GAIN)"], cwd=_DEMO_DIR,
+                         env=env, capture_output=True, text=True).stdout
+    got = next((float(l.split()[1]) for l in out.splitlines() if l.startswith("GAIN ")), None)
+    check(got == want, f"SOP_MIC_GAIN={raw!r} → {got}(기대 {want})")
+
 print()
 if _fails:
     print(f"🔴 실패 {len(_fails)}건")

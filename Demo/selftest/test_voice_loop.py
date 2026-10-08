@@ -51,7 +51,10 @@ class FakeSpk:
         self.calls.append(("chime",))
         return True
 
-    def close_chime(self):
+    def close_chime(self, still_valid=None):
+        if still_valid is not None and not still_valid():     # 진짜 Speaker.send 처럼 보내기 직전에 본다
+            self.calls.append(("dropped",))
+            return va.DROPPED
         self.calls.append(("close",))
         return True
 
@@ -195,8 +198,10 @@ def test_no_close_when_alert_closes():
     b2.on_text("가디언", {})
     st[0] = dict(STATE, 상태="BLOCK")
     t[0] += va.LISTEN_SEC + 0.1
+    mute0 = b2.mute_until                      # 띠링이 건 버림(단조 시계) — 닫힘음이 새로 걸지 않아야 한다
     b2.tick()
-    check(b2.spk.calls == [("chime",)] and b2.awake_until == 0.0, f"시간이 다 될 때 비상 상황 → 닫힘음 없음 · {b2.spk.calls}")
+    check(("close",) not in b2.spk.calls and b2.awake_until == 0.0 and b2.mute_until == mute0,
+          f"시간이 다 될 때 비상 상황 → 닫힘음 없음 · 새 버림 없음 · {b2.spk.calls}")
 
 
 def test_not_awake_ignored():
@@ -418,6 +423,7 @@ def test_loop_alert_plays_during_stt():
     check(t_alert is not None and "end" in busy and t_alert < busy["end"],
           f"🔑 STT 가 끝나기 전에 알림이 나갔다(메인 루프와 따로) — 알림 {t_alert} · STT 끝 {busy.get('end')}")
     check(fg.count("play") >= 1, f"모의 글라스가 재생했다 — {fg.count('play')}")
+    check(fg.count("close_chime") == 0, f"알림이 창을 닫으면 닫힘음 없음 — {fg.count('close_chime')}")
 
 
 def test_emergency_ignores_wake_and_questions():
@@ -543,6 +549,7 @@ def test_loop_discards_speech_during_answer():
     dropped = [float(m.group(1)) for l in logs for m in [_re.search(r"대답하는 동안 들어온 소리 ([\d.]+)초", l)] if m]
     check(bool(dropped) and max(dropped) >= 1.0, f"대답 중 소리 버림 로그 · {dropped}")
     check(fg.count("chime") == 1, f"띠링 1번 · {fg.count('chime')}")
+    check(fg.count("close_chime") == 1, f"한 문장(호출+질문) 답 끝 → 닫힘음 1번 · {fg.count('close_chime')}")
     check(fg.count("write") >= 2, "확인 중 + 답이 실제로 갔다")
     check(fg.count("mic_drop") == 0 and fg.count("mic_conn") == 1, "대답하는 동안에도 업링크가 끊기지 않았다(P1)")
 

@@ -28,15 +28,16 @@ import numpy as np
 
 _DEMO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from question_set import QUESTIONS   # noqa: E402 — 질문 대본의 단일 출처(zlib 만 쓴다)
 
 RATE = 16000
 FW = os.path.join(_DEMO, "..", "arduino", "glass_voice", "glass_voice.ino")
 SWEEP_HZ = [800, 1000, 1175, 1319, 1397, 1480, 1568, 1760, 1976, 2093, 2349, 2637, 2960, 3136]
 CLEAN_HARM = 0.10      # 배음(2·3·4배) 에너지 ÷ 기본음 — 이보다 작으면 깨끗
 WEAK_DB = -6.0         # 가장 크게 난 높이보다 이만큼 넘게 작으면 「약함」
-SCRIPT_Q = ["지금 몇 단계야?", "지금 무슨 단계야?", "지금 눌러야 하는 버튼이 뭐야?", "다음에 뭐 눌러야 돼?",
-            "다음 순서 뭐야?", "이번 단계에 무슨 공구 필요해?", "앞에 보이는 게 뭐야?", "지금 보이는 공구가 뭐야?",
-            "작업 결과 어때?", "지금 상태 어때?"]      # = voice/question_set.py 「범위」 앞 10개
+SCRIPT_Q = [q for k, q in QUESTIONS if k == "범위"][:10]   # 착용 시험 대본 질문 = 질문 세트 「범위」 앞 10개
 SCRIPT_CALLS = 12                                      # 질문 있는 호출 10 + 질문 없는 호출 2(닫힘음 확인)
 
 
@@ -125,7 +126,8 @@ class Board:
             time.sleep(0.1)
         if not self.mic.connected:
             sys.exit(f"🔴 마이크 업링크({ip}:{va.MIC_PORT})에 못 붙었다 — 보드 전원·주소(.camera_ip) 확인")
-        self.spk.send(b"")                     # 명령 채널을 붙이고 음량(음성비서와 같은 VOLUME)을 맞춘다
+        if self.spk.send(b"") is not True:     # 명령 채널을 붙이고 음량(음성비서와 같은 VOLUME)을 맞춘다
+            sys.exit(f"🔴 명령 채널({ip}:{va.CMD_PORT})에 못 붙었다 — 소리를 못 낸다")
         print(f"보드 {ip} · 음량 {va.VOLUME}단계 · 마이크 연결됨")
 
     def record(self, fn, tail=0.8):
@@ -246,8 +248,10 @@ def cmd_sweep(a):
         finally:
             b.close()
         save_wav(os.path.join(d, "마이크.wav"), rec)
-        ok = bool(resp) and any("재생 완료" in r for r in resp)
+        ok = isinstance(resp, list) and any("재생 완료" in r for r in resp)
         print(f"재생 {'확인 ✅' if ok else '확인 안 됨 🔴'} · 녹음 {len(rec) / RATE:.1f}초 → {d}")
+        if not ok:
+            sys.exit(f"🔴 시험음 재생이 확인되지 않았다(응답 {resp!r}) — 이 녹음으로는 판정하지 않는다")
     rows = analyze_sweep(rec)
     print(f"\n{'높이Hz':>7} {'크기dB':>7} {'배음%':>7}  판정")
     for r in rows:
@@ -306,9 +310,15 @@ def chime_notes(a, onset, lo, hi):
 def record_n(b, cmd, times=3, gap=1.2):
     def play():
         for _ in range(times):
-            b.spk.send(cmd)
+            if b.spk.send(cmd) is not True:     # 🔑 못 보냈으면 「안 들림 = 옛 펌웨어」로 잘못 읽지 않게 멈춘다
+                return False
             time.sleep(gap)
-    return b.record(play)[0]
+        return True
+    rec, ok = b.record(play)
+    if not ok:
+        b.close()
+        sys.exit(f"🔴 {cmd!r} 명령을 못 보냈다 — 명령 채널 끊김(보드·음성비서 확인)")
+    return rec
 
 
 def cmd_chimes(a):
@@ -355,7 +365,7 @@ def cmd_chimes(a):
     ok_count_c = (len(glides) == want) if want else (len(glides) > 0 or not len(C))
     print("\n관문(절차서 G-b · 재기 전에 고정)")
     print(f"  띠링 {want or '≥1'}번 들림 · 자리 의심 0 : {'✅' if ok_count_b and not short else '🔴'} ({n_b} · 의심 {short})")
-    print(f"  띠링 두 음 배음 < {CLEAN_HARM * 100:.0f}% : {'✅' if harm and max(harm) < CLEAN_HARM else '🔴'} "
+    print(f"  띠링 두 음 배음 < {CLEAN_HARM * 100:.0f}% : {'✅' if harm and all(h < CLEAN_HARM for h in harm) else '🔴'} "
           f"(최대 {max(harm) * 100 if harm else float('nan'):.1f}%)")
     if len(C) or want:
         good = [g for g in glides if g and g["end_hz"] < g["start_hz"] * 0.9 and g["harm"] < CLEAN_HARM]
@@ -396,7 +406,10 @@ def score_utterances(M, log_lines=()):
         wake, src, text = bool(m.get("호출어")), m.get("답변출처"), m.get("STT텍스트") or ""
         ans = bool(src) and src != "알림으로버림"
         flag = ""
-        if prev is not None and prev.get("호출어") and not wake and len(_norm(text)) <= 1 and m.get("발화초", 9) < 0.9:
+        # 🔑 메아리 의심 = 호출 바로 뒤의 호출 아닌 발화가 두 글자 이하이거나 0.7초 미만 — 막으려던 것이 「아아」 같은 두 글자가
+        #    질문으로 가는 것이다(한 글자만 보면 그 경우를 놓친다 · 최종 리뷰). 10/8 메아리 0.61초 · 가장 짧은 실제 질문 0.83초.
+        if (prev is not None and prev.get("호출어") and not wake
+                and (len(_norm(text)) <= 2 or m.get("발화초", 9) < 0.7)):
             echo += 1
             flag = "← 띠링 메아리 의심"
         if prev is not None and prev.get("답변출처") and not wake:
@@ -413,8 +426,9 @@ def score_utterances(M, log_lines=()):
         answered += ans
         rows.append((m, wake, ans, text, flag))
         prev = m
+    gains = sorted({m.get("증폭") for m in M}, key=str)
     return dict(rows=rows, wakes=wakes, answered=answered, echo=echo, junk=junk, after_answer=after_answer,
-                cers=cers, close=n_close)
+                cers=cers, close=n_close, gains=gains)
 
 
 def cmd_score(a):
@@ -429,7 +443,10 @@ def cmd_score(a):
     for m, wake, ans, text, flag in r["rows"]:
         print(f"{m.get('t', ''):>12} {m.get('발화초', 0):5.2f}  {'✅' if wake else '  ':4} {'💬' if ans else '  ':4}  {text}  {flag}")
     good = [c for _, _, c in r["cers"] if c <= 0.5]
+    import config                       # 🔑 증폭 배율의 단일 출처 — 기록이 그 값으로 돌았나
     print(f"\n발화 {len(M)} · 호출 인식 {r['wakes']} · 답 {r['answered']} · 닫힘음 {r['close'] or '로그 없음'}")
+    ok_gain = r["gains"] == [config.MIC_GAIN]
+    print(f"증폭 배율(계측) {r['gains']} ↔ config {config.MIC_GAIN:g} : {'✅' if ok_gain else '🔴 — 다른 배율로 돈 기록이다'}")
     if good:
         print(f"대본 질문 글자 오류율 {np.mean(good) * 100:.1f}%(대본과 가까운 답 {len(good)}개 · 가장 가까운 대본 문장 기준)")
     q0 = r["close"].get("질문 없음", 0)
