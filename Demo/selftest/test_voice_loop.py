@@ -492,6 +492,76 @@ def test_loop_discards_speech_during_answer():
     check(fg.count("mic_drop") == 0 and fg.count("mic_conn") == 1, "대답하는 동안에도 업링크가 끊기지 않았다(P1)")
 
 
+def _run_once(fg, stt, llm=None):
+    """모의 글라스 한 판을 끝까지 흘리고 멈춘다."""
+    th, stop = _run_bg(fg, stt, llm or FakeLlm(), FakeTts())
+    try:
+        fg.mic_done.wait(20)
+        time.sleep(0.5)
+    finally:
+        stop.set()
+        th.join(5)
+        fg.stop()
+
+
+def test_loop_gain_quiet_speech():
+    """마이크 증폭(2026-10-08) — 안경 프레임 안 착용의 작은 말소리는 ×1 이면 발화 시작 문턱(400) 아래라 아예 안 들리고
+    (10/8 호출 0/10), ×4 면 들린다. 잡음은 실물 수준(RMS 20)으로 둔다 — 모의 기본 150 이면 문턱이 잡음을 따라 올라 차이가 안 난다."""
+    print("\n[루프] 마이크 증폭 — 작은 말소리")
+    va.WAV_DIR = _wavdir()
+    got = {}
+    old = config.MIC_GAIN
+    try:
+        for g in (1.0, 4.0):
+            config.MIC_GAIN = g
+            fg = FakeGlass([tone(0.8, amp=280)], mic_port=0, cmd_port=0, lead_sec=1.0, tail_sec=2.0,
+                           noise_rms=20, play_speed=0.05, quiet=True).start()
+            calls = []
+            _run_once(fg, lambda s: (calls.append(1), "가디언")[1])
+            got[g] = (len(calls), fg.count("chime"))
+    finally:
+        config.MIC_GAIN = old
+    check(got[1.0] == (0, 0), f"×1 — 안 들린다 · (받아쓰기, 띠링) = {got[1.0]}")
+    check(got[4.0] == (1, 1), f"×4 — 들리고 띠링 · (받아쓰기, 띠링) = {got[4.0]}")
+
+
+def test_loop_chime_echo_dropped():
+    """띠링 메아리(2026-10-08) — 안경 프레임 안에서는 띠링이 말소리의 약 8배로 마이크에 되들어온다. 띠링 뒤 CHIME_MUTE_SEC
+    동안 들어온 소리는 버리고 그 뒤 질문은 받는다. 버리지 않으면(0 = 지금 동작) 메아리가 두 글자(「아아」)로 받아써질 때
+    깨어난 창 안이라 질문으로 LLM 에 간다 — 1글자 규칙(is_question)은 운으로 막고 있었을 뿐이다."""
+    print("\n[루프] 띠링 메아리 버림")
+    va.WAV_DIR = _wavdir()
+    old = va.CHIME_MUTE_SEC
+    res = {}
+
+    def stt_by_len(heard):
+        def stt(s):
+            sec = len(s) / 16000
+            t = "아아" if sec < 0.9 else ("가디언" if sec < 1.4 else "지금 몇 단계야")
+            heard.append(t)
+            return t
+        return stt
+
+    try:
+        for mute in (1.5, 0.0):
+            va.CHIME_MUTE_SEC = mute
+            # 호출어 0.8초 → (확정·띠링 ≈ 호출 끝 0.84초 뒤 — 10/8 실물 0.83초) → 메아리 0.5초 → 질문 1.5초 · 사이 1.2초
+            # 🔑 사이를 발화 끝 판정(0.7초 무음)보다 길게 둔다 — 짧으면 호출어와 메아리가 한 발화로 붙는다(실물에서는
+            #    띠링이 호출어 확정 뒤에만 나므로 붙지 않는다). 시험의 버림 시간(1.5초)은 일정 흔들림을 견디게 길게 둔다.
+            fg = FakeGlass([tone(0.8), tone(0.5), tone(1.5)], mic_port=0, cmd_port=0,
+                           lead_sec=1.0, gap_sec=1.2, tail_sec=2.5, play_speed=0.05, quiet=True).start()
+            heard, llm = [], FakeLlm()
+            _run_once(fg, stt_by_len(heard), llm)
+            res[mute] = (heard, [q for _, q in llm.asked])
+    finally:
+        va.CHIME_MUTE_SEC = old
+    heard, asked = res[1.5]
+    check(heard == ["가디언", "지금 몇 단계야"], f"버림 켬 — 메아리는 받아쓰지 않는다 · {heard}")
+    check(len(asked) == 1 and "몇 단계" in asked[0], f"버림 켬 — 진짜 질문에 답한다 · {asked}")
+    heard0, asked0 = res[0.0]
+    check("아아" in heard0 and asked0[:1] == ["아아"], f"버림 끔(0) = 지금 동작 — 메아리가 질문으로 간다 · {heard0} · {asked0}")
+
+
 def test_loop_halfopen_reattaches_speaker():
     """P5 · Q3 — 반열림이면 다시 붙고, 붙은 뒤 명령 채널도 미리 다시 붙인다(첫 띠링 유실 방지)."""
     print("\n[루프] 반열림 → 재접속 + 명령 채널 미리 붙임")

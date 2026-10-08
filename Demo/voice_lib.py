@@ -105,6 +105,17 @@ def is_question(text, awake):
     return len(n) >= 2
 
 
+def amplify(samples, gain):
+    """마이크 소리를 `gain` 배로 — 넘는 값은 int16 최대치로 자른다(넘쳐서 부호가 뒤집히면 「딱」 소리가 된다).
+
+    🔑 안경 프레임 안(관자놀이) 착용이면 말소리가 작아 발화 시작 문턱에 못 미친다(2026-10-08 호출 0/10) — 그래서 키운다.
+    🔑 `gain` 1 이면 받은 것을 그대로 돌려준다(복사 없음 · 증폭 전과 같은 동작). numpy 배열(int16)을 받는다.
+    """
+    if gain == 1.0:
+        return samples
+    return (samples.astype("float32") * gain).clip(-32768, 32767).astype("int16")
+
+
 def rms(samples):
     """DC 오프셋을 뺀 실효값.
 

@@ -200,6 +200,16 @@ for t, want in [("가디언 다음동작뭐야", "다음동작뭐야"),
     got = strip_wake(t)
     check(got == want, f"「{t}」 → 「{got}」(기대 「{want}」)")
 
+print("[증폭] amplify — 안경 프레임 안 착용의 작은 말소리를 키운다(마이크 증폭 2026-10-08)")
+from voice_lib import amplify
+_a = np.array([100, -200, 0], dtype=np.int16)
+check(amplify(_a, 1.0) is _a, "배율 1 = 손대지 않는다(지금 동작과 같다)")
+_g = amplify(_a, 4.0)
+check(_g.dtype == np.int16 and _g.tolist() == [400, -800, 0], f"배율 4 = 4배 · int16 · {_g.tolist()}")
+_c = amplify(np.array([10000, -10000], dtype=np.int16), 4.0)
+check(_c.tolist() == [32767, -32768], f"넘는 값은 최대치로 자른다(int16 으로 뒤집히지 않는다) · {_c.tolist()}")
+check(len(amplify(np.zeros(0, dtype=np.int16), 4.0)) == 0, "빈 조각도 된다")
+
 print()
 if _fails:
     print(f"🔴 실패 {len(_fails)}건")

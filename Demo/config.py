@@ -473,6 +473,18 @@ STATE_SHM_DIR = "/dev/shm/sop_state"
 #    무선·Tailscale 로는 못 붙는다. 못 붙으면 음성비서는 고정 wav 로 폴백하고 계속 돈다.
 # =============================================================================
 VOICE_ALERTS     = os.environ.get("SOP_VOICE_ALERTS", "1") != "0"   # 비상정지·차단·경고 음성 알림(음성 설계 2026-10-04 §4.3) · 끄기 = SOP_VOICE_ALERTS=0
+# 🔑 마이크 증폭(2026-10-08 · 통합문서 §9) — 안경 프레임 안(관자놀이) 착용이면 말소리가 입 앞의 약 절반이라
+#    발화 시작 문턱(400)에 못 미쳤다(호출 0/10). 음성비서가 발화 감지·받아쓰기로 넣는 소리만 키운다 —
+#    원본 녹음(마이크_전체.wav)은 증폭 전 그대로다. 끄기 = SOP_MIC_GAIN=1
+#    🔴 올리지 말 것 — 10/8 녹음을 다시 돌려 보면 ×6 부터 말 사이 작은 소리까지 「말하는 중」으로 남아
+#       발화가 이어 붙고 호출 인식이 반으로 떨어졌다(×4·×5 = 호출 10/12). ×4 는 그 절벽에서 두 칸 아래다.
+try:
+    MIC_GAIN = float(os.environ.get("SOP_MIC_GAIN", "4"))
+    if not MIC_GAIN > 0:
+        raise ValueError(MIC_GAIN)
+except ValueError:
+    print(f"[config] ⚠️ SOP_MIC_GAIN={os.environ.get('SOP_MIC_GAIN')!r} 를 못 쓴다(0 보다 큰 수) — ×4 로 돈다")
+    MIC_GAIN = 4.0
 LLM_ENABLED      = os.environ.get("SOP_LLM", "1") != "0"
 LLM_URL          = os.environ.get("SOP_LLM_URL", "http://192.168.1.12:11434/api/generate")
 LLM_MODEL        = "gemma4:e2b-it-qat"

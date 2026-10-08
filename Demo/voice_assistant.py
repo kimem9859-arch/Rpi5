@@ -30,7 +30,7 @@ import numpy as np
 _DEMO_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _DEMO_DIR)
 
-from voice_lib import (answer_key, find_utterance, is_question,
+from voice_lib import (amplify, answer_key, find_utterance, is_question,
                        is_tool_question, is_wake, noise_floor, read_tool_dets)
 from voice_lib import rms as vl_rms
 from voice_mic import MicReceiver
@@ -58,6 +58,10 @@ LISTEN_SEC = 20.0     # 🔑 호출 뒤 질문을 기다리는 시간.
                       #    말하기까지 12초가 걸려 깨어남이 이미 풀려 있었다.
 LAG_LIMIT  = 2.0      # 🔴 도착한 지 이보다 오래된 소리는 밀린 것 — 버린다(최신 우선 · voice_mic)
 QUIET_TAIL = 0.4      # 발화가 끝났다고 보기까지 필요한 뒤쪽 무음
+CHIME_MUTE_SEC = 0.8  # 🔴 띠링을 낸 뒤 이만큼 들어온 소리는 버린다(2026-10-08) — 안경 프레임 안에서는 스피커가
+                      #    마이크 바로 옆이라 띠링이 말소리의 약 8배로 되들어와 「에·아·딱」으로 받아써졌다. 깨어난 창
+                      #    안이라 두 글자(「아아」)로 받아써지면 질문으로 LLM 에 간다. 띠링 0.43초 + 전송·울림 여유.
+                      #    띠링이 끝난 뒤 사람이 질문을 시작하기까지는 최소 약 0.8초였다(10/8 녹음) · 0 = 끔
 VOLUME     = 5        # 🔑 펌웨어 음량 1~5. 기본 3 은 실청취에서 작았다(2026-09-07)
 VAD_HOP_SEC = 0.25    # 🔑 새 소리가 이만큼 쌓였을 때만 판정한다 — 512샘플 조각마다 버퍼 전체를 다시 보던
                       #    것이 무음 대기 CPU 의 원인이었다(설계 2026-10-03 §4.1 · Q7 · 10/03 실측)
@@ -701,11 +705,16 @@ class Assistant:
         self._read_tools = read_tools or read_tool_dets
         self._clock = clock
         self.awake_until = 0.0
+        self.mute_until = 0.0                       # 띠링 메아리를 버리는 끝 시각(CHIME_MUTE_SEC)
         self._alert_gen = alert_gen or (lambda: 0)   # 알림이 나간 횟수(AlertWatcher.gen) — 낡은 답을 버리는 기준
         self._gen0 = 0
 
     def alert_gen(self):
         return self._alert_gen()
+
+    def chime_muted(self):
+        """띠링을 낸 뒤 CHIME_MUTE_SEC 안인가 — 메인 루프가 그동안 들어온 소리를 버린다(띠링 메아리)."""
+        return self._clock() < self.mute_until
 
     def on_text(self, text, m, gen0=None):
         """STT 결과 하나. 질문에 답했으면 True — 호출부가 그동안 들어온 소리를 버린다(G11).
@@ -731,6 +740,7 @@ class Assistant:
             VLOG.event("wake")
             t_c = time.time()
             self.spk.chime()
+            self.mute_until = self._clock() + CHIME_MUTE_SEC
             m["띠링_ms"] = round((time.time() - t_c) * 1000)
             self.awake_until = now + LISTEN_SEC
             awake = True
@@ -917,6 +927,7 @@ def handle_utterance(bot, stt, alog, seg):
         "발화초": round(len(samples) / RATE, 2),
         "발화RMS": round(vl_rms(samples)),
         "노이즈바닥": round(noise_floor(seg, RATE)),
+        "증폭": config.MIC_GAIN,              # 🔑 발화RMS·노이즈바닥은 증폭 뒤 값이다
         "STT텍스트": text,
         "STT_ms": round((time.time() - t_stt) * 1000),
     }
@@ -973,6 +984,9 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     buf = np.zeros(0, dtype=np.int16)
     since, gen = 0, 0
     hop = int(RATE * VAD_HOP_SEC)
+    gain = config.MIC_GAIN
+    if gain != 1.0:
+        log(f"마이크 증폭 ×{gain:g} — 발화 감지·받아쓰기로 넣는 소리만(원본 녹음은 그대로) · 끄기 = SOP_MIC_GAIN=1")
     try:
         while not stop_ev.is_set():
             try:
@@ -1003,7 +1017,13 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                     bot.awake_until = 0.0
                     time.sleep(0.02)
                     continue
-                new = mic.pull()
+                if bot.chime_muted():
+                    # 🔑 띠링 메아리 — 띠링이 마이크로 되들어오는 동안의 소리는 버린다(깨어난 창은 그대로 둔다)
+                    mic.clear()
+                    buf, since = np.zeros(0, dtype=np.int16), 0
+                    time.sleep(0.02)
+                    continue
+                new = amplify(mic.pull(), gain)
                 if len(new) == 0:
                     time.sleep(0.02)
                     continue
