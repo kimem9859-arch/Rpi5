@@ -35,7 +35,7 @@
  *   arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi arduino/glass_voice
  *   arduino-cli compile --upload -p <포트> --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi arduino/glass_voice
  *   (compile 없이 upload 만 하면 캐시된 옛 바이너리가 조용히 올라갈 수 있다)
- *   (포트는 시리얼번호 `3C:0F:02:DD:5E:58` 로 찾는다 — ttyACM 번호는 꽂는 순서로 바뀐다)
+ *   (포트는 시리얼번호로 찾는다 — 메인 `68:EE:8F:4F:5D:38` · 서브 `3C:0F:02:DD:5E:58` · ttyACM 번호는 꽂는 순서로 바뀐다)
  */
 
 #include "esp_camera.h"
