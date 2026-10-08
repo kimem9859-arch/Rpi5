@@ -10,7 +10,7 @@ _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
 sys.path.insert(0, os.path.join(_DEMO_DIR, "test"))
 
-from hoi_metrics import WINDOW_N, capability_hit, capability_rate
+from hoi_metrics import WINDOW_N, analyze_presses, capability_hit, capability_rate, segments
 
 
 def test_window_length_is_five():
@@ -67,6 +67,56 @@ def test_rate_counts_presses_not_frames():
 
 def test_rate_empty_presses():
     assert capability_rate({}, []) == (0, 0)
+
+
+# ── analyze_presses · segments (2026-10-09 dwell_probe 에서 옮김 — 세기가 쓴다) ──
+def test_press_ok_lead_from_run_start():
+    """누른 순간 그 버튼 구역 → 선행시간 = 눌림 − 이어진 구간의 시작."""
+    frames, times = [10, 11, 12, 13], [1.0, 1.1, 1.2, 1.3]
+    series = [None, "B2", "B2", "B2"]
+    (row,) = analyze_presses([(1.25, "B2", 12)], series, frames, times, 0.3)
+    btn, fr, lead, seen, status, win = row
+    assert (btn, fr, seen, status, win) == ("B2", 12, "B2", "OK", True)
+    assert abs(lead - 0.15) < 1e-9
+
+
+def test_press_roi_mismatch():
+    frames, times = [10, 11, 12], [1.0, 1.1, 1.2]
+    (row,) = analyze_presses([(1.25, "B2", 12)], [None, "B2", "B1"], frames, times, 0.3)
+    assert row[2:5] == (None, "B1", "ROI 불일치")
+
+
+def test_press_not_detected():
+    frames, times = [10, 11, 12], [1.0, 1.1, 1.2]
+    (row,) = analyze_presses([(1.25, "B2", 12)], ["B2", None, None], frames, times, 0.3)
+    assert row[2:5] == (None, None, "미검출")
+    assert row[5] is True          # 창(능력 상한)은 10 프레임의 B2 를 본다
+
+
+def test_press_before_first_frame():
+    (row,) = analyze_presses([(0.5, "B2", 9)], ["B2"], [10], [1.0], 0.3)
+    assert row[2:5] == (None, None, "프레임 없음")
+
+
+def test_press_window_uses_raw_series():
+    """창은 갭메우기 전(raw_series)으로 잰다 — 메운 구간만 맞으면 창은 실패."""
+    frames, times = [10, 11, 12], [1.0, 1.1, 1.2]
+    filled, raw = ["B2", "B2", "B2"], [None, None, None]
+    (row,) = analyze_presses([(1.25, "B2", 12)], filled, frames, times, 0.3, raw_series=raw)
+    assert row[4] == "OK" and row[5] is False
+
+
+def test_segments_split_by_roi():
+    series = [None, "B1", "B1", None, "B2", "B3"]
+    frames = [1, 2, 3, 4, 5, 6]
+    times = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
+    segs = segments(series, frames, times)
+    assert [(r, a, b) for r, a, b, _ in segs] == [("B1", 2, 3), ("B2", 5, 5), ("B3", 6, 6)]
+    assert abs(segs[0][3] - 0.1) < 1e-9 and segs[1][3] == 0.0   # 첫 관측 → 마지막 관측
+
+
+def test_segments_empty():
+    assert segments([None, None], [1, 2], [0.0, 0.1]) == []
 
 
 if __name__ == "__main__":

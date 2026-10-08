@@ -9,9 +9,13 @@
     🔴 **판정 규칙을 바꿀 때는 여기만 고친다.** `roi_zones.py` 와 같은 원칙이다.
 
 2층 구조:
-    · 순수 층 (`capability_*`) — {프레임: 구역라벨} 과 눌림 목록만 받는다. **소스를 모른다.**
-      `dwell_probe` 는 실시간 추론 시계열로, DB 어댑터는 palm_frames 로 호출한다.
-    · DB 어댑터 (`load_*`) — hoi.db 에서 그 딕셔너리를 만든다.
+    · 순수 층 (`capability_*` · `analyze_presses` · `segments`) — 구역 시계열과 눌림 목록만
+      받는다. **소스를 모른다.** 측정 도구 정합 1단계-나(세기)가 시연 기록(`frames.csv` ·
+      `fsm.csv` · `events.csv`)으로 부른다 · 옛 도구는 실시간 추론 시계열·palm_frames 로 불렀다.
+      `analyze_presses` · `segments` 는 2026-10-09 `dwell_probe` 에서 글자 그대로 옮겼다
+      (설계 상위 `docs/superpowers/specs/2026-10-09-세기도구정리-design.md` §4).
+    · DB 어댑터 (`connect` · `load_*`) — 옛 hoi.db 전용(옛 데이터 · 조사 스크립트 · 백업 도구
+      `백업/세기-20261009/`). 새 측정에는 쓰지 않는다.
 
 정의 (설계 = ../docs/superpowers/specs/2026-07-27-창판정-design.md §3):
     사전 감지율 = (감지 성공한 눌림 수) ÷ (전체 눌림 수). **단위는 눌림 1건**이며
@@ -53,6 +57,58 @@ def capability_rate(series, presses, n=WINDOW_N):
     hits = sum(1 for p in presses
                if capability_hit(series, p["frame"], p["button"], n))
     return hits, len(presses)
+
+
+def analyze_presses(presses, series, frames, times, dwell, raw_series=None):
+    """눌림 하나하나에 대해 '비전이 언제 그 버튼을 봤는가'를 대조한다.
+
+    선행시간 = t_눌림 − t_도착. t_도착은 **눌림 직전의 연속 ROI 구간이 시작된 시각**이다.
+    이 값이 양수여야 "누르기 직전에 사전 감지"라는 프로젝트 명제가 성립한다.
+
+    `win` = 창 기반 능력 상한(§3, `hoi_metrics`). 선행시간과 **다른 것을 잰다** —
+    선행시간은 연속 구간을 요구하고, 창은 창 안에 한 번이라도 보이면 성공이다.
+    두 값의 격차 = 판정 로직이 버리는 양.
+
+    `raw_series` = 갭메우기 **이전** 시계열. 능력 상한은 런타임 동작(갭메우기)에
+    영향받지 않는 고정 지표라 이쪽으로 잰다(설계 §3.1) — 선행시간·ROI 일치율은
+    그대로 `series`(런타임과 동일하게 갭메우기가 적용된 것)를 쓴다. 없으면 `series`를 쓴다.
+    """
+    cap_by_frame = {fr: (raw_series or series)[i] for i, fr in enumerate(frames)}
+    rows = []
+    for t_press, btn, fr in presses:
+        win = capability_hit(cap_by_frame, fr, btn)
+        # 눌림 시각 이하인 마지막 프레임 인덱스
+        idx = max((i for i, t in enumerate(times) if t <= t_press), default=None)
+        if idx is None:
+            rows.append((btn, fr, None, None, "프레임 없음", win))
+            continue
+        seen = series[idx]
+        if seen != btn:
+            rows.append((btn, fr, None, seen, "ROI 불일치" if seen else "미검출", win))
+            continue
+        # 같은 ROI가 연속으로 유지된 구간의 시작까지 거슬러 올라간다
+        j = idx
+        while j > 0 and series[j - 1] == btn:
+            j -= 1
+        rows.append((btn, fr, t_press - times[j], seen, "OK", win))
+    return rows
+
+
+def segments(series, frames, times):
+    """연속 동일 ROI 구간 → [(roi, 시작프레임, 끝프레임, 지속초)]."""
+    segs = []
+    i = 0
+    n = len(series)
+    while i < n:
+        if series[i] is None:
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and series[j + 1] == series[i]:
+            j += 1
+        segs.append((series[i], frames[i], frames[j], times[j] - times[i]))
+        i = j + 1
+    return segs
 
 
 # ─────────────────────────────────────────────────────────────── DB 어댑터 층

@@ -49,6 +49,7 @@ import config
 import roi_zones
 import frame_orient
 import hoi_metrics                    # 사전 감지율 판정 규칙 단일 출처 (2026-07-27)
+from hoi_metrics import analyze_presses, segments   # 2026-10-09 여기서 hoi_metrics 로 옮김(세기와 같은 정본)
 
 TIP = 8          # MediaPipe 손 랜드마크 인덱스 8 = 검지 끝 (접촉 기준점, §7.2)
 
@@ -127,58 +128,6 @@ def load_presses(path):
         for r in csv.DictReader(f):
             out.append((_parse_ts(r["timestamp"]), r["button"], int(r["frame"])))
     return sorted(out)
-
-
-def analyze_presses(presses, series, frames, times, dwell, raw_series=None):
-    """눌림 하나하나에 대해 '비전이 언제 그 버튼을 봤는가'를 대조한다.
-
-    선행시간 = t_눌림 − t_도착. t_도착은 **눌림 직전의 연속 ROI 구간이 시작된 시각**이다.
-    이 값이 양수여야 "누르기 직전에 사전 감지"라는 프로젝트 명제가 성립한다.
-
-    `win` = 창 기반 능력 상한(§3, `hoi_metrics`). 선행시간과 **다른 것을 잰다** —
-    선행시간은 연속 구간을 요구하고, 창은 창 안에 한 번이라도 보이면 성공이다.
-    두 값의 격차 = 판정 로직이 버리는 양.
-
-    `raw_series` = 갭메우기 **이전** 시계열. 능력 상한은 런타임 동작(갭메우기)에
-    영향받지 않는 고정 지표라 이쪽으로 잰다(설계 §3.1) — 선행시간·ROI 일치율은
-    그대로 `series`(런타임과 동일하게 갭메우기가 적용된 것)를 쓴다. 없으면 `series`를 쓴다.
-    """
-    cap_by_frame = {fr: (raw_series or series)[i] for i, fr in enumerate(frames)}
-    rows = []
-    for t_press, btn, fr in presses:
-        win = hoi_metrics.capability_hit(cap_by_frame, fr, btn)
-        # 눌림 시각 이하인 마지막 프레임 인덱스
-        idx = max((i for i, t in enumerate(times) if t <= t_press), default=None)
-        if idx is None:
-            rows.append((btn, fr, None, None, "프레임 없음", win))
-            continue
-        seen = series[idx]
-        if seen != btn:
-            rows.append((btn, fr, None, seen, "ROI 불일치" if seen else "미검출", win))
-            continue
-        # 같은 ROI가 연속으로 유지된 구간의 시작까지 거슬러 올라간다
-        j = idx
-        while j > 0 and series[j - 1] == btn:
-            j -= 1
-        rows.append((btn, fr, t_press - times[j], seen, "OK", win))
-    return rows
-
-
-def segments(series, frames, times):
-    """연속 동일 ROI 구간 → [(roi, 시작프레임, 끝프레임, 지속초)]."""
-    segs = []
-    i = 0
-    n = len(series)
-    while i < n:
-        if series[i] is None:
-            i += 1
-            continue
-        j = i
-        while j + 1 < n and series[j + 1] == series[i]:
-            j += 1
-        segs.append((series[i], frames[i], frames[j], times[j] - times[i]))
-        i = j + 1
-    return segs
 
 
 def main():
