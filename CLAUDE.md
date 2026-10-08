@@ -53,7 +53,7 @@
 - 🔴 **개체는 «시리얼번호»로 식별한다. `ttyACM` 번호를 믿지 말 것** — 꽂는 순서로 뒤바뀐다.
   **더 위험한 것은 sn 자체가 서로 닮았다는 점이다:**
   `3C:0F:02:DD:5E:`**`58`** = 메인(안경·카메라) / `3C:0F:02:DD:5E:`**`40`** = 서브(마이크) — **마지막 바이트만 다르다.**
-  `68:EE:8F:4F:5D:6C` = 예비.
+  `68:EE:8F:4F:5D:6C` = 예비 · ⚠️ **카메라 인식 실패** — 메인의 정상 카메라를 꽂아도 실패 → 본체 불량으로 판단(공장 펌웨어 백업 = `~/lab/esp32-link/spare2_factory_full_*.bin`).
   (`44:1B:F6:80:3A:DC` = 옛 예비 · **폐기** — BAT+ 패드 손상으로 배터리 불가.)
   굽기 전 `python3 -c "from serial.tools import list_ports; [print(p.device, p.serial_number) for p in list_ports.comports() if p.vid]"` 로 확인한다.
   **잘못 구우면 다른 작업 세션의 펌웨어가 통째로 날아간다.** 남의 보드를 빌려 쓸 때는 **8MB 전체 백업 + `verify-flash`** 부터(`~/lab/esp32-link/RESTORE.md`).
