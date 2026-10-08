@@ -188,6 +188,88 @@ def test_confirm():
     check(c == {"n": 2, "k": 1, "before": [120.0], "why": {"프레임": 2}, "fake": 1}, f"{c}")
 
 
+def test_fps():
+    print("\n[12·13] 화면이 받은 간격(2초 이상 = 끊김 · 뺀다) · 최근 60간격 FPS 최저 · 15 미만 최장")
+    ts = [50 * i for i in range(70)] + [69 * 50 + 3000 + 100 * i for i in range(70)]
+    fs = [FS(t, t_gui=t) for t in ts]
+    ev = [E(10, "fps", fps=12.5)]
+    f = MC.v_fps(S_(ev, fsm=fs), below=15.0)
+    check(len(f["iv"]) == 138 and abs(fps.fps_from_intervals(f["iv"]) - 1 / 0.075) < 1e-6, "간격 138개 · 중앙값 FPS")
+    check(f["roll_min"] == [10.0] and f["low_longest"] == [0.9] and f["fps_ev"] == [12.5], f"{f['roll_min']} {f['low_longest']}")
+    check(MC.v_fps(S_(ev + [E(20, "recording_on", mode="camera")], fsm=fs), 15.0) == {"excluded": 1}, "녹화 세션은 뺀다")
+
+
+def test_stages():
+    print("\n[26·27] 단계별 ms · 한 프레임 = decode + (done − start) · 받은 수 = recv_seq 증가")
+    fr = [FR(i + 1, 1000 + 100 * i, seq=s, t_start=1010 + 100 * i, t_done=1060 + 100 * i, decode_ms=5.0, detect_ms=20.0)
+          for i, s in enumerate([1, 3, 4])]
+    st = MC.v_stages(S_(frames=fr))
+    check(st["total_ms"] == [55.0, 55.0, 55.0] and st["detect_ms"] == [20.0] * 3 and st["orient_ms"] == [], "단계 시간")
+    check(st["recv_iv"] == [100.0, 100.0] and (st["recv_n"], st["proc_n"]) == (4, 3), f"{st['recv_iv']} {st['recv_n']} {st['proc_n']}")
+
+
+def test_interlock():
+    print("\n[14] 경고·차단 전이 → 보낸 시각 → ACK · 정상 복귀 명령은 세지 않는다 · ACK 실패")
+    ev = [E(1000, "state", new="WARNING"), E(1010, "interlock", cmd="WARN", t_send_ms=1010.0, t_ack_ms=1040.0, ack=True),
+          E(2000, "state", new="PROCESS_RUN"), E(2010, "interlock", cmd="RUN", t_send_ms=2010.0, t_ack_ms=2020.0, ack=True),
+          E(3000, "state", new="BLOCK"), E(3005, "interlock", cmd="BLOCK", t_send_ms=3005.0, t_ack_ms=None, ack=False)]
+    i = MC.v_interlock(S_(ev))
+    check(i == {"n": 2, "fail": 1, "total": [40.0], "send": [10.0], "ack": [30.0]}, f"{i}")
+
+
+def test_res():
+    print("\n[30] 자원 — 첫 값은 버린다")
+    ev = [E(0, "res", cpu_avg=99.0, cpu_max=99.0, temp=99.0), E(10, "res", cpu_avg=30.0, cpu_max=50.0, temp=60.0),
+          E(20, "res", cpu_avg=40.0, cpu_max=70.0, temp=None)]
+    check(MC.v_res(S_(ev)) == {"cpu_avg": [30.0, 40.0], "cpu_max": [50.0, 70.0], "temp": [60.0]}, f"{MC.v_res(S_(ev))}")
+
+
+def test_tools():
+    print("\n[17ⓐⓑ] 대본 틀린공구 판에서 공구 단계 통과 = 실패 · 단계 시작 → 맞는 공구 첫 쥠")
+    ev = [E(0, "run_start"), E(100, "sub", what="start", button="B2"), E(200, "tool_scan", tool=None, want="렌치"),
+          E(300, "wrong_tool", want="렌치", got="드라이버"), E(900, "sub", what="finish", button="B2"),
+          E(950, "run_end", ok=True),
+          E(1000, "run_start"), E(1100, "sub", what="start", button="B2"), E(1200, "tool_scan", tool=None, want="렌치"),
+          E(1300, "wrong_tool", want="렌치", got="드라이버"), E(2000, "run_reset", why="작업 초기화"),
+          E(3000, "run_start"), E(3100, "sub", what="start", button="B2"), E(3200, "tool_scan", tool=None, want="렌치"),
+          E(3600, "tool_scan", tool="렌치", want="렌치"), E(3700, "sub", what="finish", button="B2"), E(4000, "run_end", ok=True),
+          E(5000, "run_start"), E(5100, "run_reset", why="작업 초기화")]
+    s = S_(ev, script=SCR((1, "틀린공구", "드라이버"), (2, "틀린공구", "드라이버"), (4, "틀린공구", "드라이버")))
+    check(MC.v_wrong_tool(s) == {"script": 1, "n": 2, "k": 1, "det": 2, "skip": 1}, f"{MC.v_wrong_tool(s)}")
+    check(MC.v_wrong_tool(S_(ev)) == {"script": 0}, "대본 없음")
+    check(MC.v_tool_time(S_(ev)) == {"times": [0.5]}, f"{MC.v_tool_time(S_(ev))}")
+
+
+def test_voice():
+    print("\n[V1~V4] 알림 지연 · 전이마다 알림 수 · 해제 → 멈춤 · 알림 길이")
+    voice = [E(1000, "alert", key="경고", t_pub_ms=990.0), E(1200, "play_start"), E(2700, "play_end", what="완료"),
+             E(5000, "alert", key="경고", t_pub_ms=4990.0), E(9000, "play_start"), E(9200, "stop_sent"),
+             E(9300, "play_end", what="중단")]
+    ev = [E(985, "state", new="WARNING"), E(4985, "state", new="BLOCK"), E(7000, "state", new="WARNING"),
+          E(9150, "release", what="warning", ok=True), E(9500, "release", what="block", ok=True)]
+    s = S_(ev, voice=voice)
+    check(MC.v_alert_delay(s) == {"delays": [0.21], "missing": 1}, f"V1 = {MC.v_alert_delay(s)}")
+    check(MC.v_alert_count(s) == {"trans": 3, "one": 2, "zero": 1, "multi": 0, "normal": 0}, f"V2 = {MC.v_alert_count(s)}")
+    check(MC.v_alert_stop(s) == {"delays": [0.05], "missing": 0}, f"V3 = {MC.v_alert_stop(s)}")
+    check(MC.v_alert_len(s) == {"lens": [1.5, 0.3]}, f"V4 = {MC.v_alert_len(s)}")
+    check(MC.v_alert_count(S_(ev)) == {"off": 1}, "음성 기록이 없으면 V2 = 끔")
+
+
+def test_uplink():
+    print("\n[V9] 10초 칸 받은/기대 바이트 — 데몬이 다시 떠 누적이 줄면 그 칸은 버린다")
+    voice = [E(0, "uplink", bytes=0, connected=True), E(10000, "uplink", bytes=320000, connected=True),
+             E(20000, "uplink", bytes=160000, connected=True), E(30000, "uplink", bytes=480000, connected=True),
+             E(40000, "uplink", bytes=480000, connected=False)]
+    check(MC.v_uplink(S_(voice=voice)) == {"ratios": [1.0, 1.0]}, f"{MC.v_uplink(S_(voice=voice))}")
+
+
+def test_count_all_keys():
+    print("\n[모두] 한 세션의 값 키")
+    keys = set(MC.count_all(S_()).keys())
+    check(keys == {"1", "4", "16", "3", "25", "5", "23", "28", "21", "12", "26", "14", "30", "17a", "17b",
+                   "V1", "V2", "V3", "V4", "V9"}, f"{sorted(keys)}")
+
+
 if __name__ == "__main__":
     for _name, _fn in list(globals().items()):
         if _name.startswith("test_") and callable(_fn):

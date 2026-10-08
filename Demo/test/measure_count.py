@@ -327,3 +327,223 @@ def v_confirm(S):
                         for f in S["frames"]):
             out["fake"] += 1
     return out
+
+
+# ── 12·13 · 26·27 · 14 · 30 — 속도 · 인터락 · 자원 ───────────────────────────
+def v_fps(S, below=None):
+    """12 FPS 중앙값 재료 · 13 끊김 — 화면이 받은 간격(fsm t_gui). STALE_SEC 이상 = 끊김(빼고 창 비움) · 창 = FPS_WINDOW."""
+    if recording(S):
+        return {"excluded": 1}
+    ts = sorted(r["t_gui"] for r in S["fsm"])
+    keep, win, mins = [], [], []
+    low_start, longest = None, 0.0
+    for a, b in zip(ts, ts[1:]):
+        x = (b - a) / 1000
+        if x >= fps.STALE_SEC or x <= 0:
+            win, low_start = [], None
+            continue
+        keep.append(round(x, 4))
+        win.append(x)
+        if len(win) > fps.FPS_WINDOW:
+            win.pop(0)
+        if len(win) < fps.FPS_WINDOW:
+            continue
+        f = fps.fps_from_intervals(win)
+        mins.append(f)
+        if below is not None and f < below:
+            low_start = b if low_start is None else low_start
+            longest = max(longest, (b - low_start) / 1000)
+        else:
+            low_start = None
+    return {"iv": keep, "roll_min": [round(min(mins), 2)] if mins else [],
+            "low_longest": [round(longest, 3)] if below is not None else [],
+            "fps_ev": [d["fps"] for _, k, d in S["events"] if k == "fps" and d.get("fps") is not None]}
+
+
+def v_stages(S):
+    """26 단계별 ms · 27 받기↔처리 — frames.csv. 한 프레임 = decode + (done − start)(README)."""
+    if recording(S):
+        return {"excluded": 1}
+    fr = S["frames"]
+    out = {s: [f[s] for f in fr if f[s] is not None] for s in STAGES}
+    out["total_ms"] = [round(f["decode_ms"] + f["t_done"] - f["t_start"], 3) for f in fr
+                       if None not in (f["decode_ms"], f["t_done"], f["t_start"])]
+    tr = [f["t"] for f in fr]
+    td = [f["t_done"] for f in fr if f["t_done"] is not None]
+    out["recv_iv"] = [round(b - a, 3) for a, b in zip(tr, tr[1:])]
+    out["done_iv"] = [round(b - a, 3) for a, b in zip(td, td[1:])]
+    seqs = [f["seq"] for f in fr if f["seq"] is not None]
+    out["recv_n"] = (seqs[-1] - seqs[0] + 1) if seqs else 0
+    out["proc_n"] = len(fr)
+    return out
+
+
+def v_interlock(S):
+    """14 응답시간 — 경고·차단 전이가 부른 명령마다 전이 → 보낸 시각 → ACK(ms). ACK 실패는 따로."""
+    st = [(t, d) for t, k, d in S["events"] if k == "state"]
+    out = {"n": 0, "fail": 0, "total": [], "send": [], "ack": []}
+    for t, k, d in S["events"]:
+        if k != "interlock":
+            continue
+        ts = d.get("t_send_ms", t)
+        prev = [x for x in st if x[0] <= ts]
+        if not prev or prev[-1][1].get("new") not in ("WARNING", "BLOCK"):
+            continue
+        out["n"] += 1
+        if not d.get("ack") or d.get("t_ack_ms") is None:
+            out["fail"] += 1
+            continue
+        t_state = prev[-1][0]
+        out["total"].append(round(d["t_ack_ms"] - t_state, 3))
+        out["send"].append(round(ts - t_state, 3))
+        out["ack"].append(round(d["t_ack_ms"] - ts, 3))
+    return out
+
+
+def v_res(S):
+    """30 자원 — res 사건(첫 값은 의미 없다 · safety_console._pi_resources 머리말)."""
+    rs = [d for _, k, d in S["events"] if k == "res"][1:]
+    return {key: [d[key] for d in rs if d.get(key) is not None] for key in ("cpu_avg", "cpu_max", "temp")}
+
+
+# ── 17ⓐⓑ — 공구 ────────────────────────────────────────────────────────────
+def tool_steps(runs):
+    """판마다 공구 단계 = 그 판 첫 tool_scan 직전의 서브 작업 시작 → [(판, 시작 시각, 버튼)]."""
+    out = []
+    for r in runs:
+        scans = [t for t, k, _ in r["ev"] if k == "tool_scan"]
+        if not scans:
+            continue
+        starts = [(t, d.get("button")) for t, k, d in r["ev"]
+                  if k == "sub" and d.get("what") == "start" and t <= scans[0]]
+        if starts:
+            out.append((r, starts[-1][0], starts[-1][1]))
+    return out
+
+
+def v_wrong_tool(S):
+    """17ⓐ 틀린 공구 통과 — 대본 「틀린공구」 판(틀린 공구만 쥐고 기다린 뒤 초기화)에서 공구 단계가 끝나면 통과(실패)."""
+    if S["script"] is None:
+        return {"script": 0}
+    runs = split_runs(S["events"])
+    ids = {int(row["판"]) for row in S["script"] if row["행동"] == "틀린공구"}
+    steps = {r["i"]: b for r, _t0, b in tool_steps(runs)}
+    out = {"script": 1, "n": 0, "k": 0, "det": 0, "skip": 0}
+    for r in runs:
+        if r["i"] not in ids:
+            continue
+        if r["i"] not in steps or any(k == "tool_sim" for _, k, _ in r["ev"]):
+            out["skip"] += 1          # 공구 단계에 닿지 않았거나 키보드 공구 — 시도로 세지 않는다
+            continue
+        out["n"] += 1
+        if any(k == "sub" and d.get("what") == "finish" and d.get("button") == steps[r["i"]] for _, k, d in r["ev"]):
+            out["k"] += 1
+        out["det"] += sum(1 for _, k, _ in r["ev"] if k == "wrong_tool")
+    return out
+
+
+def v_tool_time(S):
+    """17ⓑ 공구 확인 소요 — 공구 단계 시작 → 처음 tool_scan 의 tool = want(초) · 키보드 공구 판은 뺀다."""
+    out = []
+    for r, t0, _b in tool_steps(split_runs(S["events"])):
+        if any(k == "tool_sim" for _, k, _ in r["ev"]):
+            continue
+        hit = next((t for t, k, d in r["ev"]
+                    if k == "tool_scan" and t >= t0 and d.get("tool") and d.get("tool") == d.get("want")), None)
+        if hit is not None:
+            out.append(round((hit - t0) / 1000, 3))
+    return {"times": out}
+
+
+# ── V1~V4 · V9 — 음성 ──────────────────────────────────────────────────────
+def v_alert_delay(S):
+    """V1 알림 지연 — alert 의 상태 공개 시각(t_pub_ms) → 다음 play_start(ALERT_WAIT_MS 안 · 초)."""
+    plays = [t for t, k, _ in S["voice"] if k == "play_start"]
+    out = {"delays": [], "missing": 0}
+    for t, k, d in S["voice"]:
+        if k != "alert" or d.get("t_pub_ms") is None:
+            continue
+        nxt = next((p for p in plays if p >= t), None)
+        if nxt is None or nxt - t > ALERT_WAIT_MS:
+            out["missing"] += 1
+        else:
+            out["delays"].append(round((nxt - d["t_pub_ms"]) / 1000, 3))
+    return out
+
+
+def v_alert_count(S):
+    """V2 알림 정확도 — 경고·차단 전이마다 그 시각 근처(ALERT_MATCH_MS) 알림 수 · 정상 판 안의 알림(헛알림)."""
+    if not S["voice"]:
+        return {"off": 1}
+    pubs = [d["t_pub_ms"] for _, k, d in S["voice"] if k == "alert" and d.get("t_pub_ms") is not None]
+    lo, hi = ALERT_MATCH_MS
+    out = {"trans": 0, "one": 0, "zero": 0, "multi": 0, "normal": 0}
+    for t, k, d in S["events"]:
+        if k == "state" and d.get("new") in ("WARNING", "BLOCK"):
+            c = sum(1 for a in pubs if lo <= a - t <= hi)
+            out["trans"] += 1
+            out["one" if c == 1 else ("zero" if c == 0 else "multi")] += 1
+    runs = split_runs(S["events"])
+    ids = normal_run_ids(S, runs)
+    for r in runs:
+        if r["i"] in ids:
+            t1 = r["t1"] if r["t1"] is not None else float("inf")
+            out["normal"] += sum(1 for a in pubs if r["t0"] <= a <= t1)
+    return out
+
+
+def v_alert_stop(S):
+    """V3 알림 끊기 — 재생 중에 해제(release ok)되면 → 다음 stop_sent(초). 재생 중이 아니었으면 세지 않는다."""
+    starts = [t for t, k, _ in S["voice"] if k == "play_start"]
+    ends = [t for t, k, _ in S["voice"] if k == "play_end"]
+    stops = [t for t, k, _ in S["voice"] if k == "stop_sent"]
+    out = {"delays": [], "missing": 0}
+    for t, k, d in S["events"]:
+        if k != "release" or not d.get("ok"):
+            continue
+        s = [x for x in starts if x <= t]
+        if not s or any(s[-1] <= e <= t for e in ends):
+            continue
+        nxt = next((x for x in stops if x >= t), None)
+        if nxt is None or nxt - t > ALERT_WAIT_MS:
+            out["missing"] += 1
+        else:
+            out["delays"].append(round((nxt - t) / 1000, 3))
+    return out
+
+
+def v_alert_len(S):
+    """V4 알림 길이 — 알림 뒤 첫 play_start → 그 뒤 첫 play_end(초)."""
+    out = []
+    for t, k, _ in S["voice"]:
+        if k != "alert":
+            continue
+        ps = next((x for x, kk, _ in S["voice"] if kk == "play_start" and x >= t), None)
+        pe = next((x for x, kk, _ in S["voice"] if kk == "play_end" and ps is not None and x >= ps), None)
+        if pe is not None:
+            out.append(round((pe - ps) / 1000, 3))
+    return {"lens": out}
+
+
+def v_uplink(S):
+    """V9 마이크 손실 — 업링크 누적 바이트의 이웃 칸 차이 ÷ (rate × BYTES_PER_SAMPLE × 경과 초). 거꾸로 간 칸 = 데몬 재시작 → 버린다."""
+    ups = [(t, d) for t, k, d in S["voice"] if k == "uplink"]
+    out = []
+    for (t0, d0), (t1, d1) in zip(ups, ups[1:]):
+        if not (d0.get("connected") and d1.get("connected")) or t1 <= t0:
+            continue
+        db = d1["bytes"] - d0["bytes"]
+        if db < 0:
+            continue
+        out.append(round(db / (S["rate"] * BYTES_PER_SAMPLE * (t1 - t0) / 1000), 4))
+    return {"ratios": out}
+
+
+def count_all(S, below=None):
+    """세션 하나의 값 전부 — 키 = 측정 설계 §2 번호(17ⓐ = 17a). below = NFR-1 FPS 목표(통합문서 §4.1)."""
+    return {"1": v_prevent(S), "4": v_lead(S), "16": v_normal(S), "3": v_precision(S), "25": v_effect(S),
+            "5": v_zone(S), "23": v_graze(S), "28": v_gap(S), "21": v_confirm(S),
+            "12": v_fps(S, below), "26": v_stages(S), "14": v_interlock(S), "30": v_res(S),
+            "17a": v_wrong_tool(S), "17b": v_tool_time(S),
+            "V1": v_alert_delay(S), "V2": v_alert_count(S), "V3": v_alert_stop(S), "V4": v_alert_len(S),
+            "V9": v_uplink(S)}
