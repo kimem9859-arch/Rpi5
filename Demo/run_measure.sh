@@ -31,5 +31,9 @@ echo "  세션 폴더: $DIR"
 # 끔 회차는 물려받은 값도 지운다 — 기록이 저절로 켜지지 않게
 if [ "$ON" = "1" ]; then export SOP_MEASURE_DIR="$DIR"; else unset SOP_MEASURE_DIR; fi
 bash ./run_demo.sh
+# 시연을 닫으면 세기(보고 도구)가 바로 센다 — 측정 설계 D10 · 기록 끔 회차는 셀 것이 없다
+if [ "$ON" = "1" ]; then
+  python3 test/measure_report.py "$DIR" || echo "  ⚠️ 세기 실패 — 위 오류를 보고 나중에 다시: python3 test/measure_report.py \"$DIR\""
+fi
 echo "  끝 — 기록 폴더: $DIR"
 read -rp "  엔터를 누르면 창을 닫는다 > " _
