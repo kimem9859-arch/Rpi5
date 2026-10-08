@@ -355,7 +355,7 @@ def find_interlock_port():
 def resolve_interlock_port(quiet=False):
     """기동 때 한 번 — 인터록 경로(확신할 수 없으면 None)를 돌려주고 안내를 찍는다.
 
-    🔑 안내 글자는 종전과 같다 — `fsm_sim` 등 config 를 불러오는 도구의 출력이 이 줄을 담는다.
+    🔑 안내 글자는 종전과 같다 — `fsm_sim`(옛 데이터 관문 · 지금 `Rpi5/백업/세기-20261009/`) 등 config 를 불러오는 도구의 출력이 이 줄을 담는다.
     """
     say = (lambda m: None) if quiet else print
     port, why = find_interlock_port()
@@ -365,7 +365,7 @@ def resolve_interlock_port(quiet=False):
     elif port is None:
         say(f"[config] ⚠️ {why}")
         # 🔑 후보가 여럿이면 사유가 이미 「직접 지정하라」를 담는다 — 「꽂히면 붙는다」는 틀린 말이라
-        #    찍지 않는다(④ 사소 5). 장치 없음 문구는 글자 그대로 둔다(fsm_sim 출력이 담아 관문이 비교한다).
+        #    찍지 않는다(④ 사소 5). 장치 없음 문구는 글자 그대로 둔다(fsm_sim 출력이 담아 옛 데이터 관문이 비교한다).
         if "SOP_INTERLOCK_PORT" not in why:
             say("[config] → 찾을 때까지 연결하지 않는다(꽂히면 자동으로 붙는다). "
                 "강제하려면 SOP_INTERLOCK_PORT=/dev/ttyACMx")

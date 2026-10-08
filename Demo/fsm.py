@@ -101,7 +101,7 @@ class SafetyFSM:
     def last_roi(self):
         """마지막으로 관측(또는 창/갭메우기로 유지)된 ROI. 없으면 None.
 
-        측정 도구(`test/fsm_sim.py`)가 '런타임 거울' 지표를 내는 데 쓴다 —
+        옛 측정 도구 `fsm_sim`(지금 `Rpi5/백업/세기-20261009/` — 옛 데이터 전용)이 '런타임 거울' 지표를 내는 데 썼다 —
         눌림 시점에 FSM 이 그 버튼을 보고 있었는가.
         """
         return self._last_roi

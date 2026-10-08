@@ -109,7 +109,7 @@ def _run(detector, frames, degrade, conf_high, csv_writer=None):
 
 
 def _open_csv(raw_dir, hef_path, conf_high, degrade_label):
-    """logs/replay/에 검출 CSV 생성 — db_import.py가 '# meta:' 줄을 읽어 적재한다."""
+    """logs/replay/에 검출 CSV 생성 — 옛 데이터 도구 db_import.py(지금 Rpi5/백업/세기-20261009/)가 '# meta:' 줄을 읽어 적재한다."""
     replay_dir = os.path.join(_TEST_DIR, "logs", "replay")
     os.makedirs(replay_dir, exist_ok=True)
     run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -153,7 +153,7 @@ def main():
     ap.add_argument("--ablation", action="store_true",
                     help="§10.9 요인 분리 조건들을 일괄 비교 (원본/해상도↓/JPEG/블러)")
     ap.add_argument("--no-csv", action="store_true",
-                    help="logs/replay/ 검출 CSV 기록 끄기 (기본은 기록 → db_import.py로 적재)")
+                    help="logs/replay/ 검출 CSV 기록 끄기 (기본은 기록 · 적재 도구 db_import 는 백업/세기-20261009 에 백업)")
     args = ap.parse_args()
 
     if not os.path.isdir(args.raw_dir):
@@ -225,7 +225,7 @@ def main():
                     csv_f.close()
             _report(label, frames, counts, hits, scores, conf_high)
             if csv_path:
-                print(f"\n[csv] {csv_path}  (db_import.py 실행 시 DB에 적재됨)")
+                print(f"\n[csv] {csv_path}  (bench.db 적재 도구 db_import 는 Rpi5/백업/세기-20261009/ 에 백업 — 되돌려 쓴다)")
     finally:
         detector.close()
 
