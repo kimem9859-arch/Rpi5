@@ -68,8 +68,18 @@ def emo_button(recipe=RECIPE):
     return v if v is not None else config.FSM_EMO_BUTTON
 
 
-def mic_rate(src=VOICE_SRC):
+def recipe_buttons(recipe=None):
+    """recipe.json 단계 버튼(순서대로) — 대본 위반·머묾 대상 검사 · 18 기대 누름 수."""
+    try:
+        with open(recipe or RECIPE, encoding="utf-8") as f:
+            return [s_.get("button") for s_ in json.load(f).get("steps", []) if s_.get("button")]
+    except (OSError, ValueError):
+        return []
+
+
+def mic_rate(src=None):
     """voice_assistant.RATE — 모듈을 불러오지 않고 파일에서 상수만 읽는다(음성 전용 파이썬 없이)."""
+    src = src or VOICE_SRC
     with open(src, encoding="utf-8") as f:
         tree = ast.parse(f.read())
     for node in tree.body:
@@ -78,8 +88,8 @@ def mic_rate(src=VOICE_SRC):
     raise ValueError(f"RATE 상수가 없다: {src}")
 
 
-def load_script(path):
-    """대본 CSV(설계 §5) — 빈 줄·BOM 은 받는다 · 행동 철자·판 숫자 오류는 줄 번호와 함께 멈춘다."""
+def load_script(path, buttons=None):
+    """대본 CSV(설계 §5) — 빈 줄·BOM 은 받는다 · 행동 철자·판 숫자·위반/머묾 대상(레시피 버튼) 오류는 줄 번호와 함께 멈춘다."""
     name, rows = os.path.basename(path), []
     with open(path, encoding="utf-8-sig", newline="") as f:
         rd = csv.DictReader(f)
@@ -96,6 +106,8 @@ def load_script(path):
                 raise ValueError(f"대본 {name} {n}행 — 판 「{r.get('판')}」 은(는) 1부터의 숫자여야 한다") from None
             for k in ("대상", "기대", "메모"):
                 r.setdefault(k, "")
+            if buttons and r["행동"] in ("위반", "머묾") and r["대상"] not in buttons:
+                raise ValueError(f"대본 {name} {n}행 — {r['행동']} 대상 「{r['대상']}」 은(는) 레시피 버튼({'·'.join(buttons)}) 가운데 하나여야 한다")
             rows.append(r)
     return rows
 
@@ -125,12 +137,17 @@ def load_session(d):
                     "state": r.get("state") or None, "expected": r.get("expected") or None})
     fsm.sort(key=lambda x: x["t"])
     inp = info.get("입력") or {}
-    script = load_script(os.path.join(d, inp["대본"])) if inp.get("대본") else None
+    steps = recipe_buttons()
+    script = load_script(os.path.join(d, inp["대본"]), buttons=steps) if inp.get("대본") else None
+    try:
+        rate = mic_rate()
+    except (OSError, ValueError, SyntaxError):
+        rate = None                                   # V9 하나만 못 낸다 — 보고 전체를 멈추지 않는다
     return {"dir": d, "name": os.path.basename(d), "info": info, "kind": inp.get("세션"),
             "settings": info.get("설정") or {}, "frames": frames, "fsm": fsm,
             "events": sorted(measure_check.load_events(os.path.join(d, "events.csv")), key=lambda e: e[0]),
             "voice": sorted(measure_check.load_events(os.path.join(d, "voice_events.csv")), key=lambda e: e[0]),
-            "script": script, "emo": emo_button(), "rate": mic_rate()}
+            "script": script, "emo": emo_button(), "rate": rate, "steps": steps}
 
 
 def warnings(S):
@@ -149,10 +166,26 @@ def warnings(S):
     ps = MC.pair_presses(S["events"])
     kb = sum(1 for p in ps if p["how"] == "키보드")
     cb = sum(1 for p in ps if p["how"] == "콜백")
+    nb = sum(1 for p in ps if p["how"] == "처리")
     if kb:
         w.append(f"키보드 누름 {kb}건 — 위반·구역 값에서 뺐다")
     if cb:
-        w.append(f"GPIO 엣지 짝이 없는 누름 {cb}건 — 화면 처리 시각으로 대신했다")
+        w.append(f"엣지 시각 대신 콜백 시각이 적힌 누름 {cb}건 — 콜백 시각을 썼다")
+    if nb:
+        w.append(f"GPIO 엣지 기록이 없는 누름 {nb}건 — 화면 처리 시각으로 대신했다")
+    if S["script"]:
+        n_runs = len(MC.split_runs(S["events"]))
+        over = sorted({int(r["판"]) for r in S["script"] if int(r["판"]) > n_runs})
+        if over:
+            w.append(f"대본 판 {'·'.join(map(str, over))} 이 기록에 없다(기록된 판 {n_runs}개) — 그 줄은 세지 않았다")
+    vends = [d for _, k, d in S["voice"] if k == "measure_end"]
+    if S["info"].get("음성", True) and S["info"].get("측정기록", True) and not S["voice"]:
+        w.append("음성 켬 세션인데 음성 기록이 없다(voice_events.csv) — 음성 값(V1~V9)이 비어 있다")
+    vdrop = sum(d.get("dropped") or 0 for d in vends)
+    if vdrop:
+        w.append(f"버린 음성 사건 {vdrop}건(큐 넘침) — 음성 값이 모자랄 수 있다")
+    if not S.get("rate"):
+        w.append("마이크 표본률(voice_assistant.RATE)을 못 읽어 V9 를 내지 않았다")
     if any(k == "tool_sim" for _, k, _ in S["events"]):
         w.append("키보드 공구(tool_sim)가 있다 — 그 판은 공구 값에서 뺐다")
     if S["kind"] == "시험":
@@ -191,25 +224,34 @@ def load_targets(path=TARGETS_MD):
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) < 4:
             continue
-        t = parse_target(cells[3])
-        if t:
-            t["name"] = cells[2]
-            out[cells[1]] = t
+        t = parse_target(cells[3]) or {"text": cells[3].replace("**", "").strip(), "unreadable": True}
+        t["name"] = cells[2]
+        out[cells[1]] = t
     return out or None
 
 
-def target_value(mid, M):
-    """목표 측정 # → {raw(값 또는 목록), n(표본), note(덧붙임), why(값이 없는 까닭 — 있으면 판정 대신)}."""
+def fps_floor(targets):
+    """13 의 기준 = NFR-1(측정 # 12) 목표값 — 못 읽었으면 None."""
+    t = (targets or {}).get("12")
+    return t["value"] if t and not t.get("unreadable") else None
+
+
+def target_value(mid, M, t=None):
+    """목표 측정 # → {raw(값 또는 목록), n(표본), note(덧붙임), why(값이 없는 까닭 — 있으면 판정 대신)}.
+    놓친 것(ACK 없는 명령 · 재생 없는 알림)은 ∞ 로 넣는다 — 빼면 판정이 좋은 쪽으로 치우친다."""
     g = lambda k: M.get(k, {})                      # noqa: E731
     if mid == "1":
         n, k = g("1").get("n", 0), g("1").get("k", 0)
-        return {"raw": 100 * k / n if n else None, "n": n, "note": f"처리 늦음 후보 {g('1').get('late', 0)}", "why": ""}
+        return {"raw": 100 * k / n if n else None, "n": n, "why": "",
+                "note": f"처리 늦음 후보 {g('1').get('late', 0)} · 체류 미달 후보 {g('1').get('short', 0)}"}
     if mid == "4":
         v = g("4").get("leads", [])
-        return {"raw": v, "n": len(v), "note": "", "why": ""}
+        return {"raw": v, "n": len(v), "note": f"0 이하 {sum(1 for x in v if x <= 0)}(누름이 경고보다 먼저)", "why": ""}
     if mid == "16":
         n, k = g("16").get("n", 0), g("16").get("k", 0)
-        return {"raw": 100 * k / n if n else None, "n": n, "note": "", "why": ""}
+        return {"raw": 100 * k / n if n else None, "n": n, "why": "",
+                "note": f"실패 — 경고·차단 {g('16').get('f_alarm', 0)} · 초기화 {g('16').get('f_reset', 0)}"
+                        f" · 위반 {g('16').get('f_viol', 0)} · 열린 판 {g('16').get('open', 0)}(뺌)"}
     if mid == "17ⓐ":
         if not g("17a").get("script"):
             return {"raw": None, "n": 0, "note": "", "why": "대본 없음"}
@@ -219,11 +261,14 @@ def target_value(mid, M):
         iv = g("12").get("iv", [])
         return {"raw": fps.fps_from_intervals(iv), "n": len(iv), "note": "화면이 받은 간격", "why": ""}
     if mid == "14":
-        v, fail = g("14").get("total", []), g("14").get("fail", 0)
-        return {"raw": v + [float("inf")] * fail, "n": g("14").get("n", 0), "note": f"ACK 실패 {fail}", "why": ""}
+        v, un, to = g("14").get("total", []), g("14").get("unsent", 0), g("14").get("timeout", 0)
+        lim = t["value"] if t and not t.get("unreadable") else None
+        over = f"{lim:g} 넘음 {sum(1 for x in v if x > lim)} · " if lim is not None else ""
+        return {"raw": v + [float("inf")] * (un + to), "n": g("14").get("n", 0), "why": "",
+                "note": f"{over}시간 초과 {to} · 미연결 {un} · 짝 요청 없음 {g('14').get('noreq', 0)}"}
     if mid == "V1":
-        v = g("V1").get("delays", [])
-        return {"raw": v, "n": len(v), "note": f"재생 없음 {g('V1').get('missing', 0)}", "why": ""}
+        v, miss = g("V1").get("delays", []), g("V1").get("missing", 0)
+        return {"raw": v + [float("inf")] * miss, "n": len(v) + miss, "note": f"재생 없음 {miss}(∞ 로 넣음)", "why": ""}
     if mid == "9":
         return {"raw": None, "n": 0, "note": "", "why": "세기 밖 — 모델 채점(비전 모델 재정립 ③)"}
     return {"raw": None, "n": 0, "note": "", "why": "세는 법 없음"}
@@ -237,7 +282,11 @@ def apply_stat(t, raw):
         return None, ""
     if t["stat"] == "median":
         return statistics.median(raw), "중앙값"
-    return max(raw), ("최댓값" if t["stat"] == "max" else "최댓값 — 목표에 통계 표시가 없어 모든 건으로")
+    if t["stat"] == "max":
+        return max(raw), "최댓값"
+    if t["op"] == "≥":                               # 표시 없음 = 모든 건 — 부호에 따라 엄격한 쪽(≥ 는 최솟값)
+        return min(raw), "최솟값 — 목표에 통계 표시가 없어 모든 건으로"
+    return max(raw), "최댓값 — 목표에 통계 표시가 없어 모든 건으로"
 
 
 def judge(t, v, n):
@@ -296,13 +345,21 @@ def render(sessions, per, M, targets, curve=None):
     if not targets:
         L.append("❌ **목표 읽기 실패 — 판정 없음**(통합문서 §4.1 목표 표를 찾지 못했다)")
     else:
+        trial = any(S["kind"] == "시험" for S in sessions)       # 설계 §3 — 시험 세션 = 인용·목표 판정 금지
+        voiced = [p for S, p in zip(sessions, per) if S["info"].get("음성", True)]
+        Mt = dict(M, **{"12": MC.merge([p.get("12", {}) for p in voiced])})   # NFR-1 = 모든 기능을 켠 시연 상태(§4.1)
+        muted = len(sessions) - len(voiced)
         L += ["| # | 목표 | 목표값 | 값 | 표본 | 판정 | 덧붙임 |", "|---|---|---|---|---|---|---|"]
         for mid, t in targets.items():
-            tv = target_value(mid, M)
+            if t.get("unreadable"):
+                L.append(f"| {mid} | {t['name']} | {t['text']} | — | — | 목표값 못 읽음 |  |")
+                continue
+            tv = target_value(mid, Mt, t)
             v, how = apply_stat(t, tv["raw"])
-            verdict = tv["why"] or judge(t, v, tv["n"])
+            verdict = tv["why"] or ("판정 안 함 — 시험 세션" if trial else judge(t, v, tv["n"]))
             val = _ft(v, t["unit"]) + (f" ({how})" if how else "")
-            L.append(f"| {mid} | {t['name']} | {t['text']} | {val} | {tv['n']} | {verdict} | {tv['note']} |")
+            note = tv["note"] + (f" · 음성 끔 세션 {muted} 뺌" if mid == "12" and muted else "")
+            L.append(f"| {mid} | {t['name']} | {t['text']} | {val} | {tv['n']} | {verdict} | {note} |")
         if len(sessions) > 1:
             # 설계 §3 「세션별 값도 함께」 — 합친 값만 보면 한 세션이 튄 것을 놓친다(rules/수치인용 「세션 간 편차가 크다」)
             L += ["", "### 세션별 값(편차 확인 · 값(표본))", "",
@@ -310,23 +367,29 @@ def render(sessions, per, M, targets, curve=None):
             for S, p in zip(sessions, per):
                 cells = []
                 for mid, t in targets.items():
-                    tv = target_value(mid, p)
+                    if t.get("unreadable"):
+                        cells.append("—")
+                        continue
+                    tv = target_value(mid, p, t)
                     cells.append("—" if tv["why"] else f"{_ft(apply_stat(t, tv['raw'])[0], t['unit'])} ({tv['n']})")
                 L.append(f"| {S['name']} | " + " | ".join(cells) + " |")
     g = lambda k: M.get(k, {})                      # noqa: E731
     a16, z, s23, st, gaps = g("16").get("alarms", []), g("5"), g("23"), g("26"), g("28").get("gaps", [])
-    gapfill = sessions[0]["settings"].get("FSM_GAP_FILL_SEC") if sessions else None
-    v2 = g("V2")
+    fills = sorted({str(S["settings"].get("FSM_GAP_FILL_SEC")) for S in sessions})
+    v2, f12, i18 = g("V2"), g("12"), g("18")
     L += ["", "## ② 목표를 두지 않는 값(수치만 · 통합문서 §4.1 「목표를 두지 않는 측정 값」)", "",
           f"- 2 헛경고 — 정상 판 하나당 {_f(sum(a16) / len(a16) if a16 else None, 2)}회(판 {len(a16)})",
           f"- 3 위반 판별 정밀도 — {_pct(g('3').get('k', 0), g('3').get('n', 0)) if g('3').get('script') else '대본 없음'}",
           f"- 5 사전 감지율 — {_pct(z.get('k5', 0), z.get('n', 0))} · 창 능력 상한 {_pct(z.get('kwin', 0), z.get('n', 0))}"
-          f" · 구역 선행시간 중앙값 {_f(_med(z.get('leads', [])), 3, '초')}",
+          f" · 구역 선행시간 중앙값 {_f(_med(z.get('leads', [])), 3, '초')} · 프레임 기록 없는 누름 {z.get('noframe', 0)}(뺌)",
           f"- 7 ROI 오분류 — {z.get('k7', 0)}건 / 눌림 {z.get('n', 0)}",
-          f"- 13 FPS 끊김 — 최근 {fps.FPS_WINDOW}간격 FPS 최저 {_f(_min(g('12').get('roll_min', [])), 1)}"
-          f" · 목표(NFR-1) 미만이 이어진 최장 {_f(_max(g('12').get('low_longest', [])), 2, '초')}"
-          f" · 시연이 10초마다 적은 FPS 중앙값 {_f(_med(g('12').get('fps_ev', [])), 1)}",
+          f"- 13 FPS 끊김 — 최근 {fps.FPS_WINDOW}간격 FPS 최저 {_f(_min(f12.get('roll_min', [])), 1)}"
+          f" · 목표(NFR-1) 미만 진입 {f12.get('low_n', 0)}회 · 이어진 최장 {_f(_max(f12.get('low_longest', [])), 2, '초')}"
+          f" · 끊김({fps.STALE_SEC:g}초 이상) {len(f12.get('stalls', []))}회 · 합 {_f(sum(f12.get('stalls', [])), 1, '초')}"
+          f" · 최장 {_f(_max(f12.get('stalls', [])), 1, '초')} · 시연이 10초마다 적은 FPS 중앙값 {_f(_med(f12.get('fps_ev', [])), 1)}",
           f"- 17ⓑ 공구 확인 소요 — 중앙값 {_f(_med(g('17b').get('times', [])), 2, '초')}(판 {len(g('17b').get('times', []))})",
+          f"- 18 입력 누락(표본만 · 판정은 다음 판) — 완주한 정상 판 {i18.get('runs', 0)} · 기대 누름 {i18.get('expect', 0)}"
+          f" · 기록된 누름 {i18.get('got', 0)}",
           f"- 21 누름 카메라 확인 — {_pct(g('21').get('k', 0), g('21').get('n', 0))} · 누르기 전 중앙값"
           f" {_f(_med(g('21').get('before', [])), 0, 'ms')} · 경로 {g('21').get('why', {})} · 가짜 미확인 {g('21').get('fake', 0)}",
           f"- 23 스침 통과율 — {_pct(s23.get('pass_k', 0), s23.get('pass_n', 0))} · 대본 머묾 가운데 경고 {_pct(s23.get('stay_warned', 0), s23.get('stay_n', 0))}",
@@ -334,18 +397,21 @@ def render(sessions, per, M, targets, curve=None):
           "- 26 단계별 시간(ms 중앙값/95%) — " + " · ".join(
               f"{s[:-3]} {_f(_med(st.get(s, [])), 1)}/{_f(_pq(st.get(s, []), 0.95), 1)}" for s in MC.STAGES + ("total_ms",)),
           f"- 27 받기↔처리 — 받은 {st.get('recv_n', 0)} · 처리 {st.get('proc_n', 0)}({_pct(st.get('proc_n', 0), st.get('recv_n', 0))})"
-          f" · 받은 간격 중앙값 {_f(_med(st.get('recv_iv', [])), 1, 'ms')} · 처리 끝 간격 중앙값 {_f(_med(st.get('done_iv', [])), 1, 'ms')}",
+          f" · 처리한 프레임의 받은 간격 중앙값 {_f(_med(st.get('recv_iv', [])), 1, 'ms')} · 처리 끝 간격 중앙값 {_f(_med(st.get('done_iv', [])), 1, 'ms')}",
           f"- 28 손 놓침 공백 — 중앙값 {_f(_med(gaps), 3, '초')} · 90% {_f(_pq(gaps, 0.9), 3, '초')}"
-          f" · 갭메우기({gapfill}초) 이하 {_pct(sum(1 for x in gaps if gapfill is not None and x <= gapfill), len(gaps))}",
+          f" · 갭메우기({'·'.join(fills)}초 — 세션마다 그 세션 값) 이하 {_pct(g('28').get('le_fill', 0), len(gaps))}"
+          f" · {MC.GAP_MAX_SEC:g}초 넘는 공백 {g('28').get('long', 0)}개는 뺐다(손을 떼고 돌아옴)",
           f"- 30 자원 — CPU 평균 중앙값 {_f(_med(g('30').get('cpu_avg', [])), 1, '%')} · CPU 최대 {_f(_max(g('30').get('cpu_max', [])), 1, '%')}"
           f" · 온도 최대 {_f(_max(g('30').get('temp', [])), 1, '℃')}",
           ("- V2 알림 정확도 — 음성 기록 없음" if v2.get("off") and not v2.get("trans") else
            f"- V2 알림 정확도 — 경고·차단 전이 {v2.get('trans', 0)} 가운데 알림 한 번 {v2.get('one', 0)} · 없음 {v2.get('zero', 0)}"
            f" · 여러 번 {v2.get('multi', 0)} · 정상 판 헛알림 {v2.get('normal', 0)}"),
           f"- V3 알림 끊기 — 중앙값 {_f(_med(g('V3').get('delays', [])), 3, '초')}(멈춤 없음 {g('V3').get('missing', 0)})",
-          f"- V4 알림 길이 — 중앙값 {_f(_med(g('V4').get('lens', [])), 2, '초')}(알림 {len(g('V4').get('lens', []))})",
+          f"- V4 알림 길이 — 중앙값 {_f(_med(g('V4').get('lens', [])), 2, '초')}(알림 {len(g('V4').get('lens', []))}"
+          f" · 중단된 재생 {g('V4').get('cut', 0)}은 뺌)",
           f"- V9 마이크 손실 — 받은/기대 바이트 중앙값 {_f(_med(g('V9').get('ratios', [])), 3)}"
-          f" · 최저 {_f(_min(g('V9').get('ratios', [])), 3)}(10초 칸 {len(g('V9').get('ratios', []))})"]
+          f" · 최저 {_f(_min(g('V9').get('ratios', [])), 3)}(10초 칸 {len(g('V9').get('ratios', []))})"
+          + (" · 표본률을 못 읽은 세션 있음" if g("V9").get("norate") else "")]
     pd_, pdur = s23.get("press_dwell", []), s23.get("pass_dur", [])
     cv = MC.curve(pd_, pdur)
     L += ["", "## ③ 체류 두 곡선(발표 「판정 기준 근거」 · 23)", "",
@@ -381,8 +447,14 @@ def main(argv=None):
     ap.add_argument("--out", default="", help="여러 세션 통합값을 쓸 .md(같은 이름 .json 도)")
     ap.add_argument("--curve", default="", help="잡음,거름 — 예: 0.80,0.90(정본 = 발표 설계 M8)")
     a = ap.parse_args(argv)
+    try:
+        curve = tuple(float(x) for x in a.curve.split(",")) if a.curve else None
+        if curve is not None and len(curve) != 2:
+            raise ValueError
+    except ValueError:
+        ap.error("--curve 는 「잡음,거름」 꼴의 두 수다(예: 0.80,0.90)")
     targets = load_targets()
-    below = targets["12"]["value"] if targets and "12" in targets else None
+    below = fps_floor(targets)
     sessions, per = [], []
     for d in a.dirs:
         try:
@@ -393,7 +465,6 @@ def main(argv=None):
         sessions.append(S)
         per.append(MC.count_all(S, below))
     M = MC.merge(per)
-    curve = tuple(float(x) for x in a.curve.split(",")) if a.curve else None
     md = render(sessions, per, M, targets, curve)
     js = json.dumps({"targets": targets, "merged": M, "sessions": {S["name"]: p for S, p in zip(sessions, per)}},
                     ensure_ascii=False, indent=1, default=str)

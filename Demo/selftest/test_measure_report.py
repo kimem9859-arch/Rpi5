@@ -90,7 +90,8 @@ def test_load_session():
         check([k for _, k, _ in S["events"]][:3] == ["run_start", "state", "press"], "사건 시각 순")
         check(S["script"] == [{"판": 1, "행동": "위반", "대상": "B3", "기대": "", "메모": ""}], f"대본 = {S['script']}")
         check(S["emo"] == MR.emo_button() and S["kind"] == "위반" and S["rate"] == MR.mic_rate(), "EMO · 종류 · 표본률")
-        check(MC.v_prevent(S) == {"n": 1, "k": 1, "late": 0}, f"1 = {MC.v_prevent(S)}")
+        check(MC.v_prevent(S) == {"n": 1, "k": 1, "late": 0, "short": 0}, f"1 = {MC.v_prevent(S)}")
+        check(S["steps"] == MR.recipe_buttons() and len(S["steps"]) > 0, f"레시피 단계 버튼 = {S['steps']}")
 
 
 def test_mic_rate_from_source():
@@ -145,6 +146,9 @@ def test_judge():
     check(v == 0.5 and "모든 건" in how and MR.judge(tv1, v, 2) == "❌ 미달", f"V1 = {v} {how}")
     t4 = MR.parse_target("**중앙값 ≥ 0.25초**")
     check(MR.apply_stat(t4, [0.1, 0.3, 0.4])[0] == 0.3, "중앙값")
+    t25 = MR.parse_target("**≥ 0.25초**")
+    v, how = MR.apply_stat(t25, [0.0, 0.01, 0.02, 0.5])
+    check(v == 0.0 and "최솟값" in how and MR.judge(t25, v, 4) == "❌ 미달", f"≥ 표시 없음 = 최솟값(엄격) = {v} {how}")
 
 
 def test_script_errors():
@@ -215,6 +219,101 @@ def test_render_and_main():
         check("세기 밖" in md and "체류 두 곡선" in md and "판정용으로 쓰지 않는다" in md and "B.hef" in md, "9 · 곡선 · 조건")
         check(MR.main([d]) == 0 and os.path.exists(os.path.join(d, "report.md")) and os.path.exists(os.path.join(d, "report.json")),
               "main → report.md · report.json")
+
+
+def test_no_verdict_for_test_session():
+    print("\n[판정] 시험 세션이 끼면 판정하지 않는다 · 12 는 음성 끔 세션을 뺀다(모든 기능을 켠 상태)")
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, "통합.md")
+        _write(p, TABLE)
+        d = make_session(os.path.join(tmp, "t0"))
+        info = json.load(open(os.path.join(d, "session.json"), encoding="utf-8"))
+        info["입력"]["세션"] = "시험"
+        _write(os.path.join(d, "session.json"), json.dumps(info, ensure_ascii=False))
+        S = MR.load_session(d)
+        per = [MC.count_all(S, 15.0)]
+        md = MR.render([S], per, MC.merge(per), MR.load_targets(p))
+        check("판정 안 함 — 시험 세션" in md and "❌ 미달" not in md and "✅ 충족" not in md, "시험 = 판정 없음")
+        d2 = make_session(os.path.join(tmp, "v0"))
+        info["입력"]["세션"] = "음성끔"
+        info["음성"] = False
+        _write(os.path.join(d2, "session.json"), json.dumps(info, ensure_ascii=False))
+        _csv(os.path.join(d2, "fsm.csv"), ["t_recv_ms", "t_gui_ms", "fsm_roi", "fsm_level", "state", "expected"],
+             [[1000 + 50 * i, 1030 + 50 * i, "", "", "PROCESS_RUN", "B2"] for i in range(3)])
+        d1 = make_session(os.path.join(tmp, "v1"))
+        Ss = [MR.load_session(x) for x in (d1, d2)]
+        per = [MC.count_all(x, 15.0) for x in Ss]
+        md2 = MR.render(Ss, per, MC.merge(per), MR.load_targets(p))
+    row12 = next(l for l in md2.splitlines() if l.startswith("| 12 |"))
+    check("10.0 fps" in row12 and "음성 끔 세션 1 뺌" in row12, row12)
+
+
+def test_target_value_failures_count():
+    print("\n[판정] 재생 없는 알림·ACK 없는 명령은 ∞ 로 넣는다 · 14 넘은 수·미연결 · 4 의 0 이하 수")
+    M = {"V1": {"delays": [0.1, 0.2], "missing": 1},
+         "14": {"n": 3, "total": [40.0, 150.0], "unsent": 1, "timeout": 0, "noreq": 0},
+         "4": {"leads": [-0.02, 0.3, 0.4]}}
+    tv = MR.target_value("V1", M)
+    check(tv["raw"].count(float("inf")) == 1
+          and MR.apply_stat(MR.parse_target("**중앙값 ≤ 0.3초**"), tv["raw"])[0] == 0.2, f"V1 = {tv}")
+    tv14 = MR.target_value("14", M, MR.parse_target("**모든 건 ≤ 100 ms**"))
+    check(tv14["raw"].count(float("inf")) == 1 and "100 넘음 1" in tv14["note"] and "미연결 1" in tv14["note"], f"14 = {tv14}")
+    check("0 이하 1" in MR.target_value("4", M)["note"], f"4 = {MR.target_value('4', M)}")
+
+
+def test_script_targets():
+    print("\n[대본] 위반·머묾 대상은 레시피 버튼이어야 한다(줄 번호) · 기록에 없는 판 번호는 경고")
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, "a.csv")
+        _write(p, "판,행동,대상,기대,메모\n1,위반,b3,,\n")
+        try:
+            MR.load_script(p, buttons=["B1", "B2", "B3", "B4"])
+            check(False, "대상 오타를 못 잡음")
+        except ValueError as e:
+            check("2행" in str(e) and "b3" in str(e), f"{e}")
+        d = make_session(os.path.join(tmp, "s"), script="판,행동,대상,기대,메모\n1,위반,B3,,\n5,정상,,,\n")
+        check(any("판 5" in w for w in MR.warnings(MR.load_session(d))), "판 5 경고")
+
+
+def test_voice_warnings():
+    print("\n[경고] 음성 켬인데 음성 기록이 없음 · 음성 사건 버림 · 마이크 표본률 못 읽음")
+    with tempfile.TemporaryDirectory() as tmp:
+        d = make_session(os.path.join(tmp, "s"))
+        check(any("음성 기록이 없다" in w for w in MR.warnings(MR.load_session(d))), "음성 기록 없음")
+        _csv(os.path.join(d, "voice_events.csv"), ["t_ms", "kind", "data"],
+             [[2000, "measure_end", json.dumps({"dropped": 2, "failed": False})]])
+        check(any("음성 사건 2건" in w for w in MR.warnings(MR.load_session(d))), "음성 버림")
+        keep = MR.VOICE_SRC
+        MR.VOICE_SRC = os.path.join(tmp, "없음.py")
+        try:
+            S = MR.load_session(d)
+        finally:
+            MR.VOICE_SRC = keep
+        check(S["rate"] is None and any("마이크 표본률" in w for w in MR.warnings(S)), "표본률 못 읽어도 보고는 돈다")
+
+
+def test_targets_unreadable_row():
+    print("\n[목표] 목표값 칸을 못 읽은 행은 사라지지 않고 「목표값 못 읽음」 · 12 를 못 읽으면 13 기준 없음")
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, "x.md")
+        _write(p, TABLE.replace("**중앙값 ≥ 15 fps**", "**빠르게**"))
+        t = MR.load_targets(p)
+        S = MR.load_session(make_session(os.path.join(tmp, "s")))
+        per = [MC.count_all(S, MR.fps_floor(t))]
+        md = MR.render([S], per, MC.merge(per), t)
+    row12 = next(l for l in md.splitlines() if l.startswith("| 12 |"))
+    check(t["12"].get("unreadable") and "목표값 못 읽음" in row12 and MR.fps_floor(t) is None, row12)
+
+
+def test_curve_arg_error():
+    print("\n[명령] --curve 형식이 틀리면 트레이스백 대신 사용법 오류(종료 코드 2)")
+    with tempfile.TemporaryDirectory() as tmp:
+        d = make_session(os.path.join(tmp, "s"))
+        try:
+            MR.main([d, "--curve", "팔십"])
+            check(False, "통과해 버림")
+        except SystemExit as e:
+            check(e.code == 2, f"종료 코드 {e.code}")
 
 
 if __name__ == "__main__":

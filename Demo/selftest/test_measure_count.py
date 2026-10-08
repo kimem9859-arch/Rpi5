@@ -38,12 +38,12 @@ def E(t, k, **d):
     return (float(t), k, d)
 
 
-def S_(events=(), frames=(), fsm=(), voice=(), script=None, kind="위반", settings=None, voice_on=True):
-    return {"name": "t", "kind": kind, "info": {"음성": voice_on, "측정기록": True},
+def S_(events=(), frames=(), fsm=(), voice=(), script=None, kind="위반", settings=None, voice_on=True, rate=16000):
+    return {"name": "t", "kind": kind, "info": {"음성": voice_on, "측정기록": True}, "steps": ["B1", "B2", "B3", "B4"],
             "settings": settings or {"FSM_GAP_FILL_SEC": 0.3, "PRESS_CONFIRM_GRACE_SEC": 0.5},
             "frames": list(frames), "fsm": list(fsm),
             "events": sorted(events, key=lambda e: e[0]), "voice": sorted(voice, key=lambda e: e[0]),
-            "script": script, "emo": "EMO", "rate": 16000}
+            "script": script, "emo": "EMO", "rate": rate}
 
 
 def FR(frame, t, roi=None, level=None, **kw):
@@ -78,11 +78,15 @@ def test_split_runs():
 
 
 def test_pair_presses():
-    print("\n[누름] 같은 버튼 엣지(0.5초 안)와 짝 · 없으면 콜백 · 키보드는 키보드")
+    print("\n[누름] 같은 버튼 엣지(0.5초 안)와 들어온 순서대로 짝 · 콜백 엣지 = 콜백 · 엣지 없음 = 처리 · 키보드")
     ev = [E(1000, "gpio_edge", button="B3", src="edge"), P(1040, "B3"), P(2000, "B1"),
-          P(3000, "B2", source="keyboard"), E(3500, "gpio_edge", button="B4", src="edge"), P(4100, "B4")]
+          P(3000, "B2", source="keyboard"), E(3500, "gpio_edge", button="B4", src="edge"), P(4100, "B4"),
+          E(4990, "gpio_edge", button="B1", src="callback"), P(5000, "B1"),
+          E(6000, "gpio_edge", button="B2", src="edge"), E(6050, "gpio_edge", button="B2", src="edge"),
+          P(6200, "B2"), P(6210, "B2")]
     ps = MC.pair_presses(sorted(ev))
-    check([(p["t_at"], p["how"]) for p in ps] == [(1000.0, "엣지"), (2000.0, "콜백"), (3000.0, "키보드"), (4100.0, "콜백")],
+    check([(p["t_at"], p["how"]) for p in ps] == [(1000.0, "엣지"), (2000.0, "처리"), (3000.0, "키보드"), (4100.0, "처리"),
+                                                  (4990.0, "콜백"), (6000.0, "엣지"), (6050.0, "엣지")],
           f"{[(p['t_at'], p['how']) for p in ps]}")
 
 
@@ -97,21 +101,27 @@ def test_violations():
 def test_prevent_and_lead():
     print("\n[1·4] 누를 때 상태가 WARNING 인 비율 · 처리 늦음 후보 · 경고 선행시간")
     ev = [E(0, "run_start"), E(900, "state", new="WARNING"), E(980, "gpio_edge", button="B3", src="edge"),
-          P(1000, "B3", state="WARNING"), E(1990, "gpio_edge", button="B3", src="edge"), P(2000, "B3"), P(3000, "B4")]
-    fsm = [FS(1980, roi="B3", level=2), FS(2950, roi=None)]
+          P(1000, "B3", state="WARNING"), E(1990, "gpio_edge", button="B3", src="edge"), P(2000, "B3"), P(3000, "B4"),
+          P(4000, "B4")]
+    fsm = [FS(1980, roi="B3", level=2), FS(2950, roi=None), FS(3950, roi="B4", level=2, t_gui=3960)]
     S = S_(ev, fsm=fsm)
-    check(MC.v_prevent(S) == {"n": 3, "k": 1, "late": 1}, f"1 = {MC.v_prevent(S)}")
+    check(MC.v_prevent(S) == {"n": 4, "k": 1, "late": 1, "short": 1},
+          f"1 = {MC.v_prevent(S)} — 처리 늦음 = 그 프레임을 누름보다 늦게 처리 · 체류 미달 = 먼저 처리했는데 경고 없음")
     check(MC.v_lead(S) == {"leads": [0.08]}, f"4 = {MC.v_lead(S)}")
 
 
 def test_normal():
     print("\n[2·16] 정상 판 = 완주 + ok + 경고·차단 0 · 대본이 있으면 대본의 정상 판만")
     ev = [E(0, "run_start"), E(100, "run_end", ok=True), E(200, "run_start"), E(250, "state", new="WARNING"),
-          E(300, "run_end", ok=True), E(400, "run_start"), E(500, "run_reset", why="작업 초기화")]
-    check(MC.v_normal(S_(ev, kind="정상")) == {"n": 3, "k": 1, "alarms": [0, 1, 0]}, f"{MC.v_normal(S_(ev, kind='정상'))}")
+          E(300, "run_end", ok=True), E(400, "run_start"), E(500, "run_reset", why="작업 초기화"),
+          E(600, "run_start"), E(650, "run_end", ok=False), E(700, "run_start")]
+    z = {"f_alarm": 0, "f_reset": 0, "f_viol": 0, "open": 0}
+    v = MC.v_normal(S_(ev, kind="정상"))
+    check(v == {"n": 4, "k": 1, "alarms": [0, 1, 0, 0], "f_alarm": 1, "f_reset": 1, "f_viol": 1, "open": 1},
+          f"{v} — 세션 끝에 열린 판은 세지 않는다")
     s2 = S_(ev, kind="위반", script=SCR((2, "정상", "")))
-    check(MC.v_normal(s2) == {"n": 1, "k": 0, "alarms": [1]}, f"대본 = {MC.v_normal(s2)}")
-    check(MC.v_normal(S_(ev, kind="위반")) == {"n": 0, "k": 0, "alarms": []}, "위반 세션·대본 없음 = 정상 판 없음")
+    check(MC.v_normal(s2) == {"n": 1, "k": 0, "alarms": [1], **z, "f_alarm": 1}, f"대본 = {MC.v_normal(s2)}")
+    check(MC.v_normal(S_(ev, kind="위반")) == {"n": 0, "k": 0, "alarms": [], **z}, "위반 세션·대본 없음 = 정상 판 없음")
 
 
 def test_effect():
@@ -176,7 +186,10 @@ def test_gap():
     rois = ["B1", "B1", None, None, "B1", "B2", None, "B2"]
     fr = [FR(i + 1, 1000 + 100 * i, roi=r) for i, r in enumerate(rois)]
     g = MC.v_gap(S_(frames=fr))
-    check([round(x, 3) for x in g["gaps"]] == [0.3, 0.2], f"{g}")
+    check([round(x, 3) for x in g["gaps"]] == [0.3, 0.2] and g["le_fill"] == 2 and g["long"] == 0, f"{g}")
+    fr2 = fr + [FR(9, 1800, roi=None)] + [FR(10 + i, 4800 + 100 * i, roi="B2") for i in range(2)]   # 빈 프레임 뒤 3.1초 만에 돌아옴
+    g2 = MC.v_gap(S_(frames=fr2))
+    check(g2["long"] == 1 and len(g2["gaps"]) == 2, f"3초 넘게 떠났다 돌아온 공백은 놓침에서 뺀다 = {g2}")
 
 
 def test_confirm():
@@ -196,6 +209,7 @@ def test_fps():
     f = MC.v_fps(S_(ev, fsm=fs), below=15.0)
     check(len(f["iv"]) == 138 and abs(fps.fps_from_intervals(f["iv"]) - 1 / 0.075) < 1e-6, "간격 138개 · 중앙값 FPS")
     check(f["roll_min"] == [10.0] and f["low_longest"] == [0.9] and f["fps_ev"] == [12.5], f"{f['roll_min']} {f['low_longest']}")
+    check(f["stalls"] == [3.0] and f["low_n"] == 1, f"끊김(2초 이상) = {f['stalls']} · 목표 미만 진입 = {f['low_n']}")
     check(MC.v_fps(S_(ev + [E(20, "recording_on", mode="camera")], fsm=fs), 15.0) == {"excluded": 1}, "녹화 세션은 뺀다")
 
 
@@ -210,11 +224,20 @@ def test_stages():
 
 def test_interlock():
     print("\n[14] 경고·차단 전이 → 보낸 시각 → ACK · 정상 복귀 명령은 세지 않는다 · ACK 실패")
-    ev = [E(1000, "state", new="WARNING"), E(1010, "interlock", cmd="WARN", t_send_ms=1010.0, t_ack_ms=1040.0, ack=True),
-          E(2000, "state", new="PROCESS_RUN"), E(2010, "interlock", cmd="RUN", t_send_ms=2010.0, t_ack_ms=2020.0, ack=True),
-          E(3000, "state", new="BLOCK"), E(3005, "interlock", cmd="BLOCK", t_send_ms=3005.0, t_ack_ms=None, ack=False)]
+    ev = [E(1000, "interlock_req", what="feedback", value="WARNING"),
+          E(1003, "interlock", cmd="WARN", t_send_ms=1003.0, t_ack_ms=1030.0, ack=True), E(1005, "state", new="WARNING"),
+          E(2000, "interlock_req", what="engage", value=True), E(2001, "interlock_req", what="feedback", value="BLOCK"),
+          E(2002, "interlock", cmd="BLOCK", t_send_ms=2002.0, t_ack_ms=2040.0, ack=True), E(2004, "state", new="BLOCK"),
+          E(3000, "interlock_req", what="feedback", value="NONE"), E(3001, "interlock_req", what="engage", value=False),
+          E(3002, "interlock", cmd="RUN", t_send_ms=3002.0, t_ack_ms=3010.0, ack=True), E(3004, "state", new="PROCESS_RUN"),
+          E(4000, "interlock_req", what="feedback", value="WARNING"),
+          E(4001, "interlock", cmd="WARN", t_send_ms=4001.0, t_ack_ms=None, ack=False, tries=0), E(4003, "state", new="WARNING"),
+          E(5000, "interlock_req", what="engage", value=True), E(5001, "interlock_req", what="feedback", value="BLOCK"),
+          E(5002, "interlock", cmd="BLOCK", t_send_ms=5002.0, t_ack_ms=5500.0, ack=False, tries=3), E(5003, "state", new="BLOCK"),
+          E(6000, "interlock", cmd="WARN", t_send_ms=6000.0, t_ack_ms=6010.0, ack=True)]
     i = MC.v_interlock(S_(ev))
-    check(i == {"n": 2, "fail": 1, "total": [40.0], "send": [10.0], "ack": [30.0]}, f"{i}")
+    check(i == {"n": 4, "noreq": 1, "unsent": 1, "timeout": 1, "total": [30.0, 40.0], "send": [3.0, 2.0], "ack": [27.0, 38.0]},
+          f"{i} — 판정기는 명령 요청을 먼저 하고 상태 사건을 맨 끝에 적는다(fsm._goto)")
 
 
 def test_res():
@@ -251,7 +274,9 @@ def test_voice():
     check(MC.v_alert_delay(s) == {"delays": [0.21], "missing": 1}, f"V1 = {MC.v_alert_delay(s)}")
     check(MC.v_alert_count(s) == {"trans": 3, "one": 2, "zero": 1, "multi": 0, "normal": 0}, f"V2 = {MC.v_alert_count(s)}")
     check(MC.v_alert_stop(s) == {"delays": [0.05], "missing": 0}, f"V3 = {MC.v_alert_stop(s)}")
-    check(MC.v_alert_len(s) == {"lens": [1.5, 0.3]}, f"V4 = {MC.v_alert_len(s)}")
+    check(MC.v_alert_len(s) == {"lens": [1.5], "cut": 0}, f"V4 = {MC.v_alert_len(s)} — 3초 넘어 시작한 재생은 짝짓지 않는다")
+    s4 = S_(voice=[E(100, "alert", key="경고", t_pub_ms=90.0), E(200, "play_start"), E(400, "play_end", what="중단")])
+    check(MC.v_alert_len(s4) == {"lens": [], "cut": 1}, f"V4 중단 = {MC.v_alert_len(s4)}")
     check(MC.v_alert_count(S_(ev)) == {"off": 1}, "음성 기록이 없으면 V2 = 끔")
 
 
@@ -266,7 +291,7 @@ def test_uplink():
 def test_count_all_keys():
     print("\n[모두] 한 세션의 값 키")
     keys = set(MC.count_all(S_()).keys())
-    check(keys == {"1", "4", "16", "3", "25", "5", "23", "28", "21", "12", "26", "14", "30", "17a", "17b",
+    check(keys == {"1", "4", "16", "3", "25", "5", "23", "28", "21", "12", "26", "14", "30", "17a", "17b", "18",
                    "V1", "V2", "V3", "V4", "V9"}, f"{sorted(keys)}")
 
 
@@ -275,6 +300,46 @@ def test_fps_short_session():
     fs = [FS(100 * i, t_gui=100 * i) for i in range(10)]
     f = MC.v_fps(S_(fsm=fs), below=15.0)
     check(f["roll_min"] == [] and f["low_longest"] == [] and len(f["iv"]) == 9, f"{f['roll_min']} {f['low_longest']}")
+
+
+def test_graze_skips_expected():
+    print("\n[23] 기대 버튼 위 구간은 지나감으로 세지 않는다 — 판정기가 거기서는 경고를 내지 않는다")
+    rois = ["B1", "B1", "B1", None, "B3", "B3"]
+    fr = [FR(i + 1, 1000 + 100 * i, roi=r) for i, r in enumerate(rois)]
+    fs = [FS(1000 + 100 * i, roi=r, expected="B1") for i, r in enumerate(rois)]
+    g = MC.v_graze(S_([E(900, "run_start")], frames=fr, fsm=fs))
+    check((g["pass_n"], g["pass_dur"]) == (1, [0.1]), f"{g}")
+
+
+def test_stay_prefers_warned():
+    print("\n[23] 대본 머묾은 그 버튼 경고가 든 구간(없으면 가장 긴 구간)과 짝 — 앞선 짧은 스침과 짝짓지 않는다")
+    rois = ["B3", None, None, "B3", "B3", "B3", "B3", "B3", None]
+    fr = [FR(i + 1, 1000 + 100 * i, roi=r) for i, r in enumerate(rois)]
+    fs = [FS(1000 + 100 * i, roi=r) for i, r in enumerate(rois)]
+    ev = [E(900, "run_start"), E(1550, "state", new="WARNING", dwell_roi="B3", frame_t_ms=1500.0), E(2000, "run_end", ok=False)]
+    g = MC.v_graze(S_(ev, frames=fr, fsm=fs, script=SCR((1, "머묾", "B3"))))
+    check((g["stay_n"], g["stay_warned"]) == (1, 1), f"{(g['stay_n'], g['stay_warned'])}")
+
+
+def test_input():
+    print("\n[18] 표본만 — 완주한 정상 판의 기대 누름(레시피 단계 수) ↔ 기록된 gpio 누름")
+    ev = [E(0, "run_start"), P(100, "B1", expected="B1"), P(200, "B2", expected="B2"), P(300, "B3", expected="B3"),
+          E(400, "run_end", ok=True), E(500, "run_start"), P(600, "B1", expected="B1"), E(700, "run_reset", why="작업 초기화")]
+    check(MC.v_input(S_(ev, kind="정상")) == {"runs": 1, "expect": 4, "got": 3}, f"{MC.v_input(S_(ev, kind='정상'))}")
+
+
+def test_uplink_restart_boundary():
+    print("\n[V9] 두 표본 사이에 음성 measure_end(데몬 재시작)가 있으면 그 칸은 버린다 · 표본률을 못 읽으면 내지 않는다")
+    voice = [E(0, "uplink", bytes=0, connected=True), E(10000, "uplink", bytes=320000, connected=True),
+             E(15000, "measure_end", dropped=0), E(20000, "uplink", bytes=640000, connected=True)]
+    check(MC.v_uplink(S_(voice=voice)) == {"ratios": [1.0]}, f"{MC.v_uplink(S_(voice=voice))}")
+    check(MC.v_uplink(S_(voice=voice, rate=None)) == {"ratios": [], "norate": 1}, "표본률 없음")
+
+
+def test_zone_noframe():
+    print("\n[5] 프레임 기록이 없는 누름은 분모에서 뺀다(따로 센다)")
+    z = MC.v_zone(S_([E(0, "run_start"), P(100, "B2")]))
+    check((z["n"], z["noframe"]) == (0, 1), f"{z}")
 
 
 if __name__ == "__main__":

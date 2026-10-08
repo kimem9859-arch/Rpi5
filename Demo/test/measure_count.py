@@ -29,10 +29,12 @@ CURVE_STEPS = tuple(round(0.10 + 0.05 * i, 2) for i in range(19))    # 체류 �
 ALERT_WAIT_MS = 3000.0                  # 알림·해제 뒤 재생 시작·멈춤을 기다리는 한도 — 넘으면 「없음」
 ALERT_MATCH_MS = (-100.0, 1000.0)       # 경고·차단 전이 시각 대비 알림 「상태 공개 시각」 짝 범위(앞·뒤)
 BYTES_PER_SAMPLE = 2                    # 마이크 업링크 = int16 · 1채널(voice_mic 형식)
+GAP_MAX_SEC = 2.0                       # 28 — 이보다 긴 공백은 손을 떼고 돌아온 것(손 놓침 아님 · 갭메우기 0.3초의 몇 배)
 
 RUN_STATES = ("PROCESS_RUN", "MONITOR", "WARNING")     # 판이 진행 중인 판정기 상태(fsm.State 이름)
 ACTIONS = ("정상", "위반", "머묾", "틀린공구", "호출", "질문", "비상질문")   # 대본 행동(설계 §5)
 STAGES = ("decode_ms", "orient_ms", "detect_ms", "track_ms", "hand_ms", "tool_ms", "zone_ms")
+REQ_CMD = {("engage", True): "BLOCK", ("feedback", "BLOCK"): "BLOCK", ("feedback", "WARNING"): "WARN"}   # interlock_req → 그 요청이 부르는 명령(interlock._FEEDBACK_TO_CMD · set_interlock)
 
 
 # ── 공통 ─────────────────────────────────────────────────────────────────
@@ -69,8 +71,9 @@ def run_of(runs, t):
 
 
 def pair_presses(events):
-    """누름마다 실제로 누른 시각 — 같은 버튼 GPIO 엣지(src=edge · 처리 시각 앞 EDGE_PAIR_MS 안) · 없으면 처리 시각."""
-    edges = [(t, d) for t, k, d in events if k == "gpio_edge" and d.get("src") == "edge"]
+    """누름마다 실제로 누른 시각 — 같은 버튼 GPIO 엣지(처리 시각 앞 EDGE_PAIR_MS 안)와 **들어온 순서대로** 짝.
+    how = 엣지(장치 엣지 시각) · 콜백(엣지 대신 콜백 시각이 적힌 엣지) · 처리(엣지 기록 없음 → 화면 처리 시각) · 키보드."""
+    edges = [(t, d) for t, k, d in events if k == "gpio_edge"]
     used, out = set(), []
     for t, k, d in events:
         if k != "press":
@@ -78,11 +81,14 @@ def pair_presses(events):
         b = d.get("button")
         cand = [i for i, (te, de) in enumerate(edges)
                 if i not in used and de.get("button") == b and 0 <= t - te <= EDGE_PAIR_MS]
-        if cand:
-            used.add(cand[-1])
-            t_at, how = edges[cand[-1]][0], "엣지"
+        if d.get("source") == "keyboard":
+            t_at, how = t, "키보드"
+        elif cand:
+            used.add(cand[0])                    # 가장 먼저 들어온 엣지 — gpio_input 은 엣지를 적은 순서대로 누름을 내보낸다
+            t_at = edges[cand[0]][0]
+            how = "엣지" if edges[cand[0]][1].get("src") == "edge" else "콜백"
         else:
-            t_at, how = t, ("키보드" if d.get("source") == "keyboard" else "콜백")
+            t_at, how = t, "처리"
         out.append({"t": t, "t_at": t_at, "button": b, "source": d.get("source"),
                     "expected": d.get("expected"), "state": d.get("state"), "how": how})
     return out
@@ -127,17 +133,22 @@ def merge(parts):
 
 # ── 1 · 4 · 2·16 · 25 · 3 ────────────────────────────────────────────────
 def v_prevent(S):
-    """1 위반 사전 차단율 — 누를 때 판정기 상태 = WARNING. 진단 = 아니었지만 누르기 직전 프레임에 그 버튼 안쪽 상자."""
+    """1 위반 사전 차단율 — 누를 때 판정기 상태 = WARNING.
+    진단(성공으로 세지 않는다) — 누르기 직전 프레임에 그 버튼 안쪽 상자였는데 경고가 없던 눌림을 둘로 가른다:
+    late = 그 프레임을 판정기가 누름보다 늦게 처리(처리 늦음) · short = 먼저 처리했는데 경고 전(체류 미달)."""
     ft = [r["t"] for r in S["fsm"]]
-    viol, k, late = violations(S), 0, 0
+    viol, k, late, short = violations(S), 0, 0, 0
     for p in viol:
         if p["state"] == "WARNING":
             k += 1
             continue
         i = bisect.bisect_right(ft, p["t_at"]) - 1
         if i >= 0 and S["fsm"][i]["roi"] == p["button"] and S["fsm"][i]["level"] == 2:
-            late += 1
-    return {"n": len(viol), "k": k, "late": late}
+            if S["fsm"][i]["t_gui"] > p["t"]:
+                late += 1
+            else:
+                short += 1
+    return {"n": len(viol), "k": k, "late": late, "short": short}
 
 
 def v_lead(S):
@@ -154,20 +165,29 @@ def v_lead(S):
 
 
 def v_normal(S):
-    """16 정상 완주율 · 2 헛경고 — 정상 판이 완주 + ok + 경고·차단 0 이면 성공."""
+    """16 정상 완주율 · 2 헛경고 — 정상 판이 완주 + ok + 경고·차단 0 이면 성공.
+    실패 내역 = 경고·차단(f_alarm) · 초기화(f_reset) · 위반으로 끝남(f_viol). 세션 끝에 열린 판(open)은 세지 않는다."""
     runs = split_runs(S["events"])
     ids = normal_run_ids(S, runs)
-    n = k = 0
-    alarms = []
+    out = {"n": 0, "k": 0, "alarms": [], "f_alarm": 0, "f_reset": 0, "f_viol": 0, "open": 0}
     for r in runs:
         if r["i"] not in ids:
             continue
+        if r["end"] == "미완":
+            out["open"] += 1
+            continue
         a = sum(1 for _, kk, d in r["ev"] if kk == "state" and d.get("new") in ("WARNING", "BLOCK"))
-        n += 1
-        alarms.append(a)
-        if r["end"] == "완주" and r["ok"] and a == 0:
-            k += 1
-    return {"n": n, "k": k, "alarms": alarms}
+        out["n"] += 1
+        out["alarms"].append(a)
+        if a:
+            out["f_alarm"] += 1
+        elif r["end"] == "초기화":
+            out["f_reset"] += 1
+        elif not r["ok"]:
+            out["f_viol"] += 1
+        else:
+            out["k"] += 1
+    return out
 
 
 def v_effect(S):
@@ -230,14 +250,17 @@ def _frame_at(F, T, t_sec):
 
 
 def v_zone(S):
-    """5 사전 감지율 · 7 ROI 오분류 · 창 능력 상한 — hoi_metrics.analyze_presses 그대로(EMO 빼고 · 판 안 gpio 누름)."""
+    """5 사전 감지율 · 7 ROI 오분류 · 창 능력 상한 — hoi_metrics.analyze_presses 그대로(EMO 빼고 · 판 안 gpio 누름).
+    프레임 기록이 없는 누름(noframe)은 분모에서 뺀다."""
     F, T, raw, filled = series(S)
     runs = split_runs(S["events"])
     ps = [p for p in pair_presses(S["events"])
           if p["source"] == "gpio" and p["button"] != S["emo"] and run_of(runs, p["t"]) is not None]
     presses = [(p["t_at"] / 1000, p["button"], _frame_at(F, T, p["t_at"] / 1000)) for p in ps]
     rows = hoi_metrics.analyze_presses(presses, filled, F, T, None, raw_series=raw)
-    return {"n": len(rows),
+    noframe = sum(1 for r in rows if r[4] == "프레임 없음")
+    rows = [r for r in rows if r[4] != "프레임 없음"]
+    return {"n": len(rows), "noframe": noframe,
             "k5": sum(1 for r in rows if r[4] == "OK" and r[2] is not None and r[2] > 0),
             "k7": sum(1 for r in rows if r[4] == "ROI 불일치"),
             "kwin": sum(1 for r in rows if r[5]),
@@ -245,9 +268,13 @@ def v_zone(S):
 
 
 def v_graze(S):
-    """23 스침 통과율 · 체류 두 곡선 재료 — fsm 구역 구간(EMO 빼고). 그 버튼 누름이 구간 안(끝 + 갭메우기)이면 누름 구간."""
+    """23 스침 통과율 · 체류 두 곡선 재료 — fsm 구역 구간(EMO 빼고).
+    그 버튼 누름이 구간 안(끝 + 갭메우기)이면 누름 구간 · 아니면 지나감 — 단 구간 시작 때 기대 버튼이면 뺀다
+    (판정기가 기대 버튼에서는 경고를 내지 않는다 · 상위 설계 §2 23 = 「오답 버튼 구역」)."""
     F, T, _raw, filled = series(S)
     tmap = dict(zip(F, T))
+    fms = {f["frame"]: f["t"] for f in S["frames"]}
+    exp = {r["t"]: r["expected"] for r in S["fsm"]}
     gap = float(S["settings"].get("FSM_GAP_FILL_SEC") or 0)
     ps = [p for p in pair_presses(S["events"]) if p["source"] == "gpio"]
     warns = [d for _, k, d in S["events"] if k == "state" and d.get("new") == "WARNING"]
@@ -260,10 +287,12 @@ def v_graze(S):
         if hit:
             press_dwell.append(round(hit[0]["t_at"] / 1000 - t0, 3))
             continue
+        if exp.get(fms.get(f0)) == roi:
+            continue
         warned = any(w.get("dwell_roi") == roi and w.get("frame_t_ms") is not None
                      and t0 <= w["frame_t_ms"] / 1000 <= t1 for w in warns)
         pass_dur.append(round(dur, 3))
-        passes.append((t0, t1, roi, warned))
+        passes.append((t0, t1, roi, warned, dur))
     out = {"pass_n": len(passes), "pass_k": sum(1 for x in passes if not x[3]),
            "press_dwell": press_dwell, "pass_dur": pass_dur, "stay_n": 0, "stay_warned": 0}
     if S["script"] is not None:
@@ -273,9 +302,11 @@ def v_graze(S):
             for row in S["script"]:
                 if int(row["판"]) != r["i"] or row["행동"] != "머묾":
                     continue
-                m = next((x for x in cand if x[2] == row["대상"]), None)
-                if m is None:
+                mine = [x for x in cand if x[2] == row["대상"]]
+                if not mine:
                     continue
+                # 의도한 머묾 = 그 버튼 경고가 든 구간 · 없으면 가장 긴 구간(앞선 짧은 스침·놓침 조각과 짝짓지 않게)
+                m = next((x for x in mine if x[3]), None) or max(mine, key=lambda x: x[4])
                 cand.remove(m)
                 out["stay_n"] += 1
                 out["stay_warned"] += int(m[3])
@@ -299,11 +330,15 @@ def fit_range(cv, catch, filt):
 
 
 def v_gap(S):
-    """28 손 놓침 공백 — 갭메우기 앞 구역(frames.roi)에서 같은 버튼 구간 사이 빈 구간 길이(초)."""
+    """28 손 놓침 공백 — 갭메우기 앞 구역(frames.roi)에서 같은 버튼 구간 사이 빈 구간 길이(초).
+    GAP_MAX_SEC 넘는 공백은 손을 떼고 돌아온 것이라 뺀다(long) · le_fill = 그 세션 갭메우기 값 이하 수."""
     F, T, raw, _filled = series(S)
     tmap = dict(zip(F, T))
     segs = hoi_metrics.segments(raw, F, T)
-    return {"gaps": [round(tmap[b[1]] - tmap[a[2]], 3) for a, b in zip(segs, segs[1:]) if a[0] == b[0]]}
+    allg = [round(tmap[b[1]] - tmap[a[2]], 3) for a, b in zip(segs, segs[1:]) if a[0] == b[0]]
+    gaps = [g for g in allg if g <= GAP_MAX_SEC]
+    fill = float(S["settings"].get("FSM_GAP_FILL_SEC") or 0)
+    return {"gaps": gaps, "long": len(allg) - len(gaps), "le_fill": sum(1 for g in gaps if g <= fill)}
 
 
 def v_confirm(S):
@@ -331,14 +366,17 @@ def v_confirm(S):
 
 # ── 12·13 · 26·27 · 14 · 30 — 속도 · 인터락 · 자원 ───────────────────────────
 def v_fps(S, below=None):
-    """12 FPS 중앙값 재료 · 13 끊김 — 화면이 받은 간격(fsm t_gui). STALE_SEC 이상 = 끊김(빼고 창 비움) · 창 = FPS_WINDOW."""
+    """12 FPS 중앙값 재료 · 13 끊김 — 화면이 받은 간격(fsm t_gui). STALE_SEC 이상 = 끊김(빼고 창 비움 · stalls 에 남김)
+    · 창 = FPS_WINDOW · low_n = 목표(below) 미만으로 내려간 횟수 · 창이 한 번도 안 찼으면 최저·최장을 내지 않는다."""
     if recording(S):
         return {"excluded": 1}
     ts = sorted(r["t_gui"] for r in S["fsm"])
-    keep, win, mins = [], [], []
-    low_start, longest = None, 0.0
+    keep, win, mins, stalls = [], [], [], []
+    low_start, longest, low_n = None, 0.0, 0
     for a, b in zip(ts, ts[1:]):
         x = (b - a) / 1000
+        if x >= fps.STALE_SEC:
+            stalls.append(round(x, 3))
         if x >= fps.STALE_SEC or x <= 0:
             win, low_start = [], None
             continue
@@ -351,12 +389,14 @@ def v_fps(S, below=None):
         f = fps.fps_from_intervals(win)
         mins.append(f)
         if below is not None and f < below:
-            low_start = b if low_start is None else low_start
+            if low_start is None:
+                low_start, low_n = b, low_n + 1
             longest = max(longest, (b - low_start) / 1000)
         else:
             low_start = None
     return {"iv": keep, "roll_min": [round(min(mins), 2)] if mins else [],
             "low_longest": [round(longest, 3)] if below is not None and mins else [],   # 창이 안 찼으면 잰 적이 없다
+            "low_n": low_n, "stalls": stalls,
             "fps_ev": [d["fps"] for _, k, d in S["events"] if k == "fps" and d.get("fps") is not None]}
 
 
@@ -379,24 +419,35 @@ def v_stages(S):
 
 
 def v_interlock(S):
-    """14 응답시간 — 경고·차단 전이가 부른 명령마다 전이 → 보낸 시각 → ACK(ms). ACK 실패는 따로."""
-    st = [(t, d) for t, k, d in S["events"] if k == "state"]
-    out = {"n": 0, "fail": 0, "total": [], "send": [], "ack": []}
+    """14 응답시간 — 경고·차단 명령(WARN·BLOCK)마다 그 명령을 부른 판정의 첫 요청(interlock_req) → 보낸 시각 → ACK(ms).
+    🔑 기준은 state 사건이 아니다 — 판정기(fsm._goto)는 인터락·피드백 요청을 먼저 하고 상태 전이를 맨 끝에 알린다.
+    한 판정의 요청 묶음 = 직전 state 사건 뒤의 같은 명령 요청들(BLOCK = 차단 요청 → 피드백 · 명령은 중복 제거로 하나).
+    unsent = 미연결·보내기 실패(ACK 시각 없음) · timeout = 응답 기다림 시간 초과 · noreq = 짝 요청 없음(재연결 첫 명령 등)."""
+    states = [t for t, k, _ in S["events"] if k == "state"]
+    reqs = [[t, REQ_CMD.get((d.get("what"), d.get("value"))), False]
+            for t, k, d in S["events"] if k == "interlock_req"]
+    out = {"n": 0, "noreq": 0, "unsent": 0, "timeout": 0, "total": [], "send": [], "ack": []}
     for t, k, d in S["events"]:
-        if k != "interlock":
+        if k != "interlock" or d.get("cmd") not in ("WARN", "BLOCK"):
             continue
         ts = d.get("t_send_ms", t)
-        prev = [x for x in st if x[0] <= ts]
-        if not prev or prev[-1][1].get("new") not in ("WARNING", "BLOCK"):
+        mine = [r for r in reqs if r[1] == d["cmd"] and not r[2] and r[0] <= ts]
+        if not mine:
+            out["noreq"] += 1
             continue
+        start = max([s for s in states if s < mine[-1][0]], default=float("-inf"))
+        t0 = min(r[0] for r in mine if r[0] > start)
+        for r in mine:
+            r[2] = True
         out["n"] += 1
-        if not d.get("ack") or d.get("t_ack_ms") is None:
-            out["fail"] += 1
-            continue
-        t_state = prev[-1][0]
-        out["total"].append(round(d["t_ack_ms"] - t_state, 3))
-        out["send"].append(round(ts - t_state, 3))
-        out["ack"].append(round(d["t_ack_ms"] - ts, 3))
+        if d.get("t_ack_ms") is None:
+            out["unsent"] += 1
+        elif not d.get("ack"):
+            out["timeout"] += 1
+        else:
+            out["total"].append(round(d["t_ack_ms"] - t0, 3))
+            out["send"].append(round(ts - t0, 3))
+            out["ack"].append(round(d["t_ack_ms"] - ts, 3))
     return out
 
 
@@ -513,24 +564,34 @@ def v_alert_stop(S):
 
 
 def v_alert_len(S):
-    """V4 알림 길이 — 알림 뒤 첫 play_start → 그 뒤 첫 play_end(초)."""
-    out = []
+    """V4 알림 길이 — 알림 뒤 ALERT_WAIT_MS 안 첫 play_start → 그 뒤 첫 play_end(초). 「중단」으로 끝난 재생은 길이가 아니라 cut."""
+    out = {"lens": [], "cut": 0}
     for t, k, _ in S["voice"]:
         if k != "alert":
             continue
         ps = next((x for x, kk, _ in S["voice"] if kk == "play_start" and x >= t), None)
-        pe = next((x for x, kk, _ in S["voice"] if kk == "play_end" and ps is not None and x >= ps), None)
-        if pe is not None:
-            out.append(round((pe - ps) / 1000, 3))
-    return {"lens": out}
+        if ps is None or ps - t > ALERT_WAIT_MS:
+            continue
+        pe = next(((x, dd) for x, kk, dd in S["voice"] if kk == "play_end" and x >= ps), None)
+        if pe is None:
+            continue
+        if pe[1].get("what") == "중단":
+            out["cut"] += 1
+        else:
+            out["lens"].append(round((pe[0] - ps) / 1000, 3))
+    return out
 
 
 def v_uplink(S):
-    """V9 마이크 손실 — 업링크 누적 바이트의 이웃 칸 차이 ÷ (rate × BYTES_PER_SAMPLE × 경과 초). 거꾸로 간 칸 = 데몬 재시작 → 버린다."""
+    """V9 마이크 손실 — 업링크 누적 바이트의 이웃 칸 차이 ÷ (rate × BYTES_PER_SAMPLE × 경과 초).
+    데몬 재시작 = 두 표본 사이 음성 measure_end 또는 누적이 줄어든 칸 → 버린다 · 표본률을 못 읽었으면 내지 않는다."""
+    if not S.get("rate"):
+        return {"ratios": [], "norate": 1}
+    ends = [t for t, k, _ in S["voice"] if k == "measure_end"]
     ups = [(t, d) for t, k, d in S["voice"] if k == "uplink"]
     out = []
     for (t0, d0), (t1, d1) in zip(ups, ups[1:]):
-        if not (d0.get("connected") and d1.get("connected")) or t1 <= t0:
+        if not (d0.get("connected") and d1.get("connected")) or t1 <= t0 or any(t0 < e < t1 for e in ends):
             continue
         db = d1["bytes"] - d0["bytes"]
         if db < 0:
@@ -539,11 +600,26 @@ def v_uplink(S):
     return {"ratios": out}
 
 
+def v_input(S):
+    """18 입력 누락(첫 판 = 표본만) — 완주한 정상 판마다 기대 누름(레시피 단계 수) ↔ 기록된 단계 버튼 gpio 누름."""
+    runs = split_runs(S["events"])
+    ids = normal_run_ids(S, runs)
+    steps = set(S.get("steps") or ())
+    out = {"runs": 0, "expect": 0, "got": 0}
+    for r in runs:
+        if r["i"] not in ids or r["end"] != "완주":
+            continue
+        out["runs"] += 1
+        out["expect"] += len(S.get("steps") or ())
+        out["got"] += sum(1 for _, k, d in r["ev"] if k == "press" and d.get("source") == "gpio" and d.get("button") in steps)
+    return out
+
+
 def count_all(S, below=None):
     """세션 하나의 값 전부 — 키 = 측정 설계 §2 번호(17ⓐ = 17a). below = NFR-1 FPS 목표(통합문서 §4.1)."""
     return {"1": v_prevent(S), "4": v_lead(S), "16": v_normal(S), "3": v_precision(S), "25": v_effect(S),
             "5": v_zone(S), "23": v_graze(S), "28": v_gap(S), "21": v_confirm(S),
             "12": v_fps(S, below), "26": v_stages(S), "14": v_interlock(S), "30": v_res(S),
-            "17a": v_wrong_tool(S), "17b": v_tool_time(S),
+            "17a": v_wrong_tool(S), "17b": v_tool_time(S), "18": v_input(S),
             "V1": v_alert_delay(S), "V2": v_alert_count(S), "V3": v_alert_stop(S), "V4": v_alert_len(S),
             "V9": v_uplink(S)}

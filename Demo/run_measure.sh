@@ -33,6 +33,8 @@ if [ "$ON" = "1" ]; then export SOP_MEASURE_DIR="$DIR"; else unset SOP_MEASURE_D
 bash ./run_demo.sh
 # 시연을 닫으면 세기(보고 도구)가 바로 센다 — 측정 설계 D10 · 기록 끔 회차는 셀 것이 없다
 if [ "$ON" = "1" ]; then
+  # 음성 데몬은 run_demo.sh 종료(kill) 뒤에야 끝 사건(measure_end)을 쓴다 — 최대 5초 기다린 뒤 센다
+  for _ in 1 2 3 4 5; do pgrep -f "voice_assistant.py" >/dev/null || break; sleep 1; done
   python3 test/measure_report.py "$DIR" || echo "  ⚠️ 세기 실패 — 위 오류를 보고 나중에 다시: python3 test/measure_report.py \"$DIR\""
 fi
 echo "  끝 — 기록 폴더: $DIR"
