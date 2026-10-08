@@ -41,7 +41,7 @@ from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
                           NotifyButton, CheckPanel, RecordPanel)
 from overlay_result import ResultPanel
 import precheck
-from fps import fps_from_intervals, fps_stale
+from fps import FPS_WINDOW, fps_from_intervals, fps_stale
 from demo_recorder import DemoRecorder
 from state_publisher import StatePublisher
 import measure_log
@@ -545,7 +545,7 @@ class SafetyConsole(QMainWindow):
         now = time.time()
         if self._last_frame_time and not fps_stale(self._last_frame_time, now):
             self._fps_intervals.append(now - self._last_frame_time)
-            if len(self._fps_intervals) > 60:        # 최근 60프레임만
+            if len(self._fps_intervals) > FPS_WINDOW:        # 최근 FPS_WINDOW 프레임만(세기와 같은 창)
                 self._fps_intervals.pop(0)
         else:
             # 최초 프레임이거나 **끊겼다 돌아온** 것 — 끊김 전 간격과 섞지 않는다.

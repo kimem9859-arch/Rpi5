@@ -11,6 +11,9 @@
 
 import time
 
+FPS_WINDOW = 60     # 실측 FPS 를 내는 최근 프레임 간격 수 — 시연 화면(safety_console._note_frame)과 세기(test/measure_count)가 같이 쓴다
+STALE_SEC = 2.0     # 이만큼 프레임이 없으면 끊김 — fps_stale 기본값(2차 점검 「영상 수신」 precheck 와 같은 값)
+
 
 def fps_from_intervals(intervals):
     """프레임 도착 간격(초) 목록 → 실측 FPS. 표본이 없으면 None.
@@ -26,7 +29,7 @@ def fps_from_intervals(intervals):
     return 1.0 / mid if mid > 0 else None
 
 
-def fps_stale(last_frame_time, now=None, stale_after=2.0):
+def fps_stale(last_frame_time, now=None, stale_after=STALE_SEC):
     """마지막 프레임이 `stale_after` 초를 넘겼는가 — 프레임을 못 받았으면 True.
 
     🔴 **왜 따로 필요한가** — `fps_from_intervals` 는 중앙값이라 프레임이 끊겨도
