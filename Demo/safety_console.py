@@ -35,7 +35,7 @@ from session_stats import SessionStats
 
 import theme
 from sub_task import SubTask
-from tool_state import ToolState
+from tool_state import ToolState, held_tool
 from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, place
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
                           NotifyButton, CheckPanel, RecordPanel)
@@ -98,6 +98,11 @@ class SafetyConsole(QMainWindow):
         self._sub_button = None      # 그 서브 작업을 시작시킨 버튼
         self._tool_state = None      # 공구 판정 상태기계(A-2) — wait_tool 동안만 존재
         self._grip_done_pending = False  # 경고 중에 쥠이 확정돼 「확인 완료」를 못 띄웠다(경고가 풀리면 띄운다)
+        # 공구 구간 설계 D3·D4 — 공구 서브가 끝난 뒤에도 다음 버튼까지 공구 검사를 이어 간다(꼬리 · 음성 공구 안내 구간).
+        #   그동안(서브 포함) 가장 최근 검사가 「검지 끝 ∩ 공구 상자」면 손-버튼 판정을 끈다.
+        self._tool_tail = False          # 꼬리 — 판정 없이 화면 공구 상자·음성비서 공유 파일만
+        self._tool_held_at = None        # 「공구를 손에 듦」 검사를 받은 시각(monotonic) · 아니면 None
+        self._hand_gate_was = False      # 직전 프레임에 손 판정을 껐나 — 바뀔 때만 로그·측정 사건
         self._tool_override = None   # 설정 메뉴에서 바꾼 지정 공구(세션 한정)
         self._popups = {}            # 종류 → 알림 창 — 종류마다 하나만(U20 · _popup)
         self._last_result = None     # 완료 결과 — 다음 「작업 시작」·「작업 초기화」까지 음성 상태에 싣는다(A-M3)
@@ -968,7 +973,15 @@ class SafetyConsole(QMainWindow):
         t: 카메라가 그 프레임을 다 받은 시각(`time.monotonic()`) — 🔴 여기서 `time.time()` 으로 바꾸지
            않는다. GUI 가 신호를 처리한 시각은 GUI 가 멈췄다 풀리면 몰려 체류가 흔들렸다(검토 C16·U18).
         """
-        self.fsm.update_vision(roi or None, t, level or ZONE_INSIDE)
+        off = self._hand_gate_off(t)
+        if off != self._hand_gate_was:
+            self._hand_gate_was = off
+            self._measure.event("hand_gate", t=t, off=off)
+            self._append_log("[손 판정] 끔 — 공구를 손에 들고 있음(버튼 누름 판정은 그대로)" if off
+                             else "[손 판정] 켬")
+        # 🔑 공구를 든 동안은 「손이 버튼 구역에 없다」로 넣는다(D4) — 공구를 보여주다 검지 끝이 버튼과
+        #    겹쳐도 경고가 나지 않는다. 판정기(FSM)는 고치지 않는다 — 넣는 값만 바꾼다.
+        self.fsm.update_vision(None if off else (roi or None), t, level or ZONE_INSIDE)
         self._last_frame_t = t
         if self._measure.enabled:
             # 판정기 시점 — 갭메우기 뒤 보고 있는 버튼(도구가 갭메우기를 다시 구현하지 않게 · 측정 도구 정합 §4.3)
@@ -995,8 +1008,10 @@ class SafetyConsole(QMainWindow):
         """
         # dets = [(이름, 신뢰도, x1, y1, x2, y2), ...]
         self._tool_dets_for_stats = [(d[0], d[1]) for d in dets]
+        # 🔑 손 판정 끔(D4)의 근거 — 쥠 판정과 같은 기준(검지 끝 ∩ 공구 상자 · 종류 무관). 꼬리에서도 따라간다.
+        self._tool_held_at = time.monotonic() if held_tool(dets, fingertip) is not None else None
         if self._sub is None or self._tool_state is None:
-            return
+            return                     # 꼬리(D3) — 판정 없음 · 화면 상자·음성 공유 파일은 카메라·게이트 쪽이 한다
 
         before = self._tool_state.phase
         wrong_before = self._sub.wrong_tool
@@ -1037,6 +1052,17 @@ class SafetyConsole(QMainWindow):
             self._show_grip_done(*grip)
         elif before == "checking" and self.alert.notice_tag == "grip_check":
             self.alert.hide_all()      # 연속이 끊겼다 — 처음부터 센다(tool_state)
+
+    def _hand_gate_off(self, t):
+        """손-버튼 판정을 끌 때인가(공구 구간 설계 D4) — 공구 구간(서브 중·꼬리)이고, 가장 최근 검사가 「검지 끝 ∩
+        공구 상자」이고, 그 검사가 2초(스캔 2번 분)보다 낡지 않았을 때.
+
+        ⚠️ 검사가 1초에 한 번이라 공구를 내려놓은 뒤 최대 약 1초는 꺼진 채 남는다(설계 D4 한계).
+        t = 그 프레임을 받은 시각(monotonic — 공구 검사 시각과 같은 시계).
+        """
+        held = self._tool_held_at
+        in_window = self._tool_state is not None or self._tool_tail      # 공구 서브 중 또는 꼬리(D3)
+        return held is not None and in_window and (t - held) <= 2 * config.TOOL_SCAN_INTERVAL_SEC
 
     def _tool_checking(self):
         """공구 쥠 「확인 중」이면 (센 수, 필요한 수) — 아니면 None. 게이지가 쓴다(세 곳이 같은 값)."""
@@ -1161,6 +1187,9 @@ class SafetyConsole(QMainWindow):
         t_press = time.monotonic() if now is None else now
         self._measure.event("press", t=t_press, button=button, source=source,     # 차단 중 무시된 누름도
                             expected=self.fsm.correct_roi, state=self.fsm.state.name)
+        if self._tool_tail:
+            self._end_tool_scan()      # 꼬리는 다음 버튼까지(D3) — 맞든 틀리든 · EMO 포함
+            self._append_log(f"[공구] 꼬리 끝 — {button} 누름")
         if self.fsm.state == State.BLOCK and button != self._emo_button():
             self._append_log(f"[버튼] {button} 눌림 — 차단 중이라 무시")
             return
@@ -1488,6 +1517,8 @@ class SafetyConsole(QMainWindow):
         if self._tool_state is not None:
             self._tool_state = None
         self._grip_done_pending = False  # 서브가 끝나거나 취소됐다 — 못 띄운 「확인 완료」도 버린다
+        self._tool_tail = False
+        self._tool_held_at = None        # 🔑 검사가 꺼지면 손 판정도 바로 켜진다(D4)
         self.camera_thread.set_tool_scan(False)
 
     def _show_block_banner(self, emo):
@@ -1593,7 +1624,15 @@ class SafetyConsole(QMainWindow):
                             label=self._sub.label if self._sub is not None else None)
         button = self._sub_button
         self._sub_timer.stop()
-        self._end_tool_scan()
+        if self._tool_state is not None:
+            # 🔑 공구 서브 — 검사는 다음 버튼까지 이어 간다(꼬리 · D3 · 사용자 「3단계 버튼을 누르기 전까지는
+            #    공구 탐지 모델이 실행 … 음성비서를 이용한 공구 안내 시연 구간」). 판정만 버린다.
+            self._tool_state = None
+            self._grip_done_pending = False
+            self._tool_tail = True
+            self._append_log("[공구] 꼬리 — 다음 버튼까지 공구 검사를 이어 간다(판정 없음 · 음성 공구 안내 구간)")
+        else:
+            self._end_tool_scan()
         self._sub = None
         self._sub_button = None
         self.gauge_panel.update_view(None)
@@ -1782,6 +1821,8 @@ class SafetyConsole(QMainWindow):
         # 차단 = 취소. 🔴 따로 돌게 두면 EMO 해제 뒤 대기 중이던 눌림이 뒤늦게 확정돼
         # 가짜 차단이 나고(리뷰 U1), 경고 중 게이지가 차서 진행이 조용히 사라진다(U10).
         sub = self._sub
+        if new == State.BLOCK and self._tool_tail:
+            self._end_tool_scan()      # 꼬리 중 차단(D3) — 서브가 없어 아래 취소가 안 끈다
         if sub is not None and sub.is_active:
             if new == State.BLOCK:
                 self._cancel_sub("차단")

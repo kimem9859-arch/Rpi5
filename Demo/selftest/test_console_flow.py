@@ -403,6 +403,99 @@ def test_grip_done_skipped_when_idle():
     win.close()
 
 
+# ------------------------------------------------------------------ 공구 꼬리 · 손 판정 끔 (공구 구간 설계 D3·D4)
+def roi_dwell(win, roi="B3"):
+    """dwell_warning 과 같지만 **화면 층**(`_on_roi` — 공구를 든 동안 손 판정 끔 D4 를 거친다)으로 넣는다.
+
+    🔴 dwell_warning 은 판정기에 직접 넣어 D4 를 거치지 않는다 — D4 를 볼 때는 이것을 쓴다."""
+    t0 = time.monotonic()
+    for i in range(6):
+        win._on_roi(roi, 2, t0 + i * 0.1)
+
+
+def _spy_scan(win):
+    """공구 검사 켜고 끄기를 엿본다 — 시험은 공구 모델을 끈 채라(TOOL_ENABLED False) 카메라 쪽 값이 늘 False 다."""
+    calls = []
+    real = win.camera_thread.set_tool_scan
+    win.camera_thread.set_tool_scan = lambda on: (calls.append(bool(on)), real(on))
+    return calls
+
+
+def _grasp_and_advance(win, box, tip):
+    """퍼지 시간을 채우고 렌치를 확정 — 3단계로 저절로 넘어간다."""
+    win._sub.tick(now=time.monotonic() + 999)
+    win._update_sub_view()
+    for _ in range(config.TOOL_GRASP_CONFIRM_SCANS):
+        win.camera_thread.tool_signal.emit([box], tip)
+
+
+def test_tool_tail_until_next_press():
+    print("\n[꼬리] 공구 대기가 끝나 3단계로 넘어가도 공구 검사는 다음 버튼까지(D3)")
+    win = make_console()
+    calls = _spy_scan(win)
+    box, tip = _tool_step(win)
+    _grasp_and_advance(win, box, tip)
+    check(win._sub is None and win.fsm.expected_step == 3, f"3단계로 넘어갔다 ({win.fsm.expected_step})")
+    check(calls and calls[-1] is True and win._tool_tail,
+          f"공구 검사는 계속(꼬리 · B2 에서 켠 뒤로 끄지 않았다) — 켜고 끈 기록 {calls}")
+    win.camera_thread.tool_signal.emit([box], tip)   # 꼬리 검사 — 판정이 없어도 죽지 않는다
+    check(win._sub is None and win.fsm.expected_step == 3, "꼬리 검사는 판정에 쓰지 않는다")
+    key(win, "3")
+    check(calls[-1] is False and not win._tool_tail, f"B3 누르면 꺼진다 {calls}")
+    win.close()
+
+
+def test_tool_tail_ends_on_block_and_reset():
+    print("\n[꼬리] 꼬리 중 차단·작업 초기화에도 꺼진다(D3)")
+    for how in ("block", "reset"):
+        win = make_console()
+        calls = _spy_scan(win)
+        box, tip = _tool_step(win)
+        _grasp_and_advance(win, box, tip)
+        if how == "block":
+            key(win, "1")                              # 3단계 차례에 B1 — 차단
+            check(win.fsm.state == State.BLOCK, f"차단 ({win.fsm.state.value})")
+        else:
+            win._reset_work()
+        check(calls[-1] is False and not win._tool_tail, f"{how} → 꺼짐 {calls}")
+        win.close()
+
+
+def test_hand_gate_off_while_tool_held():
+    print("\n[손 판정] 공구를 든 검사 뒤에는 오답 버튼에 머물러도 경고 없음 · 내려놓으면 다시 켜짐(D4)")
+    win = make_console()
+    box, tip = _tool_step(win)
+    win.camera_thread.tool_signal.emit([box], tip)     # 검지 끝이 렌치 상자 안
+    roi_dwell(win, "B4")
+    check(win.fsm.state != State.WARNING, f"공구를 든 동안 경고 없음 ({win.fsm.state.value})")
+    check(bool(_logs(win, "[손 판정] 끔")), "로그에 끔")
+    win.camera_thread.tool_signal.emit([], tip)        # 공구 내려놓음(상자 없음)
+    roi_dwell(win, "B4")
+    check(win.fsm.state == State.WARNING, f"내려놓으면 경고 ({win.fsm.state.value})")
+    check(bool(_logs(win, "[손 판정] 켬")), "로그에 켬")
+    win.close()
+
+
+def test_hand_gate_in_tail_and_stale():
+    print("\n[손 판정] 꼬리 구간에서도 공구를 들면 끔 · 검사가 2초 넘게 낡으면 켜짐 · 누름 판정은 그대로(D4)")
+    win = make_console()
+    box, tip = _tool_step(win)
+    _grasp_and_advance(win, box, tip)
+    win.camera_thread.tool_signal.emit([box], tip)     # 꼬리 — 렌치를 들어 보여준다
+    roi_dwell(win, "B4")
+    check(win.fsm.state != State.WARNING, f"꼬리에서 공구를 든 동안 경고 없음 ({win.fsm.state.value})")
+    win._tool_held_at = time.monotonic() - 2 * config.TOOL_SCAN_INTERVAL_SEC - 0.1
+    roi_dwell(win, "B4")
+    check(win.fsm.state == State.WARNING, f"낡으면 켜짐 → 경고 ({win.fsm.state.value})")
+    win.close()
+    win2 = make_console()
+    box, tip = _tool_step(win2)
+    win2.camera_thread.tool_signal.emit([box], tip)
+    key(win2, "4")
+    check(win2.fsm.state == State.BLOCK, f"공구를 든 채라도 누르면 차단 ({win2.fsm.state.value})")
+    win2.close()
+
+
 def test_tool_hand_unseen_does_not_advance():
     """🔴 쥐기 전에는 무엇으로도 완료되지 않는다 — 부재를 증거로 쓰지 않는다(§4.4).
 
