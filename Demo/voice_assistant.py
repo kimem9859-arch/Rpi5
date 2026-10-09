@@ -213,8 +213,8 @@ def open_audio_log(path):
 
     🔑 닫지 않아도 파일은 깨지지 않는다 — 파이썬 `wave` 는 쓸 때마다 머리(길이)를 고쳐 써서,
        SIGTERM 으로 끝나도 마이크_전체.wav 는 온전하다(③ 리뷰 M-3 · 2026-09-26 Python 3.13 확인).
-    ⚠️ atexit 은 정상 종료·Ctrl+C 에서만 돈다 — `voice/record_voice_demo.py` 는 `terminate()`
-       (SIGTERM)로 끝내므로 그 경로에서는 돌지 않는다(위 이유로 파일은 그래도 온전하다).
+    ⚠️ atexit 은 정상 종료·Ctrl+C 에서만 돈다 — SIGTERM 으로 끝내면(옛 촬영 도구 `record_voice_demo.py` · 지금
+       `Rpi5/백업/음성촬영-20261009/`) 그 경로에서는 돌지 않는다(위 이유로 파일은 그래도 온전하다).
     """
     alog = AudioLog(path)
     atexit.register(alog.close)
