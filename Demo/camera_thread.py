@@ -245,6 +245,8 @@ class CameraThread(QThread):
         self._is_active          = True
         self._draw_boxes         = config.SHOW_DETECT_BOXES
         self._frame_sink         = None      # 시연영상 촬영이 붙는 자리 (demo_recorder)
+        self._raw_sink           = None      # 1인칭 원본 녹화가 붙는 자리 (raw_recorder · 측정 녹화 설계 R1)
+        self._raw_seq            = 0         # 측정 기록이 꺼졌을 때 원본 녹화가 쓰는 처리 순번
         self._tracks             = []
         self._undistort_map      = None
         self._lock               = threading.Lock()
@@ -336,6 +338,16 @@ class CameraThread(QThread):
         """
         with self._lock:
             self._frame_sink = fn
+
+    def set_raw_sink(self, fn):
+        """1인칭 원본 녹화 자리 — `fn(오버레이 전 사본, 프레임 번호, 받은 시각 ms)`. None 이면 끈다.
+
+        🔑 프레임 번호 = 측정 기록이 켜져 있으면 그 프레임 번호(`frames.csv`·`boxes.csv` 와 같은 번호),
+           꺼져 있으면 처리 순번 — 영상과 로그를 1:1 로 맞추려는 것이다(측정 녹화 설계 R1).
+        🔑 화면 오버레이 설정과 무관하다 — 오버레이를 그리기 **전** 사본을 넘긴다(시연영상 촬영 sink 와 따로).
+        """
+        with self._lock:
+            self._raw_sink = fn
 
     def retry_connect(self):
         """수동 재연결 — 메뉴 → 점검(연결) 에서 부른다.
@@ -628,6 +640,7 @@ class CameraThread(QThread):
             is_active = self._is_active
             draw = self._draw_boxes
             sink = self._frame_sink
+            raw_sink = self._raw_sink
 
         if not is_active:
             # 🔴 비활성 미리보기도 같은 방향이어야 한다 — 여기서 회전을 빼면
@@ -650,6 +663,11 @@ class CameraThread(QThread):
         # 🔴 오버레이 없는 사본 — 촬영이 붙어 있을 때만. tool_frame 과 목적이 다르다
         #    (저쪽은 공구 추론용, 이쪽은 1인칭 원본 영상용).
         clean_frame = frame.copy() if sink is not None else None
+        # 1인칭 원본 녹화(측정 녹화 설계 R1) — 오버레이 전 사본을 번호와 함께 넘긴다(넣기만 · 녹화기가 따로 쓴다)
+        if raw_sink is not None:
+            self._raw_seq += 1
+            fid = self._m_row["frame"] if self._m_row is not None else self._raw_seq
+            raw_sink(clean_frame if clean_frame is not None else frame.copy(), fid, measure_log.now_ms(t))
         # 🔴 촬영 중에는 화면 표시와 무관하게 그린다 — 오버레이 OFF 회차에서도
         #    「오버레이 있는 1인칭 영상」이 나와야 한다.
         draw_overlay = draw or sink is not None
@@ -718,6 +736,14 @@ class CameraThread(QThread):
                 self._tool_dets = got[0]
                 self._tool_dets_at = now
                 self.tool_signal.emit(got[0], got[1])
+                # 🔑 공구 상자 좌표를 그 프레임의 상자 줄로 — 로그로 오버레이를 다시 그릴 수 있게(측정 녹화 설계 R3 ·
+                #    꼬리 구간 포함). NPU 갈래는 요청한 프레임에서 결과가 온다 · CPU 갈래는 결과가 온 프레임이다.
+                if self._m_row is not None:
+                    fr, tr = self._m_row["frame"], measure_log.now_ms(self._m_row["t_recv"])
+                    bx = self._m_row.setdefault("boxes", [])
+                    for name, sc, x1, y1, x2, y2 in got[0]:
+                        bx.append([fr, tr, "tool", name, round(float(sc), 4),
+                                   int(x1), int(y1), int(x2), int(y2), ""])
             if draw_overlay:
                 frame = self._draw_tools(frame)
             self._mark("tool_ms", t_tool)

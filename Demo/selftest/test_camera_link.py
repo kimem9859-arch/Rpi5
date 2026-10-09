@@ -211,6 +211,88 @@ def test_c12_frame_error_keeps_connection():
     check(len(errs) == 1, "「프레임 처리 오류」 로그가 한 줄 — 이어진 오류는 묶는다")
     check(not any("수신 오류" in m for m in logs), "「수신 오류」(네트워크 탓)로 적지 않는다")
 
+
+# ---------------------------------------------------------------- 측정 녹화(설계 2026-10-09 R1·R3)
+class _CapLog:
+    """측정 기록 흉내 — 줄을 모은다."""
+    enabled = True
+
+    def __init__(self):
+        self.rows, self.events = [], []
+
+    def row(self, name, values):
+        self.rows.append((name, list(values)))
+
+    def event(self, kind, t=None, **data):
+        self.events.append((kind, data))
+
+
+def test_raw_sink_clean_numbered():
+    print("\n[원본 녹화] 오버레이 전 사본이 번호·받은 시각과 함께 온다 — 화면 오버레이와 무관(R1)")
+    import measure_log
+    th = ct.CameraThread()
+    th.set_draw_boxes(True)
+    _FAKE_DET.dets = [(0, 0.9, 5, 5, 30, 30)]
+    got = []
+    th.set_raw_sink(lambda img, fid, tms: got.append((img.copy(), fid, tms)))
+    try:
+        th._process_frame(np.zeros((48, 64, 3), np.uint8), 10.0)
+        out = th._process_frame(np.zeros((48, 64, 3), np.uint8), 10.1)
+    finally:
+        _FAKE_DET.dets = []
+    check(len(got) == 2 and [g[1] for g in got] == [1, 2], f"측정 끔이면 처리 순번 1·2 — {[g[1] for g in got]}")
+    check(got[0][2] == measure_log.now_ms(10.0), f"받은 시각 ms = 측정 기록과 같은 시계 — {got[0][2]}")
+    check(int(out.sum()) > 0 and int(got[1][0].sum()) == 0, "화면 프레임에는 상자가 그려졌고 원본에는 없다")
+    th.set_raw_sink(None)
+    th._process_frame(np.zeros((48, 64, 3), np.uint8), 10.2)
+    check(len(got) == 2, "떼면 더 안 온다")
+
+    th2 = ct.CameraThread()
+    log = _CapLog()
+    th2.set_measure(log)
+    got2 = []
+    th2.set_raw_sink(lambda img, fid, tms: got2.append(fid))
+    for k in range(2):
+        th2._measure_begin(20.0 + k, 1.0)
+        th2._process_frame(np.zeros((48, 64, 3), np.uint8), 20.0 + k)
+        th2._measure_end()
+    frames = [v[0] for n, v in log.rows if n == "frames"]
+    check(got2 == frames == [1, 2], f"측정 켬이면 측정 프레임 번호 그대로 — 녹화 {got2} · frames.csv {frames}")
+
+
+def test_tool_boxes_logged():
+    print("\n[공구 상자] 공구 결과가 온 프레임의 boxes 에 kind=tool 줄(좌표) — 버튼 상자 줄은 그대로(R3)")
+    th = ct.CameraThread()
+    log = _CapLog()
+    th.set_measure(log)
+
+    class _Gate:
+        def __init__(self):
+            self.n = 0
+
+        def request(self, frame, tip):
+            self.n += 1
+
+        def poll(self):
+            if self.n == 1:
+                self.n += 1
+                return [("wrench", 0.81, 10.0, 12.0, 30.0, 40.0)], None
+            return None
+    th._tool_gate = _Gate()
+    th._tool_scan = True
+    th._tool_last = 0.0
+    _FAKE_DET.dets = [(1, 0.9, 5, 5, 30, 30)]
+    try:
+        th._measure_begin(30.0, 1.0)
+        th._process_frame(np.zeros((48, 64, 3), np.uint8), 30.0)
+        th._measure_end()
+    finally:
+        _FAKE_DET.dets = []
+    boxes = [v for n, v in log.rows if n == "boxes"]
+    tool = [b for b in boxes if b[2] == "tool"]
+    check(len(tool) == 1 and tool[0][3] == "wrench" and tool[0][5:9] == [10, 12, 30, 40], f"공구 줄 {tool}")
+    check(any(b[2] == "raw" and b[3] == "B2" for b in boxes), "버튼 상자 줄(raw)은 그대로")
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
