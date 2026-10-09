@@ -289,6 +289,45 @@ def test_기본값은_한번에_확정():
     check(st.update([BOX_W], IN_W) == "wrench", "한 번에 확정")
 
 
+# ------------------------------------------------------- ⑧ 놓침 봐주기 (2026-10-09 · 공구 구간 설계 D1)
+# 시험 측정에서 쥔 채 검사 한 번을 놓쳐 연속이 끊겼다(첫 근거부터 확정까지 약 9~10초) — 사용자 「1번 놓침은 봐주기」.
+def test_한번_놓침은_봐준다():
+    print("\n[M1] 1번 놓침은 센 수를 두고 · 2번 연속이면 처음부터")
+    st = ToolState("wrench", confirm_scans=3, miss_allowed=1)
+    st.update([BOX_W], IN_W); st.update([BOX_W], IN_W)
+    check(st.update([], IN_W) is None and st.phase == "checking" and st.confirm_count == 2, "빈손 1번 — 2/3 유지")
+    check(st.update([BOX_W], IN_W) == "wrench", "다시 보이면 3/3 확정")
+    st = ToolState("wrench", confirm_scans=3, miss_allowed=1)
+    st.update([BOX_W], IN_W)
+    st.update([BOX_W], None)                           # 손 안 보임 1번 — 유지
+    check(st.confirm_count == 1 and st.phase == "checking", "손 안 보임 1번 — 1/3 유지")
+    st.update([], IN_W)                                # 2번 연속 놓침 — 처음부터
+    check(st.phase == "search" and st.confirm_count == 0, "2번 연속이면 0")
+
+
+def test_놓침_봐줘도_스침은_걸러진다():
+    print("\n[M2] 🔴 1번 보이고 2번 놓침 — 반복해도 확정 안 됨")
+    st = ToolState("wrench", confirm_scans=3, miss_allowed=1)
+    for _ in range(10):
+        st.update([BOX_W], IN_W); st.update([], IN_W); st.update([], IN_W)
+    check(st.phase != "grasped", f"확정 안 됨 ({st.phase})")
+
+
+def test_놓침_봐줘도_다른공구는_바로_처음부터():
+    print("\n[M3] 다른 공구 근거는 봐주지 않는다 — 경고 + 0")
+    st = ToolState("wrench", confirm_scans=3, miss_allowed=1)
+    st.update([BOX_W], IN_W); st.update([BOX_W], IN_W)
+    check(st.update([IN_HAND_D], OUT) == "driver" and st.confirm_count == 0, "다른 공구 → 0")
+
+
+def test_held_tool_공개함수():
+    print("\n[M4] held_tool — 검지 끝이 든 상자(작은 쪽) · 없으면 None")
+    from tool_state import held_tool
+    big = ("driver", 0.7, 0, 0, 400, 400)
+    check(held_tool([big, BOX_W], IN_W) == "wrench", "겹치면 작은 쪽")
+    check(held_tool([BOX_W], OUT) is None and held_tool([BOX_W], None) is None, "밖·손 없음 → None")
+
+
 if __name__ == "__main__":
     t0 = time.time()
     test_안쥐면_완료_안됨()
@@ -313,6 +352,10 @@ if __name__ == "__main__":
     test_잠깐_보인것은_확정되지_않는다()
     test_시연용_확정은_연속_확인을_건너뛴다()
     test_기본값은_한번에_확정()
+    test_한번_놓침은_봐준다()
+    test_놓침_봐줘도_스침은_걸러진다()
+    test_놓침_봐줘도_다른공구는_바로_처음부터()
+    test_held_tool_공개함수()
 
     elapsed = time.time() - t0
     print()

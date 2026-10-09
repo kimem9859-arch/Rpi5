@@ -276,12 +276,15 @@ def test_grip_check_then_done_notice():
 
 
 def test_grip_check_break_hides_notice():
-    print("\n[쥠 확인] 연속이 끊기면 상자가 바로 사라지고 처음부터")
+    print("\n[쥠 확인] 놓침 1번은 「확인 중」 유지 · 2번 연속 놓치면 상자가 사라지고 처음부터(공구 구간 설계 D1)")
     win = make_console()
     box, tip = _tool_step(win)
     win.camera_thread.tool_signal.emit([box], tip)
     win.camera_thread.tool_signal.emit([box], tip)
-    win.camera_thread.tool_signal.emit([], tip)      # 손만 보이고 공구 없음
+    win.camera_thread.tool_signal.emit([], tip)      # 손만 보이고 공구 없음 — 1번
+    check(win._tool_state.phase == "checking" and win.alert.notice_tag == "grip_check"
+          and "2 / " in win.alert._line2.text(), f"놓침 1번 — 2/{config.TOOL_GRASP_CONFIRM_SCANS} 유지 ({win.alert._line2.text()})")
+    win.camera_thread.tool_signal.emit([], tip)      # 2번 연속
     check(win._tool_state.phase == "search", f"search 로 ({win._tool_state.phase})")
     check(win.alert.mode is None, f"상자가 사라진다 ({win.alert.mode})")
     check("손에 쥐면" in win.gauge_panel._tool_state.text(), "게이지도 처음 문구로")

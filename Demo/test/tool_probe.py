@@ -237,7 +237,8 @@ def main():
 
     umap = None
     writer = None
-    state = ToolState(want, confirm_scans=config.TOOL_GRASP_CONFIRM_SCANS)   # 시연과 같은 연속 확인
+    state = ToolState(want, confirm_scans=config.TOOL_GRASP_CONFIRM_SCANS,    # 시연과 같은 확인 규칙
+                      miss_allowed=config.TOOL_GRASP_MISS_ALLOWED)
     sub = None                    # 공구 추론이 준비된 뒤 시작한다(CPU 워커 모델 로딩 시간을 안 까먹게)
     scans = []
     tool_dets, tool_dets_at = [], 0.0

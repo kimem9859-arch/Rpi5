@@ -1472,7 +1472,8 @@ class SafetyConsole(QMainWindow):
         #    이미 spec 에 반영해 넘겨준다(safety_console.py 의 spec 덮어쓰기).
         if spec.get("type") == "wait_tool":
             self._tool_state = ToolState(spec.get("tool"),
-                                         confirm_scans=config.TOOL_GRASP_CONFIRM_SCANS)
+                                         confirm_scans=config.TOOL_GRASP_CONFIRM_SCANS,
+                                         miss_allowed=config.TOOL_GRASP_MISS_ALLOWED)
             self.camera_thread.set_tool_scan(True)
         self._update_sub_view()
         self._stats.sub_started(button, spec)

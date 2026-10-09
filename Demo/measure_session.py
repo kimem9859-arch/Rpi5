@@ -23,7 +23,7 @@ BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "measure")
 # 판정 규칙 · 모델·공구 경로 · 켜진 기능 — 세션 값을 나중에 같은 조건끼리 비교하려고 남긴다(설계 §4.3 session.json).
 # 🔴 이름이 config 에 없으면 시험(test_session_json)이 잡는다 — config 이름을 바꾸면 여기도.
 SETTINGS = ("FSM_DWELL_THRESHOLD_SEC", "FSM_GAP_FILL_SEC", "PRESS_CONFIRM_WINDOW_SEC", "PRESS_CONFIRM_GRACE_SEC",
-            "PRESS_CONFIRM_FALLBACK_SEC", "TOOL_SCAN_INTERVAL_SEC", "TOOL_GRASP_CONFIRM_SCANS", "TOOL_CONF", "YOLO_CONF_HIGH", "YOLO_CONF_LOW",
+            "PRESS_CONFIRM_FALLBACK_SEC", "TOOL_SCAN_INTERVAL_SEC", "TOOL_GRASP_CONFIRM_SCANS", "TOOL_GRASP_MISS_ALLOWED", "TOOL_CONF", "YOLO_CONF_HIGH", "YOLO_CONF_LOW",
             "HAND_MIN_SCORE", "GPIO_BOUNCE_SEC",
             "INFERENCE_BACKEND", "HEF_MODEL_PATH", "HAND_ENABLED", "HAND_MODELS_DIR",
             "TOOL_ENABLED", "TOOL_BACKEND", "TOOL_HEF_PATH", "TOOL_NAMES", "TOOL_MODEL_PATH", "TOOL_WORKER_PYTHON",
