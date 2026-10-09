@@ -228,6 +228,67 @@ def test_force_grasped_sticks():
     check(s.update([], None) == "wrench", "손이 안 보여도 wrench")
     check(s.update([], (10, 10)) == "wrench", "빈손이어도 wrench")
 
+
+# ------------------------------------------------------- ⑦ 연속 확인 (2026-10-09)
+# 사용자 요청 — 「손으로 공구를 잡는 게 잠깐이라도 보이면 바로 넘어간다 → 약간의 지연」.
+# 정답 공구 근거가 confirm_scans 번 **연속**으로 보여야 확정한다(스캔은 1초에 한 번).
+def test_연속_확인_뒤에야_확정():
+    print("\n[C1] 3번 연속 보여야 확정 — 그 전에는 「확인 중」")
+    st = ToolState("wrench", confirm_scans=3)
+    check(st.update([BOX_W], IN_W) is None, "1번째 — 아직 None")
+    check(st.phase == "checking" and st.confirm_count == 1, f"checking 1/3 ({st.phase} {st.confirm_count})")
+    check(st.update([IN_HAND_W], OUT) is None, "2번째(쥔 공구 클래스도 같은 근거) — 아직 None")
+    check(st.confirm_count == 2, f"2/3 ({st.confirm_count})")
+    check(st.update([BOX_W], IN_W) == "wrench", "3번째 — 확정")
+    check(st.phase == "grasped", "grasped")
+
+
+def test_연속이_끊기면_처음부터():
+    print("\n[C2] 연속이 끊기면 처음부터 — 빈손 · 손 사라짐 · 다른 공구")
+    st = ToolState("wrench", confirm_scans=3)
+    st.update([BOX_W], IN_W)
+    st.update([BOX_W], IN_W)
+    check(st.update([], IN_W) is None and st.phase == "search", "빈손이면 search 로")
+    check(st.confirm_count == 0, "센 수가 0")
+    st.update([BOX_W], IN_W)
+    st.update([BOX_W], IN_W)
+    check(st.update([BOX_W], None) is None and st.confirm_count == 0, "손이 안 보여도 처음부터")
+    st.update([BOX_W], IN_W)
+    st.update([BOX_W], IN_W)
+    check(st.update([IN_HAND_D], OUT) == "driver", "다른 공구를 쥐면 그 자리에서 경고")
+    check(st.phase == "search" and st.confirm_count == 0, "센 수도 0")
+    for _ in range(2):
+        st.update([BOX_W], IN_W)
+    check(st.phase == "checking", "다시 세기 시작")
+    check(st.update([BOX_W], IN_W) == "wrench", "다시 3번 연속이면 확정")
+
+
+def test_잠깐_보인것은_확정되지_않는다():
+    """🔴 요청의 핵심 — 한 번씩 스치듯 보이는 것은 아무리 반복돼도 확정되지 않는다."""
+    print("\n[C3] 🔴 스치듯 한 번씩 보이는 것은 확정되지 않는다")
+    st = ToolState("wrench", confirm_scans=3)
+    for _ in range(10):
+        st.update([IN_HAND_W], OUT)
+        st.update([], OUT)
+    check(st.phase != "grasped", f"10번 스쳐도 확정 안 됨 ({st.phase})")
+
+
+def test_시연용_확정은_연속_확인을_건너뛴다():
+    print("\n[C4] 키보드 t(시연 우회)는 연속 확인 없이 바로 확정")
+    st = ToolState("wrench", confirm_scans=3)
+    st.update([BOX_W], IN_W)
+    st.force_grasped()
+    check(st.phase == "grasped" and st.update([], None) == "wrench", "바로 grasped")
+
+
+def test_기본값은_한번에_확정():
+    """도구(tool_probe)·옛 시험이 기대하는 한 번 확정 — 런타임은 config 값을 넘긴다."""
+    print("\n[C5] confirm_scans 기본 1 = 종전처럼 한 번에 확정")
+    st = ToolState("wrench")
+    check(st.confirm_scans == 1, "기본 1")
+    check(st.update([BOX_W], IN_W) == "wrench", "한 번에 확정")
+
+
 if __name__ == "__main__":
     t0 = time.time()
     test_안쥐면_완료_안됨()
@@ -247,6 +308,11 @@ if __name__ == "__main__":
     test_요구공구가_이긴다()
     test_쥔공구_클래스는_부재를_근거로_쓰지_않는다()
     test_force_grasped_sticks()
+    test_연속_확인_뒤에야_확정()
+    test_연속이_끊기면_처음부터()
+    test_잠깐_보인것은_확정되지_않는다()
+    test_시연용_확정은_연속_확인을_건너뛴다()
+    test_기본값은_한번에_확정()
 
     elapsed = time.time() - t0
     print()

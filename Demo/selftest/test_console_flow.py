@@ -206,9 +206,11 @@ def test_tool_signal_drives_gate():
     check(win._sub.wrong_tool == box_other[0],
           f"다른 공구를 쥐면 wrong_tool={box_other[0]}")
 
-    # ② 정답으로 바꿔 쥐면 그 자리에서 통과 (2026-08-16 — 「넣음」 마디 폐기)
+    # ② 정답으로 바꿔 쥐면 통과 (2026-08-16 — 「넣음」 마디 폐기) — 🔑 연속 확인 수만큼(2026-10-09)
     win.camera_thread.tool_signal.emit([box_want, box_other], (150, 150))
     check(win._sub.wrong_tool is None, "정답으로 바꿔 쥐면 경고가 풀린다")
+    for _ in range(config.TOOL_GRASP_CONFIRM_SCANS - 1):
+        win.camera_thread.tool_signal.emit([box_want, box_other], (150, 150))
     check(win._tool_state.phase == "grasped", "쥠 확정")
     check(win._sub.tool_ok, "쥐는 즉시 tool_ok")
 
@@ -230,6 +232,171 @@ def test_tool_signal_drives_gate():
     check(win._sub is None, "시간까지 차면 자동 진행")
     check(win._tool_state is None, "판정 상태가 정리된다")
     check(win.camera_thread._tool_scan is False, "스캔이 꺼진다")
+    win.close()
+
+
+# ------------------------------------------------------------------ 쥠 확인 안내 (2026-10-09)
+# 사용자 요청 — 잠깐 보인 것으로 넘어가지 않게 연속 확인(3번 · 약 2초) + 화면 가운데 「확인 중」·「확인 완료」 상자.
+def _tool_step(win):
+    """작업 시작 → B1 통과 → B2(공구 단계) 서브 시작. 요구 공구 박스·손끝을 돌려준다."""
+    win._on_cta()
+    key(win, "1")
+    win._sub.tick(now=time.monotonic() + 999)
+    win._update_sub_view()
+    key(win, "2")
+    return (win._sub.want_tool, 0.80, 100, 100, 200, 200), (150, 150)
+
+
+def test_grip_check_then_done_notice():
+    print("\n[쥠 확인] 확인 중 1/3 → 2/3 → 확인 완료(퍼지 남음)")
+    win = make_console()
+    box, tip = _tool_step(win)
+    need = config.TOOL_GRASP_CONFIRM_SCANS          # 현장에서 조정하는 값 — 시험은 값에 묶지 않는다(리뷰 Minor 6)
+    step = win.fsm.expected_step
+    for i in range(1, need):
+        win.camera_thread.tool_signal.emit([box], tip)
+        check(win._tool_state.phase == "checking" and not win._sub.tool_ok, f"{i}번째 — 확인 중 · 아직 안 쥠")
+        check(win.alert.mode == "notice" and win.alert.notice_tag == "grip_check",
+              f"{i}번째 — 가운데 「확인 중」 상자 ({win.alert.mode} · {win.alert.notice_tag})")
+        check(f"{i} / {need}" in win.alert._line2.text(), f"상자 진행 표시 「{win.alert._line2.text()}」")
+        check(f"확인 중 {i}/{need}" in win.gauge_panel._tool_state.text(),
+              f"위 게이지에도 「{win.gauge_panel._tool_state.text()}」")
+    win.camera_thread.tool_signal.emit([box], tip)
+    check(win._tool_state.phase == "grasped" and win._sub.tool_ok, "3번째 — 확정")
+    check(win.alert.notice_tag == "grip_done" and "확인 완료" in win.alert._title.text(),
+          f"「확인 완료」 상자 ({win.alert.notice_tag} · {win.alert._title.text()})")
+    check("끝나면" in win.alert._line2.text(), f"퍼지가 남았으면 기다리라는 문구 「{win.alert._line2.text()}」")
+    check(win._notice_timer.isActive()
+          and win._notice_timer.interval() == int(config.TOOL_GRASP_DONE_NOTICE_SEC * 1000),
+          f"{config.TOOL_GRASP_DONE_NOTICE_SEC}초 뒤 닫힘 예약 ({win._notice_timer.interval()}ms)")
+    check(win.fsm.expected_step == step, "퍼지 시간이 남았으니 아직 다음 단계로 안 간다")
+    win._hide_notice()                               # 타이머가 부르는 것과 같다
+    check(win.alert.mode is None, "시간이 지나면 사라진다")
+    win.close()
+
+
+def test_grip_check_break_hides_notice():
+    print("\n[쥠 확인] 연속이 끊기면 상자가 바로 사라지고 처음부터")
+    win = make_console()
+    box, tip = _tool_step(win)
+    win.camera_thread.tool_signal.emit([box], tip)
+    win.camera_thread.tool_signal.emit([box], tip)
+    win.camera_thread.tool_signal.emit([], tip)      # 손만 보이고 공구 없음
+    check(win._tool_state.phase == "search", f"search 로 ({win._tool_state.phase})")
+    check(win.alert.mode is None, f"상자가 사라진다 ({win.alert.mode})")
+    check("손에 쥐면" in win.gauge_panel._tool_state.text(), "게이지도 처음 문구로")
+    win.close()
+
+
+def test_grip_done_after_time_says_next_step():
+    print("\n[쥠 확인] 퍼지가 이미 끝났으면 「다음 단계 B3」으로 바로")
+    win = make_console()
+    box, tip = _tool_step(win)
+    win._sub.tick(now=time.monotonic() + 999)        # 퍼지 시간을 먼저 채운다
+    win._update_sub_view()
+    for _ in range(config.TOOL_GRASP_CONFIRM_SCANS):
+        win.camera_thread.tool_signal.emit([box], tip)
+    check(win._sub is None and win.fsm.expected_step == 3, f"자동 진행 → 기대단계 {win.fsm.expected_step}")
+    check(win.alert.notice_tag == "grip_done" and "B3" in win.alert._line2.text(),
+          f"다음 단계 안내 「{win.alert._line2.text()}」")
+    win.close()
+
+
+def test_grip_notice_yields_to_warnings():
+    print("\n[쥠 확인] 경고가 떠 있으면 상자를 띄우지 않는다 · 오답 공구 경고 뒤에는 바로 「확인 중」")
+    win = make_console()
+    box, tip = _tool_step(win)
+    other = ("pliers" if box[0] != "pliers" else "driver", 0.9, 300, 100, 400, 200)
+    win.camera_thread.tool_signal.emit([other], (350, 150))
+    check(win.alert.mode == "tool", f"오답 공구 경고 ({win.alert.mode})")
+    win.camera_thread.tool_signal.emit([box], tip)
+    check(win.alert.notice_tag == "grip_check", f"정답으로 바꿔 쥐면 경고 대신 확인 중 ({win.alert.mode})")
+    check(win.glow.level is None, f"경고 테두리도 꺼진다 ({win.glow.level})")
+    t0 = time.monotonic()                            # 손이 B4 위에 머문다 — 순서 경고(서브는 멈춤 · 스캔은 계속)
+    win.fsm.update_vision("B4", t0)
+    win.fsm.update_vision("B4", t0 + 1.5)
+    check(win.alert.mode == "order", f"순서 경고 ({win.alert.mode})")
+    for _ in range(config.TOOL_GRASP_CONFIRM_SCANS):
+        win.camera_thread.tool_signal.emit([box], tip)
+    check(win.alert.mode == "order", f"🔴 확인 상자가 경고를 덮지 않는다 ({win.alert.mode})")
+    win.close()
+
+
+def test_grip_done_notice_on_keyboard_t():
+    print("\n[쥠 확인] 키보드 t(시연 우회)도 같은 「확인 완료」 상자")
+    win = make_console()
+    _tool_step(win)
+    key(win, "t")
+    check(win.alert.notice_tag == "grip_done", f"확인 완료 상자 ({win.alert.notice_tag})")
+    win.close()
+
+
+def test_grip_check_self_closes_and_gauge_holds_in_warning():
+    print("\n[쥠 확인] 확인 중 상자는 스캔이 끊기면 스스로 닫힌다 · 경고가 떠도 게이지는 「확인 중」(리뷰 Minor 1·8)")
+    win = make_console()
+    box, tip = _tool_step(win)
+    win.camera_thread.tool_signal.emit([box], tip)
+    check(win._notice_timer.isActive()
+          and win._notice_timer.interval() == int(config.TOOL_SCAN_INTERVAL_SEC * 2.5 * 1000),
+          f"스캔 2.5번 분 뒤 닫힘 예약 ({win._notice_timer.interval()}ms)")
+    dwell_warning(win, "B4")
+    check(win.fsm.state == State.WARNING, f"순서 경고 ({win.fsm.state.value})")
+    check("확인 중 1/" in win.gauge_panel._tool_state.text(),
+          f"🔴 경고가 떠도 게이지가 「찾기」로 깜빡이지 않는다 「{win.gauge_panel._tool_state.text()}」")
+    win.close()
+
+
+def test_grip_done_after_warning_released():
+    print("\n[쥠 확인] 경고 중에 확정되면 경고가 풀린 뒤 「확인 완료」(리뷰 Minor 2)")
+    win = make_console()
+    box, tip = _tool_step(win)
+    dwell_warning(win, "B4")
+    for _ in range(config.TOOL_GRASP_CONFIRM_SCANS):
+        win.camera_thread.tool_signal.emit([box], tip)
+    check(win._sub.tool_ok and win.alert.mode == "order", f"경고 중 확정 — 상자는 경고에 가린다 ({win.alert.mode})")
+    win._on_alert_release()
+    check(win.alert.notice_tag == "grip_done", f"경고가 풀리면 「확인 완료」 ({win.alert.mode} · {win.alert.notice_tag})")
+    win.close()
+
+
+def test_grip_check_yields_to_camera_notice():
+    print("\n[쥠 확인] 「카메라 미확인」 안내가 떠 있으면 「확인 중」이 덮지 않는다(리뷰 Minor 3)")
+    win = make_console()
+    box, tip = _tool_step(win)
+    win.alert.show_notice("카메라 미확인", "카메라가 B2 누름을 확인하지 못했습니다", "— 다음 버튼은 보면서 누르세요")
+    win._notice_timer.start(int(config.PRESS_CONFIRM_NOTICE_SEC * 1000))
+    win.camera_thread.tool_signal.emit([box], tip)
+    check(win.alert.notice_tag is None and win.alert._title.text() == "카메라 미확인",
+          f"카메라 미확인 안내 유지 ({win.alert._title.text()})")
+    check("확인 중 1/" in win.gauge_panel._tool_state.text(), "게이지에는 확인 중")
+    win._hide_notice()                               # 4초가 지나 안내가 닫힘
+    win.camera_thread.tool_signal.emit([box], tip)
+    check(win.alert.notice_tag == "grip_check", f"그 뒤 스캔부터 확인 중 상자 ({win.alert.notice_tag})")
+    win.close()
+
+
+def test_esc_closes_notice_before_app():
+    print("\n[쥠 확인] 가운데 안내가 떠 있으면 ESC 는 안내부터 닫는다(리뷰 Minor 4 · 전체화면)")
+    win = make_console()
+    box, tip = _tool_step(win)
+    for _ in range(config.TOOL_GRASP_CONFIRM_SCANS):
+        win.camera_thread.tool_signal.emit([box], tip)
+    closed = []
+    win.close = lambda: closed.append(1)
+    ev = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+    win.keyPressEvent(ev)
+    check(win.alert.mode is None and not closed, f"1번째 ESC — 안내만 닫힘 ({win.alert.mode} · 종료 {len(closed)})")
+    win.keyPressEvent(ev)
+    check(closed == [1], "2번째 ESC — 종료")
+    del win.close
+    win.close()
+
+
+def test_grip_done_skipped_when_idle():
+    print("\n[쥠 확인] 작업 전·완주 뒤(IDLE)에는 「확인 완료」를 띄우지 않는다(결과창을 가리지 않게)")
+    win = make_console()
+    win._show_grip_done("렌치", "N2 퍼지", True, None)
+    check(win.alert.mode is None, f"IDLE — 안 뜬다 ({win.alert.mode})")
     win.close()
 
 

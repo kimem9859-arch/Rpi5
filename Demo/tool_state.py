@@ -4,7 +4,14 @@
 
 무엇을 판정하나:
     ① 찾기  — 요구 공구를 아직 쥐지 않았다
+    ①′ 확인 중 — 쥔 근거가 보이기 시작했다(연속 `confirm_scans` 번 전까지 · 2026-10-09)
     ② 쥠    — 손끝이 요구 공구 박스 안에 들어왔다 (🔒 여기서 완료·유지)
+
+🔑 **연속 확인(2026-10-09 사용자 요청)** — 새 공구 모델이 쥔 공구를 너무 잘 잡아 「손으로
+   잡는 게 잠깐이라도 보이면 바로 넘어갔다.」 그래서 정답 공구 근거가 `confirm_scans` 번
+   **연속**으로 보여야 확정한다(스캔은 1초에 한 번 — 3번이면 약 2초 쥐고 있어야 한다).
+   한 번이라도 끊기면(빈손 · 손 안 보임 · 다른 공구) 처음부터 센다. 기본 1 = 종전처럼 한 번에.
+   🔑 다른 공구 경고는 지금처럼 바로 낸다 — 경고는 빨리 뜨는 쪽이 안전하다.
 
 🔑 **판정 대상은 「보이는 공구」가 아니라 「쥔 공구」다.**
    시연 시나리오는 3종(드라이버·렌치·플라이어)을 종류별 1개씩 책상에 두므로
@@ -31,8 +38,9 @@
 ⚠️ Qt·카메라·config 에 의존하지 않는다 — 검출 결과와 손끝 좌표를 **인자로
    받는다**(sub_task.py 와 같은 철학). GUI 없이 시험할 수 있어야 한다.
 
-🔴 남는 위험: 공구를 쥐지 않고 손이 그 위를 지나가기만 해도 확정된다. 손끝이
-   박스 안이라는 것과 쥐었다는 것은 다르다 — 시연 절차로 완화한다(설계 §9).
+🔴 남는 위험: 공구를 쥐지 않고 손을 그 위에 `confirm_scans` 번 연속(약 2초) 머물러도
+   확정된다 — 스치듯 지나가는 것은 연속 확인이 거른다(2026-10-09). 손끝이 박스 안이라는
+   것과 쥐었다는 것은 다르다 — 시연 절차로 완화한다(설계 §9).
 """
 
 
@@ -54,15 +62,27 @@ class ToolState:
     `update()` 가 돌려주는 값을 그대로 `SubTask.set_tool()` 에 넣으면 된다.
     """
 
-    def __init__(self, want_tool):
+    def __init__(self, want_tool, confirm_scans=1):
         self._want = want_tool
         self._phase = "search"
+        self._need = max(1, int(confirm_scans))   # 런타임은 config.TOOL_GRASP_CONFIRM_SCANS 를 넘긴다
+        self._streak = 0                           # 정답 공구 근거가 연속으로 보인 스캔 수
 
     # ------------------------------------------------------------------ 상태
     @property
     def phase(self):
-        """"search" | "grasped"."""
+        """"search" | "checking"(확인 중) | "grasped"."""
         return self._phase
+
+    @property
+    def confirm_count(self):
+        """정답 공구 근거가 연속으로 보인 스캔 수 — 확정되면 `confirm_scans` 와 같다."""
+        return self._need if self._phase == "grasped" else self._streak
+
+    @property
+    def confirm_scans(self):
+        """확정에 필요한 연속 스캔 수."""
+        return self._need
 
     @property
     def want_tool(self):
@@ -86,33 +106,43 @@ class ToolState:
         반환 = `SubTask.set_tool()` 에 넣을 값
             · 오답 공구를 쥐면 그 키   → wrong_tool 경고가 뜬다
             · 요구 공구를 쥐면 want_tool → tool_ok, 시간까지 찼으면 게이트 열림
+              (🔑 `confirm_scans` 번 연속이 차야 — 그 전 「확인 중」에는 None)
             · 그 밖에는 None
         """
         if self._phase == "grasped":
             return self._want                    # 한 번 확정되면 유지한다
 
         if fingertip is None:
-            return None                          # 🔑 손이 안 보이면 판정하지 않는다
+            # 🔑 손이 안 보이면 쥠·오답을 판정하지 않는다 — 다만 「연속」은 끊긴 것으로 보고 처음부터
+            #    센다(사용자 요청의 「연속」 그대로 · 엄격한 쪽). ⏸ 실물에서 쥔 채 손 검출만 빠져 끊김이
+            #    잦으면 이 한 번은 보류(세지도 지우지도 않기)로 바꿀지 본다(리뷰 Minor 5).
+            self._reset_streak()
+            return None
 
         # ── 메인 조건 (2026-09-03) — 모델이 판정한 「쥠」
         #    🔑 손끝 좌표를 보지 않는다. 손이 화면에 있다는 것만 안전장치로 쓴다
         #       (배경 오검출은 손 없는 화면에서 난다 — §10.54-(5)).
         in_hand = self._in_hand_tool(dets)
-        if in_hand == self._want:
-            self._phase = "grasped"
-            return self._want
-
         # ── 보조 조건 — 검지 끝이 요구 공구 박스 안 (tool_v3 시절 규칙 그대로)
         held = self._held_tool(dets, fingertip)
-        if held is not None and _base(held) == self._want:
-            self._phase = "grasped"
-            return self._want
+        if in_hand == self._want or (held is not None and _base(held) == self._want):
+            self._streak += 1
+            if self._streak >= self._need:
+                self._phase = "grasped"
+                return self._want
+            self._phase = "checking"             # 아직 확정 아님 — SubTask 에는 None(쥐지 않음)
+            return None
 
+        self._reset_streak()
         # 🔑 요구 공구 근거가 없을 때만 오답을 말한다 — 쥐지 않은 공구가 함께
         #    보이는 것은 정상이므로, 요구 공구 쪽이 언제나 이긴다.
         if in_hand is not None:
             return in_hand
         return None if held is None else _base(held)
+
+    def _reset_streak(self):
+        self._streak = 0
+        self._phase = "search"
 
     # ------------------------------------------------------------------ 보조
     def _in_hand_tool(self, dets):

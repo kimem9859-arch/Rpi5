@@ -266,7 +266,7 @@ class GaugePanel(_Panel):
         self._shown_progress = 0.0      # 지금 화면에 그려진 채움 비율
         self._target_progress = 0.0
         self._gauge_anim = None
-        self._prev_tool = None          # (tool_ok, wrong_tool)
+        self._prev_tool = None          # (tool_ok, wrong_tool, checking)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -321,8 +321,11 @@ class GaugePanel(_Panel):
 
         self.hide()
 
-    def update_view(self, sub):
-        """sub = SubTask 또는 None. None 이면 패널을 숨긴다."""
+    def update_view(self, sub, checking=None):
+        """sub = SubTask 또는 None. None 이면 패널을 숨긴다.
+
+        checking = (센 수, 필요한 수) — 공구 쥠 「확인 중」일 때만(tool_state 연속 확인 · 2026-10-09).
+        """
         if sub is None or not sub.is_active:
             self._stop_pulse()
             # 🔴 진행률도 비운다(리뷰 U15) — 남기면 다음 서브 게이지가 가득 찬 채 시작해 0으로
@@ -383,13 +386,15 @@ class GaugePanel(_Panel):
                 state, token = f"✓ {sub.want_tool_name}를 쥐었습니다", "done"
             elif sub.wrong_tool:
                 state, token = "⚠ 다른 공구를 쥐고 있습니다", "warn"
+            elif checking:
+                state, token = f"◐ 확인 중 {checking[0]}/{checking[1]} — 그대로 쥐고 계세요", "info"
             else:
                 state, token = "○ 손에 쥐면 확인됩니다", "todo"
             self._tool_state.setText(state)
 
             # 「중」 강도 — 상태줄 + 요구 문구가 함께 맥박한다(🔧 아이콘은 제외).
-            # 조건을 채웠거나(쥠) 오답 경고 중이면 멈춘다.
-            want_pulse = not (sub.tool_ok or sub.wrong_tool)
+            # 조건을 채웠거나(쥠) 오답 경고 중이거나 확인 중이면 멈춘다.
+            want_pulse = not (sub.tool_ok or sub.wrong_tool or checking)
             if want_pulse != self._pulsing:
                 if want_pulse:
                     self._pulse_text.start()
@@ -408,7 +413,7 @@ class GaugePanel(_Panel):
                 self._tool_state.setStyleSheet(theme.text_qss(token, 600))
 
             # 바뀐 순간에만 번진다 — 200ms 주기 반복 호출에서 매번 번지면 안 된다.
-            now_tool = (sub.tool_ok, sub.wrong_tool)
+            now_tool = (sub.tool_ok, sub.wrong_tool, checking)
             # 🔴 맥박이 도는 동안은 번지지 않는다 — flash 는 base QSS 를 캡처했다가
             #    되돌리는데, 맥박 중간 프레임을 base 로 집어 그 색에 고정해버린다
             #    (오답 공구를 놓아 맥박이 재개되는 순간이 정확히 그 경우다).
@@ -530,6 +535,7 @@ class AlertBanner(_Panel):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self._mode = None
+        self._notice_tag = None         # 안내의 종류(show_notice tag) — mode 가 "notice" 일 때만 뜻이 있다
 
         # 차단 맥박 — 🔴 mode 를 벗어나거나 숨길 때 반드시 stop() 한다.
         self._pulse = anim.Pulse(
@@ -598,13 +604,16 @@ class AlertBanner(_Panel):
         self._paint("danger", "⛔", "버튼 입력 차단됨", reason, hint,
                     release_text="차단 해제", indent2=bool(hint))
 
-    def show_notice(self, title, line1, line2):
+    def show_notice(self, title, line1, line2, token="info", mark="ⓘ", indent2=True, tag=None):
         """안내(누름 카메라 확인 · 2026-09-30) — 해제 버튼 없음 · 시간이 지나면 콘솔이 닫는다.
 
         🔴 우선순위가 가장 낮다 — 경고·차단이 오면 그쪽 show_* 가 덮는다.
+        token·mark = 색·기호(공구 쥠 「확인 중」 ◐ · 「확인 완료」 ✓ — 2026-10-09) · tag = 어떤 안내인지
+        (콘솔이 자기가 띄운 안내만 닫을 때 쓴다 — `notice_tag`).
         """
         self._mode = "notice"
-        self._paint("info", "ⓘ", title, line1, line2, release_text=None, indent2=True)
+        self._notice_tag = tag
+        self._paint(token, mark, title, line1, line2, release_text=None, indent2=indent2)
 
     def _paint(self, token, mark, title, line1, line2, release_text, indent2):
         # 🔴 self._mode 는 show_* 가 여기 오기 **전에** 이미 새 값이다. 그래서 화면에
@@ -659,6 +668,11 @@ class AlertBanner(_Panel):
     def mode(self):
         return self._mode
 
+    @property
+    def notice_tag(self):
+        """떠 있는 안내의 tag — 안내가 아니거나 tag 없이 띄웠으면 None."""
+        return self._notice_tag if self._mode == "notice" else None
+
     def apply_theme(self):
         """🔴 배너는 판·테두리가 곧 경고 표시다 — 「공정 단계 패널 배경」 설정과 무관하게 늘 그린다(G8).
 
@@ -686,7 +700,7 @@ class AlertBanner(_Panel):
         # 🔴 슬라이드 중에는 geometry 를 건드리지 않는다 — _update_sub_view 가 200ms
         #    마다 relayout 을 부르므로, 그대로 두면 등장 중에 위치가 튄다.
         if anim.busy(self):
-            # 🔴 건너뛰기만 하면 등장 중에 창이 커진 경우(켤 때 차단 → showMaximized) 옛 창
+            # 🔴 건너뛰기만 하면 등장 중에 창이 커진 경우(켤 때 차단 → 창이 최대화·전체화면으로 커짐) 옛 창
             #    가운데에 남는다(2026-09-30 실HW) — 크기를 기억했다가 앉은 뒤 다시 한다.
             self._pending_rect = QRect(parent_rect)
             return

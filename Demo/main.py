@@ -21,12 +21,12 @@ def main():
         QToolTip {{ background-color: {BG_PANEL}; color: {TEXT_PRIMARY}; border: 1px solid {ACCENT}; padding: 4px; }}
     """)
     window = SafetyConsole()
-    # SOP_FULLSCREEN=1 이면 모니터를 꽉 채운다(시나리오 촬영용, run_scenario.sh 가 설정).
-    # showMaximized 를 쓴다 — 진짜 전체화면(showFullScreen)은 제목표시줄이 사라져
-    # 창을 닫을 수 없고, 녹화 종료가 GUI 종료에 묶여 있어 위험하다.
+    # 🔑 기본 = 진짜 전체화면(2026-10-09 사용자 요청) — 작업표시줄·제목표시줄 없이 프로그램 화면만.
+    #    끄기 = ESC(열린 창이 있으면 그것부터 닫고, 없으면 종료 — keyPressEvent). 종료가 closeEvent 를
+    #    지나므로 녹화·측정 기록도 정상으로 닫힌다(종전에 전체화면을 피한 이유 「창을 닫을 수 없다」가 풀렸다).
+    #    창으로 띄우려면 SOP_FULLSCREEN=0.
     # 촬영 모드는 창을 16:9 로 고정한다 — 잘라낼 좌표가 딱 떨어지고 편집 규격 그대로다.
-    # 🔴 최대화·전체화면을 쓰지 않는다. 최대화는 비율이 어중간하고, 전체화면은
-    #    제목표시줄이 없어져 창을 닫을 수 없다(녹화 종료가 GUI 종료에 묶여 있다).
+    # 🔴 촬영 모드는 최대화·전체화면을 쓰지 않는다. 최대화는 비율이 어중간하고, 전체화면은 잘라낼 창 좌표가 없다.
     if config.DEMO_CAPTURE:
         # 🔴 잘라낼 사각형 안에 다른 창이 겹치면 **그 창이 그대로 찍힌다.**
         #    2026-09-03 검증에서 실제로 터미널이 찍혔다 — raise_() 만으로는 부족하다.
@@ -49,8 +49,8 @@ def main():
         _wake = QTimer()
         _wake.start(200)
         _wake.timeout.connect(lambda: None)
-    elif os.environ.get("SOP_FULLSCREEN", "0") == "1":
-        window.showMaximized()
+    elif os.environ.get("SOP_FULLSCREEN", "1") == "1":
+        window.showFullScreen()
     else:
         window.show()
     sys.exit(app.exec())

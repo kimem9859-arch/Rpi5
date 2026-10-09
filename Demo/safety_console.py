@@ -97,6 +97,7 @@ class SafetyConsole(QMainWindow):
         self._sub = None             # 진행 중인 SubTask
         self._sub_button = None      # 그 서브 작업을 시작시킨 버튼
         self._tool_state = None      # 공구 판정 상태기계(A-2) — wait_tool 동안만 존재
+        self._grip_done_pending = False  # 경고 중에 쥠이 확정돼 「확인 완료」를 못 띄웠다(경고가 풀리면 띄운다)
         self._tool_override = None   # 설정 메뉴에서 바꾼 지정 공구(세션 한정)
         self._popups = {}            # 종류 → 알림 창 — 종류마다 하나만(U20 · _popup)
         self._last_result = None     # 완료 결과 — 다음 「작업 시작」·「작업 초기화」까지 음성 상태에 싣는다(A-M3)
@@ -1017,7 +1018,7 @@ class SafetyConsole(QMainWindow):
 
         # 마디가 바뀔 때만 로그를 남긴다 — 1초에 한 번씩 쌓으면 로그가 묻힌다.
         if self._tool_state.phase != before:
-            names = {"search": "찾기", "grasped": "쥠"}
+            names = {"search": "찾기", "checking": "확인 중", "grasped": "쥠"}
             self._append_log(f"[공구] {names.get(before, before)} → "
                              f"{names.get(self._tool_state.phase, self._tool_state.phase)}"
                              f" ({self._tool_state.want_tool})")
@@ -1026,7 +1027,67 @@ class SafetyConsole(QMainWindow):
             self._publish_state()      # 공구 충족이 바뀌었다(음성 §4.4)
         elif self._sub.wrong_tool != wrong_before:
             self._publish_state()      # 쥔 오답 공구가 바뀌었다(음성 설계 2026-10-04 §4.2-나)
+        # 🔑 상자 문구에 쓸 값은 진행 **전에** 잡는다 — 조건이 차면 _update_sub_view 가 서브를 끝내 버린다.
+        phase, grip = self._tool_state.phase, self._grip_info()
+        count, need = self._tool_state.confirm_count, self._tool_state.confirm_scans
         self._update_sub_view()
+        if phase == "checking":
+            self._show_grip_check(grip[0], count, need)
+        elif phase == "grasped" and before != "grasped":
+            self._show_grip_done(*grip)
+        elif before == "checking" and self.alert.notice_tag == "grip_check":
+            self.alert.hide_all()      # 연속이 끊겼다 — 처음부터 센다(tool_state)
+
+    def _tool_checking(self):
+        """공구 쥠 「확인 중」이면 (센 수, 필요한 수) — 아니면 None. 게이지가 쓴다(세 곳이 같은 값)."""
+        ts = self._tool_state
+        return (ts.confirm_count, ts.confirm_scans) if ts is not None and ts.phase == "checking" else None
+
+    def _grip_info(self):
+        """쥠 확인 상자 문구 재료 — (공구 이름, 서브 이름, 시간이 찼나, 다음 단계 「B3 전극 냉각」 또는 None)."""
+        sub = self._sub
+        steps = (self._recipe or {}).get("steps") or []
+        nxt = None
+        for i, st in enumerate(steps[:-1]):
+            if st.get("button") == self._sub_button:
+                nxt = f"{steps[i + 1].get('button')} {steps[i + 1].get('name')}"
+                break
+        return sub.want_tool_name, sub.label, sub.time_done, nxt
+
+    def _show_grip_check(self, name, count, need):
+        """쥠 「확인 중 n/N」 — 화면 가운데(2026-10-09 사용자 요청 · 위 게이지는 작아 안 보였다).
+
+        🔴 우선순위는 안내(notice)다 — 경고·차단이 떠 있으면 띄우지 않고, 뜨면 그쪽이 덮는다.
+        🔑 다음 스캔이 안 오면(서브가 끝나거나 멈춤) 스스로 닫히게 스캔 2.5번 분만 둔다 — 스캔마다 다시 잰다.
+        """
+        if self.alert.mode not in (None, "notice"):
+            return
+        if self.alert.mode == "notice" and self.alert.notice_tag is None:
+            return                     # 「카메라 미확인」 안내(4초)는 끝까지 둔다 — 닫힌 뒤 다음 스캔부터 뜬다(리뷰 Minor 3)
+        dots = " ".join("●" if i < count else "○" for i in range(need))
+        self.alert.show_notice(f"{name} 쥠 확인 중", f"{name}를 그대로 쥐고 계세요",
+                               f"확인  {dots}   {count} / {need}",
+                               token="info", mark="◐", indent2=False, tag="grip_check")
+        self._relayout()
+        self._notice_timer.start(int(config.TOOL_SCAN_INTERVAL_SEC * 2.5 * 1000))
+
+    def _show_grip_done(self, name, label, time_done, nxt):
+        """쥠 「확인 완료」 — 화면 가운데 · TOOL_GRASP_DONE_NOTICE_SEC 뒤 닫힌다(2026-10-09 사용자 요청).
+
+        🔴 「다음 단계로 넘어가세요」는 서브 시간이 찼을 때만 — 남았는데 다음 버튼을 누르면 순서 위반이다
+           (서브 작업이 끝나기 전 다른 버튼 = 위반 · 통합문서 §6.1.1). 남았으면 끝나면 넘어가라고 쓴다.
+        """
+        if self.fsm.state == State.IDLE:
+            return                     # 마지막 단계였으면 결과창을 가리지 않는다
+        if self.alert.mode not in (None, "notice"):
+            self._grip_done_pending = True   # 경고·차단이 우선 — 풀리면 띄운다(_on_fsm_state 끝 · 차단은 서브 취소라 버려진다)
+            return
+        to = f"다음 단계({nxt})로" if nxt else "다음 단계로"
+        line2 = f"— {to} 넘어가세요" if time_done else f"— {label} 시간이 끝나면 {to} 넘어가세요"
+        self.alert.show_notice(f"{name} 쥠 확인 완료", f"{name}를 쥔 것을 확인했습니다", line2,
+                               token="done", mark="✓", indent2=True, tag="grip_done")
+        self._relayout()
+        self._notice_timer.start(int(config.TOOL_GRASP_DONE_NOTICE_SEC * 1000))
 
     def _sim_tool_grasped(self):
         """시연용 `t` — 요구 공구를 **쥔 것으로** 처리한다.
@@ -1049,6 +1110,7 @@ class SafetyConsole(QMainWindow):
             self._append_log(f"[시험] t — {sub.want_tool_name} 는 이미 쥔 상태입니다")
             return
 
+        grip = self._grip_info()             # 진행 전에 잡는다 — 시간이 찼으면 아래에서 서브가 끝난다
         if self._tool_state is not None:
             self._tool_state.force_grasped()     # 🔴 판정기도 확정해야 다음 스캔이 안 덮는다(G9)
         sub.set_tool(sub.want_tool)
@@ -1058,6 +1120,7 @@ class SafetyConsole(QMainWindow):
                          f"처리(키보드 우회)")
         self._publish_state()
         self._update_sub_view()
+        self._show_grip_done(*grip)
 
     def _on_start_process(self):
         self._press_pending = None   # 새 작업 — 앞 누름 기억은 버린다(누름 카메라 확인)
@@ -1408,7 +1471,8 @@ class SafetyConsole(QMainWindow):
         # 🔑 요구 공구는 spec 에서 읽는다 — _press_button 이 설정값(_tool_override)을
         #    이미 spec 에 반영해 넘겨준다(safety_console.py 의 spec 덮어쓰기).
         if spec.get("type") == "wait_tool":
-            self._tool_state = ToolState(spec.get("tool"))
+            self._tool_state = ToolState(spec.get("tool"),
+                                         confirm_scans=config.TOOL_GRASP_CONFIRM_SCANS)
             self.camera_thread.set_tool_scan(True)
         self._update_sub_view()
         self._stats.sub_started(button, spec)
@@ -1422,6 +1486,7 @@ class SafetyConsole(QMainWindow):
         """
         if self._tool_state is not None:
             self._tool_state = None
+        self._grip_done_pending = False  # 서브가 끝나거나 취소됐다 — 못 띄운 「확인 완료」도 버린다
         self.camera_thread.set_tool_scan(False)
 
     def _show_block_banner(self, emo):
@@ -1477,7 +1542,7 @@ class SafetyConsole(QMainWindow):
     def _update_sub_view(self):
         """게이지·CTA·공구 경고를 서브 작업 상태에 맞춘다."""
         sub = self._sub
-        self.gauge_panel.update_view(sub)
+        self.gauge_panel.update_view(sub, self._tool_checking())
         self._relayout()
 
         if sub is None or not sub.is_active:
@@ -1679,6 +1744,12 @@ class SafetyConsole(QMainWindow):
             if not self.log_browser.isHidden():
                 self._set_log_visible(False)
                 return
+            # 가운데 안내(쥠 확인·카메라 미확인)도 먼저 닫는다 — 자주 뜨는 상자에 반사적으로 누른 ESC 로
+            #    시연이 꺼지지 않게(리뷰 Minor 4). 경고·차단 배너는 그대로 — 해제 버튼으로 푼다.
+            if self.alert.mode == "notice":
+                self._notice_timer.stop()
+                self.alert.hide_all()
+                return
             self._append_log("[시스템] ESC — 창을 닫습니다")
             self.close()
             return
@@ -1717,14 +1788,14 @@ class SafetyConsole(QMainWindow):
                 sub.pause()
                 self._measure.event("sub", what="pause", button=self._sub_button)
                 self._append_log(f"[서브] {sub.label} 일시정지 — 경고 중")
-                self.gauge_panel.update_view(sub)
+                self.gauge_panel.update_view(sub, self._tool_checking())
             elif old == State.WARNING and sub.paused and new != State.IDLE:
                 # IDLE(작업 초기화·EMO 해제)은 아래 IDLE 분기가 서브를 정리한다 — 여기서 이으면
                 # 곧 버려질 작업에 「이어서」가 찍혔다(② 리뷰 4)
                 sub.resume()
                 self._measure.event("sub", what="resume", button=self._sub_button)
                 self._append_log(f"[서브] {sub.label} 이어서 — 경고 해제")
-                self.gauge_panel.update_view(sub)
+                self.gauge_panel.update_view(sub, self._tool_checking())
         # 🔑 공개는 서브 작업을 판정기 상태에 맞춘 **뒤**다 — 앞에서 하면 멈춤·취소가 안 실린다(음성 §4.4)
         self._publish_state()
 
@@ -1804,6 +1875,13 @@ class SafetyConsole(QMainWindow):
         #    "기억하지 말고 상태에서 그때그때 계산한다"(_sync_cta_visibility).
         self._sync_cta_visibility()
         self._relayout()
+
+        # 경고 중에 쥠이 확정돼 「확인 완료」를 못 띄웠으면 — 경고가 풀린 지금 띄운다(리뷰 Minor 2).
+        #    🔑 배너 정리(위) **뒤**라야 한다 — 앞에서는 아직 경고 배너가 떠 있어 또 건너뛴다.
+        if self._grip_done_pending and new not in (State.WARNING, State.BLOCK):
+            self._grip_done_pending = False
+            if self._sub is not None and self._sub.is_active and self._sub.tool_ok:
+                self._show_grip_done(*self._grip_info())
 
     def _on_interlock(self, engaged):
         self._measure.event("interlock_req", what="engage", value=bool(engaged))

@@ -113,10 +113,12 @@ def test_gauge_flashes_only_on_tool_change():
     g = GaugePanel(_w)
     sub = _FakeSub(progress=0.3, tool_ok=False, wrong_tool=None, needs_tool=True)
     g.update_view(sub)
-    check(g._prev_tool == (False, None), "직전 공구 상태를 기억한다")
+    check(g._prev_tool == (False, None, None), "직전 공구 상태를 기억한다")
+    g.update_view(sub, (1, 3))                  # 쥠 확인 중(2026-10-09) — 그것도 상태 변화다
+    check(g._prev_tool == (False, None, (1, 3)), "확인 중도 기억한다")
     sub.tool_ok = True
     g.update_view(sub)
-    check(g._prev_tool == (True, None), "바뀐 값으로 갱신된다")
+    check(g._prev_tool == (True, None, None), "바뀐 값으로 갱신된다")
 
 
 def test_status_step_change_gate():
