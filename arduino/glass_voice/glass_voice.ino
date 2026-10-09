@@ -367,6 +367,12 @@ static void cmdDump() {
 static const float CHIME_LO = 1568.0f;   // G6
 static const float CHIME_HI = 2093.0f;   // C7
 static const float FADE_MS  = 5.0f;      // 🔑 음마다 앞뒤를 이만큼 서서히 켜고 끈다 — 갑자기 켜면 「딸깍」(10/8 띠링 10번 중 3번)
+/** 띠링·닫힘음 진폭 상한 — 🔴 음성 음량(TARGET[volIdx])을 그대로 쓰지 않는다(2026-10-09 실물 귀 확인 · 배터리 · 프레임 안).
+ *  음량 5(13000)·4(9000)는 「지지직」(카메라 송출 중이면 더 심함) · 음량 3(6000)은 카메라 켬·끔 모두 깨끗.
+ *  같은 크기로 계속 우는 순음이라 말소리보다 전원을 많이 끌어 쓴다 — 말소리 재생 음량(VOLUME 5)은 그대로 둔다.
+ *  ⚠️ 이 지지직은 안경 마이크에 잡히지 않았다(음량 4 배음 0%) — 고칠 때 판정은 귀로.
+ */
+static const int   CHIME_AMP_MAX = 6000;
 
 /** 한 음(또는 무음)을 I2S 에 써 넣는다 — 띠링·닫힘음 공통.
  *  주파수는 f0 → f1 로 지수 곡선을 따라 미끄러진다(f0 == f1 이면 고정음) · amp 0 = 무음.
@@ -412,7 +418,7 @@ static void toneSeg(float f0, float f1, int ms, int amp, bool decay, float &ph) 
  */
 static void chime() {
   setSpkRate(RATE);
-  const int AMP = TARGET[volIdx];
+  const int AMP = min(TARGET[volIdx], CHIME_AMP_MAX);
   float ph = 0.0f;
   toneSeg(0, 0, 30, 0, false, ph);                 // 앞 여백 — 첫 음이 안 잘린다
   toneSeg(CHIME_LO, CHIME_LO, 120, AMP, false, ph);
@@ -429,7 +435,7 @@ static void chime() {
  */
 static void closeChime() {
   setSpkRate(RATE);
-  const int AMP = TARGET[volIdx];
+  const int AMP = min(TARGET[volIdx], CHIME_AMP_MAX);
   float ph = 0.0f;
   toneSeg(0, 0, 30, 0, false, ph);
   toneSeg(CHIME_HI, CHIME_HI, 120, AMP, false, ph);
