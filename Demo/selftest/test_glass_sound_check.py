@@ -107,6 +107,13 @@ check(r["gains"] == [4.0], f"계측의 증폭 배율 · {r['gains']}")
 check(r["close"] == {"질문 없음": 1, "답 끝": 1}, f"닫힘음 로그 · {r['close']}")
 check(r["cers"][0][2] == 0.0, f"대본 그대로면 글자 오류 0 · {r['cers'][0]}")
 
+print("[녹음 길이] 짧게 잘린 녹음은 판정하지 않는다(2026-10-09 실물 — 첫 녹음 앞 약 2초가 빠져 띠링 1/3)")
+short, got, need = g.recording_short(int(16000 * 2.53), 3 * 1.2 + 0.8)
+check(short and abs(got - 2.53) < 0.01, f"2.53초 녹음 · 기대 {need:g}초 → 짧다")
+short, got, need = g.recording_short(int(16000 * 4.42), 3 * 1.2 + 0.8)
+check(not short, f"4.42초 녹음 → 됐다 · 기대 {need:g}초")
+check(g.recording_short(0, 1.0)[0], "0초 녹음(켠 직후 「녹음 0.0초」) → 짧다")
+
 print()
 if _fails:
     print(f"🔴 실패 {len(_fails)}건")

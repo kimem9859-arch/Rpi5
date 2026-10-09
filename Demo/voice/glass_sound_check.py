@@ -126,6 +126,14 @@ class Board:
             time.sleep(0.1)
         if not self.mic.connected:
             sys.exit(f"🔴 마이크 업링크({ip}:{va.MIC_PORT})에 못 붙었다 — 보드 전원·주소(.camera_ip) 확인")
+        # 🔑 마이크 예열 — 붙은 직후 소리가 약 2초 늦게 흐르기 시작해 첫 녹음 앞이 빠졌다(2026-10-09 실물: 띠링
+        #    녹음 2.5초/기대 4.4초 → 띠링 1/3 · 켠 직후 sweep 「녹음 0.0초」). 1초 분이 실제로 들어올 때까지 기다린다.
+        got, end = 0, time.time() + 8
+        while got < RATE * 1.0 and time.time() < end:
+            got += len(self.mic.pull())
+            time.sleep(0.05)
+        if got < RATE * 1.0:
+            sys.exit(f"🔴 마이크 소리가 들어오지 않는다({got / RATE:.1f}초/8초) — 보드를 켠 직후면 잠시 뒤 다시")
         if self.spk.send(b"") is not True:     # 명령 채널을 붙이고 음량(음성비서와 같은 VOLUME)을 맞춘다
             sys.exit(f"🔴 명령 채널({ip}:{va.CMD_PORT})에 못 붙었다 — 소리를 못 낸다")
         print(f"보드 {ip} · 음량 {va.VOLUME}단계 · 마이크 연결됨")
@@ -154,6 +162,22 @@ class Board:
 
     def close(self):
         self.mic.stop()
+
+
+def recording_short(n_samples, need_sec, slack=0.6):
+    """녹음이 기대보다 짧은가 — (짧다, 받은 초, 기대 초). 짧게 잘린 녹음으로는 판정하지 않는다(2026-10-09 실물 —
+    첫 녹음 앞 약 2초가 빠져 띠링 3번 중 1번만 들어 있었다 · 소리가 아니라 녹음 문제)."""
+    got = n_samples / RATE
+    return got < need_sec - slack, got, need_sec
+
+
+def require_length(b, rec, need_sec, what):
+    """짧으면 판정하지 않고 멈춘다 — 「다시 잰다」. b = 닫을 Board(이미 닫았으면 None)."""
+    short, got, need = recording_short(len(rec), need_sec)
+    if short:
+        if b is not None:
+            b.close()
+        sys.exit(f"🔴 {what} 녹음이 짧다({got:.1f}초 < 기대 {need:.1f}초) — 마이크가 늦게 들어왔다 · 판정하지 않는다 · 다시 잰다")
 
 
 def save_wav(path, a):
@@ -248,6 +272,7 @@ def cmd_sweep(a):
         finally:
             b.close()
         save_wav(os.path.join(d, "마이크.wav"), rec)
+        require_length(None, rec, len(pcm) / RATE + 0.8, "높이 지도")
         ok = isinstance(resp, list) and any("재생 완료" in r for r in resp)
         print(f"재생 {'확인 ✅' if ok else '확인 안 됨 🔴'} · 녹음 {len(rec) / RATE:.1f}초 → {d}")
         if not ok:
@@ -318,6 +343,7 @@ def record_n(b, cmd, times=3, gap=1.2):
     if not ok:
         b.close()
         sys.exit(f"🔴 {cmd!r} 명령을 못 보냈다 — 명령 채널 끊김(보드·음성비서 확인)")
+    require_length(b, rec, times * gap + 0.8, f"{cmd!r}")
     return rec
 
 
