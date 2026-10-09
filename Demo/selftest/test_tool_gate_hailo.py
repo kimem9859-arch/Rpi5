@@ -51,7 +51,34 @@ def _hef():
 
 def make(det=None, log=None):
     det = det or _Det()
-    return TG.HailoToolGate(hef=_hef(), names=_Det.NAMES, conf=0.65, log=log, detector_factory=lambda: det), det
+    # 🔴 공유 파일은 임시 폴더에 — 진짜 /dev/shm/sop_tool 은 돌고 있는 음성비서가 읽는다(공구 구간 설계 D2)
+    return TG.HailoToolGate(hef=_hef(), names=_Det.NAMES, conf=0.65, log=log, detector_factory=lambda: det,
+                            shm_dir=tempfile.mkdtemp()), det
+
+
+def test_음성비서_공유파일():
+    print("\n[D2] NPU 결과를 음성비서가 읽는 파일로 — 꺼지면 지운다(공구 구간 설계 D2)")
+    import json
+    import voice_lib
+    d = tempfile.mkdtemp()
+    g = TG.HailoToolGate(hef=_hef(), names=_Det.NAMES, conf=0.65, detector_factory=lambda: _Det(), shm_dir=d)
+    g.start()
+    g.request(F, (1, 2))
+    p = os.path.join(d, "resp.json")
+    check(os.path.isfile(p), "검사하면 resp.json 이 생긴다")
+    data = json.load(open(p))
+    check(data["dets"] == [["wrench", 0.9, 10.0, 20.0, 30.0, 40.0]] and isinstance(data["seq"], int), f"모양 {data}")
+    dets, fresh = voice_lib.read_tool_dets(p)
+    check(fresh and dets and dets[0][0] == "wrench", f"음성비서가 신선하게 읽는다 {dets} {fresh}")
+    seq1 = data["seq"]
+    g.request(F, None)
+    check(json.load(open(p))["seq"] == seq1 + 1, "검사마다 seq 가 오른다")
+    g.stop()
+    check(not os.path.exists(p), "끄면 지운다(낡은 검출을 남기지 않는다)")
+    g.start()
+    g.request(F, None)
+    g.close()
+    check(not os.path.exists(p), "닫아도 지운다")
 
 
 F = np.zeros((8, 8, 3), np.uint8)
@@ -180,6 +207,7 @@ def test_만드는_갈래():
 
 
 if __name__ == "__main__":
+    test_음성비서_공유파일()
     test_문턱_이름_손끝()
     test_꺼져_있으면_추론하지_않음()
     test_적재_실패는_비활성_로그()

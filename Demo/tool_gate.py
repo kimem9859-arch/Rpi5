@@ -236,15 +236,21 @@ class HailoToolGate:
       결과는 그 프레임의 손끝과 함께 보관하고 poll() 이 한 번 돌려준다.
     - 🔴 적재 실패(파일 없음·장치 오류)면 available False + 로그 — **CPU 로 저절로 바꾸지 않는다**
       (다른 모델이 조용히 돌면 시연 기준이 흐려진다).
+    - 🔑 검사마다 결과를 **음성비서 공유 파일**(`<TOOL_SHM_DIR>/resp.json` · CPU 워커와 같은 자리·모양)에도 쓴다 —
+      음성비서(`voice_lib.read_tool_dets`)가 「보이는 공구」를 거기서 읽는다. 10/7 NPU 로 바꾼 뒤 이 파일을 아무도
+      안 써 음성비서가 공구를 몰랐다(공구 구간 설계 D2). 끄거나 닫으면 지운다.
     - 🔴 생성 때 낸 로그는 화면 로그에 안 붙는다(CameraThread.__init__ 시점 — 손 검출과 같은 함정) →
       `loaded`·`reason` 을 두어 시연 화면이 시작 로그에 다시 적고, start() 도 실패면 다시 알린다(리뷰 I-1).
     """
 
     _ERR_LOG_SEC = 5.0               # 추론 오류가 이어져도 로그는 이 간격에 한 번(camera_thread C12 와 같은 값)
 
-    def __init__(self, hef=None, names=None, conf=None, log=None, detector_factory=None):
+    def __init__(self, hef=None, names=None, conf=None, log=None, detector_factory=None, shm_dir=None):
         import config
         self._hef = hef if hef is not None else config.TOOL_HEF_PATH
+        self._shm = shm_dir if shm_dir is not None else config.TOOL_SHM_DIR   # 음성비서 공유 파일 자리(D2)
+        self._seq = 0
+        self._share_err_at = None
         self._names = tuple(names if names is not None else config.TOOL_NAMES)
         self._conf = float(conf if conf is not None else config.TOOL_CONF)
         self._log = log or (lambda m: None)
@@ -292,6 +298,7 @@ class HailoToolGate:
             self._on = False
             self._gen += 1
             self._result = None       # 서브 작업이 끝난 뒤 늦게 남은 결과를 내지 않는다
+        self._unshare()
 
     @property
     def available(self):
@@ -314,8 +321,37 @@ class HailoToolGate:
         dets = [(det.class_name(c), float(s), float(x1), float(y1), float(x2), float(y2))
                 for c, s, x1, y1, x2, y2 in raw if s >= self._conf]
         with self._lock:
-            if self._on and self._gen == gen:
-                self._result = (dets, fingertip)
+            if not (self._on and self._gen == gen):
+                return
+            self._result = (dets, fingertip)
+        self._share(dets)
+
+    def _share(self, dets):
+        """음성비서가 읽는 공구 검출 파일 — CPU 워커(`tool_worker.py`)와 같은 자리·모양 `{"seq", "dets"}`(D2).
+
+        임시 파일에 쓰고 이름을 바꿔 한 번에 바꾼다(반쯤 쓰인 파일을 읽지 않게).
+        🔴 실패해도 판정은 계속한다 — 음성 안내만 빠진다. 로그는 _ERR_LOG_SEC 간격에 한 번.
+        """
+        try:
+            os.makedirs(self._shm, exist_ok=True)
+            self._seq += 1
+            path = os.path.join(self._shm, "resp.json")
+            tmp = path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump({"seq": self._seq, "dets": [list(d) for d in dets]}, f)
+            os.replace(tmp, path)
+        except OSError as e:
+            now = time.monotonic()
+            if self._share_err_at is None or now - self._share_err_at >= self._ERR_LOG_SEC:
+                self._share_err_at = now
+                self._log(f"[공구] 음성비서 공유 파일을 못 썼다(판정은 계속): {e!r}")
+
+    def _unshare(self):
+        """공유 파일을 지운다 — 꺼진 뒤 낡은 검출을 음성비서가 읽지 않게(신선도 3초 전이라도)."""
+        try:
+            os.remove(os.path.join(self._shm, "resp.json"))
+        except OSError:
+            pass
 
     def poll(self):
         with self._lock:
@@ -329,6 +365,7 @@ class HailoToolGate:
             self._result = None
             self.loaded = False
             self.reason = "닫힘"
+        self._unshare()
         if det is not None:
             try:
                 det.close()
