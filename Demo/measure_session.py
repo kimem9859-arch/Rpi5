@@ -20,6 +20,13 @@ HANDS = {1: "맨손", 2: "장갑"}
 # 안경 전원 — 이번 측정은 무선(배터리)이 조건이다(측정 설계 D23 · USB 를 꽂은 세션은 다른 조건)
 POWERS = {1: "무선(배터리)", 2: "유선(USB)"}
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "measure")
+# 시나리오표 — 실행기에서 번호로 고른다(터미널에서 한글·①을 치지 않게 · 2026-10-09 본 측정 직전)
+SCENARIO_DIR = os.path.join(BASE, "시나리오")
+
+
+def scenario_files(d=SCENARIO_DIR):
+    """시나리오 폴더의 대본 이름(이름순) — 실행기 번호 n = 이 목록의 n번째."""
+    return sorted(n for n in os.listdir(d) if n.endswith(".csv")) if os.path.isdir(d) else []
 # 판정 규칙 · 모델·공구 경로 · 켜진 기능 — 세션 값을 나중에 같은 조건끼리 비교하려고 남긴다(설계 §4.3 session.json).
 # 🔴 이름이 config 에 없으면 시험(test_session_json)이 잡는다 — config 이름을 바꾸면 여기도.
 SETTINGS = ("FSM_DWELL_THRESHOLD_SEC", "FSM_GAP_FILL_SEC", "PRESS_CONFIRM_WINDOW_SEC", "PRESS_CONFIRM_GRACE_SEC",
@@ -77,6 +84,10 @@ def write_session(out_dir, answers, measure_on):
 
 
 def main():
+    if sys.argv[1:] == ["--list-scripts"]:
+        for i, n in enumerate(scenario_files(), 1):
+            print(f"    {i} {n}")
+        return
     if sys.argv[1:] == ["--free-gb"]:
         # 실행기의 1GB 경고 — 올림 없는 값(df -BG 는 올려서 0.3GB 도 1G 로 보였다 · 리뷰 I-2)
         print(f"{free_gb(BASE if os.path.isdir(BASE) else os.path.dirname(BASE)):.3f}")
@@ -88,13 +99,19 @@ def main():
     ap.add_argument("--hand", type=int, required=True, choices=tuple(HANDS))
     ap.add_argument("--person", type=int, required=True)
     ap.add_argument("--light", default="")
-    ap.add_argument("--script", default="")
+    ap.add_argument("--script", default="")                # 경로 또는 시나리오 번호(--list-scripts)
+    ap.add_argument("--script-dir", default=SCENARIO_DIR)
     ap.add_argument("--firmware", default="glass_voice")      # 남길 펌웨어(실콘솔 plan Task 11 Step 1)
     ap.add_argument("--power", type=int, default=1, choices=tuple(POWERS))   # 안경 전원(측정 설계 D23)
     ap.add_argument("--on", type=int, default=1, choices=(0, 1))
     a = ap.parse_args()
     # 🔑 대본은 폴더를 만들기 전에 확인한다 — 복사가 실패하면 반쪽 세션 폴더가 남았다(리뷰 I-3)
     a.script = os.path.expanduser(a.script.strip()) if a.script.strip() else ""
+    if a.script.isdigit():
+        names = scenario_files(a.script_dir)
+        if not 1 <= int(a.script) <= len(names):
+            ap.error(f"대본 번호 {a.script} 가 없다 — 1~{len(names)}")
+        a.script = os.path.join(a.script_dir, names[int(a.script) - 1])
     if a.script and not os.path.isfile(a.script):
         ap.error(f"대본 파일이 없다: {a.script}")
     os.makedirs(a.base, exist_ok=True)

@@ -88,7 +88,7 @@ def test_voice_off_recorded():
         check(json.load(f)["음성"] is False, "음성 False")
     with open(os.path.join(_DEMO_DIR, "run_measure.sh"), encoding="utf-8") as f:
         sh = f.read()
-    check(sh.index("SOP_VOICE=0") < sh.index("measure_session.py"),
+    check(sh.index("SOP_VOICE=0") < sh.index("measure_session.py --place"),
           "run_measure.sh 가 SOP_VOICE=0 을 세션 정보 쓰기 **앞에** 내보낸다")
 
 
@@ -151,6 +151,27 @@ def test_script_path_tilde_and_missing():
     r = subprocess.run([c if c != base else base2 for c in cmd] + ["--script", "~/없는대본.txt"],
                        capture_output=True, text=True, env=env)
     check(r.returncode != 0 and os.listdir(base2) == [], f"없는 대본 rc={r.returncode} · {os.listdir(base2)}")
+
+
+def test_script_by_number():
+    print("\n[세션] 대본을 번호로 — 시나리오 폴더의 이름순 n번째(터미널에서 한글·①을 치지 않게) · 없는 번호면 폴더를 만들지 않는다")
+    sd = tempfile.mkdtemp()
+    for n in ("장소1_②위반A.csv", "장소1_①정상.csv"):
+        with open(os.path.join(sd, n), "w", encoding="utf-8") as f:
+            f.write("판,행동,대상,기대,메모\n")
+    base = tempfile.mkdtemp()
+    cmd = [sys.executable, os.path.join(_DEMO_DIR, "measure_session.py"), "--base", base, "--script-dir", sd,
+           "--place", "1", "--kind", "1", "--hand", "1", "--person", "1", "--on", "1"]
+    r = subprocess.run(cmd + ["--script", "1"], capture_output=True, text=True)
+    out = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    info = json.load(open(os.path.join(out, "session.json"), encoding="utf-8")) if out else {}
+    check(r.returncode == 0 and os.path.isfile(os.path.join(out, "장소1_①정상.csv"))
+          and info.get("입력", {}).get("대본") == "장소1_①정상.csv", f"1 → ①정상 · rc={r.returncode} {r.stderr[-200:]}")
+    base2 = tempfile.mkdtemp()
+    r = subprocess.run([c if c != base else base2 for c in cmd] + ["--script", "3"], capture_output=True, text=True)
+    check(r.returncode != 0 and os.listdir(base2) == [], f"없는 번호 rc={r.returncode} · {os.listdir(base2)}")
+    lst = MS.scenario_files(sd)
+    check(lst == ["장소1_①정상.csv", "장소1_②위반A.csv"], f"목록 = 이름순 {lst}")
 
 
 def test_session_marks_dirty_tree():
