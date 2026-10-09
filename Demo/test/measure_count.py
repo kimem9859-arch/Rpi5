@@ -500,10 +500,20 @@ def _seg_recv(seg):
 
 def v_res(S):
     """30 자원 — res 사건(**세션** 첫 값은 의미 없다 · safety_console._pi_resources 머리말). 녹화로 나눈 쪽(split_recording)은
-    세션 첫 값의 시각(first_res_t)만 뺀다 — 녹화 쪽 구간 안 첫 값까지 버리면 안 된다."""
-    ts = [t for t, k, _ in S["events"] if k == "res"]
+    세션 첫 값의 시각(first_res_t)만 뺀다 — 녹화 쪽 구간 안 첫 값까지 버리면 안 된다.
+    🔑 직전 res 이후 처리한 프레임이 하나도 없는 값(안경 꺼짐·끊김 — 처리를 안 하던 동안)은 뺀다 — 실측 2026-10-09 시험
+    세션에서 안경을 끈 뒤 4분이 「⑤ 녹화 비교」 나머지 쪽 CPU 중앙값을 40%대 → 3% 로 끌어내렸다."""
+    ts = sorted(t for t, k, _ in S["events"] if k == "res")
     first = S.get("first_res_t", ts[0] if ts else None)
-    rs = [d for t, k, d in S["events"] if k == "res" and t != first]
+    done = sorted(f["t"] for f in S["frames"])
+    keep, prev = set(), first
+    for t in ts:
+        if t != first:
+            lo = prev if prev is not None and prev < t else float("-inf")
+            if bisect.bisect_right(done, t) > bisect.bisect_right(done, lo):     # (lo, t] 에 처리한 프레임이 있다
+                keep.add(t)
+        prev = t
+    rs = [d for t, k, d in S["events"] if k == "res" and t in keep]
     return {key: [d[key] for d in rs if d.get(key) is not None] for key in ("cpu_avg", "cpu_max", "temp")}
 
 

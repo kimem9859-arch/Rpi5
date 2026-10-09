@@ -270,10 +270,12 @@ def test_interlock():
 
 
 def test_res():
-    print("\n[30] 자원 — 첫 값은 버린다")
+    print("\n[30] 자원 — 첫 값은 버린다 · 직전 값 이후 처리한 프레임이 없는 값(안경 꺼짐·끊김)도 뺀다")
     ev = [E(0, "res", cpu_avg=99.0, cpu_max=99.0, temp=99.0), E(10, "res", cpu_avg=30.0, cpu_max=50.0, temp=60.0),
-          E(20, "res", cpu_avg=40.0, cpu_max=70.0, temp=None)]
-    check(MC.v_res(S_(ev)) == {"cpu_avg": [30.0, 40.0], "cpu_max": [50.0, 70.0], "temp": [60.0]}, f"{MC.v_res(S_(ev))}")
+          E(20, "res", cpu_avg=40.0, cpu_max=70.0, temp=None), E(30, "res", cpu_avg=2.0, cpu_max=3.0, temp=45.0)]
+    fr = [FR(i + 1, t) for i, t in enumerate([2, 9, 15, 20])]           # 20 뒤로 프레임 없음 = 안경 꺼짐
+    check(MC.v_res(S_(ev, frames=fr)) == {"cpu_avg": [30.0, 40.0], "cpu_max": [50.0, 70.0], "temp": [60.0]},
+          f"{MC.v_res(S_(ev, frames=fr))} — 30 의 값(프레임 없음)은 빠진다")
 
 
 def test_tools():
