@@ -494,7 +494,12 @@ def v_wrong_tool(S):
 
 
 def v_tool_time(S):
-    """17ⓑ 공구 확인 소요 — 공구 단계 시작 → 처음 tool_scan 의 tool = want(초) · 키보드 공구 판은 뺀다."""
+    """17ⓑ 공구 확인 소요 — 공구 단계 시작 → 처음 tool_scan 의 tool = want(초) · 키보드 공구 판은 뺀다.
+
+    🔑 tool = want 는 **쥠이 확정된** 스캔이다 — 2026-10-09 부터 연속 확인(`TOOL_GRASP_CONFIRM_SCANS` 번 ·
+       그 사이 스캔은 phase="checking" · tool=None)이 들어가 첫 근거보다 약 (N−1)×스캔 간격 늦다.
+       N 은 세션 `session.json` 「설정」에 있다 — 다른 N 끼리 섞어 인용하지 않는다.
+    """
     out = []
     for r, t0, _b in tool_steps(split_runs(S["events"])):
         if any(k == "tool_sim" for _, k, _ in r["ev"]):

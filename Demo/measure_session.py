@@ -1,6 +1,6 @@
 """측정 세션 정보 — 폴더 이름 · session.json · 남은 공간(측정 도구 정합 §4.3 「세션 정보」·「용량」).
 
-run_measure.sh 가 부른다: python3 measure_session.py --place 1 --kind 1 --hand 1 --person 2 [--light ...] [--script ...] --on 1
+run_measure.sh 가 부른다: python3 measure_session.py --place 1 --kind 1 --hand 1 --person 2 [--light ...] [--script ...] [--power 1] --on 1
 → 세션 폴더(Demo/measure/<날짜_시각_장소_세션>/)를 만들고 session.json 을 쓴 뒤 경로를 한 줄 출력한다.
 🔴 사람은 번호로만 — 이름을 적지 않는다(GitHub 제출 저장소 규칙).
 """
@@ -17,11 +17,13 @@ import config
 
 KINDS = {0: "시험", 1: "정상", 2: "위반", 3: "장갑", 4: "음성끔"}
 HANDS = {1: "맨손", 2: "장갑"}
+# 안경 전원 — 이번 측정은 무선(배터리)이 조건이다(측정 설계 D23 · USB 를 꽂은 세션은 다른 조건)
+POWERS = {1: "무선(배터리)", 2: "유선(USB)"}
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "measure")
 # 판정 규칙 · 모델·공구 경로 · 켜진 기능 — 세션 값을 나중에 같은 조건끼리 비교하려고 남긴다(설계 §4.3 session.json).
 # 🔴 이름이 config 에 없으면 시험(test_session_json)이 잡는다 — config 이름을 바꾸면 여기도.
 SETTINGS = ("FSM_DWELL_THRESHOLD_SEC", "FSM_GAP_FILL_SEC", "PRESS_CONFIRM_WINDOW_SEC", "PRESS_CONFIRM_GRACE_SEC",
-            "PRESS_CONFIRM_FALLBACK_SEC", "TOOL_SCAN_INTERVAL_SEC", "TOOL_CONF", "YOLO_CONF_HIGH", "YOLO_CONF_LOW",
+            "PRESS_CONFIRM_FALLBACK_SEC", "TOOL_SCAN_INTERVAL_SEC", "TOOL_GRASP_CONFIRM_SCANS", "TOOL_CONF", "YOLO_CONF_HIGH", "YOLO_CONF_LOW",
             "HAND_MIN_SCORE", "GPIO_BOUNCE_SEC",
             "INFERENCE_BACKEND", "HEF_MODEL_PATH", "HAND_ENABLED", "HAND_MODELS_DIR",
             "TOOL_ENABLED", "TOOL_BACKEND", "TOOL_HEF_PATH", "TOOL_NAMES", "TOOL_MODEL_PATH", "TOOL_WORKER_PYTHON",
@@ -88,6 +90,7 @@ def main():
     ap.add_argument("--light", default="")
     ap.add_argument("--script", default="")
     ap.add_argument("--firmware", default="glass_voice")      # 남길 펌웨어(실콘솔 plan Task 11 Step 1)
+    ap.add_argument("--power", type=int, default=1, choices=tuple(POWERS))   # 안경 전원(측정 설계 D23)
     ap.add_argument("--on", type=int, default=1, choices=(0, 1))
     a = ap.parse_args()
     # 🔑 대본은 폴더를 만들기 전에 확인한다 — 복사가 실패하면 반쪽 세션 폴더가 남았다(리뷰 I-3)
@@ -98,7 +101,7 @@ def main():
     out = os.path.join(a.base, session_dir_name(a.place, a.kind))
     answers = {"장소": a.place, "세션": KINDS[a.kind], "손": HANDS[a.hand], "사람": a.person,
                "조명": a.light, "대본": os.path.basename(a.script) if a.script else "",
-               "펌웨어": a.firmware or "glass_voice"}
+               "펌웨어": a.firmware or "glass_voice", "안경전원": POWERS[a.power]}
     write_session(out, answers, a.on == 1)
     if a.script:
         # 대본 형식은 1단계-나에서 정한다 — 여기서는 원래 이름 그대로 복사만

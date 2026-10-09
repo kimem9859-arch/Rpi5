@@ -20,7 +20,7 @@
 | `env.csv` | 30프레임마다 | `frame,t_recv_ms,brightness,contrast,clip_pct,saturation,lab_a,lab_b` — 장소 환경 지표 |
 | `events.csv` | 사건 하나 | `t_ms,kind,data`(JSON) — `run_start`·`run_end`·`run_reset` · `state` · `press` · `gpio_edge` · `step_done` · `sub` · `tool_scan` · `tool_sim`(키보드 우회 — 세기에서 뺀다) · `wrong_tool` · `confirm` · `release` · `camera` · `stream_reset` · `interlock_req` · `interlock` · `fps`·`res`(10초마다) · `recording_on` · `measure_end`(버린 수) |
 | `voice_events.csv` | 음성 사건 하나 | `t_ms,kind,data` — `alert`·`alert_played`·`alert_clear` · `play_start`·`play_end`·`stop_sent` · `wake`·`emergency_ignored` · `stt` · `answer` · `uplink`(10초마다) · 음성 끔 세션에는 없다 |
-| `session.json` | — | 입력(장소 · 세션 · 손 · 사람 **번호** · 조명 · 대본 · 펌웨어) · 시작 벽시계·단조 · 코드 버전 · 설정값(모델·공구 경로 포함) · 측정 기록 켬 여부 · 음성 켬 여부 |
+| `session.json` | — | 입력(장소 · 세션 · 손 · 사람 **번호** · 조명 · 대본 · 펌웨어 · 안경 전원 — 무선이 이번 측정 조건 · 측정 설계 D23) · 시작 벽시계·단조 · 코드 버전 · 설정값(모델·공구 경로 포함) · 측정 기록 켬 여부 · 음성 켬 여부 |
 | 대본 파일 | — | 실행기가 받은 파일을 원래 이름 그대로 복사(형식은 1단계-나) |
 
 ## 세기(1단계-나)가 알아야 할 것 — 최종 리뷰(2026-10-07)에서 확인

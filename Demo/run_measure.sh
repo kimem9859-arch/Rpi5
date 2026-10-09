@@ -11,6 +11,7 @@ W=$(ask "사람 번호 (1~9)")
 L=$(ask "조명·조도 (선택 · 엔터 = 건너뜀)")
 S=$(ask "대본 파일 경로 (선택 · 엔터 = 없음)")
 F=$(ask "펌웨어 (엔터 = glass_voice)")
+G=$(ask "안경 전원 (엔터 = 무선·배터리 · 2 = 유선·USB)")
 ON=$(ask "측정 기록 (1 켬 · 0 끔 — 시험 세션의 끔 회차)")
 # 🔴 음성 끔은 세션 정보를 쓰기 **전에** 내보낸다 — session.json 의 「음성」이 이 값을 읽는다
 if [ "$K" = "4" ]; then export SOP_VOICE=0; fi
@@ -21,7 +22,7 @@ if awk -v f="${FREE:-0}" 'BEGIN { exit !(f < 1) }'; then
   [ "$Y" = "y" ] || exit 1
 fi
 if ! DIR=$(python3 measure_session.py --place "$P" --kind "$K" --hand "$H" --person "$W" --light "$L" \
-      ${S:+--script "$S"} --firmware "${F:-glass_voice}" --on "$ON"); then
+      ${S:+--script "$S"} --firmware "${F:-glass_voice}" --power "${G:-1}" --on "$ON"); then
   # 🔴 창이 말없이 닫히지 않게 — 위 오류(argparse)를 읽고 다시 실행한다(리뷰 I-3)
   echo "  ❌ 세션 정보를 만들지 못했다 — 위 오류를 보고 다시 실행하세요"
   read -rp "  엔터를 누르면 창을 닫는다 > " _

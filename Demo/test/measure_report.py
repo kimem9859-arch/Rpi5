@@ -387,7 +387,8 @@ def render(sessions, per, M, targets, curve=None):
           f" · 목표(NFR-1) 미만 진입 {f12.get('low_n', 0)}회 · 이어진 최장 {_f(_max(f12.get('low_longest', [])), 2, '초')}"
           f" · 끊김({fps.STALE_SEC:g}초 이상) {len(f12.get('stalls', []))}회 · 합 {_f(sum(f12.get('stalls', [])), 1, '초')}"
           f" · 최장 {_f(_max(f12.get('stalls', [])), 1, '초')} · 시연이 10초마다 적은 FPS 중앙값 {_f(_med(f12.get('fps_ev', [])), 1)}",
-          f"- 17ⓑ 공구 확인 소요 — 중앙값 {_f(_med(g('17b').get('times', [])), 2, '초')}(판 {len(g('17b').get('times', []))})",
+          f"- 17ⓑ 공구 확인 소요 — 중앙값 {_f(_med(g('17b').get('times', [])), 2, '초')}(판 {len(g('17b').get('times', []))})"
+          " · 쥠 확정 = 연속 확인 포함(④ 조건 「쥠 연속」)",
           f"- 18 입력 누락(표본만 · 판정은 다음 판) — 완주한 정상 판 {i18.get('runs', 0)} · 기대 누름 {i18.get('expect', 0)}"
           f" · 기록된 누름 {i18.get('got', 0)}",
           f"- 21 누름 카메라 확인 — {_pct(g('21').get('k', 0), g('21').get('n', 0))} · 누르기 전 중앙값"
@@ -431,6 +432,7 @@ def render(sessions, per, M, targets, curve=None):
                  f" · 조명 {i.get('조명') or '—'} · 대본 {i.get('대본') or '없음'} · 체류 {s.get('FSM_DWELL_THRESHOLD_SEC')}초"
                  f" · 갭메우기 {s.get('FSM_GAP_FILL_SEC')}초 · 버튼 모델 {os.path.basename(str(s.get('HEF_MODEL_PATH') or '—'))}"
                  f" · 공구 {s.get('TOOL_BACKEND')} {os.path.basename(str(s.get('TOOL_HEF_PATH') or ''))}"
+                 f" · 쥠 연속 {s.get('TOOL_GRASP_CONFIRM_SCANS') or '—'}번 · 안경 {i.get('안경전원') or '—'}"
                  f" · 음성 {'켬' if S['info'].get('음성', True) else '끔'} · EMO {S['emo']}"
                  f" · 코드 {(S['info'].get('코드') or {}).get('Rpi5')}")
     return "\n".join(L) + "\n"

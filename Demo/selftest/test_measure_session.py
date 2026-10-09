@@ -57,7 +57,23 @@ def test_cli_prints_dir():
           f"{r.returncode} {out} {r.stderr[-200:]}")
     check(os.path.isfile(os.path.join(out, "대본_시험.txt")), "대본 복사")
     with open(os.path.join(out, "session.json"), encoding="utf-8") as f:
-        check(json.load(f)["입력"]["펌웨어"] == "glass_voice", "펌웨어 기본값")
+        inp = json.load(f)["입력"]
+    check(inp["펌웨어"] == "glass_voice", "펌웨어 기본값")
+    check(inp.get("안경전원") == "무선(배터리)", f"안경 전원 기본 = 무선(측정 설계 D23) — {inp.get('안경전원')}")
+
+
+def test_launcher_records_glasses_power():
+    print("\n[세션] 실행기 「안경 전원」 2 = 유선(USB) 이 session.json 에 남는다(측정 설계 D23)")
+    d = _launcher_copy()
+    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="1\n0\n1\n1\n\n\n\n2\n0\n\n",
+                       capture_output=True, text=True, timeout=60)
+    found = [os.path.join(d, "measure", x, "session.json") for x in os.listdir(os.path.join(d, "measure"))] \
+        if os.path.isdir(os.path.join(d, "measure")) else []
+    got = None
+    if found:
+        with open(found[0], encoding="utf-8") as f:
+            got = json.load(f)["입력"].get("안경전원")
+    check(got == "유선(USB)", f"안경전원 = {got} · {r.stdout[-200:]}")
 
 
 def test_voice_off_recorded():
@@ -104,7 +120,7 @@ def test_free_space_check_precise():
 def test_launcher_bad_input_keeps_window():
     print("\n[세션] 입력 오류면 이유를 보이고 기다린다 · 세션 폴더를 남기지 않는다(리뷰 I-3)")
     d = _launcher_copy()
-    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="3\n0\n1\n1\n\n\n\n1\n\n",
+    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="3\n0\n1\n1\n\n\n\n\n1\n\n",
                        capture_output=True, text=True, timeout=60)
     check("세션 정보를 만들지 못했다" in r.stdout and "STUB" not in r.stdout, f"{r.stdout[-300:]}")
     check(not os.path.isdir(os.path.join(d, "measure")) or not os.listdir(os.path.join(d, "measure")),
@@ -114,7 +130,7 @@ def test_launcher_bad_input_keeps_window():
 def test_launcher_off_ignores_inherited_dir():
     print("\n[세션] 기록 끔 회차는 물려받은 SOP_MEASURE_DIR 도 지운다(리뷰 I-3)")
     d = _launcher_copy()
-    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="1\n0\n1\n1\n\n\n\n0\n\n",
+    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="1\n0\n1\n1\n\n\n\n\n0\n\n",
                        capture_output=True, text=True, timeout=60, env=dict(os.environ, SOP_MEASURE_DIR="/tmp/옛폴더"))
     check("STUB MEASURE=없음" in r.stdout, f"{r.stdout[-300:]}")
 
