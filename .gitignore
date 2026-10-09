@@ -87,3 +87,4 @@ id_ed25519*
 # 측정 기록(측정 도구 정합 — Demo/measure/README.md)
 Demo/measure/*
 !Demo/measure/README.md
+!Demo/measure/시나리오/
