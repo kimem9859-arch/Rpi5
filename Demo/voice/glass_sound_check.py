@@ -301,9 +301,6 @@ def cmd_sweep(a):
 #    높이로 음을 찾으면 **심하게 일그러진 음은 못 찾는다**(배음이 기본음보다 커 띠 비율이 낮다) — 그러면 일그러진 음을
 #    빼고 「깨끗」으로 잘못 통과한다(10/8 녹음의 1175Hz 가 그랬다).
 LO_MS, GAP_MS, HI_MS = 120, 40, 180
-# 닫힘음 덩어리 최소 길이 — 2026-10-09 닫힘음을 0.2초 「짧고 힘 있게」로 바꿨다(사용자 「3번이 좋은 거 같아」) ·
-# 소리 길이가 기본 기준 200ms 와 같아 실제 녹음(페이드·바닥 잡음)에서 20ms 창 하나만 모자라도 빠질 수 있다 → 여유. 띠링은 그대로 200ms.
-CLOSE_MIN_MS = 120
 
 
 def sound_events(a, n=320, min_ms=200, merge_frames=2):
@@ -381,7 +378,7 @@ def cmd_chimes(a):
             warn = f"  ⚠️ 덩어리 {(e - s) / RATE * 1000:.0f}ms — 자리 의심(낮은 음이 거의 안 났나)"
         print(f"  띠링 {s / RATE:6.2f}s · {lo:g}Hz 배음 {r_lo['harm'] * 100:6.1f}% · {hi:g}Hz 배음 {r_hi['harm'] * 100:6.1f}%{warn}")
     glides = []
-    for s, e in sound_events(C, min_ms=CLOSE_MIN_MS):
+    for s, e in sound_events(C):
         g = glide_report(C[s:e], lo, hi)
         glides.append(g)
         if g:

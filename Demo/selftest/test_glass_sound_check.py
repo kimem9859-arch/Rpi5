@@ -71,16 +71,11 @@ check(gl is not None and gl["end_hz"] < gl["start_hz"] * 0.9, f"내려감 · {gl
 check(gl is not None and gl["harm"] < g.CLEAN_HARM, f"깨끗 · 2배음 {gl and round(gl['harm'] * 100, 2)}%")
 check(g.glide_report(noise(1000), 1568, 2093) is None, "소리 없으면 None(옛 펌웨어는 C 를 모른다)")
 
-print("[닫힘음 C 판] 짧고 힘 있게 — 0.2초 · 작아지지 않음(2026-10-09 사용자 「3번이 좋은 거 같아」)")
-n = int(R * 0.20)
-x = np.arange(n) / n
-ph = 2 * np.pi * np.cumsum(2093 * (1568 / 2093) ** x) / R
-fd = int(R * 0.005)
-env = np.minimum(np.minimum(np.arange(n) / fd, 1.0), np.minimum((n - 1 - np.arange(n)) / fd, 1.0))
-short_glide = 8000 * env * np.sin(ph)
-rec = np.concatenate([noise(500)] + [np.concatenate([short_glide, noise(1000, seed=i)]) for i in range(3)])
-ev = g.sound_events(rec, min_ms=g.CLOSE_MIN_MS)
-check(len(ev) == 3, f"3번 다 센다(닫힘음 덩어리 기준 {g.CLOSE_MIN_MS}ms) · {len(ev)}")
+print("[닫힘음 B 판] 띠링 거꾸로 — 높은 음 120ms · 쉼 40ms · 낮은 음 180ms(2026-10-09 사용자 고름)")
+closing = np.concatenate([sine(2093, 120), np.zeros(int(R * 0.04)), sine(1568, 180)])
+rec = np.concatenate([noise(500)] + [np.concatenate([closing, noise(1000, seed=i)]) for i in range(3)])
+ev = g.sound_events(rec)
+check(len(ev) == 3, f"3번 다 센다(40ms 쉼은 한 덩어리) · {len(ev)}")
 gl = g.glide_report(rec[ev[0][0]:ev[0][1]], 1568, 2093) if ev else None
 check(gl is not None and gl["end_hz"] < gl["start_hz"] * 0.9 and gl["harm"] < g.CLEAN_HARM, f"내려감·깨끗 · {gl and (round(gl['start_hz']), round(gl['end_hz']))}")
 

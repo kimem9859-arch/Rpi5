@@ -422,16 +422,19 @@ static void chime() {
 }
 
 /** 닫힘음 — 대화창이 닫힘(질문 없이 20초 · 답을 마침). 명령 한 글자 `C`.
- *  높은 음에서 낮은 음으로 **짧고 힘 있게** 미끄러진다 — 작아지지 않는다(앞뒤 5ms 페이드만).
+ *  **띠링을 거꾸로** — 높은 음 「링」 → 낮은 음 「띠」 두 음을 또렷하게(같은 두 높이 · 작아지지 않음 · 앞뒤 5ms 페이드).
  *  🔑 2026-10-09 실물 귀 확인 — 종전 0.34초 동안 미끄러지며 작아지는 소리는 「너무 힘이 없다 · 처지는 느낌」 →
- *     후보 셋(지금 · 두 음 또렷 · 짧고 힘 있게)을 안경 스피커로 들려 고름(사용자 「3번이 좋은 거 같아」).
- *  길이 = 30 + 200 + 60 = 290ms(파이의 메아리 버림 0.8초가 그대로 덮는다).
+ *     후보 셋(지금 · 두 음 또렷 · 짧고 힘 있게)을 안경 스피커로 들려 「두 음 또렷」을 고름(사용자).
+ *  길이 = 30 + 120 + 40 + 180 + 60 = 430ms(띠링과 같다 — 파이의 메아리 버림 0.8초가 그대로 덮는다).
  */
 static void closeChime() {
   setSpkRate(RATE);
+  const int AMP = TARGET[volIdx];
   float ph = 0.0f;
   toneSeg(0, 0, 30, 0, false, ph);
-  toneSeg(CHIME_HI, CHIME_LO, 200, TARGET[volIdx], false, ph);
+  toneSeg(CHIME_HI, CHIME_HI, 120, AMP, false, ph);
+  toneSeg(0, 0, 40, 0, false, ph);
+  toneSeg(CHIME_LO, CHIME_LO, 180, AMP, false, ph);
   toneSeg(0, 0, 60, 0, false, ph);
 }
 
