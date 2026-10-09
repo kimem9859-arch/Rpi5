@@ -94,7 +94,7 @@ def main():
         return
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default=BASE)
-    ap.add_argument("--place", type=int, required=True, choices=(1, 2))
+    ap.add_argument("--place", type=int, required=True, choices=(1, 2, 3))   # 3 = 시연 영상 장소(줄인 판 · 사용자 2026-10-09)
     ap.add_argument("--kind", type=int, required=True, choices=tuple(KINDS))
     ap.add_argument("--hand", type=int, required=True, choices=tuple(HANDS))
     ap.add_argument("--person", type=int, required=True)

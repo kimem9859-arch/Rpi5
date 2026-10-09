@@ -120,7 +120,7 @@ def test_free_space_check_precise():
 def test_launcher_bad_input_keeps_window():
     print("\n[세션] 입력 오류면 이유를 보이고 기다린다 · 세션 폴더를 남기지 않는다(리뷰 I-3)")
     d = _launcher_copy()
-    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="3\n0\n1\n1\n\n\n\n\n1\n\n",
+    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="4\n0\n1\n1\n\n\n\n\n1\n\n",
                        capture_output=True, text=True, timeout=60)
     check("세션 정보를 만들지 못했다" in r.stdout and "STUB" not in r.stdout, f"{r.stdout[-300:]}")
     check(not os.path.isdir(os.path.join(d, "measure")) or not os.listdir(os.path.join(d, "measure")),
@@ -151,6 +151,18 @@ def test_script_path_tilde_and_missing():
     r = subprocess.run([c if c != base else base2 for c in cmd] + ["--script", "~/없는대본.txt"],
                        capture_output=True, text=True, env=env)
     check(r.returncode != 0 and os.listdir(base2) == [], f"없는 대본 rc={r.returncode} · {os.listdir(base2)}")
+
+
+def test_place3():
+    print("\n[세션] 장소3(시연 영상 장소 · 줄인 판) 을 받는다 — 폴더 이름 · session.json 「장소」")
+    base = tempfile.mkdtemp()
+    r = subprocess.run([sys.executable, os.path.join(_DEMO_DIR, "measure_session.py"), "--base", base,
+                        "--place", "3", "--kind", "1", "--hand", "1", "--person", "1", "--on", "1"],
+                       capture_output=True, text=True)
+    out = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    check(r.returncode == 0 and out.endswith("_장소3_정상"), f"rc={r.returncode} · {out} {r.stderr[-150:]}")
+    with open(os.path.join(_DEMO_DIR, "run_measure.sh"), encoding="utf-8") as f:
+        check("3 장소3" in f.read(), "실행기 질문에 「3 장소3」")
 
 
 def test_script_by_number():
@@ -190,6 +202,9 @@ if __name__ == "__main__":
     test_launcher_off_ignores_inherited_dir()
     test_script_path_tilde_and_missing()
     test_session_marks_dirty_tree()
+    test_launcher_records_glasses_power()
+    test_script_by_number()
+    test_place3()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
