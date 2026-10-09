@@ -3,6 +3,7 @@ import statistics
 import time
 import subprocess
 from datetime import datetime
+import shutil
 
 import cv2
 import numpy as np
@@ -35,6 +36,7 @@ from session_stats import SessionStats
 
 import theme
 from sub_task import SubTask
+from raw_recorder import RawRecorder
 from tool_state import ToolState, held_tool
 from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, place
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
@@ -110,6 +112,7 @@ class SafetyConsole(QMainWindow):
         self._empty_hand_scans = 0     # 손이 보이는데 쥔 공구가 없는 스캔이 연달아 나온 수(G11)
         self._unread = 0             # 안 읽은 알림 수 — 배지에 표시
         self._recording_mode = "full"
+        self._raw_rec = None             # 1인칭 원본 녹화기(측정 녹화 설계 R1) — 녹화 중일 때만
         self._recording_size = (WINDOW_WIDTH, WINDOW_HEIGHT)
         self._recording_started = 0.0
         self._last_frame_size = None     # 카메라 영역 녹화 크기 결정용
@@ -2065,6 +2068,7 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.set_frame_sink(None)
         info = self._demo.stop()
         self._demo.write_info()
+        self._measure_recording_off("demo")
         self._append_log(f"[시연촬영] 종료 — {info['seconds']:.1f}초 "
                          f"(1인칭 {info['pushed']}/{info['expected']}장)")
 
@@ -2072,10 +2076,16 @@ class SafetyConsole(QMainWindow):
     # [녹화]
     # =========================================================================
     def _measure_recording_on(self, mode):
-        """측정 중 녹화를 켰다 — 그 세션 속도 값을 쓰지 않게 표시한다(측정 도구 정합 D14)."""
+        """측정 중 녹화를 켰다 — 세기가 녹화 구간(켬~끔)을 값에서 빼고 「녹화 비교」에 쓴다(측정 녹화 설계 R5)."""
         if self._measure.enabled:
             self._measure.event("recording_on", mode=mode)
-            self._append_log("[측정] ⚠️ 측정 중 녹화를 켰다 — 이 세션의 속도 값은 쓰지 않는다")
+            self._append_log("[측정] ⚠️ 측정 중 녹화를 켰다 — 녹화 구간은 측정 값에서 빠진다(끌 때까지)")
+
+    def _measure_recording_off(self, mode, **data):
+        """녹화를 껐다 — 녹화 구간의 끝(측정 녹화 설계 R4)."""
+        if self._measure.enabled:
+            self._measure.event("recording_off", mode=mode, **data)
+            self._append_log("[측정] 녹화를 껐다 — 여기부터 다시 측정 값에 들어간다")
 
     def _start_recording(self, mode="full"):
         """녹화 시작. 🔴 상시 자동이 아니라 **메뉴에서 켤 때만** 돈다.
@@ -2085,7 +2095,11 @@ class SafetyConsole(QMainWindow):
           "camera" — 카메라 프레임만. **창 캡처를 안 해 GUI 부담이 거의 0**이다
 
         코덱은 H.264(.mp4) — config.RECORDING_CODEC. 실측 근거는 config 주석 참조.
+          "raw"    — 1인칭 원본(오버레이 없음) + 프레임 대응표 → `_start_raw_recording`(측정 녹화 설계 R1·R2)
         """
+        if mode == "raw":
+            self._start_raw_recording()
+            return
         try:
             os.makedirs(RECORDING_SAVE_DIR, exist_ok=True)
             ext = getattr(config, "RECORDING_EXT", "mp4")
@@ -2112,6 +2126,45 @@ class SafetyConsole(QMainWindow):
             self.record_panel.set_state(True, self._recording_path, 0)
         except Exception as e:
             self._append_log(f"[녹화] 시작 오류: {e}")
+
+    def _start_raw_recording(self):
+        """1인칭 원본 녹화 — 오버레이 없는 카메라 프레임을 측정 프레임 번호와 함께 영상 + 대응표로(측정 녹화 설계 R1·R2).
+
+        🔑 측정 중이면 **그 세션 폴더**에 둔다 — 로그(boxes·frames·events)와 한자리라 나중에 오버레이를 다시 그린다.
+        🔴 카메라 영상이 아직 없거나 디스크 여유가 RECORDING_RAW_MIN_FREE_GB 보다 적으면 시작하지 않는다(알림).
+        """
+        out_dir = (os.environ.get("SOP_MEASURE_DIR") if self._measure.enabled else None) or RECORDING_SAVE_DIR
+        if self._last_frame_size is None:
+            self._append_log("[녹화] 1인칭 원본 — 카메라 영상이 아직 없어 시작하지 않았다")
+            self._notify("warn", "녹화 시작 안 함", "카메라 영상이 아직 없습니다")
+            return
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+            free_gb = shutil.disk_usage(out_dir).free / 1e9
+        except OSError as e:
+            self._append_log(f"[녹화] 1인칭 원본 — 저장 폴더를 쓸 수 없다({e})")
+            return
+        if free_gb < config.RECORDING_RAW_MIN_FREE_GB:
+            self._append_log(f"[녹화] 1인칭 원본 — 디스크 여유 {free_gb:.2f}GB < {config.RECORDING_RAW_MIN_FREE_GB}GB · "
+                             "시작하지 않았다")
+            self._notify("warn", "녹화 시작 안 함", f"디스크 여유 {free_gb:.2f}GB")
+            return
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        mp4 = os.path.join(out_dir, f"녹화_{stamp}.mp4")
+        rec = RawRecorder(mp4, os.path.join(out_dir, f"녹화_{stamp}_프레임.csv"))
+        problems = rec.start(self._last_frame_size)
+        if problems:
+            self._append_log(f"[녹화] 1인칭 원본 시작 실패 — {'; '.join(problems)}")
+            self._notify("warn", "녹화 시작 실패", problems[0])
+            return
+        self._raw_rec = rec
+        self.camera_thread.set_raw_sink(rec.submit)
+        self._recording, self._recording_mode, self._recording_path = True, "raw", mp4
+        self._recording_started = time.time()
+        self._measure_recording_on("raw")
+        self._append_log(f"[녹화] 1인칭 원본 시작 — {mp4}")
+        self._notify("work", "녹화 시작 (1인칭 원본)", os.path.basename(mp4))
+        self.record_panel.set_state(True, mp4, 0)
 
     def _open_video_writer(self, size):
         """녹화 파일을 그 크기로 연다. 열리지 않으면 알리고 False."""
@@ -2167,8 +2220,23 @@ class SafetyConsole(QMainWindow):
 
     def _stop_recording(self):
         self._recording_timer.stop()
+        if self._raw_rec is not None:
+            # 1인칭 원본 — 원본 자리를 먼저 떼고(더 안 넣게) 남은 프레임을 다 쓴 뒤 마무리(측정 녹화 설계 R1·R4)
+            self.camera_thread.set_raw_sink(None)
+            out, self._raw_rec = self._raw_rec.stop(), None
+            self._recording = False
+            size_mb = os.path.getsize(out["path"]) / 1024 / 1024 if os.path.exists(out["path"]) else 0
+            self._append_log(f"[녹화] 1인칭 원본 종료 — {out['path']} ({size_mb:.1f} MB · "
+                             f"프레임 {out['written']} · 버림 {out['dropped']})")
+            self._notify("work", "녹화 종료", f"{os.path.basename(out['path'])} · {size_mb:.1f} MB")
+            self._measure_recording_off("raw", path=out["path"], written=out["written"], dropped=out["dropped"])
+            if hasattr(self, "record_panel"):
+                self.record_panel.set_state(False)
+            return
         was_recording = self._recording
         self._recording = False
+        if was_recording:
+            self._measure_recording_off(self._recording_mode, path=self._recording_path)
         if self._video_writer is not None:
             self._video_writer.release()
             self._video_writer = None

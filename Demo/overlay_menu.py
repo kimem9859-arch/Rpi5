@@ -665,10 +665,12 @@ class RecordPanel(_Sheet):
         #    지나치게 길었다(2026-08-04). 글자도 짧게 줄인다.
         self._btn_full = QPushButton("전체 화면")
         self._btn_cam = QPushButton("카메라 영역")
+        # 1인칭 원본(오버레이 없음) + 프레임 대응표 — 측정 중이면 세션 폴더(측정 녹화 설계 R2)
+        self._btn_raw = QPushButton("1인칭 원본")
         self._btn_stop = QPushButton("녹화 중지")
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        for b, mode in ((self._btn_full, "full"), (self._btn_cam, "camera")):
+        for b, mode in ((self._btn_full, "full"), (self._btn_cam, "camera"), (self._btn_raw, "raw")):
             b.setFont(config.font("body", 700))
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(lambda _=False, m=mode: self.start_requested.emit(m))
@@ -716,6 +718,7 @@ class RecordPanel(_Sheet):
             self._note.setText("H.264(.mp4)로 저장 — 약 0.3MB/분")
         self._btn_full.setVisible(not recording)
         self._btn_cam.setVisible(not recording)
+        self._btn_raw.setVisible(not recording)
         self._btn_stop.setVisible(recording)
         self._note.setStyleSheet(theme.text_qss("label", 500))
 
@@ -731,6 +734,7 @@ class RecordPanel(_Sheet):
                f" border-radius: 8px; padding: 10px 16px; text-align: left; }}")
         self._btn_full.setStyleSheet(cta)
         self._btn_cam.setStyleSheet(cta)
+        self._btn_raw.setStyleSheet(cta)
         self._btn_stop.setStyleSheet(
             f"QPushButton {{ background-color: {theme.C('danger')};"
             f" color: #ffffff; border: none; border-radius: 8px; padding: 10px 16px; }}")

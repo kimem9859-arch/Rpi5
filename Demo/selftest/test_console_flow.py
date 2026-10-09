@@ -532,6 +532,120 @@ def test_tail_scans_not_in_result_stats():
     win.close()
 
 
+# ------------------------------------------------------------------ 1인칭 원본 녹화(측정 녹화 설계 R2·R4)
+class _FakeRaw:
+    made = []
+
+    def __init__(self, out_mp4, out_csv, **kw):
+        self.out_mp4, self.out_csv, self.started, self.stopped = out_mp4, out_csv, None, False
+        _FakeRaw.made.append(self)
+
+    def start(self, size):
+        self.started = size
+        return []
+
+    def submit(self, *a):
+        pass
+
+    def stop(self):
+        self.stopped = True
+        return {"written": 7, "dropped": 1, "path": self.out_mp4}
+
+
+class _EvLog:
+    enabled = True
+
+    def __init__(self):
+        self.events = []
+
+    def event(self, kind, t=None, **data):
+        self.events.append((kind, data))
+
+    def row(self, *a):
+        pass
+
+    def close(self):
+        pass
+
+
+def _raw_console(tmp):
+    import safety_console as SC
+    SC.RawRecorder = _FakeRaw
+    os.environ["SOP_MEASURE_DIR"] = tmp
+    win = make_console()
+    win._measure = _EvLog()
+    win._last_frame_size = (768, 1024)
+    return win
+
+
+def test_raw_recording_start_stop_events():
+    print("\n[원본 녹화] 메뉴 「1인칭 원본」 — 측정 중이면 세션 폴더 · 켬/끔 사건 · 원본 자리 붙임/뗌")
+    tmp = tempfile.mkdtemp()
+    try:
+        win = _raw_console(tmp)
+        win._start_recording("raw")
+        rec = _FakeRaw.made[-1]
+        check(rec.started == (768, 1024) and rec.out_mp4.startswith(tmp) and rec.out_csv.startswith(tmp),
+              f"세션 폴더에 영상·대응표 · {rec.out_mp4}")
+        check(win.camera_thread._raw_sink is not None, "원본 자리가 붙었다")
+        check(("recording_on", {"mode": "raw"}) in win._measure.events, f"켬 사건 {win._measure.events}")
+        win._stop_recording()
+        off = [d for k, d in win._measure.events if k == "recording_off"]
+        check(rec.stopped and off and off[0]["mode"] == "raw" and off[0]["written"] == 7 and off[0]["dropped"] == 1,
+              f"끔 사건 {off}")
+        check(win.camera_thread._raw_sink is None, "원본 자리를 뗐다")
+        win.close()
+    finally:
+        os.environ.pop("SOP_MEASURE_DIR", None)
+
+
+def test_raw_recording_closed_on_exit_and_guards():
+    print("\n[원본 녹화] 켠 채 닫으면 마무리·끔 사건 · 디스크 0.5GB 아래·영상 없음이면 시작 거부")
+    import shutil
+    import safety_console as SC
+    tmp = tempfile.mkdtemp()
+    try:
+        win = _raw_console(tmp)
+        win._start_recording("raw")
+        win.close()
+        check(_FakeRaw.made[-1].stopped and any(k == "recording_off" for k, _ in win._measure.events), "닫을 때 끔")
+
+        win2 = _raw_console(tmp)
+        real = SC.shutil.disk_usage
+        SC.shutil.disk_usage = lambda p: shutil._ntuple_diskusage(100, 99, 10 ** 8)
+        try:
+            n = len(_FakeRaw.made)
+            win2._start_recording("raw")
+            check(len(_FakeRaw.made) == n and not any(k == "recording_on" for k, _ in win2._measure.events),
+                  "여유 0.1GB → 시작 안 함")
+            check(bool(_logs(win2, "디스크")), "로그에 디스크 사유")
+        finally:
+            SC.shutil.disk_usage = real
+        win2._last_frame_size = None
+        win2._start_recording("raw")
+        check(not any(k == "recording_on" for k, _ in win2._measure.events), "영상이 아직 없으면 시작 안 함")
+        win2.close()
+    finally:
+        os.environ.pop("SOP_MEASURE_DIR", None)
+
+
+def test_other_recording_modes_emit_off():
+    print("\n[녹화] 기존 「카메라 영역」 녹화도 끌 때 끔 사건을 남긴다(녹화 구간 = 켬~끔 · R4)")
+    tmp = tempfile.mkdtemp()
+    win = make_console()
+    win._measure = _EvLog()
+    import config as C
+    old = C.RECORDING_SAVE_DIR
+    try:
+        win._start_recording("camera")
+        win._stop_recording()
+        check(any(k == "recording_off" and d.get("mode") == "camera" for k, d in win._measure.events),
+              f"끔 사건 {win._measure.events}")
+    finally:
+        C.RECORDING_SAVE_DIR = old
+    win.close()
+
+
 def test_tool_hand_unseen_does_not_advance():
     """🔴 쥐기 전에는 무엇으로도 완료되지 않는다 — 부재를 증거로 쓰지 않는다(§4.4).
 
