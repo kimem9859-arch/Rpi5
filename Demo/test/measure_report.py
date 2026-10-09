@@ -143,11 +143,15 @@ def load_session(d):
         rate = mic_rate()
     except (OSError, ValueError, SyntaxError):
         rate = None                                   # V9 하나만 못 낸다 — 보고 전체를 멈추지 않는다
-    return {"dir": d, "name": os.path.basename(d), "info": info, "kind": inp.get("세션"),
-            "settings": info.get("설정") or {}, "frames": frames, "fsm": fsm,
-            "events": sorted(measure_check.load_events(os.path.join(d, "events.csv")), key=lambda e: e[0]),
-            "voice": sorted(measure_check.load_events(os.path.join(d, "voice_events.csv")), key=lambda e: e[0]),
-            "script": script, "emo": emo_button(), "rate": rate, "steps": steps}
+    S = {"dir": d, "name": os.path.basename(d), "info": info, "kind": inp.get("세션"),
+         "settings": info.get("설정") or {}, "frames": frames, "fsm": fsm,
+         "events": sorted(measure_check.load_events(os.path.join(d, "events.csv")), key=lambda e: e[0]),
+         "voice": sorted(measure_check.load_events(os.path.join(d, "voice_events.csv")), key=lambda e: e[0]),
+         "script": script, "emo": emo_button(), "rate": rate, "steps": steps}
+    # 🔑 녹화 구간(켬~끔)은 여기 한 곳에서 나눈다 — 모든 값은 나머지로 세고, 녹화 쪽은 「⑤ 녹화 비교」에만(측정 녹화 설계 R5)
+    M, R = MC.split_recording(S)
+    M["rec"] = R
+    return M
 
 
 def warnings(S):
@@ -161,8 +165,12 @@ def warnings(S):
     dropped = sum(d.get("dropped") or 0 for d in ends)
     if dropped:
         w.append(f"버린 사건 {dropped}건(큐 넘침) — 그 세션 값이 모자랄 수 있다")
-    if MC.recording(S):
-        w.append("녹화를 켠 세션 — 속도 값(12 · 13 · 26 · 27)에서 뺐다")
+    spans = S.get("rec_spans") or []
+    if spans:
+        sec = sum(b - a for a, b, _ in spans if b != float("inf")) / 1000
+        w.append(f"녹화 구간 {len(spans)}개(합 {sec:.0f}초) — 그 동안의 기록은 모든 값에서 뺐다(그 판째) · 「⑤ 녹화 비교」")
+        if any(b == float("inf") for _, b, _ in spans):
+            w.append("녹화 끔 사건이 없다 — 켠 때부터 세션 끝까지를 녹화 구간으로 뺐다")
     ps = MC.pair_presses(S["events"])
     kb = sum(1 for p in ps if p["how"] == "키보드")
     cb = sum(1 for p in ps if p["how"] == "콜백")
@@ -429,6 +437,7 @@ def render(sessions, per, M, targets, curve=None):
         L.append(f"\n참고 기준 잡음 ≥ {curve[0]:.0%} · 거름 ≥ {curve[1]:.0%} → "
                  + (f"{rng[0]:.2f}~{rng[1]:.2f}초" if rng else "만족하는 문턱 없음") + "(기준의 정본 = 발표 설계 M8)")
     L.append("\n🔴 이 곡선으로 체류 임계를 고르면 그 세션은 판정용으로 쓰지 않는다(측정 설계 §4.2 사전 고정 — 조정용·판정용 분리)")
+    L += _rec_compare(sessions, per, fps_floor(targets) if targets else None)
     L += ["", "## ④ 조건", ""]
     for S in sessions:
         i, s = S["info"].get("입력") or {}, S["settings"]
@@ -440,6 +449,35 @@ def render(sessions, per, M, targets, curve=None):
                  f" · 음성 {'켬' if S['info'].get('음성', True) else '끔'} · EMO {S['emo']}"
                  f" · 코드 {(S['info'].get('코드') or {}).get('Rpi5')}")
     return "\n".join(L) + "\n"
+
+
+def _rec_compare(sessions, per, below):
+    """「⑤ 녹화 비교」 — 녹화 구간 vs 나머지의 속도·자원(사용자 「녹화 시 측정본과 미녹화 시 측정본을 비교해 기록」).
+    녹화 쪽이 있는 세션만 · 나머지 쪽도 그 세션들 값만 — 같은 세션끼리 비교한다."""
+    pairs = [(S, p) for S, p in zip(sessions, per) if S.get("rec") is not None]
+    if not pairs:
+        return []
+    R = [{"12": MC.v_fps(S["rec"], below), "26": MC.v_stages(S["rec"]), "30": MC.v_res(S["rec"])} for S, _ in pairs]
+    rm = MC.merge(R)
+    nm = MC.merge([{k: p.get(k, {}) for k in ("12", "26", "30")} for _, p in pairs])
+    sec = sum(b - a for S, _ in pairs for a, b, _ in S["rec_spans"] if b != float("inf")) / 1000
+
+    def cells(m):
+        f12, st, r30 = m.get("12", {}), m.get("26", {}), m.get("30", {})
+        tot = st.get("total_ms", [])
+        return [_f(fps.fps_from_intervals(f12.get("iv", [])) if f12.get("iv") else None, 1),
+                f"{len(f12.get('stalls', []))}회 · 최저 {_f(_min(f12.get('roll_min', [])), 1)}",
+                f"{_f(_med(tot), 1)}/{_f(_pq(tot, 0.95), 1)}",
+                _pct(st.get("proc_n", 0), st.get("recv_n", 0)),
+                f"{_f(_med(r30.get('cpu_avg', [])), 1, '%')} · {_f(_max(r30.get('temp', [])), 1, '℃')}"]
+    names = ["12 FPS 중앙값", "13 끊김(2초 이상) · 최근 창 최저 FPS", "26 한 프레임 처리 ms(중앙값/95%)",
+             "27 처리/받은", "30 CPU 평균 중앙값 · 온도 최대"]
+    L = ["", "## ⑤ 녹화 비교(녹화 구간 vs 나머지 · 측정 녹화 설계 R5)", "",
+         f"녹화 구간 {sum(len(S['rec_spans']) for S, _ in pairs)}개 · 합 {sec:.0f}초 · 세션 {len(pairs)}"
+         " — 녹화 구간 기록은 위 ①~③ 값에서 뺐다", "",
+         "| 값 | 녹화 구간 | 나머지(같은 세션) |", "|---|---|---|"]
+    L += [f"| {n} | {a} | {b} |" for n, a, b in zip(names, cells(rm), cells(nm))]
+    return L
 
 
 def _save(path, text):

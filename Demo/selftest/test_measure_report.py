@@ -288,6 +288,31 @@ def test_hand_gate_warning():
         check(any("손-버튼 판정" in w and "1번" in w for w in MR.warnings(MR.load_session(d))), "끈 구간 1번 경고")
 
 
+def test_recording_compare():
+    print("\n[녹화] 녹화 구간은 값에서 빼고 「⑤ 녹화 비교」 · 경고 · 끔 없으면 끝까지(측정 녹화 설계 R5)")
+    with tempfile.TemporaryDirectory() as tmp:
+        d = make_session(os.path.join(tmp, "s"))
+        S0 = MR.load_session(d)
+        check(S0.get("rec") is None and "⑤ 녹화 비교" not in MR.render([S0], [MC.count_all(S0)], MC.count_all(S0), {}),
+              "녹화 없으면 ⑤ 없음")
+        p = os.path.join(d, "events.csv")
+        rows = list(csv.reader(open(p, encoding="utf-8")))
+        rows += [["1050", "recording_on", json.dumps({"mode": "raw"})],
+                 ["1150", "recording_off", json.dumps({"mode": "raw", "written": 1, "dropped": 0})]]
+        _csv(p, rows[0], rows[1:])
+        S = MR.load_session(d)
+        check(S["rec"] is not None and all(not (1050 <= f["t"] <= 1150) for f in S["frames"])
+              and [f["t"] for f in S["rec"]["frames"]] == [1100.0], f"나눔 — 나머지 {[f['t'] for f in S['frames']]}")
+        w = MR.warnings(S)
+        check(any("녹화 구간 1개" in x for x in w) and not any("속도 값(12" in x for x in w), f"경고 {w}")
+        md = MR.render([S], [MC.count_all(S)], MC.count_all(S), {})
+        check("## ⑤ 녹화 비교" in md and "| 12 FPS 중앙값 |" in md, "⑤ 표")
+        rows = [r for r in rows if r[1] != "recording_off"]
+        _csv(p, rows[0], rows[1:])
+        S2 = MR.load_session(d)
+        check(any("끔 사건이 없다" in x for x in MR.warnings(S2)), "끔 없으면 경고")
+
+
 def test_voice_warnings():
     print("\n[경고] 음성 켬인데 음성 기록이 없음 · 음성 사건 버림 · 마이크 표본률 못 읽음")
     with tempfile.TemporaryDirectory() as tmp:

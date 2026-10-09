@@ -210,7 +210,36 @@ def test_fps():
     check(len(f["iv"]) == 138 and abs(fps.fps_from_intervals(f["iv"]) - 1 / 0.075) < 1e-6, "간격 138개 · 중앙값 FPS")
     check(f["roll_min"] == [10.0] and f["low_longest"] == [0.9] and f["fps_ev"] == [12.5], f"{f['roll_min']} {f['low_longest']}")
     check(f["stalls"] == [3.0] and f["low_n"] == 1, f"끊김(2초 이상) = {f['stalls']} · 목표 미만 진입 = {f['low_n']}")
-    check(MC.v_fps(S_(ev + [E(20, "recording_on", mode="camera")], fsm=fs), 15.0) == {"excluded": 1}, "녹화 세션은 뺀다")
+
+
+
+def test_recording_split():
+    print("\n[녹화 구간] 켬~끔 구간만 모든 기록에서 빼고(판째) 따로 모은다 · 구간을 넘는 간격은 끊김이 아니다(측정 녹화 설계 R5)")
+    fs = [FS(t, t_gui=t) for t in range(0, 10001, 100)]
+    fr = [FR(i + 1, t, seq=(2 * i if t < 3000 or t > 6000 else 2 * i + 3), t_start=t, t_done=t + 50, decode_ms=10.0)
+          for i, t in enumerate(range(0, 10001, 100))]
+    ev = [E(100, "run_start"), E(2500, "run_end", ok=True), E(1000, "res", cpu_avg=1.0), E(2000, "res", cpu_avg=40.0),
+          E(2990, "recording_on", mode="raw"), E(3100, "run_start"), E(4000, "res", cpu_avg=80.0), E(5900, "run_end", ok=True),
+          E(6010, "recording_off", mode="raw", written=29, dropped=0), E(6100, "run_start"), E(7000, "res", cpu_avg=42.0)]
+    S = S_(ev, frames=fr, fsm=fs)
+    M, R = MC.split_recording(S)
+    check(M["rec_spans"] == [(2990.0, 6010.0, "raw")] and R is not None, f"구간 {M['rec_spans']}")
+    check(not any(2990 <= t <= 6010 for t, _, _ in M["events"]) and not any(2990 <= f["t"] <= 6010 for f in M["frames"]),
+          "나머지에는 구간 안 기록이 없다(녹화한 판 통째로)")
+    check([k for _, k, _ in M["events"]].count("run_start") == 2, "녹화한 판의 run_start 도 빠진다")
+    check(all(2990 <= f["t"] <= 6010 for f in R["frames"]) and len(R["frames"]) == 31, f"녹화 쪽 프레임 {len(R['frames'])}(3000~6000ms · 100ms 간격)")
+    f = MC.v_fps(M, below=15.0)
+    check(f["stalls"] == [] and all(abs(x - 0.1) < 1e-9 for x in f["iv"]), f"구간을 넘는 간격은 끊김이 아니다 · 끊김 {f['stalls']}")
+    st = MC.v_stages(M)
+    check(st["proc_n"] == len(M["frames"]) and max(st["recv_iv"]) <= 100.0, f"받은 간격도 구간을 넘지 않는다 · {max(st['recv_iv'])}")
+    check(MC.v_res(R)["cpu_avg"] == [80.0], f"녹화 쪽 자원 = 구간 안 res 만 {MC.v_res(R)}")
+
+    S2 = S_(ev[:5] + [E(3100, "run_start")], frames=fr, fsm=fs)        # 끔 사건 없음 — 세션 끝까지
+    M2, R2 = MC.split_recording(S2)
+    check(M2["rec_spans"][0][1] == float("inf") and not any(f["t"] >= 2990 for f in M2["frames"]), "끔 없으면 끝까지 뺀다")
+
+    M3, R3 = MC.split_recording(S_(ev[:4], frames=fr, fsm=fs))
+    check(R3 is None and M3["rec_spans"] == [] and len(M3["frames"]) == len(fr), "구간 없으면 그대로")
 
 
 def test_stages():

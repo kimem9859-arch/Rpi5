@@ -111,8 +111,43 @@ def normal_run_ids(S, runs):
     return set()
 
 
-def recording(S):
-    return any(k == "recording_on" for _, k, _ in S["events"])
+def rec_spans(events):
+    """녹화 구간 [(켬 ms, 끔 ms, 방식)] — 켬~끔(측정 녹화 설계 R4·R5) · 끔이 없으면 세션 끝까지(inf)."""
+    out, cur = [], None
+    for t, k, d in sorted(events, key=lambda e: e[0]):
+        if k == "recording_on" and cur is None:
+            cur = (float(t), d.get("mode"))
+        elif k == "recording_off" and cur is not None:
+            out.append((cur[0], float(t), cur[1]))
+            cur = None
+    if cur is not None:
+        out.append((cur[0], float("inf"), cur[1]))
+    return out
+
+
+def split_recording(S):
+    """(나머지, 녹화 쪽 또는 None) — 녹화 구간 안의 모든 기록(events·voice·frames·fsm)을 나머지에서 빼 녹화 쪽으로
+    (측정 녹화 설계 R5 — 판째 · 녹화 부하가 판정 값까지 흔들 수 있다). 🔑 빠진 구간은 `breaks` 로 남겨 구간을 넘는
+    간격을 끊김·받은 간격으로 세지 않게 한다(v_fps · v_stages)."""
+    spans = rec_spans(S["events"])
+    if not spans:
+        return dict(S, rec_spans=[], breaks=[]), None
+    res_t = [t for t, k, _ in S["events"] if k == "res"]
+    S = dict(S, first_res_t=res_t[0] if res_t else None)              # 세션 첫 res — 두 쪽 다 이것만 뺀다(v_res)
+    inside = lambda t: any(a <= t <= b for a, b, _ in spans)             # noqa: E731
+    pick = lambda rows, key, keep: [r for r in rows if inside(key(r)) != keep]   # noqa: E731
+    lists = {"events": lambda e: e[0], "voice": lambda e: e[0], "frames": lambda r: r["t"], "fsm": lambda r: r["t"]}
+    M = dict(S, rec_spans=spans, breaks=[(a, b) for a, b, _ in spans],
+             **{k: pick(S[k], f, True) for k, f in lists.items()})
+    R = dict(S, rec_spans=spans, breaks=[(spans[i][1], spans[i + 1][0]) for i in range(len(spans) - 1)],
+             **{k: [r for r in pick(S[k], f, False)
+                    if not (k == "events" and r[1] in ("recording_on", "recording_off"))] for k, f in lists.items()})
+    return M, R
+
+
+def _crosses(a, b, breaks):
+    """간격 (a, b) 가 빠진 구간과 겹치나 — 겹치면 그 간격은 세지 않는다(끊김이 아니라 뺀 구간이다)."""
+    return any(a < hi and b > lo for lo, hi in breaks)
 
 
 def merge(parts):
@@ -368,12 +403,14 @@ def v_confirm(S):
 def v_fps(S, below=None):
     """12 FPS 중앙값 재료 · 13 끊김 — 화면이 받은 간격(fsm t_gui). STALE_SEC 이상 = 끊김(빼고 창 비움 · stalls 에 남김)
     · 창 = FPS_WINDOW · low_n = 목표(below) 미만으로 내려간 횟수 · 창이 한 번도 안 찼으면 최저·최장을 내지 않는다."""
-    if recording(S):
-        return {"excluded": 1}
     ts = sorted(r["t_gui"] for r in S["fsm"])
+    breaks = S.get("breaks", ())
     keep, win, mins, stalls = [], [], [], []
     low_start, longest, low_n = None, 0.0, 0
     for a, b in zip(ts, ts[1:]):
+        if _crosses(a, b, breaks):
+            win, low_start = [], None                     # 뺀 녹화 구간을 넘는다 — 끊김이 아니다(창만 비운다)
+            continue
         x = (b - a) / 1000
         if x >= fps.STALE_SEC:
             stalls.append(round(x, 3))
@@ -402,18 +439,23 @@ def v_fps(S, below=None):
 
 def v_stages(S):
     """26 단계별 ms · 27 받기↔처리 — frames.csv. 한 프레임 = decode + (done − start)(README)."""
-    if recording(S):
-        return {"excluded": 1}
     fr = S["frames"]
+    breaks = S.get("breaks", ())
     out = {s: [f[s] for f in fr if f[s] is not None] for s in STAGES}
     out["total_ms"] = [round(f["decode_ms"] + f["t_done"] - f["t_start"], 3) for f in fr
                        if None not in (f["decode_ms"], f["t_done"], f["t_start"])]
     tr = [f["t"] for f in fr]
     td = [f["t_done"] for f in fr if f["t_done"] is not None]
-    out["recv_iv"] = [round(b - a, 3) for a, b in zip(tr, tr[1:])]
-    out["done_iv"] = [round(b - a, 3) for a, b in zip(td, td[1:])]
-    seqs = [f["seq"] for f in fr if f["seq"] is not None]
-    out["recv_n"] = (seqs[-1] - seqs[0] + 1) if seqs else 0
+    out["recv_iv"] = [round(b - a, 3) for a, b in zip(tr, tr[1:]) if not _crosses(a, b, breaks)]
+    out["done_iv"] = [round(b - a, 3) for a, b in zip(td, td[1:]) if not _crosses(a, b, breaks)]
+    # 받은 수 = 이어진 덩어리마다(뺀 녹화 구간을 넘으면 새 덩어리) 첫·끝 수신 번호 차 — 넘어서 세면 구간 안 수신까지 들어간다
+    recv_n, seg = 0, []
+    for f in fr:
+        if seg and _crosses(seg[-1]["t"], f["t"], breaks):
+            recv_n += _seg_recv(seg)
+            seg = []
+        seg.append(f)
+    out["recv_n"] = recv_n + _seg_recv(seg)
     out["proc_n"] = len(fr)
     return out
 
@@ -451,9 +493,17 @@ def v_interlock(S):
     return out
 
 
+def _seg_recv(seg):
+    seqs = [f["seq"] for f in seg if f["seq"] is not None]
+    return (seqs[-1] - seqs[0] + 1) if seqs else 0
+
+
 def v_res(S):
-    """30 자원 — res 사건(첫 값은 의미 없다 · safety_console._pi_resources 머리말)."""
-    rs = [d for _, k, d in S["events"] if k == "res"][1:]
+    """30 자원 — res 사건(**세션** 첫 값은 의미 없다 · safety_console._pi_resources 머리말). 녹화로 나눈 쪽(split_recording)은
+    세션 첫 값의 시각(first_res_t)만 뺀다 — 녹화 쪽 구간 안 첫 값까지 버리면 안 된다."""
+    ts = [t for t, k, _ in S["events"] if k == "res"]
+    first = S.get("first_res_t", ts[0] if ts else None)
+    rs = [d for t, k, d in S["events"] if k == "res" and t != first]
     return {key: [d[key] for d in rs if d.get(key) is not None] for key in ("cpu_avg", "cpu_max", "temp")}
 
 
