@@ -2,9 +2,8 @@
 
 정본: ../docs/superpowers/specs/2026-08-14-공구입력-A2-design.md §3
 
-🗑️ **`.hef` 전환 시 이 파일은 통째로 삭제된다.**
-   Hailo 로 공구를 돌릴 수 있게 되면 별도 프로세스가 필요 없어진다 —
-   `tool_gate.py` 안이 Hailo 호출로 바뀌고 이 파일은 사라진다.
+🗄️ **지금은 되돌리기 전용이다** — 2026-10-07 시연 공구는 NPU(`tool_gate.HailoToolGate`)로 바뀌었다. 이 워커는
+   `config.TOOL_BACKEND = "cpu"` 일 때만 돈다(삭제는 최종 모델 때 — tool_gate 머리말).
 
 왜 별도 프로세스인가:
     🔴 GUI 는 **시스템 파이썬**(PyQt6 + hailo_platform)으로 도는데 거기엔

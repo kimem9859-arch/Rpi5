@@ -496,6 +496,42 @@ def test_hand_gate_in_tail_and_stale():
     win2.close()
 
 
+def test_hand_gate_drops_gapfill_on_switch():
+    print("\n[손 판정] 꺼지는 순간 앞서 본 버튼을 판정기가 붙들지 않는다(최종 리뷰 Important 1 · 갭메우기 0.3초 이월)")
+    win = make_console()
+    box, tip = _tool_step(win)
+    t0 = time.monotonic()
+    win._on_roi("B4", 2, t0)                          # 손이 오답 버튼에 막 들어왔다(체류 시작)
+    win._on_roi("B4", 2, t0 + 0.033)
+    win.camera_thread.tool_signal.emit([box], tip)    # 그 직후 「공구를 손에 듦」 검사
+    for i in range(2, 15):
+        win._on_roi("B4", 2, t0 + i * 0.033)
+    check(win.fsm.state != State.WARNING, f"꺼진 뒤 경고 없음 ({win.fsm.state.value})")
+    win.close()
+
+
+def test_tool_signal_after_scan_end_ignored_for_gate():
+    print("\n[손 판정] 검사가 꺼진 뒤 늦게 온 결과는 손 판정 끔 근거가 되지 않는다(최종 리뷰 Minor 3)")
+    win = make_console()
+    box, tip = _tool_step(win)
+    _grasp_and_advance(win, box, tip)
+    key(win, "3")                                      # 꼬리 끝
+    win.camera_thread.tool_signal.emit([box], tip)     # 늦게 도착
+    check(win._tool_held_at is None, f"근거로 남지 않는다 ({win._tool_held_at})")
+    win.close()
+
+
+def test_tail_scans_not_in_result_stats():
+    print("\n[꼬리] 꼬리 검사 결과는 결과창 검출 집계에 넣지 않는다(최종 리뷰 Minor 6 · 화면·음성 전용)")
+    win = make_console()
+    box, tip = _tool_step(win)
+    _grasp_and_advance(win, box, tip)
+    win._tool_dets_for_stats = []
+    win.camera_thread.tool_signal.emit([box], tip)     # 꼬리 검사
+    check(win._tool_dets_for_stats == [], f"집계에 안 들어간다 ({win._tool_dets_for_stats})")
+    win.close()
+
+
 def test_tool_hand_unseen_does_not_advance():
     """🔴 쥐기 전에는 무엇으로도 완료되지 않는다 — 부재를 증거로 쓰지 않는다(§4.4).
 
@@ -2539,15 +2575,17 @@ def test_tool_npu_load_failure_in_start_log():
     🔴 공구 연결부는 CameraThread 생성 때 만들어져 그때 낸 로그는 화면에 안 붙는다(손 검출과 같은 함정)."""
     print("\n[공구 NPU] 적재 실패가 시작 로그에 남는다")
     import config
-    old = config.TOOL_BACKEND, config.TOOL_HEF_PATH, config.TOOL_ENABLED
-    config.TOOL_BACKEND, config.TOOL_HEF_PATH, config.TOOL_ENABLED = "hailo", "/없는/공구.hef", True
+    old = config.TOOL_BACKEND, config.TOOL_HEF_PATH, config.TOOL_ENABLED, config.TOOL_SHM_DIR
+    # 🔴 공유 폴더는 임시로 — 닫을 때 진짜 /dev/shm/sop_tool/resp.json 을 지워 돌고 있는 음성비서가 공구를 잃었다(최종 리뷰 Minor 2)
+    config.TOOL_BACKEND, config.TOOL_HEF_PATH, config.TOOL_ENABLED, config.TOOL_SHM_DIR = \
+        "hailo", "/없는/공구.hef", True, tempfile.mkdtemp()
     try:
         win = make_console()
         line = [m for m in _logs(win, "[시스템] 공구 검출") ]
         check(line and "비활성" in line[0] and "/없는/공구.hef" in line[0], f"시작 줄 {line}")
         win.close()
     finally:
-        config.TOOL_BACKEND, config.TOOL_HEF_PATH, config.TOOL_ENABLED = old
+        config.TOOL_BACKEND, config.TOOL_HEF_PATH, config.TOOL_ENABLED, config.TOOL_SHM_DIR = old
 
 
 if __name__ == "__main__":

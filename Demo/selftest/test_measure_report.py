@@ -275,6 +275,19 @@ def test_script_targets():
         check(any("판 5" in w for w in MR.warnings(MR.load_session(d))), "판 5 경고")
 
 
+def test_hand_gate_warning():
+    print("\n[경고] 공구를 든 동안 손 판정을 끈 구간이 있으면 알린다(공구 구간 설계 D4 · 최종 리뷰 Minor 5)")
+    with tempfile.TemporaryDirectory() as tmp:
+        d = make_session(os.path.join(tmp, "s"))
+        check(not any("손-버튼 판정" in w for w in MR.warnings(MR.load_session(d))), "끈 적 없으면 경고 없음")
+        p = os.path.join(d, "events.csv")
+        rows = list(csv.reader(open(p, encoding="utf-8")))
+        rows.insert(2, ["1100", "hand_gate", json.dumps({"t": 1.1, "off": True})])
+        rows.insert(3, ["1200", "hand_gate", json.dumps({"t": 1.2, "off": False})])
+        _csv(p, rows[0], rows[1:])
+        check(any("손-버튼 판정" in w and "1번" in w for w in MR.warnings(MR.load_session(d))), "끈 구간 1번 경고")
+
+
 def test_voice_warnings():
     print("\n[경고] 음성 켬인데 음성 기록이 없음 · 음성 사건 버림 · 마이크 표본률 못 읽음")
     with tempfile.TemporaryDirectory() as tmp:

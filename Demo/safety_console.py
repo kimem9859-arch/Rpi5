@@ -736,13 +736,12 @@ class SafetyConsole(QMainWindow):
         with_frame=False — 연결 상태바처럼 매 초 부르는 곳은 프레임 변환을 건너뛴다
         (numpy 변환이 비싸다). 1차 점검은 프레임을 보지 않으므로 결과가 같다.
         """
-        from camera_thread import DETECTOR_AVAILABLE
+        from camera_thread import DETECTOR_AVAILABLE, _detector_model_name
         cam = self.camera_thread
         return dict(
             camera_thread=cam,
             detector_available=DETECTOR_AVAILABLE,
-            detector_name=os.path.basename(config.HEF_MODEL_PATH if config.INFERENCE_BACKEND == "hailo"
-                                           else config.PT_MODEL_PATH),
+            detector_name=_detector_model_name(),     # 모델 이름 규칙은 camera_thread 한 곳(최종 리뷰 Minor 7)
             hand_tracker=getattr(cam, "_hand", None),
             interlock=self.interlock,
             gpio_input=self.gpio_input,
@@ -978,6 +977,10 @@ class SafetyConsole(QMainWindow):
         off = self._hand_gate_off(t)
         if off != self._hand_gate_was:
             self._hand_gate_was = off
+            if off:
+                # 🔴 꺼지는 순간 판정기가 붙든 관측을 버린다 — 안 버리면 갭메우기(0.3초)가 방금 본 오답 버튼을
+                #    「손 없음」 동안 이어 붙들어 체류가 차 경고가 났다(최종 리뷰 Important 1). 누름 확인 기록은 남는다.
+                self.fsm.forget_observation()
             self._measure.event("hand_gate", t=t, off=off)
             self._append_log("[손 판정] 끔 — 공구를 손에 들고 있음(버튼 누름 판정은 그대로)" if off
                              else "[손 판정] 켬")
@@ -1009,11 +1012,13 @@ class SafetyConsole(QMainWindow):
         설계 = ../docs/superpowers/specs/2026-08-14-공구입력-A2-design.md §4
         """
         # dets = [(이름, 신뢰도, x1, y1, x2, y2), ...]
-        self._tool_dets_for_stats = [(d[0], d[1]) for d in dets]
+        if self._tool_state is None and not self._tool_tail:
+            return                     # 검사를 끈 뒤 늦게 온 결과 — 아무 근거로도 쓰지 않는다(최종 리뷰 Minor 3)
         # 🔑 손 판정 끔(D4)의 근거 — 쥠 판정과 같은 기준(검지 끝 ∩ 공구 상자 · 종류 무관). 꼬리에서도 따라간다.
         self._tool_held_at = time.monotonic() if held_tool(dets, fingertip) is not None else None
         if self._sub is None or self._tool_state is None:
-            return                     # 꼬리(D3) — 판정 없음 · 화면 상자·음성 공유 파일은 카메라·게이트 쪽이 한다
+            return                     # 꼬리(D3) — 판정·결과창 집계 없음 · 화면 상자·음성 공유 파일은 카메라·게이트 쪽이 한다
+        self._tool_dets_for_stats = [(d[0], d[1]) for d in dets]     # 결과창 검출 집계 — 공구 서브 동안만(Minor 6)
 
         before = self._tool_state.phase
         wrong_before = self._sub.wrong_tool
@@ -1511,10 +1516,11 @@ class SafetyConsole(QMainWindow):
         self._publish_state()          # 🔑 서브 시작 = 「진행 중」 공개(음성 §4.4)
 
     def _end_tool_scan(self):
-        """공구 스캔을 끄고 판정 상태를 버린다.
+        """공구 스캔을 끄고 판정 상태·꼬리·손 판정 끔 근거를 버린다.
 
-        🔴 서브 작업이 끝나거나 중단되는 **모든 경로**에서 불러야 한다 —
-           빠뜨리면 워커가 계속 CPU 를 먹는다.
+        🔴 공구 구간이 끝나는 **모든 경로**에서 불러야 한다 — 빠뜨리면 NPU(또는 CPU 워커)가 계속 돈다.
+           공구 서브가 **정상으로 끝날 때**(`_finish_sub`)만은 부르지 않고 꼬리로 넘긴다(D3) — 꼬리는 다음 버튼 ·
+           차단 · 작업 초기화·IDLE · 종료에서 여기로 끝난다.
         """
         if self._tool_state is not None:
             self._tool_state = None
@@ -1824,7 +1830,9 @@ class SafetyConsole(QMainWindow):
         # 가짜 차단이 나고(리뷰 U1), 경고 중 게이지가 차서 진행이 조용히 사라진다(U10).
         sub = self._sub
         if new == State.BLOCK and self._tool_tail:
-            self._end_tool_scan()      # 꼬리 중 차단(D3) — 서브가 없어 아래 취소가 안 끈다
+            # 꼬리 중 차단(D3) — 서브가 없어 아래 취소가 안 끈다. ⚠️ 방어 코드: 지금은 모든 차단이 _press_button 을
+            #    거쳐 그 맨 앞에서 꼬리가 먼저 끝난다(최종 리뷰 Minor 9) — 판정기 밖에서 차단이 생기는 길이 생기면 쓰인다.
+            self._end_tool_scan()
         if sub is not None and sub.is_active:
             if new == State.BLOCK:
                 self._cancel_sub("차단")

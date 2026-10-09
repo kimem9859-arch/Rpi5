@@ -270,7 +270,7 @@ class CameraThread(QThread):
         # 종전과 정확히 같게 동작한다.
         self._hand = HandTracker(log=lambda m: self.log_signal.emit(m))
 
-        # 공구 검출(A-2) — 서브 작업(wait_tool) 동안에만 돈다. 상시 작업이 아니다.
+        # 공구 검출(A-2) — 공구 구간(wait_tool 서브 + 다음 버튼까지 꼬리 · 공구 구간 설계 D3)에만 돈다. 상시 작업이 아니다.
         self._tool_gate = (create_tool_gate(log=lambda m: self.log_signal.emit(m))
                            if (TOOL_GATE_AVAILABLE and config.TOOL_ENABLED) else None)
         self._tool_scan = False
@@ -295,7 +295,7 @@ class CameraThread(QThread):
         self.stream_reset_signal.emit()
 
     def set_tool_scan(self, on):
-        """공구 추론을 켜고 끈다 — `wait_tool` 서브 작업 동안에만 켠다.
+        """공구 추론을 켜고 끈다 — 공구 구간(`wait_tool` 서브 + 다음 버튼까지 꼬리 · D3)에만 켠다.
 
         🔴 끄는 것을 빠뜨리면 CPU 갈래는 워커가 계속 CPU 를 먹고, NPU 갈래는 1초마다 추론을 계속한다.
            서브 작업이 끝나거나 중단되는 **모든 경로**에서 꺼야 한다(safety_console 쪽 책임).

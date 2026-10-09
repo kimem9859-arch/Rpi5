@@ -56,6 +56,18 @@ def make(det=None, log=None):
                             shm_dir=tempfile.mkdtemp()), det
 
 
+def test_공유파일은_잠금_안에서():
+    print("\n[D2] 공유 파일 쓰기는 켜짐 확인과 같은 잠금 안에서 — 끈 뒤에 다시 쓰지 않는다(최종 리뷰 Minor 1)")
+    d = tempfile.mkdtemp()
+    g = TG.HailoToolGate(hef=_hef(), names=_Det.NAMES, conf=0.65, detector_factory=lambda: _Det(), shm_dir=d)
+    seen = []
+    real = g._share
+    g._share = lambda dets: (seen.append(g._lock.locked()), real(dets))
+    g.start()
+    g.request(F, None)
+    check(seen == [True], f"쓰는 동안 잠금을 쥐고 있다 {seen}")
+
+
 def test_음성비서_공유파일():
     print("\n[D2] NPU 결과를 음성비서가 읽는 파일로 — 꺼지면 지운다(공구 구간 설계 D2)")
     import json
@@ -207,6 +219,7 @@ def test_만드는_갈래():
 
 
 if __name__ == "__main__":
+    test_공유파일은_잠금_안에서()
     test_음성비서_공유파일()
     test_문턱_이름_손끝()
     test_꺼져_있으면_추론하지_않음()

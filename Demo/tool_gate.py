@@ -298,7 +298,7 @@ class HailoToolGate:
             self._on = False
             self._gen += 1
             self._result = None       # 서브 작업이 끝난 뒤 늦게 남은 결과를 내지 않는다
-        self._unshare()
+            self._unshare()           # 같은 잠금 안 — request 가 그 뒤에 다시 쓰지 못한다
 
     @property
     def available(self):
@@ -324,7 +324,9 @@ class HailoToolGate:
             if not (self._on and self._gen == gen):
                 return
             self._result = (dets, fingertip)
-        self._share(dets)
+            # 🔑 잠금 안에서 쓴다 — 밖에서 쓰면 화면 스레드의 stop()·close() 가 지운 **뒤에** 다시 써 낡은 파일이
+            #    남을 수 있었다(최종 리뷰 Minor 1 · tmpfs 라 µs 수준).
+            self._share(dets)
 
     def _share(self, dets):
         """음성비서가 읽는 공구 검출 파일 — CPU 워커(`tool_worker.py`)와 같은 자리·모양 `{"seq", "dets"}`(D2).
@@ -365,7 +367,7 @@ class HailoToolGate:
             self._result = None
             self.loaded = False
             self.reason = "닫힘"
-        self._unshare()
+            self._unshare()
         if det is not None:
             try:
                 det.close()

@@ -225,7 +225,7 @@ def find_utterance(samples, rate, start_th=None, end_th=None,
 def read_tool_dets(path=TOOL_SHM, fresh_sec=FRESH_SEC, now=None):
     """`(dets, fresh)` — 공구 검출과 그것이 신선한지.
 
-    🔴 공구 추론은 `wait_tool` 서브 작업 동안에만 돈다(camera_thread.py:242).
+    🔴 공구 추론은 공구 구간(`wait_tool` 서브 + 다음 버튼까지 꼬리 · 공구 구간 설계 D3)에만 돈다.
        파일이 낡았으면 「지금 확인하는 단계가 아니다」로 답한다 —
        **부재를 근거로 지어내지 않는다**(tool_state.py 와 같은 원칙).
     """

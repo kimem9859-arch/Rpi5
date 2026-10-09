@@ -188,6 +188,10 @@ def warnings(S):
         w.append("마이크 표본률(voice_assistant.RATE)을 못 읽어 V9 를 내지 않았다")
     if any(k == "tool_sim" for _, k, _ in S["events"]):
         w.append("키보드 공구(tool_sim)가 있다 — 그 판은 공구 값에서 뺐다")
+    n_gate = sum(1 for _, k, d in S["events"] if k == "hand_gate" and d.get("off"))
+    if n_gate:
+        w.append(f"공구를 든 동안 손-버튼 판정을 끈 구간 {n_gate}번 — 그동안 판정기에는 손이 버튼 밖으로 들어갔다"
+                 "(1 진단 · 5 사전 감지 · 21 누름 확인 · 23 스침에 영향 · 공구 구간 설계 D4)")
     if S["kind"] == "시험":
         w.append("시험 세션 — 도구 확인 전용 · 인용·목표 판정 금지")
     return w

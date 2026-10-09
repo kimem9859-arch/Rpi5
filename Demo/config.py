@@ -99,7 +99,7 @@ STATUS_DANGER  = "#d50000"
 # [추론 백엔드 설정]
 # =============================================================================
 # "pytorch": person_v1.pt(옛 best.pt) + ultralytics CPU 추론 (Phase A) — ⚠️ 사람 1종 모델이라 버튼을 못 찾는다(통합문서 §6 ⏸)
-# "hailo"  : console_v2.hef + Hailo-8 가속 추론 (Phase B, 버튼 5클래스 B1~B4+EMO)
+# "hailo"  : HEF_MODEL_PATH(지금 B-full-base · 옛 console_v2) + Hailo-8 가속 추론 (Phase B, 버튼 5클래스 B1~B4+EMO)
 INFERENCE_BACKEND = "hailo"
 
 PT_MODEL_PATH  = os.path.join(_BASE_DIR, 'models', 'person_v1.pt')
@@ -437,12 +437,12 @@ TOOL_ENABLED           = os.environ.get("SOP_TOOL", "1") != "0"
 # 🔴 YOLO_CONF_HIGH 와 값이 같지만 목적이 달라 따로 둔다 — 묶으면 한쪽을 조정할 때
 #    다른 쪽이 딸려간다. 0.65 = §10.42 에서 시연 3종이 잘 잡힌 구간(0.66~0.81).
 TOOL_CONF              = 0.65
-# 공구 판정은 상시 작업이 아니다 — 서브 대기 중에만 돈다. 추론 약 0.5초의 2배 여유.
+# 공구 판정은 상시 작업이 아니다 — 공구 구간(서브 대기 + 다음 버튼까지 꼬리)에만 돈다. 추론 약 0.5초의 2배 여유.
 TOOL_SCAN_INTERVAL_SEC = 1.0
 # 손이 보이는데 쥔 공구가 없는 스캔이 이만큼 **연달아** 나오면 「내려놓음」으로 본다(GUI 수정 G11).
 # 한두 번은 쥔 채 공구 검출만 빠진 것일 수 있다 — 스캔 1초 간격이라 약 3초.
 TOOL_PUT_DOWN_SCANS   = 3
-# 쥠 확정에 필요한 **연속** 스캔 수(2026-10-09 사용자 요청 — 잠깐 보인 것으로 넘어가지 않게 · tool_state).
+# 쥠 확정에 필요한 근거 스캔 수(2026-10-09 사용자 요청 — 잠깐 보인 것으로 넘어가지 않게 · 놓침은 아래 MISS_ALLOWED 번까지 봐준다 · tool_state).
 # 스캔 1초 간격이라 3 = 약 2초 쥐고 있어야 한다. 현장에서 해 보고 조정할 값(사용자 「해보고 수정」).
 TOOL_GRASP_CONFIRM_SCANS   = 3
 # 화면 가운데 「확인 완료」 상자를 띄워 두는 시간(초) — 지나면 저절로 닫힌다.
