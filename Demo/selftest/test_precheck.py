@@ -125,6 +125,14 @@ def test_summary():
     check(ok2 and text2 == "5/5", f"전부 통과 → {text2}")
 
 
+
+def test_detector_shows_real_model_name():
+    print("\n[검출 모델] 실제 모델 파일 이름 — 옛 「console_v2 로드됨」 고정 문구가 아니다(공구 구간 설계 D5)")
+    r = {x.key: x for x in run_stage1(ctx(detector_available=True, detector_name="B-full-base-s0_ours-L2.hef"))}
+    check(r["detector"].detail == "B-full-base-s0_ours-L2.hef 로드됨", f"{r['detector'].detail}")
+    r = {x.key: x for x in run_stage1(ctx(detector_available=True))}
+    check("console_v2" not in r["detector"].detail and "로드됨" in r["detector"].detail, f"이름 없으면 {r['detector'].detail}")
+
 if __name__ == "__main__":
     for _n, _f in sorted(globals().items()):
         if _n.startswith("test_"):

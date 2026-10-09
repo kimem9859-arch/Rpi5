@@ -26,7 +26,7 @@ RAW_EVERY="${3:-5}"
 if [ "$RAW_EVERY" -eq 1 ]; then RAW_DESC="전 프레임"; else RAW_DESC="${RAW_EVERY}프레임마다"; fi
 
 echo "══════════════════════════════════════════════"
-echo "  console_v2 실테스트 — 조건: $COND"
+echo "  $(python3 -c 'import os, config; print(os.path.basename(config.HEF_MODEL_PATH))') 실테스트 — 조건: $COND"
 echo "══════════════════════════════════════════════"
 echo "  프레임: $FRAMES · raw 저장: $RAW_DESC"
 echo

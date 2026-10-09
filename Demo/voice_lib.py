@@ -36,7 +36,7 @@ _SEE_HINTS  = ("보이", "보여", "보인", "뵈", "모이", "보임")   # 오�
 _OBJ_HINTS  = ("공구", "도구", "이거", "이게", "앞에")
 _WHAT_HINTS = ("뭐", "무엇", "뭔", "머")
 
-# 🔴 런타임 모델(tool_v3)의 클래스명. tool_v4 는 `-in-hand` 접미어가 붙는다.
+# 🔴 시연 공구 모델(NPU · 3종)의 클래스명 — 옛 tool_v4 계열은 `-in-hand` 접미어가 붙었다(읽을 때 벗긴다).
 _TOOL_KEYS = ("driver", "wrench", "pliers")
 
 TOOL_SHM = "/dev/shm/sop_tool/resp.json"

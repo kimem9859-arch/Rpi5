@@ -741,6 +741,8 @@ class SafetyConsole(QMainWindow):
         return dict(
             camera_thread=cam,
             detector_available=DETECTOR_AVAILABLE,
+            detector_name=os.path.basename(config.HEF_MODEL_PATH if config.INFERENCE_BACKEND == "hailo"
+                                           else config.PT_MODEL_PATH),
             hand_tracker=getattr(cam, "_hand", None),
             interlock=self.interlock,
             gpio_input=self.gpio_input,

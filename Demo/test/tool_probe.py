@@ -199,7 +199,7 @@ def main():
 
     print(f"[설정] want={want}  conf={config.TOOL_CONF}  "
           f"scan={config.TOOL_SCAN_INTERVAL_SEC}s  "
-          f"model={os.path.basename(config.TOOL_MODEL_PATH)}  "
+          f"model={config.TOOL_BACKEND}:{os.path.basename(config.TOOL_HEF_PATH if config.TOOL_BACKEND == 'hailo' else config.TOOL_MODEL_PATH)}  "
           f"sub.sec={spec.get('sec')}  HAND_MIN_SCORE={config.HAND_MIN_SCORE}")
     print(f"[출력] {mp4_path}")
 

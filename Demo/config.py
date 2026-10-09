@@ -426,11 +426,11 @@ HAND_DRAW          = True     # 화면에 랜드마크·검지끝 표시
 # [공구 검출 설정] — 서브 작업(wait_tool)의 공구 지참 판정 (A-2, 2026-08-14)
 # 설계 = ../docs/superpowers/specs/2026-08-14-공구입력-A2-design.md
 #
-# 🔴 CPU 추론이다. GUI(시스템 파이썬)엔 ultralytics·torch 가 **없다** — rfenv 안에만
-#    있다. 그래서 rfenv 파이썬으로 워커 프로세스를 띄우고 /dev/shm 파일로 주고받는다.
-#    .hef 가 생기면 tool_gate.py 안만 갈아끼우고 tool_worker.py 는 삭제한다.
+# 🔑 기본 = NPU(HEF · TOOL_BACKEND "hailo" · 2026-10-07) — 시연 프로그램 안에서 카메라 스레드가 1초에 한 번 돌린다.
+#    "cpu" = 되돌리기 스위치(옛 tool_v3.pt · rfenv 워커 프로세스 · /dev/shm 파일로 주고받음 — GUI 의 시스템 파이썬엔
+#    ultralytics·torch 가 없다). 두 갈래 다 결과를 TOOL_SHM_DIR/resp.json 에 남겨 음성비서가 읽는다(공구 구간 설계 D2).
 #
-# ⚠️ 모델·rfenv 가 없으면 공구 감지는 **자동 비활성**된다(손 검출과 같은 방침).
+# ⚠️ 모델(·rfenv)이 없으면 공구 감지는 **자동 비활성**된다(손 검출과 같은 방침).
 #    🔴 그 경우 2단계 게이트가 영영 안 열리므로 로그에 눈에 띄게 남는다.
 # =============================================================================
 TOOL_ENABLED           = os.environ.get("SOP_TOOL", "1") != "0"

@@ -54,8 +54,10 @@ def run_stage1(ctx):
         retryable=True))
 
     det = g("detector_available", None)
+    # 🔑 실제 모델 파일 이름 — 옛 고정 문구 「console_v2 로드됨」은 모델을 바꾼 뒤에도 그대로 찍혔다(공구 구간 설계 D5)
+    name = g("detector_name", None) or "검출 모델"
     out.append(CheckResult("detector", "검출 모델", bool(det),
-                           "console_v2 로드됨" if det else "로드 실패", retryable=True))
+                           f"{name} 로드됨" if det else "로드 실패", retryable=True))
 
     hand = g("hand_tracker")
     hand_ok = bool(hand and getattr(hand, "available", False))
