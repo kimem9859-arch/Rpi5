@@ -12,18 +12,17 @@
 ⚠️ 이것은 「유연한 LLM 답변」 방향을 바꾸는 것이 아니다. 템플릿 답변(A안)에서만
    성립하는 최적화이고, LLM(B안)으로 갈 때 런타임 TTS 로 되돌린다.
 """
-import array
 import os
+import shutil
 import time
 import wave
-
-import sherpa_onnx
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import config      # noqa: E402 — TTS 엔진 갈래(측정 진행 도우미 설계 D11)
 import voice_card  # noqa: E402  — 알림 문장은 「지금 할 일」의 말 그대로(설계 2026-10-04 §4.3 · 한 곳)
+import voice_tts   # noqa: E402 — 런타임과 같은 합성기(엔진 · 한글 읽기 · 레이트)
 
-D = os.path.expanduser("~/env/tts/vits-mimic3-ko_KO-kss_low")
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wav")
 
 # 🔴 키는 voice_lib.answer_key() 가 돌려주는 값과 정확히 같아야 한다.
@@ -44,38 +43,38 @@ ANSWERS = {
 }
 ANSWERS.update(voice_card.alert_texts())    # 🔔 알림 9개 — alert_emo · alert_block_B1~4 · alert_warn_B1~4
 
+# 📣 측정 안내 소리(측정 진행 도우미 설계 2026-10-11 D7) — 짧게 · 최종 문구는 안경으로 들어 보고 정한다(Task 12)
+CUES = {"cue_B1": "비원", "cue_B2": "비투", "cue_B3": "비쓰리", "cue_B4": "비포", "cue_EMO": "비상정지",
+        "cue_hover_B1": "비원 머물기", "cue_hover_B2": "비투 머물기", "cue_hover_B3": "비쓰리 머물기",
+        "cue_hover_B4": "비포 머물기",
+        "cue_tool_wrench": "렌치", "cue_tool_driver": "드라이버", "cue_tool_pliers": "플라이어", "cue_ng": "다시"}
+ANSWERS.update(CUES)
+KSS_KEEP = os.path.join(os.path.dirname(OUT), "wav_kss")     # 되돌리기 = 이 폴더를 wav 로(설계 §9)
+
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    cfg = sherpa_onnx.OfflineTtsConfig(
-        model=sherpa_onnx.OfflineTtsModelConfig(
-            vits=sherpa_onnx.OfflineTtsVitsModelConfig(
-                model=f"{D}/ko_KO-kss_low.onnx",
-                tokens=f"{D}/tokens.txt",
-                data_dir=f"{D}/espeak-ng-data",
-            ),
-            num_threads=2, provider="cpu",
-        ),
-        max_num_sentences=1,
-    )
+    if config.TTS_ENGINE != "kss" and not os.path.isdir(KSS_KEEP):
+        shutil.copytree(OUT, KSS_KEEP)          # 🔑 처음 바꿀 때 한 번만 — 옛 kss 소리를 덮어쓰기 전에
+        print(f"옛 kss 소리 보관 → {KSS_KEEP}")
     t0 = time.time()
-    tts = sherpa_onnx.OfflineTts(cfg)
-    print(f"모델 적재 {time.time() - t0:.2f}s")
-
+    tts = voice_tts.Tts()
+    print(f"모델 적재({tts.engine}) {time.time() - t0:.2f}s")
     for k, text in ANSWERS.items():
         t = time.time()
-        a = tts.generate(text, sid=0, speed=1.0)
+        got = tts.synth(text)
         el = time.time() - t
+        if got is None:
+            print(f"  🔴 {k} 합성 실패 — {text}")
+            continue
+        pcm, rate, sec = got
         path = os.path.join(OUT, f"{k}.wav")
         with wave.open(path, "w") as w:
             w.setnchannels(1)
             w.setsampwidth(2)
-            w.setframerate(a.sample_rate)
-            w.writeframes(array.array(
-                "h", [int(max(-1, min(1, x)) * 32767) for x in a.samples]).tobytes())
-        print(f"  {k:16s} {len(text):2d}자 · 합성 {el:.2f}s · "
-              f"{len(a.samples) / a.sample_rate:.2f}초 · {a.sample_rate}Hz → {path}")
-
+            w.setframerate(rate)
+            w.writeframes(pcm)
+        print(f"  {k:16s} {len(text):2d}자 · 합성 {el:.2f}s · {sec:.2f}초 · {rate}Hz → {path}")
 
 if __name__ == "__main__":
     main()
