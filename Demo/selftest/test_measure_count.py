@@ -105,7 +105,7 @@ def test_prevent_and_lead():
           P(4000, "B4")]
     fsm = [FS(1980, roi="B3", level=2), FS(2950, roi=None), FS(3950, roi="B4", level=2, t_gui=3960)]
     S = S_(ev, fsm=fsm)
-    check(MC.v_prevent(S) == {"n": 4, "k": 1, "late": 0, "short": 2, "ring": 0, "none": 1},
+    check(MC.v_prevent(S) == {"n": 4, "k": 1, "late": 0, "short": 2, "ring": 0, "none": 1, "other": 0},
           f"1 = {MC.v_prevent(S)} — 문턱 없는 설정 = 체류로 가를 수 없어 체류 미달로")
     S2 = S_([E(0, "run_start"), E(1500, "gpio_edge", button="B3", src="edge"), P(1510, "B3"),
              E(2500, "gpio_edge", button="B4", src="edge"), P(2510, "B4"),
@@ -113,8 +113,13 @@ def test_prevent_and_lead():
             fsm=[FS(1000, roi="B3", level=1), FS(1100, roi="B3", level=2), FS(1400, roi="B3", level=2, t_gui=1600),
                  FS(2400, roi="B4", level=1), FS(3400, roi="B3", level=2)],
             settings={"FSM_GAP_FILL_SEC": 0.3, "FSM_DWELL_THRESHOLD_SEC": 0.3})
-    check(MC.v_prevent(S2) == {"n": 3, "k": 0, "late": 1, "short": 0, "ring": 1, "none": 1},
+    check(MC.v_prevent(S2) == {"n": 3, "k": 0, "late": 1, "short": 0, "ring": 1, "none": 1, "other": 0},
           f"1 = {MC.v_prevent(S2)} — 체류 0.4초(링부터)·박스 안 = 처리 늦음 · 링에만 · 다른 버튼 = 손 없음")
+    S3 = S_([E(0, "run_start"), E(1500, "gpio_edge", button="B3", src="edge"), P(1510, "B3")],
+            fsm=[FS(1000, roi="B3", level=2, t_gui=1030), FS(1400, roi="B3", level=2, t_gui=1430)],
+            settings={"FSM_GAP_FILL_SEC": 0.3, "FSM_DWELL_THRESHOLD_SEC": 0.3})
+    check(MC.v_prevent(S3)["other"] == 1 and MC.v_prevent(S3)["late"] == 0,
+          f"1 = {MC.v_prevent(S3)} — 체류는 찼고 누름 전에 처리됐는데 경고 없음 = 기타(판정 규칙 예외 · 최종 리뷰 Minor 8)")
     check(MC.v_lead(S) == {"leads": [0.08]}, f"4 = {MC.v_lead(S)}")
 
 
@@ -407,6 +412,23 @@ def test_split_guide():
     check([f["t"] for f in G["frames"]] == [150.0] and [f["t"] for f in G["fsm"]] == [150.0], "프레임·판정기 줄도 판째")
     check([(r["판"], r["대상"]) for r in G["script"]] == [(1, "B2"), (2, "B3")], f"{[(r['판'], r['대상']) for r in G['script']]}")
     check(G["breaks"] == [(0.0, 90.0)] and G["guide"] is res, f"breaks = {G['breaks']}")
+
+
+def test_system_values_keep_ng_runs():
+    print("\n[시스템 값] 뺀 판(장비 NG 등)도 FPS·끊김·단계·자원·인터락·V1·V3·V4·V9 에는 남는다(설계 §3.1 · 최종 리뷰 Important 1)")
+    import measure_script as MS
+    B = ["B1", "B2", "B3", "B4"]
+    rows = [{"판": 1, "행동": "위반", "대상": "B2", "기대": "", "메모": "", "누름": "B2@B1", "낱말": MS.parse_tokens("B2@B1", B)}]
+    ev = [E(0, "run_start"), P(10, "B2", expected="B1"), E(4000, "run_reset", why="작업 초기화"),
+          E(5000, "run_start"), P(5010, "B2", expected="B1"), E(6000, "run_reset", why="작업 초기화")]
+    fsm = [FS(100), FS(200), FS(3300), FS(3400), FS(5100), FS(5200)]
+    S = S_(ev, fsm=fsm, script=rows)
+    res = MS.match(S["events"], rows, marks=[(2000.0, "ng", "장비")], ahead=2, final=True)
+    G = MC.split_guide(S, res)
+    check([r["status"] for r in res["runs"]] == ["ng", "ok"], f"{[r['status'] for r in res['runs']]}")
+    st = MC.count_all(G)["12"].get("stalls", [])
+    check(any(abs(x - 3.1) < 0.05 for x in st), f"장비 NG 판 안의 3.1초 끊김이 남는다 = {st}")
+    check(G["full"]["fsm"] == S["fsm"] and [f["t"] for f in G["fsm"]] == [5100.0, 5200.0], "대본 값은 뺀 S · 시스템 값은 판 맞춤 전 S")
 
 
 def test_cue():

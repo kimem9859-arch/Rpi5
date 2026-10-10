@@ -91,7 +91,7 @@ def test_load_session():
         check(S["script"] == [{"판": 1, "행동": "위반", "대상": "B3", "기대": "", "메모": "", "누름": "", "낱말": []}],
               f"대본 = {S['script']} — 누름 칸이 없으면 빈 칸 · 낱말 없음(진행 도우미 설계 §4.2)")
         check(S["emo"] == MR.emo_button() and S["kind"] == "위반" and S["rate"] == MR.mic_rate(), "EMO · 종류 · 표본률")
-        check(MC.v_prevent(S) == {"n": 1, "k": 1, "late": 0, "short": 0, "ring": 0, "none": 0}, f"1 = {MC.v_prevent(S)}")
+        check(MC.v_prevent(S) == {"n": 1, "k": 1, "late": 0, "short": 0, "ring": 0, "none": 0, "other": 0}, f"1 = {MC.v_prevent(S)}")
         check(S["steps"] == MR.recipe_buttons() and len(S["steps"]) > 0, f"레시피 단계 버튼 = {S['steps']}")
 
 
@@ -370,6 +370,18 @@ def test_guide_session():
         L = "\n".join(MR.guide_lines(MR.load_session(d)))
         check("수동 장비 1(1)" in L, L)
         check(MR.guide_lines(MR.load_session(make_session(os.path.join(tmp, "old")))) == [], "누름 칸 없는 옛 대본 = ⓪ 절 없음")
+        # 최종 리뷰 Important 5(b) — 누름 칸 없는 대본·대본 없는 세션도 N 표시는 뺀다
+        for name, sc in (("nocol", "판,행동,대상,기대,메모\n1,위반,B3,,\n"), ("noscript", "")):
+            d = make_session(os.path.join(tmp, name), script=sc)
+            _csv(os.path.join(d, "guide.csv"), ["t_ms", "kind", "data"], [[1350, "ng", json.dumps({"why": "사람"}, ensure_ascii=False)]])
+            S = MR.load_session(d)
+            check(S.get("guide") and S["guide"]["runs"][0]["status"] == "ng" and MC.v_prevent(S)["n"] == 0,
+                  f"{name} — N 표시 판을 뺀다")
+            check("수동 사람 1(1)" in "\n".join(MR.guide_lines(S)), f"{name} ⓪ 절")
+        # 최종 리뷰 Minor 1 — 미완 판의 못 한 누름 · 대본에 없던 경고(머묾 낱말 없는 판의 경고)
+        S = MR.load_session(make_session(os.path.join(tmp, "part"), script="판,행동,대상,기대,메모,누름\n1,위반,B3,,,B3@B2 B2\n"))
+        L = "\n".join(MR.guide_lines(S))
+        check("미완 1(1번째 판 · 못 한 누름 1)" in L and "머묾 낱말 없는 판의 경고 1번" in L, L)
 
 
 if __name__ == "__main__":

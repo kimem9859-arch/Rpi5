@@ -115,7 +115,7 @@ def runs_of(events):
 def run_presses(ev, emo="EMO"):
     """판 안 누름 가운데 시연이 받은 것만 → [(t, 버튼, 기대)].
     무시 = 차단 중 EMO 아닌 버튼 · 진행 중 서브 작업 버튼 재입력(경고 중 정답 포함 — 단계를 올리지 않는다 · 설계 D4)."""
-    sub, out = None, []
+    sub, emo_on, out = None, False, []
     for t, k, d in ev:
         if k == "sub":
             w = d.get("what")
@@ -123,10 +123,16 @@ def run_presses(ev, emo="EMO"):
                 sub = d.get("button")
             elif w in ("finish", "cancel"):
                 sub = None
+        elif k == "release" and d.get("what") == "block" and d.get("ok"):
+            emo_on = False
         elif k == "press":
             b = d.get("button")
             if d.get("state") == "BLOCK" and b != emo:
                 continue
+            if b == emo:
+                if emo_on and d.get("state") == "BLOCK":
+                    continue                  # EMO 차단 중 EMO 재입력 — 시연은 아무 일도 안 한다(최종 리뷰 Minor 7)
+                emo_on = True
             if sub is not None and b == sub:
                 continue
             out.append((t, b, d.get("expected")))
@@ -164,13 +170,16 @@ def _owner(runs, t):
     return last
 
 
-def match(events, rows, marks=(), ahead=0, emo="EMO"):
+def match(events, rows, marks=(), ahead=0, emo="EMO", auto=True, final=False):
     """사건 → 판마다 결과 + 다음 대본 판.
 
     marks = [(t_ms, "ng"|"undo", 이유)] — 시각 차례로 쌓고 undo 는 마지막 ng 를 지운다 · ng 는 그 시각의 판에.
     ahead = 끝난 판을 지금 대본 판 → 다음 ahead 판까지 대 본다(세기 2 · 진행 도우미 0 — 설계 §4.3 「앞 찾기」).
     🔴 뒤 대본 판으로 건너뛰는 것은 그 판과 **끝까지 맞을 때만**(ok) — 앞부분만 같은 NG 시도를 건너뜀으로 읽지 않게.
        지금 대본 판은 미완(partial)도 받는다(D16).
+    auto = False → 누름 칸 없는 대본·대본 없는 세션(rows None) — 자동 NG 없이 수동 N 만 · 판마다 다음 대본 판(최종 리뷰
+           Important 5 · 설계 §4.3 「대본 없는 세션 = 수동 NG 만」) · 대본이 없으면 대본 밖도 없다.
+    final = True → 세기 — 세션 끝에 열린 판도 닫힌 판처럼 판정한다(최종 리뷰 Minor 3).
     """
     order = script_order(rows)
     keys = list(order)
@@ -192,9 +201,17 @@ def match(events, rows, marks=(), ahead=0, emo="EMO"):
                "skipped": [], "missing": 0, "consumed": 0, "live_ng": False,
                "warn": sum(1 for _, kk, d in r["ev"] if kk == "state" and d.get("new") == "WARNING")}
         ps = run_presses(r["ev"], emo)
-        if k >= len(keys):
+        is_open = r["end"] == "open" and not final
+        if not auto:
+            if keys and k >= len(keys):
+                res.update(status="extra", why="대본을 다 끝낸 뒤의 판")
+            else:
+                res.update(script=keys[k] if keys else None, status="open" if is_open else "ok")
+                if keys and not is_open:
+                    k += 1
+        elif k >= len(keys):
             res.update(status="extra", why="대본을 다 끝낸 뒤의 판")
-        elif r["end"] == "open":
+        elif is_open:
             s = _simulate(ps, order[keys[k]])
             res.update(script=keys[k], status="open", consumed=s["consumed"])
             if not s["ok"]:
@@ -215,8 +232,11 @@ def match(events, rows, marks=(), ahead=0, emo="EMO"):
                            missing=s["missing"], consumed=s["consumed"])
                 k = j + 1
         if i in manual and res["status"] != "extra":
-            if res["status"] in ("ok", "partial"):
-                k = keys.index(res["script"])          # 다시 할 대본 판으로 되돌린다
-            res.update(status="ng", why=f"수동 — {manual[i]}" + (f" · {res['why']}" if res["why"] else ""))
+            if res["status"] == "ng":                  # 이미 자동 NG — 자동으로 센다(최종 리뷰 Minor 2)
+                res["why"] += f" · 수동 — {manual[i]} 도 표시"
+            else:
+                if res["status"] in ("ok", "partial") and res["script"] is not None:
+                    k = keys.index(res["script"])      # 다시 할 대본 판으로 되돌린다
+                res.update(status="ng", why=f"수동 — {manual[i]}" + (f" · {res['why']}" if res["why"] else ""))
         out.append(res)
     return {"runs": out, "next": keys[k] if k < len(keys) else None, "order": order}

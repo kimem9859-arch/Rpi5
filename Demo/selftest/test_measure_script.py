@@ -137,6 +137,41 @@ def test_match_open_live():
     check(m["runs"][0]["live_ng"] and m["runs"][0]["status"] == "open", f"{m['runs'][0]}")
 
 
+def test_manual_only():
+    print("\n[수동만] 누름 칸 없는 대본·대본 없는 세션 — 자동 NG 없이 N 만 빼고 다음 판은 같은 대본 판(최종 리뷰 Important 5)")
+    R = [{"판": 1, "행동": "정상", "누름": "", "낱말": []}, {"판": 2, "행동": "정상", "누름": "", "낱말": []}]
+    ev = _run(0, [P(10, "B1", "B1")]) + _run(100, [P(110, "B3", "B1")]) + _run(200, [P(210, "B1", "B1")]) + _run(300, [])
+    m = MS.match(ev, R, marks=[(150.0, "ng", "사람")], auto=False)
+    check([(r["script"], r["status"]) for r in m["runs"]] == [(1, "ok"), (2, "ng"), (2, "ok"), (None, "extra")],
+          f"{[(r['script'], r['status']) for r in m['runs']]}")
+    m = MS.match(ev, None, marks=[(150.0, "ng", "장비")], auto=False)
+    check([(r["script"], r["status"]) for r in m["runs"]] == [(None, "ok"), (None, "ng"), (None, "ok"), (None, "ok")],
+          f"대본 없음 = {[(r['script'], r['status']) for r in m['runs']]}")
+
+
+def test_final_open_run():
+    print("\n[세기 끝] 세션이 판 도중에 끝나면 세기(final)는 그 판도 닫힌 판처럼 판정한다(최종 리뷰 Minor 3)")
+    R = rows((1, "B2@B1 B1"))
+    ev = [E(0, "run_start"), P(10, "B3", "B1")]
+    check(MS.match(ev, R)["runs"][0]["status"] == "open", "진행 도우미 = open")
+    check(MS.match(ev, R, ahead=2, final=True)["runs"][0]["status"] == "ng", "세기 = 자동 NG")
+
+
+def test_auto_then_manual():
+    print("\n[겹침] 자동 NG 판에 N 을 더 눌러도 자동으로 센다(최종 리뷰 Minor 2)")
+    R = rows((1, "B2@B1"))
+    m = MS.match(_run(0, [P(10, "B4", "B1")]), R, marks=[(50.0, "ng", "사람")])
+    check(m["runs"][0]["status"] == "ng" and m["runs"][0]["why"].startswith("자동"), m["runs"][0]["why"])
+
+
+def test_emo_repress():
+    print("\n[EMO 재입력] EMO 차단 중 EMO 를 또 눌러도(시연은 아무 일 없음) 세지 않는다 · 해제 뒤 EMO 는 센다(최종 리뷰 Minor 7)")
+    ev = [P(1, "EMO", "B4"), P(2, "EMO", "B4", state="BLOCK"), E(3, "release", what="block", ok=True),
+          P(4, "B2", "B4", state="BLOCK"), P(5, "EMO", "B4", state="BLOCK")]
+    got = [(b, e) for _, b, e in MS.run_presses(ev)]
+    check(got == [("EMO", "B4"), ("EMO", "B4")], f"{got}")
+
+
 def main():
     test_parse_tokens()
     test_load_script()
@@ -146,6 +181,10 @@ def main():
     test_match_partial_and_extra()
     test_match_manual()
     test_match_open_live()
+    test_manual_only()
+    test_final_open_run()
+    test_auto_then_manual()
+    test_emo_repress()
     print()
     if _fails:
         print(f"❌ {len(_fails)}건 실패")

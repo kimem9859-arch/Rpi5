@@ -106,12 +106,16 @@ def guide_lines(S):
     auto, hum, dev = pick("ng", "자동"), pick("ng", "수동 — 사람"), pick("ng", "수동 — 장비")
     part, extra = pick("partial"), pick("extra")
     skipped = [k for r in runs for k in r["skipped"]]
-    kept_warn = sum(r["warn"] for r in runs if r["status"] not in ("ng", "extra"))
+    kept = [r for r in runs if r["status"] not in ("ng", "extra")]
+    hover = lambda r: any(t.kind == "hover" for t in res["order"].get(r["script"], ()))          # noqa: E731
+    part_txt = " · ".join(f"{r['i']}번째 판 · 못 한 누름 {r['missing']}" for r in part) or "없음"
     L = ["", f"## ⓪ 대본과 다르게 흘러간 판 — {S['name']}", "",
-         f"- 뺀 판(그 판째) — 자동 NG {len(auto)}({nums(auto)}) · 수동 사람 {len(hum)}({nums(hum)})"
+         f"- 뺀 판(그 판째 · 대본을 따라 세는 값에서만) — 자동 NG {len(auto)}({nums(auto)}) · 수동 사람 {len(hum)}({nums(hum)})"
          f" · 수동 장비 {len(dev)}({nums(dev)}) · 대본 밖 {len(extra)}({nums(extra)})",
-         f"- 남긴 판 — 미완 {len(part)}({nums(part)}) · 못 한 대본 판 {'·'.join(map(str, skipped)) or '없음'}",
-         f"- 🔑 모델·판정 이상은 빼지 않았다(결과) — 남긴 판의 경고 {kept_warn}번(대본 머묾 포함)"]
+         f"- 남긴 판 — 미완 {len(part)}({part_txt}) · 못 한 대본 판 {'·'.join(map(str, skipped)) or '없음'}",
+         f"- 🔑 모델·판정 이상은 빼지 않았다(결과) — 남긴 판의 경고: 머묾 낱말이 있는 판 {sum(r['warn'] for r in kept if hover(r))}번"
+         f" · 머묾 낱말 없는 판의 경고 {sum(r['warn'] for r in kept if not hover(r))}번(= 대본에 없던 경고)",
+         "- 🔑 시스템 값(12·13·14·26·27·30·V1·V3·V4·V9)은 뺀 판까지 센다 — 장비 고장이 숨지 않게(설계 §3.1)"]
     L += [f"  - {r['i']}번째 판 · 대본 {r['script'] or '—'} · {r['why']}" for r in auto + hum + dev]
     return L
 
@@ -153,11 +157,14 @@ def load_session(d):
          "voice": sorted(measure_check.load_events(os.path.join(d, "voice_events.csv")), key=lambda e: e[0]),
          "script": script, "emo": emo_button(), "rate": rate, "steps": steps}
     # 🔑 녹화 구간(켬~끔)은 여기 한 곳에서 나눈다 — 모든 값은 나머지로 세고, 녹화 쪽은 「⑤ 녹화 비교」에만(측정 녹화 설계 R5)
-    if script is not None and measure_script.has_tokens(script):
-        # 🔑 판 맞춤 — NG·대본 밖 판을 빼고 대본을 남은 판에 맞춘다(진행 도우미 설계 D12 · 세기는 앞 찾기 2판)
-        S = MC.split_guide(S, measure_script.match(S["events"], script, load_marks(os.path.join(d, "guide.csv")),
-                                                   ahead=2, emo=S["emo"]))
     M, R = MC.split_recording(S)
+    # 🔑 판 맞춤 — NG·대본 밖 판을 빼고 대본을 남은 판에 맞춘다(진행 도우미 설계 D12 · 세기는 앞 찾기 2판 · 세션 끝 열린 판도 판정).
+    #    누름 칸 없는 대본·대본 없는 세션은 수동 N 만(최종 리뷰 Important 5) · 판 번호는 녹화 구간을 빼기 전 사건으로 센다(진행 도우미와 같게)
+    marks = load_marks(os.path.join(d, "guide.csv"))
+    tokens = script is not None and measure_script.has_tokens(script)
+    if tokens or marks:
+        M = MC.split_guide(M, measure_script.match(S["events"], script, marks, ahead=2, emo=S["emo"],
+                                                   auto=tokens, final=True))
     M["rec"] = R
     return M
 
@@ -264,7 +271,8 @@ def target_value(mid, M, t=None):
         n, k = g("1").get("n", 0), g("1").get("k", 0)
         return {"raw": 100 * k / n if n else None, "n": n, "why": "",
                 "note": f"체류 미달 {g('1').get('short', 0)} · 처리 늦음 {g('1').get('late', 0)}"
-                        f" · 링에만 {g('1').get('ring', 0)} · 손 없음 {g('1').get('none', 0)}"}
+                        f" · 링에만 {g('1').get('ring', 0)} · 손 없음 {g('1').get('none', 0)}"
+                        f" · 기타(규칙 예외) {g('1').get('other', 0)}"}
     if mid == "4":
         v = g("4").get("leads", [])
         return {"raw": v, "n": len(v), "note": f"0 이하 {sum(1 for x in v if x <= 0)}(누름이 경고보다 먼저)", "why": ""}
