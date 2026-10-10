@@ -56,6 +56,29 @@ def main():
 
     check(t.synth("") is None, "빈 문자열이면 None")
 
+    # ── 엔진 갈래 · 한글 읽기 · 레이트(측정 진행 도우미 설계 2026-10-11 D11) ──
+    import numpy as np
+    import config
+    import voice_tts as V
+    check(V.read_out("B1 다음 B4 · EMO 해제") == "비원 다음 비포 · 비상정지 해제", "버튼 이름 → 한글 읽기")
+    sr = 44100
+    tt = np.arange(sr) / sr
+    lo = V.downsample(np.sin(2 * np.pi * 1000 * tt) * 0.5, 44100, 22050)
+    hi = V.downsample(np.sin(2 * np.pi * 15000 * tt) * 0.5, 44100, 22050)
+    check(len(lo) == 22050, f"44100 → 22050 길이 절반 ({len(lo)})")
+    check(abs(np.abs(lo[1000:-1000]).max() - 0.5) < 0.03, "1kHz 진폭이 그대로다")
+    check(np.abs(hi[1000:-1000]).max() < 0.5 * 10 ** (-30 / 20), "15kHz(새 나이퀴스트 위)는 30dB 넘게 깎인다")
+    x = np.r_[np.zeros(1000), np.full(10, 0.5), np.zeros(1000)].astype(np.float32)
+    check(len(V.trim(x, 22050)) == 10 + 2 * int(22050 * V.TRIM_PAD_SEC), "앞뒤 무음을 자르고 여유만 남긴다")
+    check(t.engine == config.TTS_ENGINE == "supertonic2", f"기본 엔진 = supertonic2 ({t.engine})")
+    check(rate0 == config.TTS_OUT_RATE == 22050, f"출력 레이트 = 22050 ({rate0})")
+    check(Tts(engine="kss").synth("앞에 렌치가 보입니다.") is not None, "되돌리기 갈래(kss)도 합성된다")
+    try:
+        Tts(engine="없음")
+        check(False, "모르는 엔진을 못 잡음")
+    except ValueError:
+        check(True, "모르는 엔진 = ValueError")
+
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

@@ -483,6 +483,14 @@ STATE_SHM_DIR = "/dev/shm/sop_state"
 #    무선·Tailscale 로는 못 붙는다. 못 붙으면 음성비서는 고정 wav 로 폴백하고 계속 돈다.
 # =============================================================================
 VOICE_ALERTS     = os.environ.get("SOP_VOICE_ALERTS", "1") != "0"   # 비상정지·차단·경고 음성 알림(음성 설계 2026-10-04 §4.3) · 끄기 = SOP_VOICE_ALERTS=0
+# [TTS] 런타임 답 · 고정 소리(make_answers) 공통 — 측정 진행 도우미 설계 2026-10-11 D11 · 저널 §12.94(사용자 선택)
+#    되돌리기 = SOP_TTS=kss(옛 VITS) · 고정 wav 는 voice/wav_kss/ 를 voice/wav/ 로
+TTS_ENGINE   = os.environ.get("SOP_TTS", "supertonic2")      # "supertonic2" · "kss"
+TTS_ST_DIR   = os.path.expanduser("~/env/tts/supertonic-2")  # 모델 정본 = 데스크톱 사본(SHA256SUMS) — 공급사 해산(§12.94-(8))
+TTS_ST_VOICE = "F1"
+TTS_ST_STEPS = 4
+TTS_ST_SPEED = 1.25
+TTS_OUT_RATE = 22050     # 🔴 펌웨어 상한 VOICE_FW_RATE_MAX(24000) 안 · 지금 고정 wav 와 같은 레이트(알림 경로 무변경)
 # 🔑 마이크 증폭(2026-10-08 · 통합문서 §9) — 안경 프레임 안(관자놀이) 착용이면 말소리가 입 앞의 약 절반이라
 #    발화 시작 문턱(400)에 못 미쳤다(호출 0/10). 음성비서가 발화 감지·받아쓰기로 넣는 소리만 키운다 —
 #    원본 녹음(마이크_전체.wav)은 증폭 전 그대로고, 잘라낸 발화(발화_NNN.wav)·계측 RMS 는 증폭 뒤다. 끄기 = SOP_MIC_GAIN=1
