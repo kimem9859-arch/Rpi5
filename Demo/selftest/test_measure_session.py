@@ -90,6 +90,8 @@ def test_voice_off_recorded():
         sh = f.read()
     check(sh.index("SOP_VOICE=0") < sh.index("measure_session.py --place"),
           "run_measure.sh 가 SOP_VOICE=0 을 세션 정보 쓰기 **앞에** 내보낸다")
+    check("export SOP_VOICE_ALERTS=0" in sh and sh.index("SOP_VOICE_ALERTS=0") < sh.index("measure_session.py --place"),
+          "run_measure.sh 가 음성 알림 끔(기본)을 세션 정보 쓰기 **앞에** 내보낸다(진행 도우미 설계 D9)")
 
 
 

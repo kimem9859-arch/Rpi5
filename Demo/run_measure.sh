@@ -16,6 +16,9 @@ G=$(ask "안경 전원 (엔터 = 무선·배터리 · 2 = 유선·USB)")
 ON=$(ask "측정 기록 (1 켬 · 0 끔 — 시험 세션의 끔 회차)")
 # 🔴 음성 끔은 세션 정보를 쓰기 **전에** 내보낸다 — session.json 의 「음성」이 이 값을 읽는다
 if [ "$K" = "4" ]; then export SOP_VOICE=0; fi
+# 🔑 측정에서는 음성 알림을 끈다(측정 진행 도우미 설계 2026-10-11 D9 · 사용자 「알림은 시연용 기능」) — session.json 설정 VOICE_ALERTS 에 남는다
+VA=$(ask "음성 알림 (엔터 = 끔 · 1 = 켬)")
+if [ "$VA" = "1" ]; then export SOP_VOICE_ALERTS=1; else export SOP_VOICE_ALERTS=0; fi
 # 남은 공간 — 올림 없는 값으로(GB 단위 df 는 올려서 0.3GB 도 1G 로 보였다 · 리뷰 I-2)
 FREE=$(python3 measure_session.py --free-gb)
 if awk -v f="${FREE:-0}" 'BEGIN { exit !(f < 1) }'; then
@@ -30,6 +33,7 @@ if ! DIR=$(python3 measure_session.py --place "$P" --kind "$K" --hand "$H" --per
   exit 1
 fi
 echo "  세션 폴더: $DIR"
+echo "  📣 노트북 SSH 창: bash ~/sop-project/Rpi5/Demo/run_guide.sh  (안내 소리 · N = NG · U = 취소)"
 # 끔 회차는 물려받은 값도 지운다 — 기록이 저절로 켜지지 않게
 if [ "$ON" = "1" ]; then export SOP_MEASURE_DIR="$DIR"; else unset SOP_MEASURE_DIR; fi
 bash ./run_demo.sh
