@@ -15,7 +15,9 @@ import io
 import json
 import os
 import select
+import signal
 import sys
+import time
 
 _DEMO = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _DEMO)
@@ -34,6 +36,8 @@ HOVER_WAIT_MS = 4000.0   # 머묾 안내 뒤 경고 해제가 없으면 이만�
 REASON_MS = 3000.0       # N 뒤 이유(1 사람 · 2 장비)를 기다리는 시간
 ACK_WAIT_MS = 3000.0     # 안내 요청 뒤 이만큼 응답이 없으면 「응답 없음」
 TICK_SEC = 0.1
+SWITCH_CHECK_MS = 1000.0  # 더 새 측정 세션이 생겼나 보는 간격(최종 리뷰 Important 2)
+LOCK_FILE = "/tmp/sop_measure_guide.lock"   # 한 대만(최종 리뷰 Important 3)
 RUN_STATES = ("PROCESS_RUN", "MONITOR")
 RED, YEL, GRN, DIM, BOLD, RST = "\033[41;97m", "\033[43;30m", "\033[32m", "\033[2m", "\033[1m", "\033[0m"
 
@@ -89,6 +93,7 @@ class Guide:
 
     def __init__(self, rows, emo, cue_sink=None, log_sink=None):
         self.rows, self.emo = rows or [], emo
+        self.auto = MS.has_tokens(self.rows)   # 누름 칸 없는 대본 = 안내·자동 NG 없이 N 만(최종 리뷰 Important 5a)
         self.marks = []          # [(t, "ng"|"undo", 이유)]
         self.cued = {}           # {(실제 판 번호, 낱말 자리): 요청 시각}
         self.ng_cued = set()     # 「다시」를 낸 판
@@ -120,14 +125,14 @@ class Guide:
             self.view = {"res": None, "run": None, "cur": None}
             return None
         if len(events) != self._n:                       # 새 사건이 있을 때만 다시 맞춘다(CPU)
-            self._res = MS.match(events, self.rows, self.marks, ahead=0, emo=self.emo)
+            self._res = MS.match(events, self.rows, self.marks, ahead=0, emo=self.emo, auto=self.auto)
             self._runs = MS.runs_of(events)
             self._n = len(events)
         res, runs = self._res, self._runs
         cur = runs[-1] if runs and runs[-1]["end"] == "open" else None
         r = res["runs"][-1] if cur is not None else None
         self.view = {"res": res, "run": r, "cur": cur}
-        if r is None or r["script"] is None:
+        if r is None or r["script"] is None or not self.auto:
             return None
         if r["status"] == "ng" or r["live_ng"]:
             if r["i"] not in self.ng_cued and r["live_ng"]:
@@ -230,10 +235,91 @@ def session_rows(d):
     return info, MS.load_script(os.path.join(d, name), MR.recipe_buttons(), MR.emo_button())
 
 
-def newest_session(base=MEASURE_DIR):
-    names = sorted(n for n in os.listdir(base)
-                   if n not in SKIP_DIRS and os.path.isfile(os.path.join(base, n, "session.json")))
-    return os.path.join(base, names[-1]) if names else None
+def _ended(d):
+    return any(k == "measure_end" for _, k, _ in measure_check.load_events(os.path.join(d, "events.csv")))
+
+
+def pick_session(base=MEASURE_DIR, done=()):
+    """따라갈 세션 — 가장 새 「기록 켬」 세션 하나만 · 끝났거나 이미 따라갔으면 None(기다린다).
+    🔴 오래된 세션으로 돌아가지 않는다 — 비정상 종료로 끝 사건이 없는 옛 세션을 따라가면 안내가 엉뚱해진다(최종 리뷰 Important 2)."""
+    for n in sorted(os.listdir(base), reverse=True):
+        d = os.path.join(base, n)
+        if n in SKIP_DIRS or not os.path.isfile(os.path.join(d, "session.json")):
+            continue
+        try:
+            with open(os.path.join(d, "session.json"), encoding="utf-8") as f:
+                if json.load(f).get("측정기록") is False:
+                    continue                             # 기록 끔 회차 — events.csv 가 없다
+        except (OSError, ValueError):
+            continue
+        return None if d in done or _ended(d) else d
+    return None
+
+
+def take_lock(path=LOCK_FILE, wait_sec=3.0):
+    """한 대만 돈다 — 이미 도는 진행 도우미(SSH 가 반쯤 끊겨 남은 옛 것)를 끄고 잠금을 넘겨받는다 → 잠금 파일(쥐고 있어야 한다) · 못 받으면 None.
+    🔴 둘이 돌면 같은 안내가 두 번 나고 31 에 잡음이 섞인다(최종 리뷰 Important 3)."""
+    import fcntl
+    f = open(path, "a+", encoding="utf-8")
+    end, asked = time.time() + wait_sec, False
+    while True:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            if not asked:
+                f.seek(0)
+                old = f.read().strip()
+                if old.isdigit() and int(old) != os.getpid():
+                    try:
+                        os.kill(int(old), signal.SIGTERM)
+                    except OSError:
+                        pass
+                asked = True
+            if time.time() > end:
+                f.close()
+                return None
+            time.sleep(0.1)
+    f.seek(0)
+    f.truncate()
+    f.write(str(os.getpid()))
+    f.flush()
+    return f
+
+
+def handle_keys(chars, pending, now_ms):
+    """키 → (기다리는 N 시각 또는 None, [(일, 시각, 이유)]) — N 뒤 1 사람 · 2 장비 · 3초면 사람 · 기다리는 중 U = 그 N 취소
+    · U = 마지막 수동 NG 취소 · Q = 끝(기다리던 N 은 사람으로 남긴다)(최종 리뷰 Minor 5·6)."""
+    acts = []
+    for c in chars:
+        if pending is not None and c in "12":
+            acts.append(("ng", pending, "장비" if c == "2" else "사람"))
+            pending = None
+        elif pending is not None and c in "uU":
+            pending = None
+        elif c in "nN":
+            pending = now_ms
+        elif c in "uU":
+            acts.append(("undo", now_ms, None))
+        elif c in "qQ":
+            if pending is not None:
+                acts.append(("ng", pending, "사람"))
+                pending = None
+            acts.append(("quit", now_ms, None))
+    if pending is not None and now_ms - pending >= REASON_MS:
+        acts.append(("ng", pending, "사람"))
+        pending = None
+    return pending, acts
+
+
+def summary(res, name):
+    """세션 끝 요약 — 다음 세션을 기다리는 동안 보인다(설계 §4.4)."""
+    if not res:
+        return f"{name} — 세션이 끝났다"
+    runs = res["runs"]
+    ng = [r for r in runs if r["status"] == "ng"]
+    return (f"{name} — 세션이 끝났다 · 판 {len(runs)} · NG {len(ng)}"
+            f"({' · '.join(str(r['i']) + '번째' for r in ng) or '없음'}) · 미완 {sum(1 for r in runs if r['status'] == 'partial')}")
 
 
 def render(view, rows, ack, pending, name):
@@ -242,7 +328,9 @@ def render(view, rows, ack, pending, name):
     L = [f"{BOLD}SOP 가디언 측정 진행 — {name}{RST}    {ack}", ""]
     if not rows:
         L += ["대본 없음 — 안내 소리 없이 N 키만 쓴다", ""]
-    elif res is not None:
+    elif not MS.has_tokens(rows):
+        L += ["누름 칸 없는 대본 — 안내 소리·자동 NG 없이 N 키만 쓴다(대본 줄은 아래)", ""]
+    if rows and res is not None:
         total = len(res["order"])
         ng = [x for x in res["runs"] if x["status"] == "ng"]
         k = r["script"] if r is not None else res["next"]
@@ -279,13 +367,15 @@ def render(view, rows, ack, pending, name):
     return "\n".join(L)
 
 
-def read_key(timeout):
-    r, _, _ = select.select([sys.stdin], [], [], timeout)
-    return sys.stdin.read(1) if r else None
+def read_keys(timeout):
+    """한 번에 들어온 글자를 모두 — os.read 로 직접(버퍼에 글자가 묻히지 않게 · 최종 리뷰 Minor 5)."""
+    fd = sys.stdin.fileno()
+    r, _, _ = select.select([fd], [], [], timeout)
+    return os.read(fd, 32).decode("utf-8", "ignore") if r else ""
 
 
 def follow(d):
-    """한 세션을 끝(measure_end)까지 따라간다 → "q"(끝) 또는 "next"."""
+    """한 세션을 끝(measure_end)까지 따라간다 → ("q" | "next", 요약). 더 새 기록 세션이 생기면 그쪽으로 넘어간다(Important 2)."""
     _, rows = session_rows(d)
     gpath = os.path.join(d, "guide.csv")
     old = measure_check.load_events(gpath)
@@ -298,51 +388,60 @@ def follow(d):
     g = Guide(rows, MR.emo_button(), cue_sink=sink, log_sink=glog.write)
     g.restore(old)
     tail = Tail(os.path.join(d, "events.csv"))
-    pending, screen = None, None
+    pending, screen, checked = None, None, 0.0
+    name = os.path.basename(d)
     while True:
         tail.poll()
         now = measure_log.now_ms()
         g.step(tail.rows, now)
-        key = read_key(TICK_SEC)
-        if pending is not None and (key in ("1", "2") or now - pending >= REASON_MS):
-            g.mark(pending, "ng", "장비" if key == "2" else "사람")
-            pending, key = None, None
-        if key in ("n", "N"):
-            pending = now
-        elif key in ("u", "U"):
-            g.mark(now, "undo")
-        elif key in ("q", "Q"):
-            return "q"
-        s = render(g.view, rows, ack_status(last_req[0]), pending, os.path.basename(d))
+        pending, acts = handle_keys(read_keys(TICK_SEC), pending, measure_log.now_ms())
+        for kind, t, why in acts:
+            if kind == "quit":
+                return "q", ""
+            g.mark(t, kind, why)
+        s = render(g.view, rows, ack_status(last_req[0]), pending, name)
         if s != screen:
             sys.stdout.write("\033[2J\033[H" + s + "\n")
             sys.stdout.flush()
             screen = s
         if any(k == "measure_end" for _, k, _ in tail.rows[-3:]):
-            sys.stdout.write("\n세션이 끝났다 — 다음 세션을 기다린다(Q = 끝)\n")
-            sys.stdout.flush()
-            return "next"
+            return "next", summary(g.view["res"], name)
+        if now - checked >= SWITCH_CHECK_MS:
+            checked = now
+            newer = pick_session()
+            if newer is not None and newer != d and os.path.basename(newer) > name:
+                return "next", f"{name} — 더 새 측정 세션이 열려 그쪽으로 넘어갔다(이 세션은 끝 사건이 없다)"
 
 
 def run_live():
     import termios
     import tty
+    lock = take_lock()
+    if lock is None:
+        print("🔴 다른 진행 도우미를 끄지 못했다 — 그 창에서 Q 로 끄고 다시 켜라")
+        return 1
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
+    # 🔑 SIGTERM(새로 켠 진행 도우미가 끈다) · SIGHUP(SSH 끊김)도 터미널을 되돌리고 끝낸다(최종 리뷰 Minor 11)
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, lambda *_: sys.exit(0))
     tty.setcbreak(fd)
     try:
-        done = set()
+        done, last, screen = set(), "", None
         while True:
-            d = newest_session()
-            ended = d is None or d in done or any(
-                k == "measure_end" for _, k, _ in measure_check.load_events(os.path.join(d, "events.csv")))
-            if ended:
-                sys.stdout.write("\033[2J\033[H측정 세션을 기다린다 — 실행기(SOP 가디언 측정)를 켜면 따라간다 · Q = 끝\n")
-                sys.stdout.flush()
-                if read_key(1.0) in ("q", "Q"):
+            d = pick_session(done=done)
+            if d is None:
+                s = (last + "\n\n" if last else "") + "측정 세션을 기다린다 — 실행기(SOP 가디언 측정)를 켜면 따라간다 · Q = 끝"
+                if s != screen:
+                    sys.stdout.write("\033[2J\033[H" + s + "\n")
+                    sys.stdout.flush()
+                    screen = s
+                if any(c in "qQ" for c in read_keys(1.0)):
                     return 0
                 continue
-            if follow(d) == "q":
+            how, last = follow(d)
+            screen = None
+            if how == "q":
                 return 0
             done.add(d)
     finally:

@@ -115,6 +115,69 @@ def test_ack_status():
         check("응답" in s and "없음" not in s, s)
 
 
+def _sess(base, name, on=True, ended=False, events=True):
+    d = os.path.join(base, name)
+    os.makedirs(d)
+    with open(os.path.join(d, "session.json"), "w", encoding="utf-8") as f:
+        json.dump({"입력": {"대본": ""}, "측정기록": on}, f)
+    if events:
+        with open(os.path.join(d, "events.csv"), "w", encoding="utf-8") as f:
+            f.write("t_ms,kind,data\n1.0,run_start,{}\n" + ('2.0,measure_end,"{}"\n' if ended else ""))
+    return d
+
+
+def test_pick_session():
+    print("\n[세션 고르기] 가장 새 기록 세션 하나만 — 기록 끔은 건너뛰고 · 끝났거나 따라간 것이면 기다린다(오래된 세션으로 돌아가지 않는다) · 더 새 세션이 생기면 그쪽(최종 리뷰 Important 2)")
+    with tempfile.TemporaryDirectory() as base:
+        os.makedirs(os.path.join(base, "폐기"))
+        a = _sess(base, "20261011_100000_장소1_위반")
+        check(G.pick_session(base) == a, "기록 중인 세션")
+        _sess(base, "20261011_110000_장소1_시험", on=False, events=False)
+        check(G.pick_session(base) == a, "더 새 세션이 기록 끔이면 건너뛴다")
+        b = _sess(base, "20261011_120000_장소1_위반")
+        check(G.pick_session(base) == b, "더 새 기록 세션이 생기면 그쪽")
+        check(G.pick_session(base, done={b}) is None, "가장 새 것을 이미 따라갔으면 기다린다(옛 a 로 돌아가지 않는다)")
+        _sess(base, "20261011_130000_장소1_위반", ended=True)
+        check(G.pick_session(base) is None, "가장 새 것이 끝났으면 기다린다")
+
+
+def test_single_instance():
+    print("\n[한 대만] 새로 켠 진행 도우미가 옛 것을 끄고 잠금을 넘겨받는다 — 안내가 겹치지 않게(최종 리뷰 Important 3)")
+    import subprocess
+    import time
+    with tempfile.TemporaryDirectory() as d:
+        lock = os.path.join(d, "g.lock")
+        code = ("import sys, time; sys.path.insert(0, %r); import measure_guide as G; "
+                "f = G.take_lock(%r); print('잡음', flush=True); time.sleep(30)") % (_DEMO, lock)
+        p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+        check(p.stdout.readline().strip() == "잡음", "옛 진행 도우미가 잠금을 잡았다")
+        t0 = time.time()
+        f = G.take_lock(lock, wait_sec=5.0)
+        check(f is not None and p.wait(timeout=5) is not None and time.time() - t0 < 5, "옛 것을 끄고 넘겨받았다")
+        with open(lock, encoding="utf-8") as fh:
+            check(fh.read().strip() == str(os.getpid()), "잠금 파일에 새 pid")
+
+
+def test_keys():
+    print("\n[키] N 뒤 1·2 · 3초 · U 는 기다리는 N 을 취소 · 한 번에 들어온 글자도 차례로(최종 리뷰 Minor 5·6)")
+    pend, acts = G.handle_keys("N2", None, 1000.0)
+    check(pend is None and acts == [("ng", 1000.0, "장비")], f"N2 = {acts}")
+    pend, acts = G.handle_keys("n", None, 1000.0)
+    check(pend == 1000.0 and acts == [], "N 만 = 이유 기다림")
+    check(G.handle_keys("", pend, 4100.0) == (None, [("ng", 1000.0, "사람")]), "3초 지나면 사람")
+    check(G.handle_keys("u", pend, 1500.0) == (None, []), "기다리는 N 을 U 로 취소 = 기록 없음")
+    check(G.handle_keys("U", None, 2000.0) == (None, [("undo", 2000.0, None)]), "U = 마지막 N 취소")
+    check(G.handle_keys("q", None, 0.0)[1] == [("quit", 0.0, None)], "Q = 끝")
+
+
+def test_no_token_rows():
+    print("\n[누름 칸 없음] 옛 대본이면 안내·자동 NG 없이 N 만(최종 리뷰 Important 5a)")
+    R = [{"판": 1, "행동": "정상", "대상": "", "메모": "m", "누름": "", "낱말": []}]
+    g = G.Guide(R, "EMO", cue_sink=lambda k, t: None)
+    ev = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B1"), E(20, "press", button="B3", expected="B1", state="MONITOR", source="gpio")]
+    check(g.step(ev, 5000.0) is None and not g.auto, "안내·「다시」 없음")
+
+
 def main():
     test_next_cue()
     test_guide_step_and_ng()
@@ -122,6 +185,10 @@ def main():
     test_no_script()
     test_tail_and_req()
     test_ack_status()
+    test_pick_session()
+    test_single_instance()
+    test_keys()
+    test_no_token_rows()
     print()
     if _fails:
         print(f"❌ {len(_fails)}건 실패")
