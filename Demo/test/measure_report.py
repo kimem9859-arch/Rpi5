@@ -28,6 +28,8 @@ import config               # noqa: E402 — EMO 폴백(fsm.py 와 같다)
 import fps                  # noqa: E402
 import measure_check        # noqa: E402 — 사건 읽기(잘린 마지막 줄 건너뜀) 재사용
 import measure_count as MC  # noqa: E402
+import measure_script       # noqa: E402 — 대본 읽기 · 판 맞춤 단일 출처(진행 도우미 설계 D3)
+load_script = measure_script.load_script    # 옛 이름 그대로(시험·호출부 호환)
 
 TARGETS_MD = os.path.join(os.path.dirname(os.path.dirname(_DEMO)), "docs", "통합문서.md")
 RECIPE = os.path.join(_DEMO, "recipe.json")
@@ -88,30 +90,6 @@ def mic_rate(src=None):
     raise ValueError(f"RATE 상수가 없다: {src}")
 
 
-def load_script(path, buttons=None):
-    """대본 CSV(설계 §5) — 빈 줄·BOM 은 받는다 · 행동 철자·판 숫자·위반/머묾 대상(레시피 버튼) 오류는 줄 번호와 함께 멈춘다."""
-    name, rows = os.path.basename(path), []
-    with open(path, encoding="utf-8-sig", newline="") as f:
-        rd = csv.DictReader(f)
-        for r in rd:
-            n = rd.line_num                         # 빈 줄이 있어도 파일의 실제 줄 번호
-            r = {k.strip(): (v or "").strip() for k, v in r.items() if k}
-            if not any(r.values()):
-                continue
-            if r.get("행동") not in MC.ACTIONS:
-                raise ValueError(f"대본 {name} {n}행 — 행동 「{r.get('행동')}」 은(는) {'·'.join(MC.ACTIONS)} 가운데 하나여야 한다")
-            try:
-                r["판"] = int(r.get("판", ""))
-            except ValueError:
-                raise ValueError(f"대본 {name} {n}행 — 판 「{r.get('판')}」 은(는) 1부터의 숫자여야 한다") from None
-            for k in ("대상", "기대", "메모"):
-                r.setdefault(k, "")
-            if buttons and r["행동"] in ("위반", "머묾") and r["대상"] not in buttons:
-                raise ValueError(f"대본 {name} {n}행 — {r['행동']} 대상 「{r['대상']}」 은(는) 레시피 버튼({'·'.join(buttons)}) 가운데 하나여야 한다")
-            rows.append(r)
-    return rows
-
-
 def load_session(d):
     """세션 폴더 → S(measure_count 머리말의 꼴)."""
     d = d.rstrip("/")
@@ -138,7 +116,7 @@ def load_session(d):
     fsm.sort(key=lambda x: x["t"])
     inp = info.get("입력") or {}
     steps = recipe_buttons()
-    script = load_script(os.path.join(d, inp["대본"]), buttons=steps) if inp.get("대본") else None
+    script = load_script(os.path.join(d, inp["대본"]), buttons=steps, emo=emo_button()) if inp.get("대본") else None
     try:
         rate = mic_rate()
     except (OSError, ValueError, SyntaxError):

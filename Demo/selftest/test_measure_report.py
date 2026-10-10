@@ -88,7 +88,8 @@ def test_load_session():
         S = MR.load_session(make_session(os.path.join(tmp, "s1")))
         check(len(S["frames"]) == 3 and S["frames"][0]["roi"] is None and S["frames"][1]["level"] == 2, "프레임 3 · 빈 구역 = None")
         check([k for _, k, _ in S["events"]][:3] == ["run_start", "state", "press"], "사건 시각 순")
-        check(S["script"] == [{"판": 1, "행동": "위반", "대상": "B3", "기대": "", "메모": ""}], f"대본 = {S['script']}")
+        check(S["script"] == [{"판": 1, "행동": "위반", "대상": "B3", "기대": "", "메모": "", "누름": "", "낱말": []}],
+              f"대본 = {S['script']} — 누름 칸이 없으면 빈 칸 · 낱말 없음(진행 도우미 설계 §4.2)")
         check(S["emo"] == MR.emo_button() and S["kind"] == "위반" and S["rate"] == MR.mic_rate(), "EMO · 종류 · 표본률")
         check(MC.v_prevent(S) == {"n": 1, "k": 1, "late": 0, "short": 0}, f"1 = {MC.v_prevent(S)}")
         check(S["steps"] == MR.recipe_buttons() and len(S["steps"]) > 0, f"레시피 단계 버튼 = {S['steps']}")

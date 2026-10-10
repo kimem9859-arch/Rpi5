@@ -22,6 +22,7 @@ sys.path.insert(0, _TEST)                       # Demo/test/ — hoi_metrics
 
 import fps            # noqa: E402 — FPS 창·끊김 = 시연 화면과 같은 상수
 import hoi_metrics    # noqa: E402 — 사전 감지·선행시간·구간 판정 규칙 단일 출처
+import measure_script  # noqa: E402 — 대본 행동 · 판 맞춤 단일 출처(진행 도우미 설계 D3)
 
 # ── 세기에만 있는 값(설계 §3-b 마지막 행) ──────────────────────────────────
 EDGE_PAIR_MS = 500.0                    # 누름 ↔ 같은 버튼 GPIO 엣지 짝 — 화면 처리 시각 앞 0.5초 안(디바운스 0.05초보다 넉넉히)
@@ -32,7 +33,7 @@ BYTES_PER_SAMPLE = 2                    # 마이크 업링크 = int16 · 1채널
 GAP_MAX_SEC = 2.0                       # 28 — 이보다 긴 공백은 손을 떼고 돌아온 것(손 놓침 아님 · 갭메우기 0.3초의 몇 배)
 
 RUN_STATES = ("PROCESS_RUN", "MONITOR", "WARNING")     # 판이 진행 중인 판정기 상태(fsm.State 이름)
-ACTIONS = ("정상", "위반", "머묾", "틀린공구", "호출", "질문", "비상질문")   # 대본 행동(설계 §5)
+ACTIONS = measure_script.ACTIONS                       # 대본 행동 — 단일 출처(진행 도우미 설계 D3)
 STAGES = ("decode_ms", "orient_ms", "detect_ms", "track_ms", "hand_ms", "tool_ms", "zone_ms")
 REQ_CMD = {("engage", True): "BLOCK", ("feedback", "BLOCK"): "BLOCK", ("feedback", "WARNING"): "WARN"}   # interlock_req → 그 요청이 부르는 명령(interlock._FEEDBACK_TO_CMD · set_interlock)
 
