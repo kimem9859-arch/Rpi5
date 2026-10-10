@@ -155,6 +155,24 @@ def test_script_path_tilde_and_missing():
     check(r.returncode != 0 and os.listdir(base2) == [], f"없는 대본 rc={r.returncode} · {os.listdir(base2)}")
 
 
+def test_script_tokens_checked_before_folder():
+    print("\n[세션] .csv 대본의 누름 낱말이 틀리면 폴더를 만들기 전에 멈춘다 · 칸이 빈 누름 줄은 경고(최종 리뷰 Minor 10)")
+    d = tempfile.mkdtemp()
+    bad = os.path.join(d, "틀림.csv")
+    with open(bad, "w", encoding="utf-8") as f:
+        f.write("판,행동,대상,기대,메모,누름\n1,위반,B2,,,B2@B1\n2,위반,B3,,,B9\n")
+    base = tempfile.mkdtemp()
+    cmd = [sys.executable, os.path.join(_DEMO_DIR, "measure_session.py"), "--base", base,
+           "--place", "1", "--kind", "2", "--hand", "1", "--person", "1", "--on", "1"]
+    r = subprocess.run(cmd + ["--script", bad], capture_output=True, text=True)
+    check(r.returncode != 0 and os.listdir(base) == [] and "3행" in r.stderr, f"틀린 낱말 rc={r.returncode} · {r.stderr[-160:]}")
+    warn = os.path.join(d, "빈칸.csv")
+    with open(warn, "w", encoding="utf-8") as f:
+        f.write("판,행동,대상,기대,메모,누름\n1,위반,B2,,,B2@B1\n2,위반,B3,,,\n")
+    r = subprocess.run(cmd + ["--script", warn], capture_output=True, text=True)
+    check(r.returncode == 0 and "누름 칸이 빈" in r.stderr, f"빈 칸 경고 rc={r.returncode} · {r.stderr[-160:]}")
+
+
 def test_place3():
     print("\n[세션] 장소3(시연 영상 장소 · 줄인 판) 을 받는다 — 폴더 이름 · session.json 「장소」")
     base = tempfile.mkdtemp()
@@ -207,6 +225,7 @@ if __name__ == "__main__":
     test_launcher_records_glasses_power()
     test_script_by_number()
     test_place3()
+    test_script_tokens_checked_before_folder()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

@@ -114,6 +114,20 @@ def main():
         a.script = os.path.join(a.script_dir, names[int(a.script) - 1])
     if a.script and not os.path.isfile(a.script):
         ap.error(f"대본 파일이 없다: {a.script}")
+    if a.script.endswith(".csv"):
+        # 🔑 누름 낱말도 폴더를 만들기 전에 — 틀리면 진행 도우미가 켜지자마자 꺼진다(최종 리뷰 Minor 10 · 진행 도우미 설계 §4.2)
+        import measure_script
+        import recipe
+        try:
+            rcp = recipe.load_recipe()
+            rows = measure_script.load_script(a.script, [st["button"] for st in rcp["steps"]], rcp.get("emo_button") or "EMO")
+        except (ValueError, recipe.RecipeError) as e:
+            ap.error(str(e))
+        if measure_script.has_tokens(rows):
+            empty = [r["판"] for r in rows if r["행동"] in ("정상", "위반", "머묾", "틀린공구") and not r["낱말"]]
+            if empty:
+                print(f"⚠️ 누름 칸이 빈 누름 줄(판 {'·'.join(map(str, empty))}) — 진행 도우미가 그 줄을 안내하지 않는다",
+                      file=sys.stderr)
     os.makedirs(a.base, exist_ok=True)
     out = os.path.join(a.base, session_dir_name(a.place, a.kind))
     answers = {"장소": a.place, "세션": KINDS[a.kind], "손": HANDS[a.hand], "사람": a.person,
