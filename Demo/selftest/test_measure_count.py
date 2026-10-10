@@ -105,8 +105,16 @@ def test_prevent_and_lead():
           P(4000, "B4")]
     fsm = [FS(1980, roi="B3", level=2), FS(2950, roi=None), FS(3950, roi="B4", level=2, t_gui=3960)]
     S = S_(ev, fsm=fsm)
-    check(MC.v_prevent(S) == {"n": 4, "k": 1, "late": 1, "short": 1},
-          f"1 = {MC.v_prevent(S)} — 처리 늦음 = 그 프레임을 누름보다 늦게 처리 · 체류 미달 = 먼저 처리했는데 경고 없음")
+    check(MC.v_prevent(S) == {"n": 4, "k": 1, "late": 0, "short": 2, "ring": 0, "none": 1},
+          f"1 = {MC.v_prevent(S)} — 문턱 없는 설정 = 체류로 가를 수 없어 체류 미달로")
+    S2 = S_([E(0, "run_start"), E(1500, "gpio_edge", button="B3", src="edge"), P(1510, "B3"),
+             E(2500, "gpio_edge", button="B4", src="edge"), P(2510, "B4"),
+             E(3500, "gpio_edge", button="B1", src="edge"), P(3510, "B1")],
+            fsm=[FS(1000, roi="B3", level=1), FS(1100, roi="B3", level=2), FS(1400, roi="B3", level=2, t_gui=1600),
+                 FS(2400, roi="B4", level=1), FS(3400, roi="B3", level=2)],
+            settings={"FSM_GAP_FILL_SEC": 0.3, "FSM_DWELL_THRESHOLD_SEC": 0.3})
+    check(MC.v_prevent(S2) == {"n": 3, "k": 0, "late": 1, "short": 0, "ring": 1, "none": 1},
+          f"1 = {MC.v_prevent(S2)} — 체류 0.4초(링부터)·박스 안 = 처리 늦음 · 링에만 · 다른 버튼 = 손 없음")
     check(MC.v_lead(S) == {"leads": [0.08]}, f"4 = {MC.v_lead(S)}")
 
 
@@ -309,6 +317,16 @@ def test_voice():
     s4 = S_(voice=[E(100, "alert", key="경고", t_pub_ms=90.0), E(200, "play_start"), E(400, "play_end", what="중단")])
     check(MC.v_alert_len(s4) == {"lens": [], "cut": 1}, f"V4 중단 = {MC.v_alert_len(s4)}")
     check(MC.v_alert_count(S_(ev)) == {"off": 1}, "음성 기록이 없으면 V2 = 끔")
+    print("  — 알림 둘이 붙어 와도 재생 하나를 나눠 쓰지 않는다 · 안내(cue_) 재생은 뺀다 · 알림 끈 세션")
+    v2 = [E(1000, "alert", key="alert_warn_B2", t_pub_ms=990.0), E(1100, "alert", key="alert_block_B2", t_pub_ms=1090.0),
+          E(1150, "play_start", key="alert_warn_B2"), E(1160, "play_end", what="중단", key="alert_warn_B2"),
+          E(1900, "play_start", key="alert_block_B2"), E(3900, "play_end", what="완료", key="alert_block_B2"),
+          E(5000, "play_start", key="cue_B1"), E(5400, "play_end", what="완료", key="cue_B1")]
+    s5 = S_(voice=v2)
+    check(MC.v_alert_delay(s5) == {"delays": [0.16, 0.81], "missing": 0}, f"V1 = {MC.v_alert_delay(s5)}")
+    check(MC.v_alert_len(s5) == {"lens": [2.0], "cut": 1}, f"V4 = {MC.v_alert_len(s5)}")
+    s6 = S_(voice=[], settings={"FSM_GAP_FILL_SEC": 0.3, "VOICE_ALERTS": False})
+    check(MC.v_alert_delay(s6) == {"delays": [], "missing": 0, "off": 1}, f"V1 끔 = {MC.v_alert_delay(s6)}")
 
 
 def test_uplink():
@@ -323,7 +341,7 @@ def test_count_all_keys():
     print("\n[모두] 한 세션의 값 키")
     keys = set(MC.count_all(S_()).keys())
     check(keys == {"1", "4", "16", "3", "25", "5", "23", "28", "21", "12", "26", "14", "30", "17a", "17b", "18",
-                   "V1", "V2", "V3", "V4", "V9"}, f"{sorted(keys)}")
+                   "V1", "V2", "V3", "V4", "V9", "31"}, f"{sorted(keys)}")
 
 
 def test_fps_short_session():
@@ -371,6 +389,36 @@ def test_zone_noframe():
     print("\n[5] 프레임 기록이 없는 누름은 분모에서 뺀다(따로 센다)")
     z = MC.v_zone(S_([E(0, "run_start"), P(100, "B2")]))
     check((z["n"], z["noframe"]) == (0, 1), f"{z}")
+
+
+def test_split_guide():
+    print("\n[판 맞춤] NG·대본 밖 판의 기록을 그 판째 빼고 대본을 남은 판 순서로 다시 번호 매긴다")
+    import measure_script as MS
+    B = ["B1", "B2", "B3", "B4"]
+    rows = [{"판": 1, "행동": "위반", "대상": "B2", "기대": "", "메모": "", "누름": "B2@B1", "낱말": MS.parse_tokens("B2@B1", B)},
+            {"판": 2, "행동": "위반", "대상": "B3", "기대": "", "메모": "", "누름": "B3@B1", "낱말": MS.parse_tokens("B3@B1", B)}]
+    ev = [E(0, "run_start"), P(10, "B4", expected="B1"), E(90, "run_reset", why="작업 초기화"),
+          E(100, "run_start"), P(110, "B2", expected="B1"), E(190, "run_reset", why="작업 초기화"),
+          E(200, "run_start"), P(210, "B3", expected="B1"), E(290, "run_reset", why="작업 초기화")]
+    S = S_(ev, frames=[FR(1, 50), FR(2, 150)], fsm=[FS(50), FS(150)], script=rows)
+    res = MS.match(S["events"], rows, ahead=2)
+    G = MC.split_guide(S, res)
+    check([e[0] for e in G["events"]] == [100.0, 110.0, 190.0, 200.0, 210.0, 290.0], f"{[e[0] for e in G['events']]}")
+    check([f["t"] for f in G["frames"]] == [150.0] and [f["t"] for f in G["fsm"]] == [150.0], "프레임·판정기 줄도 판째")
+    check([(r["판"], r["대상"]) for r in G["script"]] == [(1, "B2"), (2, "B3")], f"{[(r['판'], r['대상']) for r in G['script']]}")
+    check(G["breaks"] == [(0.0, 90.0)] and G["guide"] is res, f"breaks = {G['breaks']}")
+
+
+def test_cue():
+    print("\n[31] 안내 재생 시작 → 그 버튼 GPIO 엣지 · 구역 첫 관측으로 나눔 · 안내 뒤 누름 없음")
+    ev = [E(0, "run_start"), E(1700, "gpio_edge", button="B2", src="edge"), P(1710, "B2", expected="B1"),
+          E(4600, "gpio_edge", button="B1", src="edge"), P(4610, "B1", expected="B1")]
+    voice = [E(1000, "play_start", key="cue_B2"), E(4000, "play_start", key="cue_B1"),
+             E(6000, "play_start", key="cue_hover_B3"), E(8000, "play_start", key="cue_B3")]
+    fsm = [FS(1400, roi="B2", level=1), FS(4300, roi="B1", level=2)]
+    v = MC.v_cue(S_(ev, fsm=fsm, voice=voice))
+    check(v == {"total": [0.7, 0.6], "viol": [0.7], "ok": [0.6], "reach": [0.4, 0.3], "stay": [0.3, 0.3], "nopress": 1},
+          f"31 = {v}")
 
 
 if __name__ == "__main__":

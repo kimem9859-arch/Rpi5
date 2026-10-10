@@ -132,18 +132,38 @@ def split_recording(S):
     간격을 끊김·받은 간격으로 세지 않게 한다(v_fps · v_stages)."""
     spans = rec_spans(S["events"])
     if not spans:
-        return dict(S, rec_spans=[], breaks=[]), None
+        return dict(S, rec_spans=[], breaks=list(S.get("breaks") or [])), None
     res_t = [t for t, k, _ in S["events"] if k == "res"]
     S = dict(S, first_res_t=res_t[0] if res_t else None)              # 세션 첫 res — 두 쪽 다 이것만 뺀다(v_res)
     inside = lambda t: any(a <= t <= b for a, b, _ in spans)             # noqa: E731
     pick = lambda rows, key, keep: [r for r in rows if inside(key(r)) != keep]   # noqa: E731
     lists = {"events": lambda e: e[0], "voice": lambda e: e[0], "frames": lambda r: r["t"], "fsm": lambda r: r["t"]}
-    M = dict(S, rec_spans=spans, breaks=[(a, b) for a, b, _ in spans],
+    M = dict(S, rec_spans=spans, breaks=[(a, b) for a, b, _ in spans] + list(S.get("breaks") or []),
              **{k: pick(S[k], f, True) for k, f in lists.items()})
     R = dict(S, rec_spans=spans, breaks=[(spans[i][1], spans[i + 1][0]) for i in range(len(spans) - 1)],
              **{k: [r for r in pick(S[k], f, False)
                     if not (k == "events" and r[1] in ("recording_on", "recording_off"))] for k, f in lists.items()})
     return M, R
+
+
+
+def split_guide(S, res):
+    """판 맞춤(measure_script.match) → NG·대본 밖 판의 모든 기록(events·voice·frames·fsm)을 그 판째 빼고 대본을 남은 판
+    차례로 다시 번호 매긴다 — 남은 판 i = 대본 판 i 라 값 함수는 그대로 쓴다(진행 도우미 설계 D12).
+    🔑 빠진 판은 breaks 로 남겨 그 구간을 넘는 간격을 끊김으로 세지 않는다(split_recording 과 같은 방식)."""
+    drop = [(r["t0"], r["t1"] if r["t1"] is not None else float("inf"))
+            for r in res["runs"] if r["status"] in ("ng", "extra")]
+    keep = [r for r in res["runs"] if r["status"] not in ("ng", "extra")]
+    inside = lambda t: any(a <= t <= b for a, b in drop)           # noqa: E731
+    lists = {"events": lambda e: e[0], "voice": lambda e: e[0], "frames": lambda r: r["t"], "fsm": lambda r: r["t"]}
+    script = S["script"]
+    if script is not None:
+        by = {}
+        for row in script:
+            by.setdefault(int(row["판"]), []).append(row)
+        script = [dict(row, 판=n) for n, r in enumerate(keep, 1) if r["script"] is not None for row in by.get(r["script"], [])]
+    return dict(S, script=script, guide=res, breaks=list(S.get("breaks") or []) + drop,
+                **{k: [x for x in S[k] if not inside(f(x))] for k, f in lists.items()})
 
 
 def _crosses(a, b, breaks):
@@ -170,21 +190,32 @@ def merge(parts):
 # ── 1 · 4 · 2·16 · 25 · 3 ────────────────────────────────────────────────
 def v_prevent(S):
     """1 위반 사전 차단율 — 누를 때 판정기 상태 = WARNING.
-    진단(성공으로 세지 않는다) — 누르기 직전 프레임에 그 버튼 안쪽 상자였는데 경고가 없던 눌림을 둘로 가른다:
-    late = 그 프레임을 판정기가 누름보다 늦게 처리(처리 늦음) · short = 먼저 처리했는데 경고 전(체류 미달)."""
-    ft = [r["t"] for r in S["fsm"]]
-    viol, k, late, short = violations(S), 0, 0, 0
-    for p in viol:
+    진단(성공으로 세지 않는다 · 진행 도우미 설계 D13①) — 경고가 없던 눌림을 누르는 순간(GPIO 엣지)까지의 판정기 줄로 가른다:
+    none = 그 버튼 구역에 손 없음 · ring = 링에만(박스 안 줄 없음) · late = 박스 안에서 체류 문턱을 넘긴 줄을 누르기 전에
+    받았는데 판정기가 누름보다 늦게 처리 · short = 체류 미달(문턱을 못 채움 — 문턱이 기록에 없으면 이쪽)."""
+    thr = (S.get("settings") or {}).get("FSM_DWELL_THRESHOLD_SEC")
+    F = S["fsm"]
+    ft = [r["t"] for r in F]
+    out = {"n": 0, "k": 0, "late": 0, "short": 0, "ring": 0, "none": 0}
+    for p in violations(S):
+        out["n"] += 1
         if p["state"] == "WARNING":
-            k += 1
+            out["k"] += 1
             continue
         i = bisect.bisect_right(ft, p["t_at"]) - 1
-        if i >= 0 and S["fsm"][i]["roi"] == p["button"] and S["fsm"][i]["level"] == 2:
-            if S["fsm"][i]["t_gui"] > p["t"]:
-                late += 1
-            else:
-                short += 1
-    return {"n": len(viol), "k": k, "late": late, "short": short}
+        if i < 0 or F[i]["roi"] != p["button"]:
+            out["none"] += 1
+            continue
+        j = i
+        while j > 0 and F[j - 1]["roi"] == p["button"]:
+            j -= 1
+        stretch = F[j:i + 1]
+        if not any(r["level"] == 2 for r in stretch):
+            out["ring"] += 1
+            continue
+        hit = thr is not None and any(r["level"] == 2 and r["t"] - F[j]["t"] >= thr * 1000 for r in stretch)
+        out["late" if hit else "short"] += 1
+    return out
 
 
 def v_lead(S):
@@ -574,18 +605,40 @@ def v_tool_time(S):
 
 
 # ── V1~V4 · V9 — 음성 ──────────────────────────────────────────────────────
+def _alert_plays(S):
+    """알림 재생 사건만 — 안내(cue_) 재생은 뺀다 · 옛 기록은 key 가 없다(None = 그대로 쓴다)."""
+    return [(t, k, d) for t, k, d in S["voice"]
+            if k in ("play_start", "play_end") and not str(d.get("key") or "").startswith("cue_")]
+
+
+def _alert_windows(S):
+    """알림마다 (시각, 데이터, 다음 알림 시각) — 키 없는 옛 기록은 그 알림의 재생을 이 창 안에서만 찾는다."""
+    al = [(t, d) for t, k, d in S["voice"] if k == "alert"]
+    return [(t, d, al[n + 1][0] if n + 1 < len(al) else float("inf")) for n, (t, d) in enumerate(al)]
+
+
+def _first_play(plays, t, t_next, key):
+    """그 알림의 재생 시작 — 재생에 소리 키가 있으면 같은 키의 첫 재생(새 기록 · 뒤 알림이 먼저 와도 제 재생을 찾는다)
+    · 키가 없으면 다음 알림 전의 첫 재생(옛 기록)."""
+    return next(((x, dd) for x, k, dd in plays if k == "play_start" and x >= t
+                 and (dd.get("key") == key if dd.get("key") is not None else x < t_next)), None)
+
+
 def v_alert_delay(S):
-    """V1 알림 지연 — alert 의 상태 공개 시각(t_pub_ms) → 다음 play_start(ALERT_WAIT_MS 안 · 초)."""
-    plays = [t for t, k, _ in S["voice"] if k == "play_start"]
+    """V1 알림 지연 — alert 의 상태 공개 시각(t_pub_ms) → 그 알림의 재생 시작(ALERT_WAIT_MS 안 · 초).
+    알림 끈 세션(VOICE_ALERTS False)은 세지 않는다(진행 도우미 설계 D10)."""
+    if (S.get("settings") or {}).get("VOICE_ALERTS") is False:
+        return {"delays": [], "missing": 0, "off": 1}
+    plays = _alert_plays(S)
     out = {"delays": [], "missing": 0}
-    for t, k, d in S["voice"]:
-        if k != "alert" or d.get("t_pub_ms") is None:
+    for t, d, t_next in _alert_windows(S):
+        if d.get("t_pub_ms") is None:
             continue
-        nxt = next((p for p in plays if p >= t), None)
-        if nxt is None or nxt - t > ALERT_WAIT_MS:
+        hit = _first_play(plays, t, t_next, d.get("key"))
+        if hit is None or hit[0] - t > ALERT_WAIT_MS:
             out["missing"] += 1
         else:
-            out["delays"].append(round((nxt - d["t_pub_ms"]) / 1000, 3))
+            out["delays"].append(round((hit[0] - d["t_pub_ms"]) / 1000, 3))
     return out
 
 
@@ -611,9 +664,10 @@ def v_alert_count(S):
 
 
 def v_alert_stop(S):
-    """V3 알림 끊기 — 재생 중에 해제(release ok)되면 → 다음 stop_sent(초). 재생 중이 아니었으면 세지 않는다."""
-    starts = [t for t, k, _ in S["voice"] if k == "play_start"]
-    ends = [t for t, k, _ in S["voice"] if k == "play_end"]
+    """V3 알림 끊기 — 알림 재생 중에 해제(release ok)되면 → 다음 stop_sent(초). 재생 중이 아니었으면 세지 않는다."""
+    plays = _alert_plays(S)
+    starts = [t for t, k, _ in plays if k == "play_start"]
+    ends = [t for t, k, _ in plays if k == "play_end"]
     stops = [t for t, k, _ in S["voice"] if k == "stop_sent"]
     out = {"delays": [], "missing": 0}
     for t, k, d in S["events"]:
@@ -631,21 +685,44 @@ def v_alert_stop(S):
 
 
 def v_alert_len(S):
-    """V4 알림 길이 — 알림 뒤 ALERT_WAIT_MS 안 첫 play_start → 그 뒤 첫 play_end(초). 「중단」으로 끝난 재생은 길이가 아니라 cut."""
+    """V4 알림 길이 — 그 알림의 재생 시작 → 그 뒤 첫 재생 끝(초). 「중단」으로 끝난 재생은 길이가 아니라 cut."""
+    plays = _alert_plays(S)
     out = {"lens": [], "cut": 0}
-    for t, k, _ in S["voice"]:
-        if k != "alert":
+    for t, d, t_next in _alert_windows(S):
+        hit = _first_play(plays, t, t_next, d.get("key"))
+        if hit is None or hit[0] - t > ALERT_WAIT_MS:
             continue
-        ps = next((x for x, kk, _ in S["voice"] if kk == "play_start" and x >= t), None)
-        if ps is None or ps - t > ALERT_WAIT_MS:
-            continue
-        pe = next(((x, dd) for x, kk, dd in S["voice"] if kk == "play_end" and x >= ps), None)
+        pe = next(((x, dd) for x, k, dd in plays if k == "play_end" and x >= hit[0]), None)
         if pe is None:
             continue
         if pe[1].get("what") == "중단":
             out["cut"] += 1
         else:
-            out["lens"].append(round((pe[0] - ps) / 1000, 3))
+            out["lens"].append(round((pe[0] - hit[0]) / 1000, 3))
+    return out
+
+
+def v_cue(S):
+    """31 안내 → 누름(진행 도우미 설계 D14 · 목표 없음) — 버튼 안내 재생 시작(cue_B1~B4·EMO) → 그 버튼 GPIO 엣지(다음 안내 전) ·
+    나눔 = 그 사이 판정기가 그 버튼 구역(링 포함)을 처음 본 수신 시각 → reach(안내 → 구역) · stay(구역 → 누름 = 머묾)."""
+    btns = set(S.get("steps") or ()) | {S["emo"]}
+    cues = [(t, str(d.get("key"))[4:]) for t, k, d in S["voice"]
+            if k == "play_start" and str(d.get("key") or "").startswith("cue_") and str(d.get("key"))[4:] in btns]
+    ps = [p for p in pair_presses(S["events"]) if p["source"] == "gpio"]
+    out = {"total": [], "viol": [], "ok": [], "reach": [], "stay": [], "nopress": 0}
+    for n, (t, b) in enumerate(cues):
+        t_next = cues[n + 1][0] if n + 1 < len(cues) else float("inf")
+        hit = next((p for p in ps if p["button"] == b and t <= p["t_at"] < t_next), None)
+        if hit is None:
+            out["nopress"] += 1
+            continue
+        dt = round((hit["t_at"] - t) / 1000, 3)
+        out["total"].append(dt)
+        out["ok" if (hit["expected"] == b or b == S["emo"]) else "viol"].append(dt)
+        enter = next((r["t"] for r in S["fsm"] if t <= r["t"] <= hit["t_at"] and r["roi"] == b), None)
+        if enter is not None:
+            out["reach"].append(round((enter - t) / 1000, 3))
+            out["stay"].append(round((hit["t_at"] - enter) / 1000, 3))
     return out
 
 
@@ -689,4 +766,4 @@ def count_all(S, below=None):
             "12": v_fps(S, below), "26": v_stages(S), "14": v_interlock(S), "30": v_res(S),
             "17a": v_wrong_tool(S), "17b": v_tool_time(S), "18": v_input(S),
             "V1": v_alert_delay(S), "V2": v_alert_count(S), "V3": v_alert_stop(S), "V4": v_alert_len(S),
-            "V9": v_uplink(S)}
+            "V9": v_uplink(S), "31": v_cue(S)}

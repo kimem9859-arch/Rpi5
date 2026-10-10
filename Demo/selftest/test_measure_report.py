@@ -91,7 +91,7 @@ def test_load_session():
         check(S["script"] == [{"판": 1, "행동": "위반", "대상": "B3", "기대": "", "메모": "", "누름": "", "낱말": []}],
               f"대본 = {S['script']} — 누름 칸이 없으면 빈 칸 · 낱말 없음(진행 도우미 설계 §4.2)")
         check(S["emo"] == MR.emo_button() and S["kind"] == "위반" and S["rate"] == MR.mic_rate(), "EMO · 종류 · 표본률")
-        check(MC.v_prevent(S) == {"n": 1, "k": 1, "late": 0, "short": 0}, f"1 = {MC.v_prevent(S)}")
+        check(MC.v_prevent(S) == {"n": 1, "k": 1, "late": 0, "short": 0, "ring": 0, "none": 0}, f"1 = {MC.v_prevent(S)}")
         check(S["steps"] == MR.recipe_buttons() and len(S["steps"]) > 0, f"레시피 단계 버튼 = {S['steps']}")
 
 
@@ -353,6 +353,23 @@ def test_curve_arg_error():
             check(False, "통과해 버림")
         except SystemExit as e:
             check(e.code == 2, f"종료 코드 {e.code}")
+
+
+
+def test_guide_session():
+    print("\n[판 맞춤] 대본 누름 칸 → NG 판은 그 판째 빼고 ⓪ 절에 적는다 · guide.csv 수동 N · 옛 대본은 그대로(진행 도우미 설계 D12)")
+    with tempfile.TemporaryDirectory() as tmp:
+        S = MR.load_session(make_session(os.path.join(tmp, "ok"), script="판,행동,대상,기대,메모,누름\n1,위반,B3,,,B3@B2\n"))
+        check(S["guide"]["runs"][0]["status"] == "ok" and MC.v_prevent(S)["n"] == 1, "대본대로 = 남긴다")
+        S = MR.load_session(make_session(os.path.join(tmp, "ng"), script="판,행동,대상,기대,메모,누름\n1,위반,B4,,,B4@B2\n"))
+        check(S["guide"]["runs"][0]["status"] == "ng" and MC.v_prevent(S)["n"] == 0, "안내와 다른 누름 = 그 판째 뺀다")
+        L = "\n".join(MR.guide_lines(S))
+        check("⓪" in L and "자동 NG 1(1)" in L, L)
+        d = make_session(os.path.join(tmp, "man"), script="판,행동,대상,기대,메모,누름\n1,위반,B3,,,B3@B2\n")
+        _csv(os.path.join(d, "guide.csv"), ["t_ms", "kind", "data"], [[1350, "ng", json.dumps({"why": "장비"}, ensure_ascii=False)]])
+        L = "\n".join(MR.guide_lines(MR.load_session(d)))
+        check("수동 장비 1(1)" in L, L)
+        check(MR.guide_lines(MR.load_session(make_session(os.path.join(tmp, "old")))) == [], "누름 칸 없는 옛 대본 = ⓪ 절 없음")
 
 
 if __name__ == "__main__":

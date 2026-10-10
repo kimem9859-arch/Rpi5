@@ -90,6 +90,32 @@ def mic_rate(src=None):
     raise ValueError(f"RATE 상수가 없다: {src}")
 
 
+def load_marks(path):
+    """guide.csv 의 수동 표시 → [(t_ms, "ng"|"undo", 이유)] — 없으면 빈 목록(진행 도우미 설계 D15)."""
+    return [(t, k, d.get("why")) for t, k, d in measure_check.load_events(path) if k in ("ng", "undo")]
+
+
+def guide_lines(S):
+    """「⓪ 대본과 다르게 흘러간 판」(진행 도우미 설계 §3.1) — 뺀 판(자동 · 수동 사람 · 수동 장비 · 대본 밖) · 남긴 판(미완 · 못 한 대본 판)."""
+    res = S.get("guide")
+    if not res:
+        return []
+    runs = res["runs"]
+    pick = lambda st, w="": [r for r in runs if r["status"] == st and r["why"].startswith(w)]   # noqa: E731
+    nums = lambda rs: "·".join(str(r["i"]) for r in rs) or "없음"                               # noqa: E731
+    auto, hum, dev = pick("ng", "자동"), pick("ng", "수동 — 사람"), pick("ng", "수동 — 장비")
+    part, extra = pick("partial"), pick("extra")
+    skipped = [k for r in runs for k in r["skipped"]]
+    kept_warn = sum(r["warn"] for r in runs if r["status"] not in ("ng", "extra"))
+    L = ["", f"## ⓪ 대본과 다르게 흘러간 판 — {S['name']}", "",
+         f"- 뺀 판(그 판째) — 자동 NG {len(auto)}({nums(auto)}) · 수동 사람 {len(hum)}({nums(hum)})"
+         f" · 수동 장비 {len(dev)}({nums(dev)}) · 대본 밖 {len(extra)}({nums(extra)})",
+         f"- 남긴 판 — 미완 {len(part)}({nums(part)}) · 못 한 대본 판 {'·'.join(map(str, skipped)) or '없음'}",
+         f"- 🔑 모델·판정 이상은 빼지 않았다(결과) — 남긴 판의 경고 {kept_warn}번(대본 머묾 포함)"]
+    L += [f"  - {r['i']}번째 판 · 대본 {r['script'] or '—'} · {r['why']}" for r in auto + hum + dev]
+    return L
+
+
 def load_session(d):
     """세션 폴더 → S(measure_count 머리말의 꼴)."""
     d = d.rstrip("/")
@@ -127,6 +153,10 @@ def load_session(d):
          "voice": sorted(measure_check.load_events(os.path.join(d, "voice_events.csv")), key=lambda e: e[0]),
          "script": script, "emo": emo_button(), "rate": rate, "steps": steps}
     # 🔑 녹화 구간(켬~끔)은 여기 한 곳에서 나눈다 — 모든 값은 나머지로 세고, 녹화 쪽은 「⑤ 녹화 비교」에만(측정 녹화 설계 R5)
+    if script is not None and measure_script.has_tokens(script):
+        # 🔑 판 맞춤 — NG·대본 밖 판을 빼고 대본을 남은 판에 맞춘다(진행 도우미 설계 D12 · 세기는 앞 찾기 2판)
+        S = MC.split_guide(S, measure_script.match(S["events"], script, load_marks(os.path.join(d, "guide.csv")),
+                                                   ahead=2, emo=S["emo"]))
     M, R = MC.split_recording(S)
     M["rec"] = R
     return M
@@ -233,7 +263,8 @@ def target_value(mid, M, t=None):
     if mid == "1":
         n, k = g("1").get("n", 0), g("1").get("k", 0)
         return {"raw": 100 * k / n if n else None, "n": n, "why": "",
-                "note": f"처리 늦음 후보 {g('1').get('late', 0)} · 체류 미달 후보 {g('1').get('short', 0)}"}
+                "note": f"체류 미달 {g('1').get('short', 0)} · 처리 늦음 {g('1').get('late', 0)}"
+                        f" · 링에만 {g('1').get('ring', 0)} · 손 없음 {g('1').get('none', 0)}"}
     if mid == "4":
         v = g("4").get("leads", [])
         return {"raw": v, "n": len(v), "note": f"0 이하 {sum(1 for x in v if x <= 0)}(누름이 경고보다 먼저)", "why": ""}
@@ -258,6 +289,8 @@ def target_value(mid, M, t=None):
                 "note": f"{over}시간 초과 {to} · 미연결 {un} · 짝 요청 없음 {g('14').get('noreq', 0)}"}
     if mid == "V1":
         v, miss = g("V1").get("delays", []), g("V1").get("missing", 0)
+        if not v and not miss and g("V1").get("off"):
+            return {"raw": None, "n": 0, "note": "", "why": "알림 끈 세션 — 세지 않음(V1 = 폐기 세션 알림 · 설계 D10)"}
         return {"raw": v + [float("inf")] * miss, "n": len(v) + miss, "note": f"재생 없음 {miss}(∞ 로 넣음)", "why": ""}
     if mid == "9":
         return {"raw": None, "n": 0, "note": "", "why": "세기 밖 — 모델 채점(비전 모델 재정립 ③)"}
@@ -331,6 +364,8 @@ def render(sessions, per, M, targets, curve=None):
     for S in sessions:
         for w in warnings(S):
             L.append(f"> ⚠️ {S['name']} — {w}")
+    for S in sessions:
+        L += guide_lines(S)
     L += ["", "## ① 목표(통합문서 §4.1)", ""]
     if not targets:
         L.append("❌ **목표 읽기 실패 — 판정 없음**(통합문서 §4.1 목표 표를 찾지 못했다)")
@@ -394,6 +429,10 @@ def render(sessions, per, M, targets, curve=None):
           f" · {MC.GAP_MAX_SEC:g}초 넘는 공백 {g('28').get('long', 0)}개는 뺐다(손을 떼고 돌아옴)",
           f"- 30 자원 — CPU 평균 중앙값 {_f(_med(g('30').get('cpu_avg', [])), 1, '%')} · CPU 최대 {_f(_max(g('30').get('cpu_max', [])), 1, '%')}"
           f" · 온도 최대 {_f(_max(g('30').get('temp', [])), 1, '℃')}",
+          f"- 31 안내 → 누름(조건 = 안내 소리 반응) — 중앙값 {_f(_med(g('31').get('total', [])), 3, '초')}"
+          f"(위반 {_f(_med(g('31').get('viol', [])), 3, '초')} · 맞는 누름 {_f(_med(g('31').get('ok', [])), 3, '초')})"
+          f" · 안내 → 구역 {_f(_med(g('31').get('reach', [])), 3, '초')} · 구역 → 누름(머묾) {_f(_med(g('31').get('stay', [])), 3, '초')}"
+          f" · 누름 {len(g('31').get('total', []))} · 안내 뒤 누름 없음 {g('31').get('nopress', 0)}",
           ("- V2 알림 정확도 — 음성 기록 없음" if v2.get("off") and not v2.get("trans") else
            f"- V2 알림 정확도 — 경고·차단 전이 {v2.get('trans', 0)} 가운데 알림 한 번 {v2.get('one', 0)} · 없음 {v2.get('zero', 0)}"
            f" · 여러 번 {v2.get('multi', 0)} · 정상 판 헛알림 {v2.get('normal', 0)}"),
