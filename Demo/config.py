@@ -491,6 +491,8 @@ TTS_ST_VOICE = "F1"
 TTS_ST_STEPS = 4
 TTS_ST_SPEED = 1.25
 TTS_OUT_RATE = 22050     # 🔴 펌웨어 상한 VOICE_FW_RATE_MAX(24000) 안 · 지금 고정 wav 와 같은 레이트(알림 경로 무변경)
+VOICE_CUES  = os.environ.get("SOP_VOICE_CUES", "1") != "0"   # 측정 안내 소리(진행 도우미 설계 2026-10-11 D6) — 요청이 없으면 아무 일도 없다
+CUE_SHM_DIR = "/dev/shm/sop_cue"                             # 진행 도우미 → 음성비서 요청(req.json) · 응답(ack.json)
 # 🔑 마이크 증폭(2026-10-08 · 통합문서 §9) — 안경 프레임 안(관자놀이) 착용이면 말소리가 입 앞의 약 절반이라
 #    발화 시작 문턱(400)에 못 미쳤다(호출 0/10). 음성비서가 발화 감지·받아쓰기로 넣는 소리만 키운다 —
 #    원본 녹음(마이크_전체.wav)은 증폭 전 그대로고, 잘라낸 발화(발화_NNN.wav)·계측 RMS 는 증폭 뒤다. 끄기 = SOP_MIC_GAIN=1

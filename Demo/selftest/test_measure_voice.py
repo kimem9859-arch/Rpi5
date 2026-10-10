@@ -49,7 +49,7 @@ def test_voice_events():
     with open(os.path.join(d, "voice_events.csv"), encoding="utf-8", newline="") as f:
         rs = list(csv.DictReader(f))
     check([r["kind"] for r in rs][:4] == ["play_start", "play_end", "play_end", "uplink"], f"{[r['kind'] for r in rs]}")
-    check(json.loads(rs[2]["data"]) == {"what": "중단"}, f"중단 표시 {rs[2]}")
+    check(json.loads(rs[2]["data"]) == {"what": "중단", "key": None}, f"중단 표시 {rs[2]} — 소리 키 칸(없으면 null · 진행 도우미 설계 D13③)")
 
 
 class _FakeSpk:

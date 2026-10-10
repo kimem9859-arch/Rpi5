@@ -90,12 +90,13 @@ AUDIO_DIR = os.environ.get("SOP_VOICE_AUDIO")
 VLOG = measure_log.NullLog()       # 음성 측정 기록(측정 도구 정합 ⑤) — run() 이 SOP_MEASURE_DIR 를 보고 연다
 
 
-def vev_play_line(t):
-    """펌웨어 재생 줄 → 재생 시작·끝 사건(Speaker._drain 이 부른다)."""
+def vev_play_line(t, key=None):
+    """펌웨어 재생 줄 → 재생 시작·끝 사건(Speaker._drain 이 부른다) · key = 그때 내던 고정 소리(없으면 None —
+    LLM 답 · 옛 기록) — 세기가 알림과 안내를 가른다(진행 도우미 설계 D13③)."""
     if t.startswith("[재생]"):
-        VLOG.event("play_start")
+        VLOG.event("play_start", key=key)
     elif "재생 완료" in t or "재생 중단" in t:
-        VLOG.event("play_end", what="완료" if "재생 완료" in t else "중단")
+        VLOG.event("play_end", what="완료" if "재생 완료" in t else "중단", key=key)
 
 
 def vev_uplink(total, connected):
@@ -352,6 +353,7 @@ class Speaker:
         self._tx = threading.Lock()
         self.last_play_start = None   # 펌웨어 「[재생] …」 을 받은 시각 — 알림 지연을 잰다
         self.last_stopped = False     # 마지막 play 가 「[재생 중단]」으로 끝났나(정상 멈춤 — 실패가 아니다)
+        self._cur_key = None          # 지금 내는 고정 소리 키 — 재생 사건에 붙인다(진행 도우미 설계 D13③)
 
     def _ensure(self):
         if self.s is not None:
@@ -436,10 +438,10 @@ class Speaker:
             if t.startswith("[적재]") and t.endswith("ok"):
                 loaded = True
             elif t.startswith("[재생]"):
-                vev_play_line(t)
+                vev_play_line(t, self._cur_key)
                 self.last_play_start = time.time()      # 🔑 소리가 나기 시작한 때(설계 2026-10-04 §4.3 목표 측정)
             elif "재생 완료" in t or "재생 중단" in t:
-                vev_play_line(t)
+                vev_play_line(t, self._cur_key)
                 self.s.settimeout(30)
                 return out
         if why == "FAIL":
@@ -550,7 +552,11 @@ class Speaker:
             return False
         if alog:
             alog.played(key, path)
-        resp = self.send(body, expect=True, still_valid=still_valid)
+        self._cur_key = key
+        try:
+            resp = self.send(body, expect=True, still_valid=still_valid)
+        finally:
+            self._cur_key = None
         if resp is DROPPED:
             return False
         ok = bool(resp) and any("재생 완료" in r for r in resp)
@@ -669,6 +675,73 @@ class AlertWatcher:
     def start(self, stop):
         self._player_on = True
         threading.Thread(target=self._player, args=(stop,), daemon=True).start()
+        th = threading.Thread(target=self.run, args=(stop,), daemon=True)
+        th.start()
+        return th
+
+
+class CueWatcher:
+    """측정 안내 소리(진행 도우미 설계 2026-10-11 D6) — 진행 도우미가 쓴 요청(req.json)의 새 번호를 보면 그 고정 wav 를 낸다.
+
+    🔑 cue_ 로 시작하는 키만 · 3초보다 오래된 요청은 버린다(지난 세션에 남은 파일) · 끝나면 ack.json.
+    🔑 알림과 따로 돈다 — 스피커(_io)가 차례를 정해 알림·답이 나가는 중이면 끝난 뒤에 낸다.
+    `speaking` = 안내 재생 중 — 메인 루프가 그동안 들어온 소리를 버린다(알림과 같은 G11 원칙).
+    """
+
+    def __init__(self, spk, alog=None, d=None, poll_sec=ALERT_POLL_SEC, max_age_ms=3000.0):
+        self.spk, self.alog = spk, alog
+        self.d = d or config.CUE_SHM_DIR
+        self.poll_sec, self.max_age_ms = poll_sec, max_age_ms
+        self.speaking = threading.Event()
+        self._seq = None
+
+    def _read(self):
+        try:
+            with open(os.path.join(self.d, "req.json"), encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
+
+    def step(self):
+        """한 번 본다 — 낸 소리 키(없으면 None). 시험이 직접 부른다."""
+        req = self._read()
+        if not req or req.get("seq") == self._seq:
+            return None
+        self._seq = req.get("seq")
+        key = str(req.get("key") or "")
+        age = measure_log.now_ms() - float(req.get("t_req_ms") or 0)
+        if not key.startswith("cue_") or age > self.max_age_ms:
+            log(f"⚠️ 안내 요청을 버렸다 — {key or '(키 없음)'} · {age:.0f}ms 전")
+            return None
+        VLOG.event("cue", key=key, seq=self._seq, age_ms=round(age, 1))
+        self.speaking.set()
+        try:
+            ok = self.spk.play(key, self.alog)
+        finally:
+            self.speaking.clear()
+        self._ack(ok)
+        log(f"📣 안내 → {key} · {'재생됨' if ok else '재생 확인 안 됨'}")
+        return key
+
+    def _ack(self, ok):
+        try:
+            os.makedirs(self.d, exist_ok=True)
+            tmp = os.path.join(self.d, "ack.json.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"seq": self._seq, "ok": bool(ok), "t_ms": measure_log.now_ms()}, f)
+            os.replace(tmp, os.path.join(self.d, "ack.json"))
+        except OSError as e:
+            log(f"⚠️ 안내 응답 파일을 못 썼다: {e}")
+
+    def run(self, stop):
+        while not stop.is_set():
+            try:
+                self.step()
+            except Exception as e:              # noqa: BLE001 — 감시가 죽으면 안내가 영영 없다
+                log(f"🔴 안내 감시 오류 — 계속한다: {type(e).__name__}: {e}")
+            stop.wait(self.poll_sec)
+
+    def start(self, stop):
         th = threading.Thread(target=self.run, args=(stop,), daemon=True)
         th.start()
         return th
@@ -1008,6 +1081,9 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     alerts = AlertWatcher(spk, read_state=read_state, alog=alog) if config.VOICE_ALERTS else None
     if alerts is not None:
         alerts.start(stop_ev)                    # 🔑 메인 루프와 따로(설계 2026-10-04 §4.3)
+    cues = CueWatcher(spk, alog=alog) if config.VOICE_CUES else None
+    if cues is not None:
+        cues.start(stop_ev)                      # 🔑 측정 안내 소리 — 요청이 없으면 아무 일도 없다(설계 D6)
     bot = Assistant(spk, tts, llm, alog, read_state=read_state, read_tools=read_tools,
                     alert_gen=(lambda: alerts.gen) if alerts is not None else None)
     seen_alert = 0
@@ -1042,6 +1118,7 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                     buf, since, in_speech = np.zeros(0, dtype=np.int16), 0, False
                     log(ready_line(mic, spk, tts, llm))
                 hold, seen_alert = alert_hold(alerts, seen_alert)
+                hold = hold or (cues is not None and cues.speaking.is_set())   # 안내 재생 중 소리도 버린다
                 if hold:
                     # 🔑 알림을 내보내는 동안·직후 들어온 소리는 버리고 대화창을 닫는다 — 알림을 질문으로
                     #    받아쓰지 않게 · 알림 뒤는 비상 상황이라 해제 전까지 질문을 받지 않는다(사용자 2026-10-04 · §4.7)
