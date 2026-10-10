@@ -475,8 +475,8 @@ class Speaker:
         line, _, self._rbuf = self._rbuf.partition(b"\n")
         return line + b"\n"
 
-    def send(self, payload, expect=False, still_valid=None):
-        """보낸다 — `still_valid` 가 거짓이면 보내지 않고 `DROPPED`.
+    def send(self, payload, expect=False, still_valid=None, key=None):
+        """보낸다 — `still_valid` 가 거짓이면 보내지 않고 `DROPPED`. key = 이 소리의 고정 키(재생 사건에 붙는다).
 
         🔑 그 확인은 보내기 잠금(`_tx`) 안에서 한다 — 알림 감시는 gen 을 올린 **뒤** 멈춤 S 를 보내므로(같은 잠금),
            확인과 전송 사이에 알림이 끼어 낡은 답이 알림 뒤에 이어 나가는 창이 없다(최종 리뷰 I2).
@@ -490,7 +490,13 @@ class Speaker:
                             return DROPPED
                         self.s.sendall(payload)
                     if expect:
-                        return self._drain()
+                        # 🔴 키는 잠금(_io) 안에서만 바꾼다 — 밖에서 바꾸면 기다리던 다른 소리의 키가 지금 재생 사건에
+                        #    붙었다(최종 리뷰 Important 4 · selftest/test_voice_cue.py test_play_key_race)
+                        self._cur_key = key
+                        try:
+                            return self._drain()
+                        finally:
+                            self._cur_key = None
                     return True
                 except OSError as e:
                     log(f"🔴 명령 전송 실패({attempt}): {e}")
@@ -552,11 +558,7 @@ class Speaker:
             return False
         if alog:
             alog.played(key, path)
-        self._cur_key = key
-        try:
-            resp = self.send(body, expect=True, still_valid=still_valid)
-        finally:
-            self._cur_key = None
+        resp = self.send(body, expect=True, still_valid=still_valid, key=key)
         if resp is DROPPED:
             return False
         ok = bool(resp) and any("재생 완료" in r for r in resp)

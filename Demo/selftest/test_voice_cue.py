@@ -77,9 +77,70 @@ def test_play_key():
                          ("play_start", {"key": None})], f"{va.VLOG.ev}")
 
 
+class _RaceSock:
+    """보낸 소리마다 [적재] ok → [재생] → 0.6초 뒤 [재생 완료] 를 돌려주는 가짜 명령 채널(최종 리뷰 Important 4 재현)."""
+
+    def __init__(self):
+        import threading
+        self.q, self.lock, self.to = [], threading.Lock(), 1.0
+
+    def settimeout(self, t):
+        self.to = t
+
+    def sendall(self, b):
+        import time
+        if b and b[:1] == b"W":
+            now = time.time()
+            with self.lock:
+                self.q += [(now, "[적재] ok\n".encode()), (now + 0.05, "[재생] 1000\n".encode()),
+                           (now + 0.6, "[재생 완료]\n".encode())]
+
+    def recv(self, n):
+        import socket
+        import time
+        end = time.time() + (self.to or 0)
+        while True:
+            with self.lock:
+                if self.q and self.q[0][0] <= time.time():
+                    return self.q.pop(0)[1]
+            if self.to == 0.0:
+                raise BlockingIOError
+            if time.time() > end:
+                raise socket.timeout
+            time.sleep(0.01)
+
+    def close(self):
+        pass
+
+
+def test_play_key_race():
+    print("\n[경쟁] 재생 중에 다른 소리를 내라고 해도 재생 사건의 소리 키가 자기 것이다(최종 리뷰 Important 4)")
+    import threading
+    import time
+
+    class Spk(va.Speaker):
+        def _ensure(self):
+            if self.s is None:
+                self.s = _RaceSock()
+
+    va.VLOG = FakeLog()
+    spk = Spk("0.0.0.0")
+    a = threading.Thread(target=lambda: spk.play("alert_warn_B2"))
+    a.start()
+    time.sleep(0.2)
+    b = threading.Thread(target=lambda: spk.play("cue_B3"))
+    b.start()
+    a.join()
+    b.join()
+    got = [(k, d.get("key")) for k, d in va.VLOG.ev if k in ("play_start", "play_end")]
+    check(got == [("play_start", "alert_warn_B2"), ("play_end", "alert_warn_B2"),
+                  ("play_start", "cue_B3"), ("play_end", "cue_B3")], f"{got}")
+
+
 def main():
     test_cue_watcher()
     test_play_key()
+    test_play_key_race()
     va.VLOG = measure_log.NullLog()
     print()
     if _fails:
