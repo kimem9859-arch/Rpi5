@@ -213,7 +213,89 @@ def test_cue_sounds_exist():
     check(keys <= set(make_answers.CUES), f"소리 없는 안내 = {sorted(keys - set(make_answers.CUES))}")
 
 
+def V(t, k, **d):
+    return (float(t), k, d)
+
+
+def say_rows():
+    T = lambda s: MS.parse_tokens(s, B)   # noqa: E731
+    return [{"판": 1, "행동": "정상", "대상": "", "메모": "", "누름": "B1 말~ B2 말", "낱말": T("B1 말~ B2 말")},
+            {"판": 1, "행동": "질문", "대상": "지금 몇 단계야?", "메모": "", "누름": "", "낱말": []},
+            {"판": 1, "행동": "질문", "대상": "작업 결과 어때?", "메모": "", "누름": "", "낱말": []},
+            {"판": 2, "행동": "호출", "대상": "", "메모": "", "누름": "EMO@B1 말", "낱말": T("EMO@B1 말")},
+            {"판": 2, "행동": "비상질문", "대상": "지금 B1 눌러도 돼?", "메모": "", "누름": "", "낱말": []}]
+
+
+def _say_guide():
+    out, logged = [], []
+    try:
+        g = G.Guide(say_rows(), "EMO", cue_sink=lambda k, t: out.append(("cue", k)),
+                    prompt_sink=lambda a, b: out.append(("p", a, b)), log_sink=lambda t, k, d: logged.append((k, d)))
+    except (TypeError, ValueError) as e:
+        check(False, f"말 안내를 못 만듦 — {e}")
+        return None, out, logged
+    return g, out, logged
+
+
+def test_say_flow():
+    print("\n[말] 음성 줄 화면 띠(3판 D21~D24) — 대기 중 · 다음 버튼 미룸 · 호출 → 이제 질문 → 끝 · 결과창 · 다음 판 넘어감 · 비상")
+    g, out, logged = _say_guide()
+    if g is None:
+        return
+    ev = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B1")]
+    g.step(ev, 1100.0)
+    ev += [E(2000, "press", button="B1", expected="B1", state="MONITOR", source="gpio"),
+           E(2000, "sub", what="start", button="B1")]
+    check(g.step(ev, 2900.0) is None, "말~ = 앞 누름 + 1초 전에는 안 띄운다")
+    check(g.step(ev, 3000.0) == ("say", "지금 몇 단계야?") and out[-1][0] == "p" and "지금 몇 단계야?" in out[-1][2],
+          f"말~ 띄움 · {out[-1:]}")
+    ev += [E(12000, "sub", what="finish", button="B1"), ST(12000, "PROCESS_RUN", "B2")]
+    check(g.step(ev, 13500.0) is None, "말 동안 다음 버튼(B2) 소리를 미룬다")
+    v = [V(14000, "stt", text="아니야."), V(14500, "stt", text="가디야."), V(14500, "wake")]
+    g.step(ev, 14600.0, voice=v)
+    check(out[-1][0] == "p" and "이제 질문" in (out[-1][1] or ""), f"호출 → 「이제 질문」 · {out[-1]}")
+    v += [V(16000, "stt", text="지금몇단계야?")]
+    check(g.step(ev, 16100.0, voice=v) == ("said", "질문") and out[-1] == ("p", None, None), "질문 받음 → 끝 · 띠 지움")
+    check(logged[-1][0] == "said" and logged[-1][1].get("attempts") == 3, f"호출 시도 = 띄운 동안 받아쓰기 조각 수 · {logged[-1]}")
+    check(g.step(ev, 17200.0, voice=v) == ("cue", "cue_B2"), "말이 끝나면 미룬 B2 소리")
+    ev += [E(18000, "press", button="B2", expected="B2", state="MONITOR", source="gpio"), E(18000, "run_end", ok=True)]
+    check(g.step(ev, 18900.0, voice=v) is None, "결과창 말 = 완주 + 1초 전에는 안 띄운다")
+    check(g.step(ev, 19100.0, voice=v) == ("say", "작업 결과 어때?"), "판 끝 말 = 결과창(판이 닫힌 뒤)")
+    ev += [E(25000, "run_start"), ST(25010, "PROCESS_RUN", "B1")]
+    check(g.step(ev, 25100.0, voice=v) == ("said", "넘어감"), "다음 판이 시작되면 넘어감")
+    check(g.step(ev, 26200.0, voice=v) == ("cue", "cue_EMO"), "다음 대본 판(비상) 안내")
+    ev += [E(27000, "press", button="EMO", expected="B1", state="MONITOR", source="gpio"), ST(27000, "BLOCK", "B1")]
+    check(g.step(ev, 28100.0, voice=v) == ("say", "지금 B1 눌러도 돼?") and "대답 없음" in (out[-1][1] or ""),
+          f"비상 말 = 차단 중에도 띄움 · {out[-1]}")
+    v += [V(29000, "stt", text="가디야."), V(29000, "emergency_ignored", text="가디야.", wake=True)]
+    g.step(ev, 29100.0, voice=v)
+    check("이제 질문" in (out[-1][1] or ""), f"비상 중 호출 → 「이제 질문」 · {out[-1]}")
+    v += [V(30000, "stt", text="지금B1눌러도돼?"), V(30000, "emergency_ignored", text="지금B1눌러도돼?", wake=False)]
+    check(g.step(ev, 30100.0, voice=v) == ("said", "질문"), "비상 중 질문 → 끝(대답 없음이 정상)")
+
+
+def test_say_end_cases():
+    print("\n[말 끝] 호출+질문 한 문장 · 30초 · 다음 버튼 = 넘어감")
+    base = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B1"), E(2000, "press", button="B1", expected="B1", state="MONITOR",
+            source="gpio"), E(2000, "sub", what="start", button="B1")]
+    g, out, _ = _say_guide()
+    if g is None:
+        return
+    g.step(base, 3000.0)
+    check(g.step(base, 4100.0, voice=[V(4000, "stt", text="가디언 지금 몇 단계야")]) == ("said", "질문"), "한 문장 = 끝")
+    g, out, _ = _say_guide()
+    g.step(base, 3000.0)
+    check(g.step(base, 32900.0) is None and g.step(base, 33000.0) == ("said", "시간"), "30초 = 시간")
+    g, out, _ = _say_guide()
+    g.step(base, 3000.0)
+    ev = base + [E(12000, "sub", what="finish", button="B1"), ST(12000, "PROCESS_RUN", "B2"),
+                 E(13000, "press", button="B2", expected="B2", state="MONITOR", source="gpio")]
+    check(g.step(ev, 13100.0) == ("said", "넘어감") and out[-1] == ("p", None, None), "다음 버튼을 누르면 넘어감 · 띠 지움")
+
+
 def main():
+    test_say_flow()
+    test_say_end_cases()
     test_next_cue()
     test_reset_cue()
     test_cue_sounds_exist()

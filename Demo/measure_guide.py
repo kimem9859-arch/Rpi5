@@ -27,7 +27,9 @@ import config                 # noqa: E402
 import measure_check          # noqa: E402
 import measure_log            # noqa: E402
 import measure_report as MR   # noqa: E402 — 레시피 버튼 · EMO(세기와 같은 기준)
+import measure_prompt         # noqa: E402 — 측정 화면 띠(3판 D20)
 import measure_script as MS   # noqa: E402
+import voice_lib as VL         # noqa: E402 — 호출어 판정(음성비서와 같은 규칙)
 
 MEASURE_DIR = os.path.join(_DEMO, "measure")
 SKIP_DIRS = {"폐기", "시나리오"}
@@ -36,6 +38,8 @@ HOVER_WAIT_MS = 4000.0   # 머묾 안내 뒤 경고 해제가 없으면 이만�
 REASON_MS = 3000.0       # N 뒤 이유(1 사람 · 2 장비)를 기다리는 시간
 ACK_WAIT_MS = 3000.0     # 안내 요청 뒤 이만큼 응답이 없으면 「응답 없음」
 TICK_SEC = 0.1
+SAY_TIMEOUT_MS = 30000.0   # 말 띠를 띄운 지 이만큼이면 「시간」으로 지운다(3판 D23)
+SAY_KINDS = ("say", "say_wait")
 SWITCH_CHECK_MS = 1000.0  # 더 새 측정 세션이 생겼나 보는 간격(최종 리뷰 Important 2)
 LOCK_FILE = "/tmp/sop_measure_guide.lock"   # 한 대만(최종 리뷰 Important 3)
 RUN_STATES = ("PROCESS_RUN", "MONITOR")
@@ -77,13 +81,26 @@ def live_state(run, waits=None):
     return st
 
 
-def next_cue(toks, consumed, cued, st, now_ms):
-    """지금 낼 안내 → (낱말 자리, 소리 키) 또는 None(설계 D8).
-    toks = 그 대본 판의 낱말 전부 · consumed = 쓴 누름 낱말 수 · cued = {낱말 자리: 요청 시각 ms}."""
+def next_cue(toks, consumed, cued, st, now_ms, done=()):
+    """지금 낼 안내 → (낱말 자리, 소리 키 | "say") 또는 None(설계 D8 · 3판 D22).
+    toks = 그 대본 판의 낱말 전부 · consumed = 쓴 누름 낱말 수 · cued = {낱말 자리: 요청 시각 ms} · done = 끝난 말 자리.
+    🔑 말(say · say_wait)은 소리가 아니라 화면 띠 — 띄운 말이 끝날 때까지 뒤 낱말(버튼 소리)을 미룬다."""
     presses = [n for n, x in enumerate(toks) if x.kind == "press"]
     start = presses[consumed - 1] + 1 if consumed else 0
     for n in range(start, len(toks)):
         x = toks[n]
+        if x.kind in SAY_KINDS:
+            if n in cued:
+                if n in done:
+                    continue
+                return None                              # 말 중 — 뒤 버튼 소리를 미룬다(질문과 겹치지 않게)
+            nxt = next((y for y in toks[n + 1:] if y.kind == "press"), None)
+            if x.kind == "say" and nxt is not None and (st["state"] not in RUN_STATES or (
+                    nxt.expected is not None and st["expected"] != nxt.expected)):
+                return None                              # 말 = 다음 누름의 차례가 되면
+            if now_ms - max([st["last"]] + list(cued.values())) < GAP_MS:
+                return None                              # 말~ = 앞 누름(대기 중) · 판 끝·비상 말 = 앞 누름 + 1초
+            return n, "say"
         if n in cued:
             if x.kind == "press":
                 return None                              # 낸 누름이 아직 안 눌렸다 — 기다린다
@@ -106,8 +123,12 @@ def next_cue(toks, consumed, cued, st, now_ms):
 class Guide:
     """한 세션을 따라간다 — 판 맞춤 · 안내 결정 · NG 기록(소리·파일 쓰기는 sink 로 · 시험은 sink 를 바꾼다)."""
 
-    def __init__(self, rows, emo, cue_sink=None, log_sink=None, waits=None):
+    def __init__(self, rows, emo, cue_sink=None, log_sink=None, waits=None, prompt_sink=None):
         self.rows, self.emo = rows or [], emo
+        self.prompt_sink = prompt_sink or (lambda title, line: None)   # 측정 화면 띠(3판) — (None, None) = 지움
+        self.say_texts = say_texts(self.rows)
+        self.say = None          # 띄운 말 {run, script, tok, t0, text, emergency, stage}
+        self.said = set()        # 끝난 말 {(실제 판 번호, 낱말 자리)}
         self.waits = tool_waits() if waits is None else waits
         self.auto = MS.has_tokens(self.rows)   # 누름 칸 없는 대본 = 안내·자동 NG 없이 N 만(최종 리뷰 Important 5a)
         self.marks = []          # [(t, "ng"|"undo", 이유)]
@@ -129,14 +150,69 @@ class Guide:
                 self.ng_cued.add(d.get("run"))
             elif k in ("ng", "undo"):
                 self.marks.append((t, k, d.get("why")))
+            elif k == "say":
+                self.cued[(d.get("run"), d.get("tok"))] = t
+                self.say = {"run": d.get("run"), "script": d.get("script"), "tok": d.get("tok"), "t0": t,
+                            "text": d.get("text"), "emergency": d.get("emergency"), "stage": None}
+            elif k == "said":
+                self.said.add((d.get("run"), d.get("tok")))
+                self.say = None
 
     def mark(self, now_ms, kind, why=None):
         self.marks.append((now_ms, kind, why))
         self._n = -1                                     # 다시 맞춘다
         self.log_sink(now_ms, kind, {"why": why} if why else {})
 
-    def step(self, events, now_ms):
-        """→ ("cue", 키) · ("ng", "cue_ng") · None."""
+    def _show_say(self, run_i, script, n, toks, now_ms):
+        k = sum(1 for x in toks[:n] if x.kind in SAY_KINDS)
+        lines = self.say_texts.get(script) or []
+        text, emergency = lines[k] if k < len(lines) else ("(대본에 질문 줄 없음)", False)
+        self.cued[(run_i, n)] = now_ms
+        self.say = {"run": run_i, "script": script, "tok": n, "t0": now_ms, "text": text, "emergency": emergency,
+                    "stage": None}
+        self._say_prompt("call")
+        self.log_sink(now_ms, "say", {"run": run_i, "script": script, "tok": n, "text": text, "emergency": emergency})
+        return ("say", text)
+
+    def _say_prompt(self, stage):
+        s = self.say
+        if s is None or s["stage"] == stage:
+            return
+        s["stage"] = stage
+        tail = " (대답 없음이 정상)" if s["emergency"] else ""
+        if stage == "call":
+            self.prompt_sink("🎤 지금 말하세요" + tail, f"「가디언」 → 「{s['text']}」")
+        else:
+            self.prompt_sink("🎤 띠링 ✓ — 이제 질문하세요" + tail, f"「{s['text']}」")
+
+    def _say_check(self, events, voice, now_ms):
+        """띄운 말이 끝났나(3판 D23) → ("said", 이유) 또는 None(그대로 · 단계는 띠에 반영)."""
+        s = self.say
+        stage, attempts, done = say_progress(voice, s["t0"])
+        why = None
+        if done:
+            why = "질문"
+        elif any(k == "run_start" and t > s["t0"] for t, k, _ in events):
+            why = "넘어감"
+        elif any(k == "press" and t > s["t0"] for t, k, _ in events):
+            why = "넘어감"
+        elif now_ms - s["t0"] >= SAY_TIMEOUT_MS:
+            why = "시간"
+        if why is None:
+            self._say_prompt(stage)
+            return None
+        self.said.add((s["run"], s["tok"]))
+        self.prompt_sink(None, None)
+        self.log_sink(now_ms, "said", {"run": s["run"], "tok": s["tok"], "why": why, "attempts": attempts})
+        self.say = None
+        return ("said", why)
+
+    def step(self, events, now_ms, voice=()):
+        """→ ("cue", 키) · ("ng", "cue_ng") · ("say", 문장) · ("said", 이유) · None."""
+        if self.say is not None:
+            out = self._say_check(events, voice, now_ms)
+            if out is not None:
+                return out
         if not self.rows:
             self.view = {"res": None, "run": None, "cur": None}
             return None
@@ -147,7 +223,9 @@ class Guide:
         res, runs = self._res, self._runs
         cur = runs[-1] if runs and runs[-1]["end"] == "open" else None
         r = res["runs"][-1] if cur is not None else None
-        self.view = {"res": res, "run": r, "cur": cur}
+        self.view = {"res": res, "run": r, "cur": cur, "say": self.say}
+        if r is None and self.auto and self.say is None and res["runs"]:
+            return self._result_say(res["runs"][-1], runs[-1], now_ms)
         if r is None or r["script"] is None or not self.auto:
             return None
         if r["status"] == "ng" or r["live_ng"]:
@@ -159,13 +237,76 @@ class Guide:
             return None
         toks = res["order"][r["script"]]
         mine = {n: t for (i, n), t in self.cued.items() if i == r["i"]}
-        c = next_cue(toks, r["consumed"], mine, live_state(cur, self.waits), now_ms)
+        done = {n for (i, n) in self.said if i == r["i"]}
+        c = next_cue(toks, r["consumed"], mine, live_state(cur, self.waits), now_ms, done)
         if c is None:
             return None
+        if c[1] == "say":
+            return self._show_say(r["i"], r["script"], c[0], toks, now_ms)
         self.cued[(r["i"], c[0])] = now_ms
         self.cue_sink(c[1], now_ms)
         self.log_sink(now_ms, "cue", {"run": r["i"], "script": r["script"], "tok": c[0], "key": c[1]})
         return ("cue", c[1])
+
+
+    def _result_say(self, last, run, now_ms):
+        """판 끝 말(결과창 · 3판 D22) — 완주로 닫힌 판의 마지막 누름 뒤 말을 다음 「작업 시작」 전까지 띄운다."""
+        if last["script"] is None or last["status"] != "ok" or run["end"] != "완주":
+            return None
+        toks = self._res["order"].get(last["script"]) or []
+        presses = [n for n, x in enumerate(toks) if x.kind == "press"]
+        start = presses[-1] + 1 if presses else 0
+        for n in range(start, len(toks)):
+            if toks[n].kind in SAY_KINDS and (last["i"], n) not in self.said:
+                if (last["i"], n) in self.cued or now_ms - run["t1"] < GAP_MS:
+                    return None
+                return self._show_say(last["i"], last["script"], n, toks, now_ms)
+        return None
+
+
+def say_texts(rows):
+    """{대본 판: [(질문 문장, 비상)]} — 그 판의 「질문」·「비상질문」 줄 차례(3판 D21 · 몇 번째 말 = 몇 번째 줄)."""
+    out = {}
+    for r in rows or ():
+        if r.get("행동") in ("질문", "비상질문"):
+            out.setdefault(int(r["판"]), []).append((r.get("대상") or "", r.get("행동") == "비상질문"))
+    return out
+
+
+def _hangul(text):
+    import re
+    return re.sub(r"[^가-힣]", "", text or "")
+
+
+def say_progress(voice, t0):
+    """띄운 뒤 음성 기록 → (단계 "call"|"ask", 받아쓰기 조각 수, 끝났나)(3판 D23).
+    호출어 → ask · ask 뒤 호출어 아닌 받아쓰기 → 끝 · 호출어+질문 한 문장 → 끝 · 비상 중은 emergency_ignored 도 같이 본다."""
+    stage, att = "call", 0
+    for t, k, d in voice or ():
+        if t < t0:
+            continue
+        if k == "stt":
+            text = d.get("text") or ""
+            if not _hangul(text):
+                continue
+            att += 1
+            if VL.is_wake(text):
+                if _hangul(VL.strip_wake(text)):
+                    return "ask", att, True
+                stage = "ask"
+            elif stage == "ask":
+                return stage, att, True
+        elif k == "wake":
+            stage = "ask"
+        elif k == "emergency_ignored":
+            text = d.get("text") or ""
+            if d.get("wake"):
+                if _hangul(VL.strip_wake(text)):
+                    return "ask", att, True
+                stage = "ask"
+            elif stage == "ask" and _hangul(text):
+                return stage, att, True
+    return stage, att, False
 
 
 class Tail:
@@ -351,6 +492,9 @@ def render(view, rows, ack, pending, name):
         ng = [x for x in res["runs"] if x["status"] == "ng"]
         k = r["script"] if r is not None else res["next"]
         L.append(f"{BOLD}대본 {k or '끝'}판 / 전체 {total}{RST} · 실제 {len(res['runs'])}번째 판 · NG {len(ng)}")
+        say = view.get("say")
+        if say:
+            L.append(f"{GRN}🎤 콘솔 화면 띠: 「{say['text']}」 · {'띠링 ✓ 질문 기다림' if say.get('stage') == 'ask' else '호출 기다림'}{RST}")
         if r is None:
             L.append(f"{GRN}▶ 「작업 시작」 → 대본 {k}판{RST}" if k else f"{GRN}대본을 다 했다 — ESC 로 시연 종료{RST}")
         done = r["consumed"] if r is not None else 0
@@ -401,15 +545,32 @@ def follow(d):
     def sink(key, t):
         write_req(key, t)
         last_req[0] = (int(t), t)
-    g = Guide(rows, MR.emo_button(), cue_sink=sink, log_sink=glog.write)
+    def psink(title, line):                      # 측정 화면 띠(3판 D20) — 시연 화면이 읽는다
+        if title or line:
+            measure_prompt.write(title, line)
+        else:
+            measure_prompt.clear()
+    g = Guide(rows, MR.emo_button(), cue_sink=sink, log_sink=glog.write, prompt_sink=psink)
     g.restore(old)
+    if g.say is not None:                         # 다시 켰을 때 띄워 둔 말이 있으면 다시 띄운다
+        g.say["stage"] = None
+        g._say_prompt("call")
+    try:
+        return _follow_loop(d, g, rows, last_req)
+    finally:
+        measure_prompt.clear()                    # 🔑 끝·Q·세션 바뀜 — 콘솔 화면에 낡은 글을 남기지 않는다
+
+
+def _follow_loop(d, g, rows, last_req):
     tail = Tail(os.path.join(d, "events.csv"))
+    vtail = Tail(os.path.join(d, "voice_events.csv"))   # 말 끝 판정(3판 D23) — 음성 끔 세션이면 파일이 없어 비어 있다
     pending, screen, checked = None, None, 0.0
     name = os.path.basename(d)
     while True:
         tail.poll()
+        vtail.poll()
         now = measure_log.now_ms()
-        g.step(tail.rows, now)
+        g.step(tail.rows, now, voice=vtail.rows)
         pending, acts = handle_keys(read_keys(TICK_SEC), pending, measure_log.now_ms())
         for kind, t, why in acts:
             if kind == "quit":
@@ -461,6 +622,7 @@ def run_live():
                 return 0
             done.add(d)
     finally:
+        measure_prompt.clear()
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
@@ -468,14 +630,18 @@ def replay(d, dump=True):
     """기록을 시간 순서로 다시 넣어 안내·NG 결정을 본다 — 소리·파일 쓰기 없음(설계 §6.3)."""
     _, rows = session_rows(d)
     ev = sorted(measure_check.load_events(os.path.join(d, "events.csv")), key=lambda e: e[0])
+    vp = os.path.join(d, "voice_events.csv")
+    voice = sorted(measure_check.load_events(vp), key=lambda e: e[0]) if os.path.exists(vp) else []
     g = Guide(rows, MR.emo_button())
     g.restore(measure_check.load_events(os.path.join(d, "guide.csv")))
-    out, i, t = [], 0, ev[0][0] if ev else 0.0
+    out, i, j, t = [], 0, 0, ev[0][0] if ev else 0.0
     while i < len(ev):
         t += TICK_SEC * 1000
         while i < len(ev) and ev[i][0] <= t:
             i += 1
-        c = g.step(ev[:i], t)
+        while j < len(voice) and voice[j][0] <= t:
+            j += 1
+        c = g.step(ev[:i], t, voice=voice[:j])
         if c:
             r = g.view["run"]
             out.append((round(t), r["i"], r["script"], c[1]))
