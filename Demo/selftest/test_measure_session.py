@@ -212,7 +212,14 @@ def test_session_marks_dirty_tree():
     check(isinstance(rec["코드"].get("Rpi5_변경있음"), bool), f"{rec['코드']}")
 
 
+def test_processing_switches_recorded():
+    print("\n[세션] 처리 흐름 1단계 스위치 3개를 「설정」에 — 1단계 전후 값을 섞어 인용하지 않게")
+    for k in ("ORIENT_ONE_REMAP", "DISPLAY_SCALE_IN_PAINT", "DISPLAY_EVERY"):
+        check(k in MS.SETTINGS, f"SETTINGS 에 {k}")
+
+
 if __name__ == "__main__":
+    test_processing_switches_recorded()
     test_dir_name()
     test_session_json()
     test_cli_prints_dir()
