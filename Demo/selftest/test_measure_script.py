@@ -193,9 +193,30 @@ def test_reset_token():
           f"{[(r['script'], r['status']) for r in m['runs']]} — B2 만 누르고 초기화한 판 = ok")
 
 
+def test_say_tokens():
+    print("\n[말] 음성 줄의 때 — 말(차례·결과창·비상) · 말~(앞 누름의 대기 중) · 누름이 아니라 판 맞춤에 끼지 않는다(3판 D21)")
+    try:
+        t = MS.parse_tokens("B1 말~ B2 #렌치 말 B3 B4", B)
+    except ValueError as e:
+        check(False, f"「말」 을 못 읽음 — {e}")
+        return
+    check([x.kind for x in t] == ["press", "say_wait", "press", "tool", "say", "press", "press"], f"{[x.kind for x in t]}")
+    for bad in ("말@B1", "말?", "~말", "#말"):
+        try:
+            MS.parse_tokens(bad, B)
+            check(False, f"「{bad}」 를 못 잡음")
+        except ValueError:
+            check(True, f"「{bad}」 = ValueError")
+    R = rows((1, "B1 말~ B2 #렌치 말 B3 B4 말"), (2, "EMO@B1 말"))
+    ev = _run(0, [P(10, "B1", "B1"), P(20, "B2", "B2"), P(30, "B3", "B3"), P(40, "B4", "B4")]) + _run(100, [P(110, "EMO", "B1")])
+    m = MS.match(ev, R)
+    check([(r["script"], r["status"]) for r in m["runs"]] == [(1, "ok"), (2, "ok")], f"{[(r['script'], r['status']) for r in m['runs']]}")
+
+
 def main():
     test_parse_tokens()
     test_reset_token()
+    test_say_tokens()
     test_load_script()
     test_run_presses_ignored()
     test_match_ok_ng_retry()

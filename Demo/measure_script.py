@@ -5,6 +5,7 @@
 
 누름 칸 낱말: B2(맞는 누름) · B3@B1(B1 차례에 B3) · EMO@B4 · ~B4@B3(머묾 — 안내만) · #렌치(공구 — 안내만)
              · 초기화(「작업 초기화」 — 안내만 · 공구 대기가 끝난 뒤 · 설계 D17)
+             · 말 · 말~(음성 줄의 때 — 콘솔 화면 띠 · 3판 D21 · 말 = 다음 누름 차례·판 끝·비상 · 말~ = 앞 누름의 대기 중)
              · 끝의 ? = 그 낱말부터는 판이 먼저 끝나도 된다.
 판 상태: ok 대본대로 · ng 자동(안내와 다른 버튼) 또는 수동(N 키) · partial 일찍 끝남(결과로 남김 · D16)
         · extra 대본을 다 끝낸 뒤 · open 아직 안 끝남(진행 도우미).
@@ -18,7 +19,8 @@ from collections import namedtuple
 ACTIONS = ("정상", "위반", "머묾", "틀린공구", "호출", "질문", "비상질문")   # 대본 행동(세기 설계 §5)
 TOOLS = {"렌치": "wrench", "드라이버": "driver", "플라이어": "pliers"}
 RESET = "초기화"
-Token = namedtuple("Token", "kind name expected optional row")              # kind = press · hover · tool · reset
+SAY = {"말": "say", "말~": "say_wait"}      # 3판 D21 — 몇 번째 말 = 그 판의 몇 번째 질문·비상질문 줄
+Token = namedtuple("Token", "kind name expected optional row")              # kind = press · hover · tool · reset · say · say_wait
 _TOK = re.compile(r"^(?P<hover>~)?(?P<tool>#)?(?P<name>[^@?~#\s]+)(?:@(?P<exp>[^@?~#\s]+))?(?P<opt>\?)?$")
 
 
@@ -26,6 +28,11 @@ def parse_tokens(text, buttons, emo="EMO", row=None):
     """누름 칸 → [Token] · 틀린 낱말은 ValueError(무엇이 틀렸는지)."""
     out = []
     for w in (text or "").split():
+        if w in SAY:
+            out.append(Token(SAY[w], "말", None, False, row))
+            continue
+        if w.lstrip("~#").startswith("말"):
+            raise ValueError(f"말 낱말 「{w}」 — 꾸밈 없이 「말」 또는 「말~」 만")
         m = _TOK.match(w)
         if not m:
             raise ValueError(f"낱말 「{w}」 을(를) 읽을 수 없다")
