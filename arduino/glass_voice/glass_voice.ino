@@ -55,6 +55,15 @@
 // 배열 순서 = 연결 우선순위. 신호 세기와 무관하게 앞에 있는 SSID를 먼저 잡는다.
 #include "wifi_credentials.h"
 
+// 품질 · 버퍼 = 빌드 상수 — 빌드 옵션으로 바꿔 본다(flash_esp32.sh --jpeg-quality · --fb-count · 학교 방문 준비 설계 §4.2).
+// jpeg_quality 는 숫자가 클수록 더 압축(화질 ↓) · 옵션 없이 빌드하면 아래 기본값 = 지금 펌웨어.
+#ifndef GLASS_JPEG_QUALITY
+#define GLASS_JPEG_QUALITY 15
+#endif
+#ifndef GLASS_FB_COUNT
+#define GLASS_FB_COUNT 2
+#endif
+
 #define PWDN_GPIO_NUM     -1
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM     10
@@ -819,15 +828,15 @@ void setup() {
   // 두어 캡처와 전송을 겹치고, 밀리면 최신 프레임을 우선한다(지연 누적 방지).
   config.grab_mode    = CAMERA_GRAB_LATEST;
   config.fb_location  = CAMERA_FB_IN_PSRAM;
-  config.jpeg_quality = 15;
-  config.fb_count     = 2;
+  config.jpeg_quality = GLASS_JPEG_QUALITY;
+  config.fb_count     = GLASS_FB_COUNT;
 
   if (esp_camera_init(&config) != ESP_OK) {
     Serial.println("Camera init failed, restarting in 3s...");
     delay(3000);
     ESP.restart();
   }
-  Serial.println("Camera OK");
+  Serial.printf("Camera OK jpeg_quality=%d fb_count=%d\n", GLASS_JPEG_QUALITY, GLASS_FB_COUNT);   // 굽은 값 확인(대처표 V20)
   // 🔑 센서 모델을 부팅 로그에 남긴다 — 문서에 OV3660/OV5640 이 섞여 있어 실물로 확정해야 한다.
   {
     sensor_t *ss = esp_camera_sensor_get();

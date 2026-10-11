@@ -27,8 +27,10 @@ def _src(name):
 
 
 def _camera_config(src):
-    """`config.<필드> = <값>;` 을 순서대로 모은다 — 카메라 초기화 설정(같은 필드를 두 번 쓰면 둘 다 남는다)."""
-    return [(k, v.strip()) for k, v in re.findall(r"config\.(\w+)\s*=\s*([^;]+);", src)]
+    """`config.<필드> = <값>;` 을 순서대로 모은다 — 카메라 초기화 설정(같은 필드를 두 번 쓰면 둘 다 남는다).
+    🔑 빌드 상수(`GLASS_*` — 빌드 옵션으로 바꿔 보는 값 · 학교 방문 준비 설계 §4.2)는 기본값으로 풀어 대조한다."""
+    defaults = dict(re.findall(r"#define\s+(GLASS_\w+)\s+(\S+)", src))
+    return [(k, defaults.get(v.strip(), v.strip())) for k, v in re.findall(r"config\.(\w+)\s*=\s*([^;]+);", src)]
 
 
 def _camera_pins(src):
@@ -63,6 +65,15 @@ def test_음성_명령과_안_겹침():
     s = _src("glass_voice")
     check('startsWith("R:")' not in s and 'startsWith("W:")' not in s and 'startsWith("EXP:")' not in s,
           "R:·W:·EXP: 처리 없음")
+
+
+def test_빌드_상수():
+    print("[c3] 품질 · 버퍼 = 빌드 상수(기본 15 · 2) · 부팅 로그에 굽은 값(학교 방문 준비 설계 §4.2)")
+    s = _src("glass_voice")
+    check(re.search(r"#ifndef GLASS_JPEG_QUALITY\s+#define GLASS_JPEG_QUALITY 15\b", s) is not None, "품질 기본 15")
+    check(re.search(r"#ifndef GLASS_FB_COUNT\s+#define GLASS_FB_COUNT 2\b", s) is not None, "버퍼 기본 2")
+    check("config.jpeg_quality = GLASS_JPEG_QUALITY;" in s and "config.fb_count     = GLASS_FB_COUNT;" in s, "설정이 상수를 쓴다")
+    check(re.search(r'Serial\.printf\("Camera OK[^"]*jpeg_quality=%d[^"]*fb_count=%d', s) is not None, "부팅 로그에 굽은 값")
 
 
 if __name__ == "__main__":

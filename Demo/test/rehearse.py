@@ -347,12 +347,43 @@ def items_R6(out, twice):
     return [acc, scr]
 
 
+def items_R5(out, twice):
+    """펌웨어 — 변형 4개 컴파일만(확정 · md5 가 서로 달라야 옵션이 먹은 것) + 재압축 검출 비교(임시 · 학교 필수)."""
+    import re
+    flash = os.path.join(os.path.dirname(DEMO), "arduino", "flash_esp32.sh")
+    build = _base("R5", "펌웨어 변형 빌드(굽지 않음)", "확정", "--build-only · 안경에 굽지 않음")
+    md5 = {}
+    for opt in ([], ["--jpeg-quality", "20"], ["--jpeg-quality", "25"], ["--fb-count", "3"]):
+        r = subprocess.run(["bash", flash, "--build-only", *opt], capture_output=True, text=True, timeout=1200,
+                           stdin=subprocess.DEVNULL)
+        m = re.search(r"컴파일 통과 · ([0-9a-f]{32})", r.stdout)
+        if r.returncode != 0 or not m:
+            build["errors"].append(f"빌드 실패 {opt} · {r.stdout[-200:]} {r.stderr[-200:]}")
+        else:
+            md5[" ".join(opt) or "지금"] = m.group(1)
+    if len(set(md5.values())) != len(md5):
+        build["errors"].append(f"md5 가 겹친다 — 옵션이 안 먹었다 {md5}")
+    build["home"] += " · " + " · ".join(f"{k} {v[:8]}" for k, v in md5.items())
+    probe = _base("R5-압축", "재압축 검출 비교(파이 JPEG · 방향만)", "임시", "파이 JPEG 품질 ≠ 카메라 칩 품질 — 학교 필수")
+    r = subprocess.run([sys.executable, os.path.join(TEST, "jpeg_quality_probe.py"), SRC_STILL, "--limit", "80",
+                        "--q", "25", "15"], cwd=DEMO, capture_output=True, text=True, timeout=1200)
+    with open(os.path.join(out, "logs", "R5_probe.log"), "w", encoding="utf-8") as f:
+        f.write(r.stdout + r.stderr)
+    rows = re.findall(r"^\| (\d+) \| ([\d.]+) \| (\d+)% \| (\d+)% \|$", r.stdout, re.M)
+    if r.returncode != 0 or not rows:
+        probe["errors"].append(f"재압축 비교 실패 · {r.stderr[-200:]}")
+    for q, ratio, btn, hand in rows:
+        probe["values"][f"q{q} 크기 비"] = [float(ratio)]
+        probe["values"][f"q{q} 버튼 같음 %"] = [float(btn)]
+    return [build, probe]
+
+
 def _later(iid, title, task):
     return lambda out, twice: [_base(iid, title, "흐름", "—", finished=False, errors=[f"아직 — 계획 {task}"])]
 
 
 ITEMS = {"R0": items_R0, "R1": items_R1, "R2": items_R2, "R3": items_R3, "R4": items_R4,
-         "R5": _later("R5", "펌웨어 빌드 · 재압축", "Task 8"), "R6": items_R6,
+         "R5": items_R5, "R6": items_R6,
          "R7": items_R7, "R8": _later("R8", "되돌리기", "Task 11")}
 
 SCHOOL = {
@@ -378,7 +409,7 @@ def main(argv=None):
     ap.add_argument("--out", default="")
     a = ap.parse_args(argv)
     out = a.out or os.path.expanduser(f"~/lab/리허설/{datetime.datetime.now():%Y%m%d_%H%M%S}")
-    os.makedirs(out, exist_ok=True)
+    os.makedirs(os.path.join(out, "logs"), exist_ok=True)
     keys = [k.strip() for k in a.only.split(",") if k.strip()] or list(ITEMS)
     items = []
     for k in keys:

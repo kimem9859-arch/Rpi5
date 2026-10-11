@@ -1,7 +1,9 @@
 #!/bin/bash
 # 안경 ESP32-S3(XIAO) 펌웨어 굽기 — glass_voice(카메라 + 마이크 + 스피커 통합 · 남길 펌웨어). 바탕화면 아이콘에서도 부른다.
 #
-#   사용: flash_esp32.sh [main|sub] [--no-backup]      (기본 = main)
+#   사용: flash_esp32.sh [main|sub] [--no-backup] [--jpeg-quality 10~63] [--fb-count 1~4] [--build-only]   (기본 = main)
+#         --jpeg-quality · --fb-count = 빌드 옵션(옵션 없음 = 지금 펌웨어 품질 15 · 버퍼 2 · 학교 방문 준비 설계 §4.2)
+#         --build-only = 컴파일만(보드 · 포트 · 백업 · 업로드 없음 · .bin md5 출력 · 집에서 변형 확인용)
 #   순서: 자격증명 → 시리얼번호로 포트 → 컴파일 → 8MB 전체 백업 + 그 자리 대조 → 업로드 → 부팅 로그 IP
 #
 # 🔴 보드는 시리얼번호로 고른다 — ttyACM 번호는 꽂는 순서로 바뀌고, 쓰는 보드와 마지막 바이트만 다른 폐기 보드가 둘이다
@@ -15,13 +17,32 @@ set -uo pipefail
 
 BOARD="main"
 BACKUP=1
-for a in "$@"; do
-  case "$a" in
-    main|sub) BOARD="$a" ;;
+BUILD_ONLY=0
+JQ=""
+FB=""
+usage() { echo "사용: $0 [main|sub] [--no-backup] [--jpeg-quality 10~63] [--fb-count 1~4] [--build-only]"; exit 2; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    main|sub) BOARD="$1" ;;
     --no-backup) BACKUP=0 ;;
-    *) echo "사용: $0 [main|sub] [--no-backup]"; exit 2 ;;
+    --build-only) BUILD_ONLY=1 ;;
+    --jpeg-quality) [ $# -ge 2 ] || usage; JQ="$2"; shift ;;
+    --fb-count) [ $# -ge 2 ] || usage; FB="$2"; shift ;;
+    *) usage ;;
   esac
+  shift
 done
+# 🔴 범위 밖 · 글자는 컴파일 전에 멈춘다 — 보드에 아무것도 하지 않는다(Review Focus 5)
+isnum() { [[ "$1" =~ ^[0-9]+$ ]]; }
+if [ -n "$JQ" ] && ! { isnum "$JQ" && [ "$JQ" -ge 10 ] && [ "$JQ" -le 63 ]; }; then echo "❌ --jpeg-quality 는 10~63 정수 — 「$JQ」"; usage; fi
+if [ -n "$FB" ] && ! { isnum "$FB" && [ "$FB" -ge 1 ] && [ "$FB" -le 4 ]; }; then echo "❌ --fb-count 는 1~4 정수 — 「$FB」"; usage; fi
+EXTRA=()
+OPT_NOTE="없음(지금 펌웨어 · 품질 15 · 버퍼 2)"
+if [ -n "$JQ$FB" ]; then
+  # --clean — 빌드 속성이 바뀌어도 캐시된 옛 오브젝트가 섞이지 않게
+  EXTRA=(--clean --build-property "compiler.cpp.extra_flags=-DGLASS_JPEG_QUALITY=${JQ:-15} -DGLASS_FB_COUNT=${FB:-2}")
+  OPT_NOTE="품질 ${JQ:-15} · 버퍼 ${FB:-2}"
+fi
 case "$BOARD" in
   main) SN="68:EE:8F:4F:5D:38" ;;   # 메인 — 안경 프레임 안
   sub)  SN="3C:0F:02:DD:5E:58" ;;   # 서브 — 브레드보드
@@ -33,10 +54,12 @@ CAMERA_IP_FILE="$(cd "$HERE/.." && pwd)/Demo/.camera_ip"
 BACKUP_DIR="$HOME/lab/esp32-link"
 # ⚠️ PSRAM=opi 필수 — 빠뜨리면 카메라 프레임 버퍼 malloc 실패로 부팅 루프에 빠진다
 FQBN="esp32:esp32:XIAO_ESP32S3:PSRAM=opi"
-ARDUINO_CLI="${HOME}/bin/arduino-cli"
+ARDUINO_CLI="${ARDUINO_CLI_OVERRIDE:-${HOME}/bin/arduino-cli}"   # OVERRIDE = 시험에서만(기록하는 가짜)
+ESPTOOL="${ESPTOOL_OVERRIDE:-esptool}"
 
 echo "══════════════════════════════════════════════"
 echo "  안경 펌웨어 굽기 — glass_voice → $BOARD ($SN)"
+echo "  빌드 옵션: $OPT_NOTE$([ "$BUILD_ONLY" = 1 ] && echo ' · 컴파일만(--build-only)')"
 echo "══════════════════════════════════════════════"
 echo
 
@@ -49,6 +72,17 @@ CRED="$HERE/wifi_credentials.h"
 # 주석(//)은 제외하고 검사한다 — 사용법 안내 주석의 "<비밀번호>" 를 자리표시자로 오인해 굽기가 막히는 일이 있었다(2026-08-10).
 if grep -v '^[[:space:]]*//' "$CRED" | grep -q '여기에\|<.*비밀번호>'; then
   fail "wifi_credentials.h 에 비밀번호가 아직 안 들어갔습니다."
+fi
+
+# ── 1-2. 컴파일만(--build-only) — 보드 · 포트 · 백업 · 업로드 없이 · 집에서 변형이 빌드되는지 본다 ──
+if [ "$BUILD_ONLY" = "1" ]; then
+  OUT="${FLASH_BUILD_DIR:-$BACKUP_DIR/build}/q${JQ:-15}_fb${FB:-2}"
+  mkdir -p "$OUT"
+  echo "🔨 컴파일만 · 출력 $OUT"
+  "$ARDUINO_CLI" compile --fqbn "$FQBN" "${EXTRA[@]}" --output-dir "$OUT" "$SKETCH_DIR" || fail "컴파일 실패 (위 오류 참조)"
+  BINF="$OUT/glass_voice.ino.bin"
+  if [ -f "$BINF" ]; then echo "✅ 컴파일 통과 · $(md5sum "$BINF" | cut -c1-32) · $(stat -c %s "$BINF") 바이트"; else echo "✅ 컴파일 통과"; fi
+  exit 0
 fi
 
 # ── 2. 시리얼번호로 포트 ─────────────────────────
@@ -68,7 +102,7 @@ git -C "$HERE" diff --quiet HEAD -- glass_voice 2>/dev/null || DIRTY=" (⚠️ �
 SRC="$(git -C "$HERE" log -1 --format='%h %ad' --date=format:'%m-%d %H:%M' -- glass_voice/glass_voice.ino)$DIRTY"
 echo
 echo "🔨 컴파일 중... · 소스 $SRC"
-"$ARDUINO_CLI" compile --fqbn "$FQBN" "$SKETCH_DIR" || fail "컴파일 실패 (위 오류 참조) — 보드에는 아무것도 하지 않았다."
+"$ARDUINO_CLI" compile --fqbn "$FQBN" "${EXTRA[@]}" "$SKETCH_DIR" || fail "컴파일 실패 (위 오류 참조) — 보드에는 아무것도 하지 않았다."
 echo "✅ 컴파일 통과"
 mkdir -p "$BACKUP_DIR"
 
@@ -81,9 +115,9 @@ if [ "$BACKUP" = "1" ]; then
   STUCK="   보드가 다운로드 모드에 머물러 펌웨어가 안 돈다 — USB(배터리)를 뺐다 꽂으면 원래 펌웨어로 돌아온다."
   echo
   echo "💾 백업 중 → $BIN (몇 분 걸린다)"
-  esptool --port "$PORT" --no-stub --after no-reset read-flash 0 0x800000 "$BIN" || fail "백업 실패 — 굽지 않는다.
+  "$ESPTOOL" --port "$PORT" --no-stub --after no-reset read-flash 0 0x800000 "$BIN" || fail "백업 실패 — 굽지 않는다.
 $STUCK"
-  esptool --port "$PORT" --no-stub --after no-reset verify-flash 0 "$BIN" || fail "백업 대조 실패 — 굽지 않는다.
+  "$ESPTOOL" --port "$PORT" --no-stub --after no-reset verify-flash 0 "$BIN" || fail "백업 대조 실패 — 굽지 않는다.
 $STUCK"
   md5sum "$BIN" > "$BIN.md5"
   echo "✅ 백업·대조 통과 · $(cut -c1-32 "$BIN.md5")"
@@ -97,7 +131,7 @@ fi
 echo
 echo "📤 업로드 중..."
 [ -e "$PORT" ] || fail "업로드 직전에 $PORT 가 사라졌다 — USB 연결 확인(굽지 않았다)."
-"$ARDUINO_CLI" compile --upload -p "$PORT" --fqbn "$FQBN" "$SKETCH_DIR" || fail "업로드 실패 (위 오류 참조)
+"$ARDUINO_CLI" compile --upload -p "$PORT" --fqbn "$FQBN" "${EXTRA[@]}" "$SKETCH_DIR" || fail "업로드 실패 (위 오류 참조)
    ESP32의 BOOT 버튼을 누른 채 RESET을 눌렀다 떼고 다시 시도해 보세요."
 echo "✅ 업로드 완료 · 소스 $SRC"
 
