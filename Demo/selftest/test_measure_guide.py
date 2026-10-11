@@ -285,6 +285,15 @@ def test_say_end_cases():
     check(g.step(base, 4100.0, voice=[V(4000, "stt", text="가디언 지금 몇 단계야")]) == ("said", "질문"), "한 문장 = 끝")
     g, out, _ = _say_guide()
     g.step(base, 3000.0)
+    v = [V(4000, "stt", text="가디관?"), V(4000, "wake")]
+    check(g.step(base, 4100.0, voice=v) is None and "이제 질문" in (out[-1][1] or ""),
+          "「가디관」(호출어 변형) = 호출만 — 음성비서 질문 규칙(is_question)과 같게")
+    v += [V(5000, "stt", text="응.")]
+    check(g.step(base, 5100.0, voice=v) is None, "호출 뒤 「응」(한 글자) = 질문 아님 — 음성비서도 무시한다")
+    v += [V(6000, "stt", text="지금몇단계야")]
+    check(g.step(base, 6100.0, voice=v) == ("said", "질문"), "그다음 질문 = 끝")
+    g, out, _ = _say_guide()
+    g.step(base, 3000.0)
     check(g.step(base, 32900.0) is None and g.step(base, 33000.0) == ("said", "시간"), "30초 = 시간")
     g, out, _ = _say_guide()
     g.step(base, 3000.0)
