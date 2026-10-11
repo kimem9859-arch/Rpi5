@@ -89,6 +89,36 @@ class _NoActivateGroup:
         return getattr(self._ng, name)
 
 
+class _RunnerGroup:
+    """처리 2단계 2a — InferModel 추론기를 network group 자리에(blaze 가 activate() 를 부른다 · 학교 방문 준비 설계 §3.2)."""
+
+    def __init__(self, runner):
+        self._runner = runner
+
+    def activate(self, network_group_params=None):
+        return contextlib.nullcontext()
+
+    def create_params(self):
+        return None
+
+
+class _RunnerStreams:
+    """blaze 가 `with InferVStreams(ng, in_p, out_p) as p: p.infer(사전)` 로 부르는 자리의 대역 — InferModel 로 돈다.
+    🔑 blaze 소스는 저장소 밖이라 고치지 않고, 스위치를 켰을 때만 blaze 모듈의 InferVStreams 이름을 이것으로 바꿔 끼운다."""
+
+    def __init__(self, network_group, *_):
+        self._runner = network_group._runner
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def infer(self, data):
+        return self._runner.infer(data)
+
+
 class _SharedInference:
     """blaze 의 HailoInference 를 흉내 내되 **공유 VDevice** 를 쓴다.
 
@@ -105,6 +135,23 @@ class _SharedInference:
         self.network_group_params_list = []
         self.input_vstreams_params_list = []
         self.output_vstreams_params_list = []
+
+    def load_model(self, hef_path):
+        """종전 = blaze 의 HailoInference.load_model 그대로 · 2a = network group 을 장치에 올리지 않고 InferModel 추론기만."""
+        if not config.INFER_MODEL:
+            _prepare_paths()
+            from hailo_inference import HailoInference
+            return HailoInference.load_model(self, hef_path)
+        import hailo_infer
+        from hailo_platform import HEF
+        hef_id = self.hef_cnt
+        self.hef_list.append(HEF(hef_path))
+        self.network_group_list.append(_RunnerGroup(hailo_infer.InferRunner(hef_path)))
+        self.network_group_params_list.append(None)
+        self.input_vstreams_params_list.append(None)
+        self.output_vstreams_params_list.append(None)
+        self.hef_cnt += 1
+        return hef_id
 
     def _configure_and_get_network_group(self, hef, target):
         """원본 그대로 올리되, 돌려주는 network_group 을 감싼다(위 _NoActivateGroup)."""
@@ -153,6 +200,11 @@ class HandTracker:
             _prepare_paths()
             from blazedetector import BlazeDetector
             from blazelandmark import BlazeLandmark
+            if config.INFER_MODEL:                 # 처리 2단계 2a — 추론 통로를 InferModel 대역으로(학교 방문 준비 설계 §3.2)
+                import blazedetector
+                import blazelandmark
+                blazedetector.InferVStreams = _RunnerStreams
+                blazelandmark.InferVStreams = _RunnerStreams
             infer = _SharedInference()
             self._det = BlazeDetector("blazepalm", infer)
             self._det.set_debug(debug=False)

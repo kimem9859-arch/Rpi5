@@ -93,17 +93,26 @@ class HailoDetector(BaseDetector):
         self._lock = threading.Lock()
         self._stack = ExitStack()
 
-        # 장치는 hailo_device 가 소유한다(공유). 여기서 VDevice 를 만들면
-        # 손 검출 등 다른 모델을 올릴 수 없다 — HAILO_OUT_OF_PHYSICAL_DEVICES.
-        network_group = hailo_device.configure(hef_path or config.HEF_MODEL_PATH)
-        in_params = InputVStreamParams.make(network_group)
-        out_params = OutputVStreamParams.make(network_group)
-        self._in_name = network_group.get_input_vstream_infos()[0].name
-        self._pipeline = self._stack.enter_context(
-            InferVStreams(network_group, in_params, out_params)
-        )
-        # ⚠️ network_group.activate() 를 부르지 않는다 — ROUND_ROBIN 스케줄러가
-        #    컨텍스트 전환을 관리한다. 수동 활성화는 장치를 독점해 다른 모델을 막는다.
+        self._runner = None
+        if config.INFER_MODEL:
+            # 처리 2단계 2a — InferModel(추론 중 GIL 을 놓는다 · 학교 방문 준비 설계 §3.2 · SOP_INFER_MODEL=1)
+            import hailo_infer
+            path = hef_path or config.HEF_MODEL_PATH
+            self._runner = hailo_infer.InferRunner(path)
+            self._ncls = hailo_infer.nms_classes(path)
+            self._in_name = self._runner.input_name
+        else:
+            # 장치는 hailo_device 가 소유한다(공유). 여기서 VDevice 를 만들면
+            # 손 검출 등 다른 모델을 올릴 수 없다 — HAILO_OUT_OF_PHYSICAL_DEVICES.
+            network_group = hailo_device.configure(hef_path or config.HEF_MODEL_PATH)
+            in_params = InputVStreamParams.make(network_group)
+            out_params = OutputVStreamParams.make(network_group)
+            self._in_name = network_group.get_input_vstream_infos()[0].name
+            self._pipeline = self._stack.enter_context(
+                InferVStreams(network_group, in_params, out_params)
+            )
+            # ⚠️ network_group.activate() 를 부르지 않는다 — ROUND_ROBIN 스케줄러가
+            #    컨텍스트 전환을 관리한다. 수동 활성화는 장치를 독점해 다른 모델을 막는다.
 
         self._names = dict(names) if names else {0: "B1", 1: "B2", 2: "B3", 3: "B4", 4: "EMO"}
 
@@ -116,10 +125,15 @@ class HailoDetector(BaseDetector):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.uint8)
 
         with self._lock:
-            output = self._pipeline.infer({self._in_name: img[np.newaxis]})
+            if self._runner is not None:
+                import hailo_infer
+                out = self._runner.infer({self._in_name: img[np.newaxis]})
+                raw = hailo_infer.parse_nms_by_class(list(out.values())[0], self._ncls)
+            else:
+                output = self._pipeline.infer({self._in_name: img[np.newaxis]})
+                raw = list(output.values())[0][0]
 
         detections = []
-        raw = list(output.values())[0][0]
         for cls_id, cls_dets in enumerate(raw):
             arr = np.array(cls_dets)
             if arr.ndim != 2 or arr.shape[0] == 0:
@@ -144,6 +158,8 @@ class HailoDetector(BaseDetector):
         공유 VDevice 는 건드리지 않는다 — 닫으면 같은 장치를 쓰는 다른 모델
         (손 검출 등)이 함께 죽는다. 장치 해제가 정말 필요하면 hailo_device.shutdown().
         """
+        if self._runner is not None:
+            self._runner.close()
         self._stack.close()
 
 

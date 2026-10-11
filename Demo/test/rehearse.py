@@ -38,7 +38,7 @@ SRC_HANDS = os.path.join(DEMO, "recordings", "20261006_201449_camera.mp4")    # 
 VOICE_SCRIPT = os.path.join(SCEN, "장소1_⑤음성.csv")
 BASIS_SCRIPT = os.path.join(SCEN, "장소1_⑥근거.csv")
 PROC = {"2": "종전", "1": "1단계", "3": "1단계+화면 덜 그리기", "4": "1단계+2a", "5": "1단계+2a+2b"}
-PROC_ORDER = ["2", "1", "3"]       # Task 9 · 10 이 4 · 5 를 더한다
+PROC_ORDER = ["2", "1", "3", "4"]  # Task 10 이 5 를 더한다
 EXPECT_1 = (14.5, 17.0)            # 1단계 기대(상위 설계 근거 · 설계 근거용) — 범위 밖이면 ⚠️(학교 필수)
 
 
@@ -407,10 +407,14 @@ def main(argv=None):
     ap.add_argument("--only", default="", help="R1,R3 처럼 · 비우면 전부")
     ap.add_argument("--twice", action="store_true", help="같은 것을 두 번(흩어짐 확인)")
     ap.add_argument("--out", default="")
+    ap.add_argument("--proc", default="", help="R3 처리 설정만 골라서(예: 4,5 · 비우면 전부)")
     a = ap.parse_args(argv)
     out = a.out or os.path.expanduser(f"~/lab/리허설/{datetime.datetime.now():%Y%m%d_%H%M%S}")
     os.makedirs(os.path.join(out, "logs"), exist_ok=True)
     keys = [k.strip() for k in a.only.split(",") if k.strip()] or list(ITEMS)
+    if a.proc:
+        global PROC_ORDER
+        PROC_ORDER = [x.strip() for x in a.proc.split(",") if x.strip()]
     items = []
     for k in keys:
         t0 = time.monotonic()
