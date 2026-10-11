@@ -104,7 +104,12 @@ def main():
               "『주의』 ‘렌치’ “확인” … 끝"):
         check(t.synth(q) is not None, f"괄호·가운뎃점이 있어도 합성된다 — {q}")
     check(V.read_out("1단계 「클린·가스차단」") == "1단계 클린 가스차단", f"합성 전 글자 정리 · {V.read_out('1단계 「클린·가스차단」')!r}")
+    check(t.synth("지금 온도는 25℃ 입니다") is not None, "정리 뒤에도 남는 글자(℃)는 빼고 다시 합성한다(재시도 경로 · 리뷰 M6)")
+    import re
     import voice_assistant as va
+    with open(va.HOTWORDS, encoding="utf-8") as f:
+        bad = [w for w in f.read().splitlines() if w.strip() and not re.fullmatch(r"\S+( :\d+(\.\d+)?)?", w.strip())]
+    check(not bad, f"핫워드 줄 형식 = 「낱말」 또는 「낱말 :세기」 — 틀리면 sherpa 가 경고만 남기고 건너뛴다(리뷰 M6) · {bad}")
     check(va.build_stt() is not None, f"받아쓰기가 저장소 핫워드 목록(「가디언 :8.0」 꼴)을 읽는다 — {os.path.basename(va.HOTWORDS)}")
     try:
         Tts(engine="없음")
