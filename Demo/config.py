@@ -315,7 +315,8 @@ try:
         _cached_ip = _f.read().strip()
 except OSError:  # 파일 없음·권한 등 — 기본 IP로 폴백(앱 기동은 막지 않는다)
     _cached_ip = None
-CAMERA_TCP_HOST = _cached_ip if _cached_ip else "10.111.10.235"
+# 🔑 집 리허설은 가짜 카메라(127.0.0.1)로 — .camera_ip 를 건드리지 않고 환경변수로 덮는다(학교 방문 준비 설계 §7.1)
+CAMERA_TCP_HOST = os.environ.get("SOP_CAMERA_HOST") or (_cached_ip if _cached_ip else "10.111.10.235")
 CAMERA_TCP_PORT = 8888
 TCP_RECV_TIMEOUT_SEC    = 10.0
 TCP_RECONNECT_DELAY_SEC = 3.0

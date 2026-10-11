@@ -229,6 +229,9 @@ def esp_ip():
     🔴 mDNS 를 쓰지 않으므로(통신경로 설계 §6-②) 주소는 파일이 정본이고,
        매번 다시 읽어 통신경로 폴백(iptime→폰→파이AP)을 따라간다.
     """
+    forced = os.environ.get("SOP_CAMERA_HOST")       # 집 리허설 — 가짜 안경(학교 방문 준비 설계 §7.1)
+    if forced:
+        return forced
     try:
         ip = open(IP_FILE, encoding="utf-8").read().strip()
     except OSError:
