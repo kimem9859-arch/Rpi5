@@ -48,6 +48,32 @@ def downsample(x, src, dst):
     return np.convolve(x, h, mode="same")[::f].astype(np.float32)
 
 
+def deess(x, rate, hz=None, ratio=None, gain=None, win=0.02, hop=0.01, ramp=0.005):
+    """센 소리(쓰·시·초) 순간만 높은 성분을 줄인다 — 20ms 조각의 hz 위 성분 비율이 ratio 를 넘으면 그 조각의 높은 성분 × gain.
+    나머지(모음 등)는 원본 그대로 · 바뀌는 곳은 ramp 로 부드럽게(딸깍 없게) · 값 = config.TTS_DEESS_*."""
+    import numpy as np
+    hz = config.TTS_DEESS_HZ if hz is None else hz
+    ratio = config.TTS_DEESS_RATIO if ratio is None else ratio
+    gain = config.TTS_DEESS_GAIN if gain is None else gain
+    x = np.asarray(x, dtype=np.float32).reshape(-1)
+    if gain >= 1.0 or x.size == 0:
+        return x
+    n = 101
+    m = np.arange(n) - (n - 1) / 2
+    h = np.sinc(2 * hz / rate * m) * np.hamming(n)
+    lo = np.convolve(x, h / h.sum(), mode="same")
+    hi = x - lo
+    w, step = max(1, int(rate * win)), max(1, int(rate * hop))
+    g = np.ones(x.size)
+    for i in range(0, max(1, x.size - w + 1), step):
+        e = float((x[i:i + w] ** 2).sum())
+        if e > 0 and float((hi[i:i + w] ** 2).sum()) / e > ratio:
+            g[i:i + w] = gain
+    k = max(1, int(rate * ramp))
+    g = np.convolve(np.pad(g, (k // 2, k - 1 - k // 2), mode="edge"), np.ones(k) / k, mode="valid")   # 🔑 끝을 0 으로 채우면 앞뒤가 깎인다
+    return (lo + g * hi).astype(np.float32)
+
+
 def trim(x, rate):
     """앞뒤 무음을 자른다 — 안내 소리의 「재생 시작」이 들리기 시작한 때와 같아야 한다(설계 D14)."""
     import numpy as np
@@ -103,7 +129,8 @@ class Tts:
                 return pcm.tobytes(), a.sample_rate, len(pcm) / a.sample_rate
             wav, _ = self._st.synthesize(text, voice_style=self._style, lang="ko", total_steps=config.TTS_ST_STEPS,
                                          speed=config.TTS_ST_SPEED if speed is None else speed)
-            x = trim(downsample(wav, self._st.sample_rate, config.TTS_OUT_RATE), config.TTS_OUT_RATE)
+            x = deess(trim(downsample(wav, self._st.sample_rate, config.TTS_OUT_RATE), config.TTS_OUT_RATE),
+                      config.TTS_OUT_RATE)
             if x.size == 0:
                 return None
             return to_pcm(x), config.TTS_OUT_RATE, x.size / config.TTS_OUT_RATE

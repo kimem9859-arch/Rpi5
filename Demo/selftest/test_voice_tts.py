@@ -73,6 +73,32 @@ def main():
     check(t.engine == config.TTS_ENGINE == "supertonic2", f"기본 엔진 = supertonic2 ({t.engine})")
     check(rate0 == config.TTS_OUT_RATE == 22050, f"출력 레이트 = 22050 ({rate0})")
     check(Tts(engine="kss").synth("앞에 렌치가 보입니다.") is not None, "되돌리기 갈래(kss)도 합성된다")
+
+    # ── 센 소리 줄이기(2026-10-11 · 사용자 「센 발음(고음)만 깍아 낼 순 없나」 · 「조금 줄인 쪽」) ──
+    r = 22050
+    seg = lambda f, s: (np.sin(2 * np.pi * f * np.arange(int(r * s)) / r) * 0.5).astype(np.float32)   # noqa: E731
+    x = np.r_[seg(500, 0.3), seg(7000, 0.2), seg(500, 0.3)]
+    try:
+        y = V.deess(x, r)
+    except AttributeError:
+        check(False, "deess 가 없다")
+        y = None
+    if y is not None:
+        a, b = int(r * 0.25), int(r * 0.55)          # 바뀐 곳에서 50ms 떨어진 모음(500Hz) 자리
+        check(np.abs(y[:a] - x[:a]).max() < 1e-4 and np.abs(y[b:] - x[b:]).max() < 1e-4,
+              "센 소리가 아닌 곳(500Hz)은 손대지 않는다 — 소리 전체를 깎지 않는다")
+        mid = slice(int(r * 0.35), int(r * 0.45))
+        got = np.abs(y[mid]).max()
+        check(abs(got - 0.5 * config.TTS_DEESS_GAIN) < 0.03, f"센 소리(7kHz) 순간만 {config.TTS_DEESS_GAIN} 배로 ({got:.3f})")
+        check(np.abs(V.deess(x, r, gain=1.0) - x).max() < 1e-4, "gain 1.0 = 끔")
+        called = []
+        orig = V.deess
+        V.deess = lambda x, rate, **k: (called.append(rate), orig(x, rate, **k))[1]
+        try:
+            t.synth("다시")
+        finally:
+            V.deess = orig
+        check(called == [config.TTS_OUT_RATE], "supertonic2 합성이 센 소리 줄이기를 지난다")
     try:
         Tts(engine="없음")
         check(False, "모르는 엔진을 못 잡음")
