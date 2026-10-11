@@ -724,6 +724,56 @@ class AlertBanner(_Panel):
             self.relayout(r)
 
 
+class PromptBar(_Panel):
+    """측정 화면 띠 — 음성 줄(호출·질문)을 언제 무엇을 말할지 맨 아래 가운데에 두 줄로(측정 진행 도우미 설계 §10 · D19·D20).
+
+    🔴 측정 기록이 켜졌을 때만 시연 화면이 만든다 — 시연에서는 없다. 경고·차단 배너(가운데)·상태 패널을 가리지 않는 자리.
+    🔑 글이 바뀔 때만 다시 그린다(set_prompt 가 False = 그대로) — 처리 스레드와 다른 GUI 타이머에서 부른다.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+        self._title = QLabel("")
+        self._title.setFont(config.font("body", 600))
+        self._line = QLabel("")
+        self._line.setFont(config.font("banner", 700))
+        self._line.setWordWrap(True)
+        for lbl in (self._title, self._line):
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lay.addWidget(lbl)
+        self._now = (None, None)
+        self.hide()
+
+    def set_prompt(self, title, line):
+        """띠 글을 바꾼다 → 다시 그렸으면 True · 같으면 False · 둘 다 비면 숨긴다."""
+        if (title, line) == self._now:
+            return False
+        self._now = (title, line)
+        if not title and not line:
+            self.hide()
+            return True
+        self._title.setText(title or "")
+        self._line.setText(line or "")
+        self.adjustSize()
+        self.show()
+        self.raise_()
+        return True
+
+    def text(self):
+        return f"{self._title.text()} {self._line.text()}".strip()
+
+    def relayout(self, parent_rect):
+        place(self, parent_rect, width=0.5, bottom=0.03, height=0.12)
+
+    def apply_theme(self):
+        super().apply_theme()
+        self._title.setStyleSheet(theme.text_qss("text", 600))
+        self._line.setStyleSheet(theme.text_qss("text", 700))
+
+
 class ConnBar(_Panel):
     """우하단 연결 상태 — 📷 카메라 · 🔌 인터락 · 🔘 GPIO (design §9).
 

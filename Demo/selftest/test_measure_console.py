@@ -149,7 +149,47 @@ def test_gpio_short_press_is_callback():
     check(got == [("B1", "callback"), ("EMO", "edge")], f"{got}")
 
 
+def test_prompt_bar():
+    print("\n[띠] 음성 줄 화면 안내(진행 도우미 3판 D19·D20) — 측정 기록이 켜졌을 때만 · 파일이 바뀌면 글 · 비면 숨김")
+    try:
+        import measure_prompt as MP
+    except ImportError:
+        check(False, "measure_prompt 가 없다")
+        return
+    cue = tempfile.mkdtemp(prefix="sop_cue_test_")
+    old = config.CUE_SHM_DIR
+    config.CUE_SHM_DIR = cue
+    try:
+        MP.write("a", "b", d=cue)
+        check(MP.read(d=cue) == ("a", "b"), f"쓰고 읽기 = {MP.read(d=cue)}")
+        MP.clear(d=cue)
+        check(MP.read(d=cue) is None, "지우면 None")
+        with open(os.path.join(cue, "prompt.json"), "w", encoding="utf-8") as f:
+            f.write("{깨짐")
+        check(MP.read(d=cue) is None, "깨진 파일 = None")
+        MP.clear(d=cue)
+        win = make(None)
+        check(getattr(win, "_prompt_bar", None) is None and getattr(win, "_prompt_timer", None) is None,
+              "측정 기록 끔(시연) = 띠·타이머를 만들지 않는다")
+        win.close()
+        win = make(tempfile.mkdtemp())
+        bar = getattr(win, "_prompt_bar", None)
+        check(bar is not None and bar.isHidden(), "측정 기록 켬 = 띠가 있고 처음엔 숨김")
+        if bar is not None:
+            MP.write("🎤 지금 말하세요", "「가디언」 → 「지금 몇 단계야?」", d=cue)
+            win._poll_prompt()
+            check(not bar.isHidden() and "몇 단계" in bar.text(), f"파일 → 띠 글 · {bar.text()}")
+            check(bar.set_prompt("🎤 지금 말하세요", "「가디언」 → 「지금 몇 단계야?」") is False, "같은 글이면 다시 그리지 않는다")
+            MP.clear(d=cue)
+            win._poll_prompt()
+            check(bar.isHidden(), "지우면 숨김")
+        win.close()
+    finally:
+        config.CUE_SHM_DIR = old
+
+
 if __name__ == "__main__":
+    test_prompt_bar()
     test_events_flow()
     test_off_is_null()
     test_gpio_edge_time()

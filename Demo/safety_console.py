@@ -38,7 +38,7 @@ import theme
 from sub_task import SubTask
 from raw_recorder import RawRecorder
 from tool_state import ToolState, held_tool
-from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, place
+from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, PromptBar, place
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
                           NotifyButton, CheckPanel, RecordPanel)
 from overlay_result import ResultPanel
@@ -47,6 +47,7 @@ from fps import FPS_WINDOW, fps_from_intervals, fps_stale
 from demo_recorder import DemoRecorder
 from state_publisher import StatePublisher
 import measure_log
+import measure_prompt
 
 
 def _pi_resources():
@@ -195,6 +196,16 @@ class SafetyConsole(QMainWindow):
                 "interlock", t=ts, cmd=cmd, t_send_ms=measure_log.now_ms(ts),
                 t_ack_ms=measure_log.now_ms(ta) if ta else None, ack=ok, tries=n))
                 if self._measure.enabled else None))
+        # 측정 화면 띠(측정 진행 도우미 3판 D19·D20) — 음성 줄을 언제 무엇을 말할지 맨 아래에 글로.
+        # 🔴 측정 기록이 켜졌을 때만 만든다 — 시연에서는 위젯도 타이머도 없다(시연 동작 무변경).
+        self._prompt_bar = self._prompt_timer = self._prompt_mtime = None
+        if self._measure.enabled:
+            self._prompt_bar = PromptBar(self._root)
+            self._prompt_bar.apply_theme()
+            self._prompt_timer = QTimer(self)
+            self._prompt_timer.timeout.connect(self._poll_prompt)
+            self._prompt_timer.start(250)
+            self._relayout()
 
         # 트랙 A 물리 입력 — 버튼 B1~B4·EMO(GPIO) → FSM. gpiozero 콜백은 별도 스레드라
         # 시그널로 GUI 스레드의 _press_button 에 마샬링(직접 GUI 접근 금지). 미연결·비-Pi
@@ -472,10 +483,21 @@ class SafetyConsole(QMainWindow):
                   self.settings_panel, self.check_panel, self.record_panel,
                   self.result_panel, self.log_browser, self.btn_menu, self.btn_notify):
             w.raise_()
+        if getattr(self, "_prompt_bar", None) is not None:      # 측정 화면 띠 — 결과창보다 위(3판 D20)
+            self._prompt_bar.relayout(r)
+            self._prompt_bar.raise_()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._relayout()
+
+    def _poll_prompt(self):
+        """측정 화면 띠 — 진행 도우미가 쓴 파일이 바뀌었을 때만 읽어 글을 바꾼다(측정 진행 도우미 3판 D20)."""
+        m = measure_prompt.mtime()
+        if m == self._prompt_mtime:
+            return
+        self._prompt_mtime = m
+        self._prompt_bar.set_prompt(*(measure_prompt.read() or (None, None)))
 
     def _apply_theme(self):
         """테마가 바뀌면 모든 오버레이에 다시 적용한다."""
