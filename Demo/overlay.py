@@ -766,11 +766,11 @@ class PromptBar(_Panel):
         return f"{self._title.text()} {self._line.text()}".strip()
 
     def relayout(self, parent_rect):
-        place(self, parent_rect, width=0.5, bottom=0.03, height=0.12)
+        place(self, parent_rect, width=0.5, bottom=0.04)          # 높이 = 글 두 줄(sizeHint)
 
     def apply_theme(self):
         super().apply_theme()
-        self._title.setStyleSheet(theme.text_qss("text", 600))
+        self._title.setStyleSheet(theme.text_qss("info", 700))     # 🔑 눈에 띄게 — 경고(주황)·차단(빨강)과 다른 색
         self._line.setStyleSheet(theme.text_qss("text", 700))
 
 
