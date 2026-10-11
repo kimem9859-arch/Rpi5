@@ -127,8 +127,10 @@ class Tts:
 
     def synth(self, text, speed=None):
         """`(pcm bytes, 레이트, 말하는 시간초)` — 실패하면 None. speed 없음 = 엔진 기본(kss 1.0 · supertonic2 config)."""
+        self.last_error = ""                      # 앞선 실패 이유가 남지 않게(최종 리뷰 M5)
         text = read_out(text)
         if not text.strip():
+            self.last_error = "빈 글"
             return None
         try:
             if self.engine == "kss":
@@ -151,6 +153,7 @@ class Tts:
             x = deess(trim(downsample(wav, self._st.sample_rate, config.TTS_OUT_RATE), config.TTS_OUT_RATE),
                       config.TTS_OUT_RATE)
             if x.size == 0:
+                self.last_error = "빈 소리"
                 return None
             return to_pcm(x), config.TTS_OUT_RATE, x.size / config.TTS_OUT_RATE
         except Exception as e:                 # noqa: BLE001 — 데몬은 살아야 한다
