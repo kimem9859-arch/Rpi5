@@ -757,7 +757,8 @@ class PromptBar(_Panel):
             return True
         self._title.setText(title or "")
         self._line.setText(line or "")
-        self.adjustSize()
+        if self.parentWidget() is not None:
+            self.relayout(self.parentWidget().rect())     # 🔑 글 크기에 맞춰 다시 가운데로(최종 리뷰 M1 · adjustSize 는 왼쪽 위가 그대로)
         self.show()
         self.raise_()
         return True
@@ -766,7 +767,10 @@ class PromptBar(_Panel):
         return f"{self._title.text()} {self._line.text()}".strip()
 
     def relayout(self, parent_rect):
-        place(self, parent_rect, width=0.5, bottom=0.04)          # 높이 = 글 두 줄(sizeHint)
+        # 🔑 높이는 실제 폭(50%)에서의 높이로 잰다 — 긴 글이 접혀도 바닥에 붙지 않게(AlertBanner.relayout 과 같은 방식)
+        w = int(parent_rect.width() * 0.5)
+        h = self.heightForWidth(w) if self.hasHeightForWidth() else self.sizeHint().height()
+        place(self, parent_rect, width=0.5, bottom=0.04, height=h / max(1, parent_rect.height()))
 
     def apply_theme(self):
         super().apply_theme()

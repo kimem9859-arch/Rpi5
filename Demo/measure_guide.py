@@ -186,6 +186,8 @@ class Guide:
         tail = " (대답 없음이 정상)" if s["emergency"] else ""
         if stage == "call":
             self.prompt_sink("🎤 지금 말하세요" + tail, f"「가디언」 → 「{s['text']}」")
+        elif s["emergency"]:                         # 비상 중에는 띠링이 나지 않는다(무반응) — 다시 부르지 않게(최종 리뷰 M2)
+            self.prompt_sink("🎤 호출 ✓ — 이제 질문하세요 (띠링·대답 없음이 정상)", f"「{s['text']}」")
         else:
             self.prompt_sink("🎤 띠링 ✓ — 이제 질문하세요" + tail, f"「{s['text']}」")
 
@@ -230,7 +232,7 @@ class Guide:
         self.view = {"res": res, "run": r, "cur": cur, "say": self.say}
         busy, busy_end = assistant_busy(voice, now_ms)
         if r is None and self.auto and self.say is None and res["runs"] and not busy:
-            return self._result_say(res["runs"][-1], runs[-1], now_ms)
+            return self._result_say(res["runs"][-1], runs[-1], now_ms, busy_end)
         if r is None or r["script"] is None or not self.auto:
             return None
         if r["status"] == "ng" or r["live_ng"]:
@@ -259,7 +261,7 @@ class Guide:
         return ("cue", c[1])
 
 
-    def _result_say(self, last, run, now_ms):
+    def _result_say(self, last, run, now_ms, busy_end=None):
         """판 끝 말(결과창 · 3판 D22) — 완주로 닫힌 판의 마지막 누름 뒤 말을 다음 「작업 시작」 전까지 띄운다."""
         if last["script"] is None or last["status"] != "ok" or run["end"] != "완주":
             return None
@@ -270,6 +272,8 @@ class Guide:
             if toks[n].kind in SAY_KINDS and (last["i"], n) not in self.said:
                 if (last["i"], n) in self.cued or now_ms - run["t1"] < GAP_MS:
                     return None
+                if busy_end is not None and now_ms - busy_end < GAP_MS:
+                    return None                          # 대화가 끝나고 1초 뒤 — 닫힘음·마이크 버림과 겹치지 않게(최종 리뷰 M3)
                 return self._show_say(last["i"], last["script"], n, toks, now_ms)
         return None
 
@@ -321,7 +325,7 @@ def say_progress(voice, t0):
     """띄운 뒤 음성 기록 → (단계 "call"|"ask", 받아쓰기 조각 수, 끝났나)(3판 D23).
     🔑 질문인지 = 음성비서 규칙 그대로(voice_lib.is_question — 호출어 앞 두 글자를 뺀 나머지가 두 글자 이상) —
        「가디관」 같은 변형은 호출만 · 「응」 은 무시 · 「가디언 지금 몇 단계야」 한 문장은 끝. 비상 중은 emergency_ignored 도 본다."""
-    stage, att = "call", 0
+    stage, att, t_wake = "call", 0, None
     for t, k, d in voice or ():
         if t < t0:
             continue
@@ -330,14 +334,17 @@ def say_progress(voice, t0):
             if not _hangul(text):
                 continue
             att += 1
+            if stage == "ask" and t_wake is not None and t - t_wake > LISTEN_MS:
+                stage, t_wake = "call", None             # 대화창이 닫혔다 — 음성비서도 무시한다(최종 리뷰 M4)
             if VL.is_wake(text):
+                t_wake = t
                 if VL.is_question(text, True):
                     return "ask", att, True
                 stage = "ask"
             elif stage == "ask" and VL.is_question(text, True):
                 return stage, att, True
         elif k == "wake":
-            stage = "ask"
+            stage, t_wake = "ask", t
         elif k == "emergency_ignored":
             text = d.get("text") or ""
             if d.get("wake"):

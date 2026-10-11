@@ -188,7 +188,26 @@ def test_prompt_bar():
         config.CUE_SHM_DIR = old
 
 
+def test_prompt_bar_centered():
+    print("\n[띠 자리] 글이 바뀌어도 맨 아래 가운데 · 폭 50% · 바닥에 붙지 않는다(최종 리뷰 M1)")
+    from PyQt6.QtWidgets import QWidget
+    from overlay import PromptBar
+    root = QWidget()
+    root.resize(1280, 720)
+    bar = PromptBar(root)
+    bar.apply_theme()
+    bar.relayout(root.rect())
+    for line in ("짧은 질문", "긴 질문 " * 12):
+        bar.set_prompt("제목", line)
+        g = bar.geometry()
+        mid = g.x() + g.width() / 2
+        check(abs(mid - 640) <= 2 and g.width() == 640 and g.bottom() < 720 - 10,
+              f"자리 = ({g.x()},{g.y()},{g.width()},{g.height()}) · 글 {len(line)}자")
+    root.close()
+
+
 if __name__ == "__main__":
+    test_prompt_bar_centered()
     test_prompt_bar()
     test_events_flow()
     test_off_is_null()

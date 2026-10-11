@@ -264,20 +264,20 @@ def test_say_flow():
     v += [V(23000, "play_end", key=None)]
     check(g.step(ev, 23900.0, voice=v) is None, "답이 끝나고 1초 전 = 미룸")
     check(g.step(ev, 24100.0, voice=v) == ("cue", "cue_B2"), "답이 끝나고 1초 뒤 미룬 B2 소리")
-    ev += [E(18000, "press", button="B2", expected="B2", state="MONITOR", source="gpio"), E(18000, "run_end", ok=True)]
-    check(g.step(ev, 18900.0, voice=v) is None, "결과창 말 = 완주 + 1초 전에는 안 띄운다")
-    check(g.step(ev, 19100.0, voice=v) == ("say", "작업 결과 어때?"), "판 끝 말 = 결과창(판이 닫힌 뒤)")
-    ev += [E(25000, "run_start"), ST(25010, "PROCESS_RUN", "B1")]
-    check(g.step(ev, 25100.0, voice=v) == ("said", "넘어감"), "다음 판이 시작되면 넘어감")
-    check(g.step(ev, 26200.0, voice=v) == ("cue", "cue_EMO"), "다음 대본 판(비상) 안내")
-    ev += [E(27000, "press", button="EMO", expected="B1", state="MONITOR", source="gpio"), ST(27000, "BLOCK", "B1")]
-    check(g.step(ev, 28100.0, voice=v) == ("say", "지금 B1 눌러도 돼?") and "대답 없음" in (out[-1][1] or ""),
+    ev += [E(24200, "press", button="B2", expected="B2", state="MONITOR", source="gpio"), E(24200, "run_end", ok=True)]
+    check(g.step(ev, 25100.0, voice=v) is None, "결과창 말 = 완주 + 1초 전에는 안 띄운다")
+    check(g.step(ev, 25300.0, voice=v) == ("say", "작업 결과 어때?"), "판 끝 말 = 결과창(판이 닫힌 뒤)")
+    ev += [E(26000, "run_start"), ST(26010, "PROCESS_RUN", "B1")]
+    check(g.step(ev, 26100.0, voice=v) == ("said", "넘어감"), "다음 판이 시작되면 넘어감")
+    check(g.step(ev, 27200.0, voice=v) == ("cue", "cue_EMO"), "다음 대본 판(비상) 안내")
+    ev += [E(28000, "press", button="EMO", expected="B1", state="MONITOR", source="gpio"), ST(28000, "BLOCK", "B1")]
+    check(g.step(ev, 29100.0, voice=v) == ("say", "지금 B1 눌러도 돼?") and "대답 없음" in (out[-1][1] or ""),
           f"비상 말 = 차단 중에도 띄움 · {out[-1]}")
-    v += [V(29000, "stt", text="가디야."), V(29000, "emergency_ignored", text="가디야.", wake=True)]
-    g.step(ev, 29100.0, voice=v)
+    v += [V(30000, "stt", text="가디야."), V(30000, "emergency_ignored", text="가디야.", wake=True)]
+    g.step(ev, 30100.0, voice=v)
     check("이제 질문" in (out[-1][1] or ""), f"비상 중 호출 → 「이제 질문」 · {out[-1]}")
-    v += [V(30000, "stt", text="지금B1눌러도돼?"), V(30000, "emergency_ignored", text="지금B1눌러도돼?", wake=False)]
-    check(g.step(ev, 30100.0, voice=v) == ("said", "질문"), "비상 중 질문 → 끝(대답 없음이 정상)")
+    v += [V(31000, "stt", text="지금B1눌러도돼?"), V(31000, "emergency_ignored", text="지금B1눌러도돼?", wake=False)]
+    check(g.step(ev, 31100.0, voice=v) == ("said", "질문"), "비상 중 질문 → 끝(대답 없음이 정상)")
 
 
 def test_say_end_cases():
@@ -365,7 +365,48 @@ def test_replay_result_say():
         check(len(says) == 2 and all(o[1] == 1 for o in says), f"결과창 말 · 넘어감 = 1번째 판으로 남는다 · {out}")
 
 
+def _guide_for(rows_):
+    out = []
+    g = G.Guide(rows_, "EMO", cue_sink=lambda k, t: out.append(("cue", k)), prompt_sink=lambda a, b: out.append(("p", a, b)))
+    return g, out
+
+
+def test_say_minor_fixes():
+    print("\n[말 사소] 비상 말 제목 · 결과창 말 = 대화 끝 + 1초 · 대화창 20초 뒤 받아쓰기 = 질문 아님(최종 리뷰 M2 M3 M4)")
+    T = lambda s_: MS.parse_tokens(s_, B)   # noqa: E731
+    emo_rows = [{"판": 1, "행동": "호출", "대상": "", "메모": "", "누름": "EMO@B1 말", "낱말": T("EMO@B1 말")},
+                {"판": 1, "행동": "비상질문", "대상": "지금 B1 눌러도 돼?", "메모": "", "누름": "", "낱말": []}]
+    g, out = _guide_for(emo_rows)
+    ev = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B1")]
+    g.step(ev, 1100.0)
+    ev += [E(2000, "press", button="EMO", expected="B1", state="MONITOR", source="gpio"), ST(2000, "BLOCK", "B1")]
+    g.step(ev, 3100.0)
+    g.step(ev, 4100.0, voice=[V(4000, "stt", text="가디야."), V(4000, "emergency_ignored", text="가디야.", wake=True)])
+    title = out[-1][1] or ""
+    check("호출" in title and "띠링" not in title.split("—")[0], f"비상 말 = 띠링이 없으니 「호출 ✓」 · {title}")
+    res_rows = [{"판": 1, "행동": "정상", "대상": "", "메모": "", "누름": "B1 말", "낱말": T("B1 말")},
+                {"판": 1, "행동": "질문", "대상": "작업 결과 어때?", "메모": "", "누름": "", "낱말": []}]
+    g, out = _guide_for(res_rows)
+    ev = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B1"),
+          E(2000, "press", button="B1", expected="B1", state="MONITOR", source="gpio"), E(2000, "run_end", ok=True)]
+    v = [V(1500, "stt", text="가디야."), V(1500, "wake"), V(2500, "answer", src="LLM"),
+         V(2600, "play_start", key=None), V(2800, "play_end", key=None)]
+    check(g.step(ev, 3500.0, voice=v) is None, "결과창 말 = 대화 끝 + 1초 전에는 안 띄운다(닫힘음·마이크 버림과 겹치지 않게)")
+    check(g.step(ev, 3900.0, voice=v) == ("say", "작업 결과 어때?"), "대화 끝 + 1초 뒤 결과창 말")
+    win_rows = [{"판": 1, "행동": "정상", "대상": "", "메모": "", "누름": "B1 말~ B2", "낱말": T("B1 말~ B2")},
+                {"판": 1, "행동": "질문", "대상": "지금 몇 단계야?", "메모": "", "누름": "", "낱말": []}]
+    g, out = _guide_for(win_rows)
+    ev = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B1"),
+          E(2000, "press", button="B1", expected="B1", state="MONITOR", source="gpio"), E(2000, "sub", what="start", button="B1")]
+    g.step(ev, 1100.0)
+    g.step(ev, 3000.0)
+    v = [V(4000, "stt", text="가디야."), V(4000, "wake"), V(25000, "stt", text="지금몇단계야?")]
+    check(g.step(ev, 25100.0, voice=v) is None, "호출 + 21초 받아쓰기 = 대화창이 닫혀 음성비서도 무시 → 말은 끝나지 않는다")
+    check("지금 말하세요" in (out[-1][1] or ""), f"대화창이 닫히면 띠는 다시 「지금 말하세요」 · {out[-1]}")
+
+
 def main():
+    test_say_minor_fixes()
     test_replay_result_say()
     test_busy_slow_answer()
     test_busy_unprompted()
