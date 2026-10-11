@@ -101,11 +101,30 @@ def test_report_processing_line():
     check("2a" not in old, f"2단계 기록 전 세션은 그대로 — {old}")
 
 
+def test_stdout_is_only_the_path():
+    print("\n[세션] 인터락 포트를 강제로 지정해도 표준출력은 세션 폴더 경로 한 줄뿐(리허설이 찾은 버그 · 대처표 V10)")
+    d = tempfile.mkdtemp()
+    env = dict(os.environ, SOP_INTERLOCK_PORT="/dev/null")
+    r = subprocess.run([sys.executable, "measure_session.py", "--base", d, "--place", "1", "--kind", "0", "--hand", "1",
+                        "--person", "1", "--on", "0"], cwd=_DEMO_DIR, env=env, capture_output=True, text=True)
+    lines = r.stdout.splitlines()
+    check(len(lines) == 1 and lines[0].startswith(d), f"표준출력 {lines}")
+    check("강제 지정" in r.stderr, "안내는 표준오류로")
+
+
+def test_guide_waits_for_missing_base():
+    print("\n[진행 도우미] 측정 폴더가 아직 없으면 죽지 않고 기다린다(리허설 첫 세션 전)")
+    import measure_guide as G
+    check(G.pick_session(base="/tmp/없는-측정-폴더-시험") is None, "없는 폴더 → None")
+
+
 if __name__ == "__main__":
     test_processing_numbers()
     test_from_run()
     test_measure_base_followed()
     test_report_processing_line()
+    test_stdout_is_only_the_path()
+    test_guide_waits_for_missing_base()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

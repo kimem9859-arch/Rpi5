@@ -378,7 +378,9 @@ def resolve_interlock_port(quiet=False):
 
     🔑 안내 글자는 종전과 같다 — `fsm_sim`(옛 데이터 관문 · 지금 `Rpi5/백업/세기-20261009/`) 등 config 를 불러오는 도구의 출력이 이 줄을 담는다.
     """
-    say = (lambda m: None) if quiet else print
+    # 🔴 표준오류로 — 실행기가 measure_session 의 표준출력(세션 폴더 경로)을 그대로 받는다. 표준출력으로 내면 강제 지정(V10) ·
+    #    장치 없음 때 경로에 이 줄이 섞여 측정 기록이 엉뚱한 곳에 쓰였다(학교 방문 준비 리허설이 찾음).
+    say = (lambda m: None) if quiet else (lambda m: print(m, file=sys.stderr))
     port, why = find_interlock_port()
     forced = os.environ.get("SOP_INTERLOCK_PORT")
     if forced:

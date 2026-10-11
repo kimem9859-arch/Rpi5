@@ -331,7 +331,7 @@ def test_final_minor_startup_message_many_candidates():
     def said(cands):
         list_ports.comports = lambda: cands
         buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
+        with contextlib.redirect_stderr(buf):            # 안내는 표준오류(실행기가 표준출력을 세션 경로로 받는다)
             _REAL_RESOLVE()
         return buf.getvalue().splitlines()
 

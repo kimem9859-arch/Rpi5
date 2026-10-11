@@ -446,6 +446,8 @@ def _ended(d):
 def pick_session(base=MEASURE_DIR, done=()):
     """따라갈 세션 — 가장 새 「기록 켬」 세션 하나만 · 끝났거나 이미 따라갔으면 None(기다린다).
     🔴 오래된 세션으로 돌아가지 않는다 — 비정상 종료로 끝 사건이 없는 옛 세션을 따라가면 안내가 엉뚱해진다(최종 리뷰 Important 2)."""
+    if not os.path.isdir(base):
+        return None                                      # 측정 폴더가 아직 없다(리허설 첫 세션 전) — 기다린다
     for n in sorted(os.listdir(base), reverse=True):
         d = os.path.join(base, n)
         if n in SKIP_DIRS or not os.path.isfile(os.path.join(d, "session.json")):
