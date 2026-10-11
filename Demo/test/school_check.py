@@ -39,7 +39,7 @@ def _c(group, name, ok, detail="", fix=""):
 def ip_band(ip):
     ok = ip.startswith("192.168.1.")
     return _c("안경", "IP 대역", ok, f".camera_ip = {ip}",
-              "" if ok else "V1 · 안경 전원을 껐다 켜고 → bash arduino/read_esp32_ip.sh(USB) → bash arduino/update_ip.sh")
+              "" if ok else "V1 · 안경 전원을 껐다 켜고 → 안경을 USB 로 꽂고 bash arduino/update_ip.sh(메인 안경을 시리얼번호로 찾는다)")
 
 
 def recv_probe(host, port=None, sec=5.0):
@@ -49,7 +49,7 @@ def recv_probe(host, port=None, sec=5.0):
         s = socket.create_connection((host, port), timeout=3)
     except OSError as e:
         return _c("안경", "연결 · 받기", False, f"{host}:{port} 연결 안 됨 — {e}",
-                  "V2 · IP 가 바뀌었는지 bash arduino/read_esp32_ip.sh(USB) → bash arduino/update_ip.sh · 안경 전원")
+                  "V2 · 안경을 USB 로 꽂고 bash arduino/update_ip.sh(바뀐 IP 를 읽어 .camera_ip 갱신) · 안경 전원")
     s.settimeout(3)
     n, size, first, t0 = 0, 0, None, time.monotonic()
     try:
@@ -258,15 +258,21 @@ def _demo_running():
 def run(home=False):
     host = "127.0.0.1" if home else config.CAMERA_TCP_HOST
     skip = lambda g, n, why="집 · 건너뜀": _c(g, n, None, why)     # noqa: E731
-    out = [skip("안경", "IP 대역") if home else ip_band(host),
-           recv_probe(host, sec=5.0 if not home else 2.0),
-           glass_ports(host),
-           hailo_scan(), hailo_holders(),
-           temp_c(), throttled(), free_space(os.path.join(DEMO, "measure")), mem_avail()]
+    # 🔴 시연이 켜져 있으면 안경 · 인터락 · Hailo 를 건드리지 않는다 — 안경은 손님 하나라 새 연결이 시연 연결을 끊고,
+    #    Hailo 를 쥔 프로세스는 시연 자신이다(끄라고 안내하면 안 된다 · 최종 리뷰 Minor 2)
+    busy = (not home) and _demo_running()
+    why_busy = "시연이 켜져 있다 — 시연을 닫고 다시(측정 연결을 끊지 않게 건너뜀)"
+    out = [skip("안경", "IP 대역") if home else ip_band(host)]
+    if busy:
+        out += [skip("안경", "연결 · 받기", why_busy), skip("음성", "안경 마이크 · 명령 포트", why_busy),
+                hailo_scan(), skip("Hailo", "장치를 쥔 프로세스", "시연이 쥐고 있다(정상) — 시연을 닫고 다시")]
+    else:
+        out += [recv_probe(host, sec=5.0 if not home else 2.0), glass_ports(host), hailo_scan(), hailo_holders()]
+    out += [temp_c(), throttled(), free_space(os.path.join(DEMO, "measure")), mem_avail()]
     if home:
         out.append(skip("인터락", "RUN 응답"))
-    elif _demo_running():
-        out.append(skip("인터락", "RUN 응답", "시연이 켜져 있다 — 끄고 다시"))
+    elif busy:
+        out.append(skip("인터락", "RUN 응답", why_busy))
     else:
         out.append(interlock_ack(config.find_interlock_port()[0]))
     out += [internet(), key_file(), answer_wavs(),

@@ -109,12 +109,32 @@ def test_run_home_and_no_secret():
     check("키 파일" in buf.getvalue(), "키 파일 항목은 있다(있는지만)")
 
 
+def test_demo_running_skips_glass():
+    print("\n[시연 중] 안경 받기 · 포트 · 인터락 · Hailo 쥔 프로세스는 건너뛴다 — 안경은 손님 하나라 시연 연결을 끊는다(리뷰 Minor 2)")
+    def boom(*a, **k):
+        raise AssertionError("시연 중에 불렀다")
+    keep = SC._demo_running, SC.recv_probe, SC.glass_ports, SC.interlock_ack, SC.hailo_holders
+    SC._demo_running = lambda: True
+    SC.recv_probe = SC.glass_ports = SC.interlock_ack = SC.hailo_holders = boom
+    try:
+        res = SC.run(home=False)
+    except AssertionError as e:
+        res = None
+        check(False, str(e))
+    finally:
+        SC._demo_running, SC.recv_probe, SC.glass_ports, SC.interlock_ack, SC.hailo_holders = keep
+    if res is not None:
+        sk = {c.name for c in res if c.ok is None and "시연" in c.detail}
+        check({"연결 · 받기", "안경 마이크 · 명령 포트", "RUN 응답", "장치를 쥔 프로세스"} <= sk, f"건너뜀 {sk}")
+
+
 if __name__ == "__main__":
     test_ip_band()
     test_stray_env()
     test_hailo_holders()
     test_recv_probe()
     test_run_home_and_no_secret()
+    test_demo_running_skips_glass()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
