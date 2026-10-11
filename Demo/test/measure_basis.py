@@ -103,15 +103,30 @@ def _events(d):
     return out
 
 
+def script_path(d):
+    """세션의 대본 — session.json 「입력.대본」(세기와 같은 출처) · 없으면 데이터 · 녹화 CSV 를 뺀 첫 CSV."""
+    try:
+        with open(os.path.join(d, "session.json"), encoding="utf-8") as f:
+            name = (json.load(f).get("입력") or {}).get("대본") or ""
+        if name and os.path.exists(os.path.join(d, name)):
+            return os.path.join(d, name)
+    except (OSError, ValueError):
+        pass
+    for n in sorted(os.listdir(d)):
+        if n.endswith(".csv") and n not in DATA_CSV and not n.startswith("녹화_"):   # 🔑 1인칭 녹화 프레임 CSV 는 대본이 아니다
+            return os.path.join(d, n)
+    return None
+
+
 def _script(d):
     import measure_script as MS
     import recipe
     rcp = recipe.load_recipe()
-    for n in sorted(os.listdir(d)):
-        if n.endswith(".csv") and n not in DATA_CSV:
-            emo = rcp.get("emo_button") or "EMO"
-            return MS.load_script(os.path.join(d, n), [s["button"] for s in rcp["steps"]], emo), emo
-    raise SystemExit(f"세션 폴더에 대본이 없다: {d}")
+    p = script_path(d)
+    if p is None:
+        raise SystemExit(f"세션 폴더에 대본이 없다: {d}")
+    emo = rcp.get("emo_button") or "EMO"
+    return MS.load_script(p, [s["button"] for s in rcp["steps"]], emo), emo
 
 
 def summarize(d):
@@ -123,23 +138,28 @@ def summarize(d):
         if w:
             scene.setdefault(int(r["판"]), w[0])
     ev = _events(d)
-    res = MS.match(ev, rows, emo=emo, auto=MS.has_tokens(rows), final=True)
+    import measure_report as MR
+    marks = MR.load_marks(os.path.join(d, "guide.csv"))   # 🔑 진행 도우미 N 표시 — 빼지 않으면 뒤 판의 장면이 한 칸씩 밀린다(리뷰 Important 1)
+    res = MS.match(ev, rows, marks, emo=emo, auto=MS.has_tokens(rows), final=True)
     frames = _frames(d)
     per = {}
     for run in res["runs"]:
+        if run["status"] in ("ng", "extra"):
+            continue                                   # NG · 대본 밖 판은 근거에서 뺀다(세기와 같게)
         sc = scene.get(run["script"]) if run["script"] is not None else None
         if sc is None:
             continue
         t1 = run["t1"] if run["t1"] is not None else float("inf")
         ent = entries([f for f in frames if run["t0"] <= f["t"] <= t1])
-        p = per.setdefault(sc, {"runs": 0, "scripts": [], "entries": []})
+        p = per.setdefault(sc, {"runs": 0, "scripts": [], "entries": [], "warn": 0})
         p["runs"] += 1
+        p["warn"] += run.get("warn", 0)               # 경고(WARNING) 수 — G3 머무름 · G7 대기 중 손이 실제로 있었나
         p["scripts"].append(run["script"])
         p["entries"] += ent
     out = {"장면": {}, "redo": {}}
     for sc, p in sorted(per.items()):
         good = [e for e in p["entries"] if e["seen"] >= USABLE_SEEN]
-        out["장면"][sc] = {"runs": p["runs"], "entries": len(p["entries"]), "usable": len(good),
+        out["장면"][sc] = {"runs": p["runs"], "entries": len(p["entries"]), "usable": len(good), "warn": p["warn"],
                          "approach_med": _med([e["approach"] for e in good]),
                          "inside_med": _med([e["inside"] for e in good]),
                          "dwell_med": _med([e["dwell"] for e in good]),
@@ -164,10 +184,10 @@ def main(argv=None):
         return 2
     d = argv[0]
     s = summarize(d)
-    print("| 장면 | 판 | 들어감(쓸 만함) | 다가옴 px/s | 안 속도 px/s | 머묾 초 | 감속 비 | 보임 |")
-    print("|---|---|---|---|---|---|---|---|")
+    print("| 장면 | 판 | 들어감(쓸 만함) | 경고 | 다가옴 px/s | 안 속도 px/s | 머묾 초 | 감속 비 | 보임 |")
+    print("|---|---|---|---|---|---|---|---|---|")
     for sc, v in s["장면"].items():
-        print(f"| {sc} | {v['runs']} | {v['entries']}({v['usable']}) | {_fmt(v['approach_med'])} | {_fmt(v['inside_med'])} "
+        print(f"| {sc} | {v['runs']} | {v['entries']}({v['usable']}) | {v['warn']} | {_fmt(v['approach_med'])} | {_fmt(v['inside_med'])} "
               f"| {_fmt(v['dwell_med'], 2)} | {_fmt(v['decel_med'], 2)} | {_fmt(v['seen_med'], 2)} |")
     if s["redo"]:
         print("⚠️ 다시 할 판(쓸 만한 들어감 < %d): " % MIN_USABLE

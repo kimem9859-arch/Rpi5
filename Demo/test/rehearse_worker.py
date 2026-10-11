@@ -151,16 +151,16 @@ class Worker:
 
 
 def _runs_in_session(d):
-    """세션 폴더의 대본 → 판 수(없으면 0)."""
+    """세션 폴더의 대본(session.json 「입력.대본」 — 근거 분석과 같은 출처) → 판 수(없으면 0)."""
+    import measure_basis
     import measure_script as MS
-    for n in sorted(os.listdir(d)):
-        if n.endswith(".csv") and n not in ("frames.csv", "boxes.csv", "env.csv", "events.csv", "fsm.csv",
-                                            "guide.csv", "voice_events.csv"):
-            try:
-                return len({r["판"] for r in MS.load_script(os.path.join(d, n))})
-            except ValueError:
-                return 0
-    return 0
+    p = measure_basis.script_path(d) if os.path.isdir(d) else None
+    if p is None:
+        return 0
+    try:
+        return len({r["판"] for r in MS.load_script(p)})
+    except ValueError:
+        return 0
 
 
 def attach(win):

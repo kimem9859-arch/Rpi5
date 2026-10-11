@@ -94,14 +94,47 @@ def test_summarize():
     check(s["장면"]["G1"]["runs"] == 2 and s["장면"]["G1"]["usable"] == 8, f"G1 {s['장면'].get('G1')}")
     check(s["장면"]["G2"]["usable"] == 4 and s["redo"] == {"G2": [3]}, f"G2 · 다시 할 판 {s['redo']}")
     check(abs(s["장면"]["G1"]["approach_med"] - 1000) < 1e-6, f"다가옴 중앙 {s['장면']['G1']['approach_med']}")
+    check(s["장면"]["G1"]["warn"] == 0, f"경고 수 칸 {s['장면']['G1'].get('warn')}")
     out = MB.main([d])
     check(out == 1 and os.path.exists(os.path.join(d, "basis.json")), "다시 할 판이 있으면 종료 코드 1 · basis.json")
+
+
+def test_script_choice_and_ng_redo():
+    print("\n[요약] 대본 = session.json 의 대본(녹화 CSV 가 먼저 와도) · N 으로 다시 한 판은 빼고 장면을 밀리지 않게(리뷰 Important 1)")
+    d = tempfile.mkdtemp()
+    _session(d, ["G1", "G2", "G3", "G3"])                 # 실제로는 판 4개를 돌림 — 대본은 3판(아래에서 줄임)
+    with open(os.path.join(d, "장소1_⑥근거.csv"), "w", encoding="utf-8-sig") as f:
+        f.write("판,행동,대상,기대,메모,누름,안내\n")
+        for i, sc in enumerate(["G1", "G2", "G3"], 1):
+            f.write(f"{i},정상,,,,B1 B2 B3 B4,{sc} · 시험\n")
+    with open(os.path.join(d, "session.json"), "w", encoding="utf-8") as f:
+        json.dump({"입력": {"대본": "장소1_⑥근거.csv"}}, f, ensure_ascii=False)
+    with open(os.path.join(d, "녹화_20261012_120000_프레임.csv"), "w", encoding="utf-8") as f:
+        f.write("frame,t_ms\n1,1\n")                     # 1인칭 녹화 — 이름순으로 대본보다 앞
+    # 판 2(t 7000~13000)를 N 으로 표시 — 사람이 잘못 해 다시 한 판
+    with open(os.path.join(d, "guide.csv"), "w", encoding="utf-8") as f:
+        f.write("t_ms,kind,data\n9000,ng,\"{\"\"why\"\": \"\"사람\"\"}\"\n")
+    fp = os.path.join(d, "frames.csv")                   # N 판(둘째 판 · t 7000~13000)에는 손이 없었다
+    lines = open(fp, encoding="utf-8").read().splitlines()
+    out = [lines[0]]
+    for ln in lines[1:]:
+        c = ln.split(",")
+        if 7000 <= float(c[1]) < 13000:
+            c[2] = c[3] = c[4] = ""
+        out.append(",".join(c))
+    open(fp, "w", encoding="utf-8").write("\n".join(out) + "\n")
+    s = MB.summarize(d)
+    sc = s["장면"]
+    check(sc["G1"]["runs"] == 1 and sc["G2"]["runs"] == 1 and sc["G3"]["runs"] == 1,
+          f"N 판을 빼고 판 3 → G2 · 판 4 → G3 {[(k, v['runs']) for k, v in sc.items()]}")
+    check(sc["G2"]["entries"] == 4 and sc["G3"]["entries"] == 4, f"G2 · G3 들어감 4 · 4(밀리면 G2 = 0) → {sc['G2']['entries']} · {sc['G3']['entries']}")
 
 
 if __name__ == "__main__":
     test_speeds()
     test_entries()
     test_summarize()
+    test_script_choice_and_ng_redo()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
