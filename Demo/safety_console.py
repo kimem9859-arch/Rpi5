@@ -71,6 +71,16 @@ def _pi_resources():
 # =============================================================================
 # [메인 콘솔]
 # =============================================================================
+def display_crop(iw, ih, lw, lh):
+    """그림(iw×ih)을 라벨(lw×lh) 비율로 가운데 자를 영역 (x, y, w, h) — 「채우고 넘치는 만큼 자르기」와 같은 화면.
+    안1(설계 2026-10-12 §3) — 자르기만 파이썬에서 하고 확대는 QLabel 이 C++ 그리기(GIL 밖)에서 한다."""
+    if iw * lh > lw * ih:                        # 그림이 라벨보다 납작 → 좌우를 자른다
+        w = max(1, round(ih * lw / lh))
+        return (iw - w) // 2, 0, w, ih
+    h = max(1, round(iw * lh / lw))
+    return 0, (ih - h) // 2, iw, h
+
+
 class SafetyConsole(QMainWindow):
 
     # 물리 GPIO 버튼 입력 → GUI 스레드로 마샬링용 시그널(gpiozero 콜백은 별도 스레드).
@@ -557,6 +567,12 @@ class SafetyConsole(QMainWindow):
            않으려고 화면과 검출을 일부러 분리했다(2026-08-26).
         """
         size = self.camera_label.size()
+        if config.DISPLAY_SCALE_IN_PAINT and config.CAMERA_DISPLAY_FILL and not size.isEmpty():
+            # 🔑 안1(설계 2026-10-12 §3) — 화면 확대(약 20ms/장)가 GIL 을 쥐어 처리 스레드를 멈춰 세웠다 →
+            #    라벨 비율로 자르기만 하고 확대는 QLabel 이 C++ 그리기에서(SOP_DISPLAY_PAINT=0 이면 아래 종전)
+            self.camera_label.setScaledContents(True)
+            return qt_image.copy(*display_crop(qt_image.width(), qt_image.height(), size.width(), size.height()))
+        self.camera_label.setScaledContents(False)
         if not config.CAMERA_DISPLAY_FILL or size.isEmpty():
             return qt_image.scaled(size, Qt.AspectRatioMode.KeepAspectRatio,
                                    Qt.TransformationMode.SmoothTransformation)

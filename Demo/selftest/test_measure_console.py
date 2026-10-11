@@ -206,7 +206,37 @@ def test_prompt_bar_centered():
     root.close()
 
 
+def test_display_in_paint():
+    print("\n[안1] 화면 = 라벨 비율로 자르기만 · 확대는 QLabel 그리기 · 끄면 종전(처리 흐름 1단계 · Review Focus 3·4)")
+    import safety_console as sc
+    from PyQt6.QtGui import QImage
+    x, y, w, h = sc.display_crop(768, 1024, 1706, 1280)
+    check((x, w) == (0, 768) and abs(w / h - 1706 / 1280) < 0.01 and y == (1024 - h) // 2, f"세로 그림 → 위아래 자름 {(x, y, w, h)}")
+    check(sc.display_crop(800, 600, 400, 300) == (0, 0, 800, 600), "같은 비율 = 그대로")
+    x, y, w, h = sc.display_crop(1024, 768, 400, 400)
+    check((y, h) == (0, 768) and w == 768 and x == 128, f"납작한 그림 → 좌우 자름 {(x, y, w, h)}")
+    img = QImage(768, 1024, QImage.Format.Format_RGB888)
+    keep = (config.DISPLAY_SCALE_IN_PAINT, config.CAMERA_DISPLAY_FILL)
+    win = make(None)
+    try:
+        for lw, lh in ((800, 600), (1280, 720)):
+            win.camera_label.resize(lw, lh)
+            out = win._fit_to_label(img)
+            check(win.camera_label.hasScaledContents() and (out.width(), out.height()) == sc.display_crop(768, 1024, lw, lh)[2:],
+                  f"켬 {lw}x{lh} → 자른 원본 {out.width()}x{out.height()} · 확대는 라벨")
+        config.DISPLAY_SCALE_IN_PAINT = False
+        out = win._fit_to_label(img)
+        check(not win.camera_label.hasScaledContents() and (out.width(), out.height()) == (1280, 720), "끔 = 종전(파이썬에서 라벨 크기로 확대)")
+        config.DISPLAY_SCALE_IN_PAINT, config.CAMERA_DISPLAY_FILL = True, False
+        out = win._fit_to_label(img)
+        check(not win.camera_label.hasScaledContents(), "CAMERA_DISPLAY_FILL=False = 종전 갈래(Review Focus 4)")
+    finally:
+        config.DISPLAY_SCALE_IN_PAINT, config.CAMERA_DISPLAY_FILL = keep
+        win.close()
+
+
 if __name__ == "__main__":
+    test_display_in_paint()
     test_prompt_bar_centered()
     test_prompt_bar()
     test_events_flow()
