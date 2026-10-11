@@ -59,7 +59,8 @@ def make_session(d, script="판,행동,대상,기대,메모\n1,위반,B3,,\n", t
     info = {"입력": {"장소": 1, "세션": "위반", "손": "맨손", "사람": 1, "조명": "", "대본": "대본.csv" if script else "",
                      "펌웨어": "glass_voice"},
             "설정": {"FSM_DWELL_THRESHOLD_SEC": 0.3, "FSM_GAP_FILL_SEC": 0.3, "PRESS_CONFIRM_GRACE_SEC": 0.5,
-                     "HEF_MODEL_PATH": "/x/B.hef"},
+                     "HEF_MODEL_PATH": "/x/B.hef", "ORIENT_ONE_REMAP": False, "DISPLAY_SCALE_IN_PAINT": True,
+                     "DISPLAY_EVERY": 2},
             "측정기록": True, "음성": True, "코드": {"Rpi5": "abc1234"}}
     _write(os.path.join(d, "session.json"), json.dumps(info, ensure_ascii=False))
     _csv(os.path.join(d, "frames.csv"), ["frame", "t_recv_ms", "recv_seq", "t_start_ms", "t_done_ms", "decode_ms", "orient_ms",
@@ -218,6 +219,7 @@ def test_render_and_main():
         md = MR.render([S], per, MC.merge(per), MR.load_targets(p), curve=(0.8, 0.9))
         check("단일 세션 — 인용 금지" in md and "| 1 | 위반 사전 차단율 |" in md and "⏸ 표본 부족(1 < 60)" in md, "목표 행")
         check("세기 밖" in md and "체류 두 곡선" in md and "판정용으로 쓰지 않는다" in md and "B.hef" in md, "9 · 곡선 · 조건")
+        check("처리 안2 끔 · 안1 켬 · 화면 2장에 1장" in md, "④ 조건에 처리 흐름 1단계 스위치(A·B·C 섞어 세지 않게 · 리뷰 Minor 5)")
         check(MR.main([d]) == 0 and os.path.exists(os.path.join(d, "report.md")) and os.path.exists(os.path.join(d, "report.json")),
               "main → report.md · report.json")
 

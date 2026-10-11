@@ -98,7 +98,7 @@ class SafetyConsole(QMainWindow):
         self.setWindowTitle("Vision AI 안전 콘솔")
         # 창 크기: 기본은 설계값(1280×720)이나 **고정하지 않는다**.
         # 시나리오 촬영 때 모니터를 꽉 채워야 화면 녹화에 GUI가 크게 담긴다.
-        # 영상은 camera_label 크기에 맞춰 비율 유지로 스케일되므로(_update_camera_frame)
+        # 영상은 camera_label 크기에 맞춰 비율 유지로 채워지므로(_fit_to_label — 안1 이면 자르기만 하고 확대는 QLabel 그리기)
         # 창을 키워도 왜곡되지 않는다. ※ ESP32 녹화본 해상도는 창 크기와 무관하다.
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -560,6 +560,8 @@ class SafetyConsole(QMainWindow):
 
         `CAMERA_DISPLAY_FILL` 이면 **채우고 넘치는 만큼 잘라낸다** — 회전 보정 뒤
         프레임이 세로(480×640)라 가로 UI 에 그냥 넣으면 좌우에 검은 띠가 생긴다.
+
+        🔑 안1(`DISPLAY_SCALE_IN_PAINT`)이면 라벨 비율로 **자르기만** 하고 확대는 QLabel 이 C++ 그리기(GIL 밖)에서 한다.
 
         🔴 **표시 전용 크롭이다.** 검출·ROI 판정(`camera_thread`)과 녹화
            (`_note_frame`)는 **잘리지 않은 전체 프레임**을 쓴다. 화면 가장자리에서

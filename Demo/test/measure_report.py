@@ -472,8 +472,18 @@ def render(sessions, per, M, targets, curve=None):
                  f" · 공구 {s.get('TOOL_BACKEND')} {os.path.basename(str(s.get('TOOL_HEF_PATH') or ''))}"
                  f" · 쥠 연속 {s.get('TOOL_GRASP_CONFIRM_SCANS') or '—'}번 · 안경 {i.get('안경전원') or '—'}"
                  f" · 음성 {'켬' if S['info'].get('음성', True) else '끔'} · EMO {S['emo']}"
+                 f" · {_processing(s)}"
                  f" · 코드 {(S['info'].get('코드') or {}).get('Rpi5')}")
     return "\n".join(L) + "\n"
+
+
+def _processing(s):
+    """④ 조건의 처리 흐름 1단계 스위치(설계 2026-10-12 §3) — 조건이 다른 세션을 섞어 세지 않게 · 기록 전 세션 = 종전."""
+    if "ORIENT_ONE_REMAP" not in s:
+        return "처리 종전(스위치 기록 전)"
+    onoff = lambda v: "켬" if v else "끔"   # noqa: E731
+    return (f"처리 안2 {onoff(s.get('ORIENT_ONE_REMAP'))} · 안1 {onoff(s.get('DISPLAY_SCALE_IN_PAINT'))}"
+            f" · 화면 {s.get('DISPLAY_EVERY') or 1}장에 1장")
 
 
 def _rec_compare(sessions, per, below):
