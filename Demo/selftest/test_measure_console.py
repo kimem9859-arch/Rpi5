@@ -218,7 +218,11 @@ def test_display_in_paint():
     img = QImage(768, 1024, QImage.Format.Format_RGB888)
     keep = (config.DISPLAY_SCALE_IN_PAINT, config.CAMERA_DISPLAY_FILL)
     win = make(None)
+    config.DISPLAY_SCALE_IN_PAINT, config.CAMERA_DISPLAY_FILL = True, True   # 셸 값과 무관하게(최종 리뷰 Minor 2)
     try:
+        win.camera_label.resize(0, 0)                                          # 창이 뜨기 전(Review Focus 3)
+        win._fit_to_label(img)
+        check(not win.camera_label.hasScaledContents(), "라벨 크기 0 = 종전 갈래로(예외 없음)")
         for lw, lh in ((800, 600), (1280, 720)):
             win.camera_label.resize(lw, lh)
             out = win._fit_to_label(img)
@@ -230,6 +234,13 @@ def test_display_in_paint():
         config.DISPLAY_SCALE_IN_PAINT, config.CAMERA_DISPLAY_FILL = True, False
         out = win._fit_to_label(img)
         check(not win.camera_label.hasScaledContents(), "CAMERA_DISPLAY_FILL=False = 종전 갈래(Review Focus 4)")
+        keep_hide = config.DEMO_HIDE_VIDEO
+        config.DEMO_HIDE_VIDEO = True
+        try:
+            win._update_camera_frame(img)
+            check(win.camera_label.pixmap() is None or win.camera_label.pixmap().isNull(), "DEMO_HIDE_VIDEO = 화면 검정(종전 · Review Focus 4)")
+        finally:
+            config.DEMO_HIDE_VIDEO = keep_hide
     finally:
         config.DISPLAY_SCALE_IN_PAINT, config.CAMERA_DISPLAY_FILL = keep
         win.close()

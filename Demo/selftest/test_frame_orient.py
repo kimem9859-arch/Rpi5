@@ -106,6 +106,16 @@ def test_full_map_none_and_flags():
     finally:
         config.CAMERA_FLIP_VERTICAL, config.CAMERA_ROTATE_CCW90 = keep
 
+def test_full_map_same_pixels_vga():
+    """VGA(옛 이름 보정 파일 camera_calibration.npz)도 화소가 같다(최종 리뷰 Minor 3) — 파일이 없으면 None."""
+    maps, st, _ = fo.load_undistort(640, 480)
+    if maps is None:
+        assert fo.full_map(None, 640, 480) is None
+        print("  VGA 보정 파일 없음 — 건너뜀", st); return
+    rng = np.random.default_rng(2)
+    assert _same_as_runtime(rng.integers(0, 256, (480, 640, 3), dtype=np.uint8), maps)
+    assert _same_as_runtime(np.full((480, 640, 3), 255, np.uint8), maps)     # 흰 바탕 = 가장자리 0 채움까지
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

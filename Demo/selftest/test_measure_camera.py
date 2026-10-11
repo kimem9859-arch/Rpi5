@@ -186,13 +186,21 @@ def test_error_frame_leaves_no_boxes_env():
 
 def test_full_map_follows_size():
     print("\n[안2] 프레임 크기가 바뀌면 합친 맵도 다시 만든다(VGA↔XGA 펌웨어 바꿈 · 처리 흐름 1단계 Review Focus 2)")
-    th = ct.CameraThread()
-    th._ensure_calibration(1024, 768)
-    a = th._full_map
-    th._ensure_calibration(640, 480)
-    b = th._full_map
-    check(a is not None and (b is None or b[0].shape[:2] != a[0].shape[:2]),
-          f"XGA {None if a is None else a[0].shape} → VGA {None if b is None else b[0].shape}")
+    import frame_orient
+    keep = config.ORIENT_ONE_REMAP
+    config.ORIENT_ONE_REMAP = True                 # 셸에 끈 값이 있어도 시험은 켠 상태로(최종 리뷰 Minor 2)
+    try:
+        th = ct.CameraThread()
+        th._ensure_calibration(1024, 768)
+        a = th._full_map
+        th._ensure_calibration(640, 480)
+        b = th._full_map
+    finally:
+        config.ORIENT_ONE_REMAP = keep
+    vga = frame_orient.load_undistort(640, 480)[0]
+    check(a is not None and a[0].shape[:2] == (1024, 768), f"XGA 합친 맵 = 회전된 크기 {None if a is None else a[0].shape}")
+    check((b is None) if vga is None else (b is not None and b[0].shape[:2] == (640, 480)),
+          f"VGA 합친 맵 = 회전된 크기(보정 파일 있으면) {None if b is None else b[0].shape}")
 
 
 def test_display_every():
