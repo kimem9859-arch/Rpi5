@@ -90,6 +90,17 @@ def load_script(path, buttons=None, emo="EMO"):
     return rows
 
 
+def say_mismatch(rows):
+    """[(판, 말 낱말 수, 질문·비상질문 줄 수)] — 말이 있는 판에서 둘이 다르면(몇 번째 말 = 몇 번째 질문 줄 · 최종 리뷰 M8)."""
+    says, asks = {}, {}
+    for r in rows or ():
+        k = int(r["판"])
+        says[k] = says.get(k, 0) + sum(1 for x in r.get("낱말") or () if x.kind in SAY.values())
+        if r.get("행동") in ("질문", "비상질문"):
+            asks[k] = asks.get(k, 0) + 1
+    return [(k, n, asks.get(k, 0)) for k, n in sorted(says.items()) if n and n != asks.get(k, 0)]
+
+
 def has_tokens(rows):
     """누름 칸이 하나라도 채워져 있나 — 없으면 세기는 판 맞춤을 건너뛰고 지금처럼 센다(되돌리기 · 설계 §9)."""
     return any(r.get("낱말") for r in rows or ())

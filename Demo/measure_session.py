@@ -123,6 +123,9 @@ def main():
             rows = measure_script.load_script(a.script, [st["button"] for st in rcp["steps"]], rcp.get("emo_button") or "EMO")
         except (ValueError, recipe.RecipeError) as e:
             ap.error(str(e))
+        bad = measure_script.say_mismatch(rows)
+        if bad:   # 🔑 말 띠가 엉뚱한 문장을 띄우지 않게 — 폴더를 만들기 전에(최종 리뷰 M8)
+            ap.error("대본 말 낱말 수 ≠ 질문 줄 수 — " + " · ".join(f"판 {k}: 말 {n} · 질문 {q}" for k, n, q in bad))
         if measure_script.has_tokens(rows):
             empty = [r["판"] for r in rows if r["행동"] in ("정상", "위반", "머묾", "틀린공구") and not r["낱말"]]
             if empty:

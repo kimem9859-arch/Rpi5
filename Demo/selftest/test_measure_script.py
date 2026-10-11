@@ -213,7 +213,19 @@ def test_say_tokens():
     check([(r["script"], r["status"]) for r in m["runs"]] == [(1, "ok"), (2, "ok")], f"{[(r['script'], r['status']) for r in m['runs']]}")
 
 
+def test_say_count():
+    print("\n[말 개수] 판마다 말 낱말 수 = 질문·비상질문 줄 수 — 어긋나면 알려 준다(최종 리뷰 M8)")
+    T = lambda s_: MS.parse_tokens(s_, B)   # noqa: E731
+    ok = [{"판": 1, "행동": "정상", "낱말": T("B1 말~ B2 말")}, {"판": 1, "행동": "질문", "낱말": []},
+          {"판": 1, "행동": "질문", "낱말": []}, {"판": 2, "행동": "정상", "낱말": T("B1 B2")}]
+    check(MS.say_mismatch(ok) == [], "맞으면 빈 목록")
+    bad = ok + [{"판": 3, "행동": "정상", "낱말": T("B1 말")}, {"판": 3, "행동": "질문", "낱말": []},
+                {"판": 3, "행동": "질문", "낱말": []}]
+    check(MS.say_mismatch(bad) == [(3, 1, 2)], f"판 3 = 말 1 · 질문 2 · {MS.say_mismatch(bad)}")
+
+
 def main():
+    test_say_count()
     test_parse_tokens()
     test_reset_token()
     test_say_tokens()
