@@ -37,10 +37,13 @@ isnum() { [[ "$1" =~ ^[0-9]+$ ]]; }
 if [ -n "$JQ" ] && ! { isnum "$JQ" && [ "$JQ" -ge 10 ] && [ "$JQ" -le 63 ]; }; then echo "❌ --jpeg-quality 는 10~63 정수 — 「$JQ」"; usage; fi
 if [ -n "$FB" ] && ! { isnum "$FB" && [ "$FB" -ge 1 ] && [ "$FB" -le 4 ]; }; then echo "❌ --fb-count 는 1~4 정수 — 「$FB」"; usage; fi
 EXTRA=()
+EXTRA_UP=()
 OPT_NOTE="없음(지금 펌웨어 · 품질 15 · 버퍼 2)"
 if [ -n "$JQ$FB" ]; then
   # --clean — 빌드 속성이 바뀌어도 캐시된 옛 오브젝트가 섞이지 않게
   EXTRA=(--clean --build-property "compiler.cpp.extra_flags=-DGLASS_JPEG_QUALITY=${JQ:-15} -DGLASS_FB_COUNT=${FB:-2}")
+  # 업로드는 --clean 없이 — 3단계가 같은 속성으로 이미 빌드했다(빌드 기록이 같아 같은 바이너리 · 변형마다 몇 분 아낀다)
+  EXTRA_UP=(--build-property "compiler.cpp.extra_flags=-DGLASS_JPEG_QUALITY=${JQ:-15} -DGLASS_FB_COUNT=${FB:-2}")
   OPT_NOTE="품질 ${JQ:-15} · 버퍼 ${FB:-2}"
 fi
 case "$BOARD" in
@@ -131,7 +134,7 @@ fi
 echo
 echo "📤 업로드 중..."
 [ -e "$PORT" ] || fail "업로드 직전에 $PORT 가 사라졌다 — USB 연결 확인(굽지 않았다)."
-"$ARDUINO_CLI" compile --upload -p "$PORT" --fqbn "$FQBN" "${EXTRA[@]}" "$SKETCH_DIR" || fail "업로드 실패 (위 오류 참조)
+"$ARDUINO_CLI" compile --upload -p "$PORT" --fqbn "$FQBN" "${EXTRA_UP[@]}" "$SKETCH_DIR" || fail "업로드 실패 (위 오류 참조)
    ESP32의 BOOT 버튼을 누른 채 RESET을 눌렀다 떼고 다시 시도해 보세요."
 echo "✅ 업로드 완료 · 소스 $SRC"
 

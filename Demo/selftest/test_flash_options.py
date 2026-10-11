@@ -56,9 +56,19 @@ def test_build_only():
           f"하나만 주면 다른 하나는 기본값(15) → {calls}")
 
 
+def test_upload_no_second_clean():
+    print("\n[옵션] 업로드 단계는 --clean 없이(3단계에서 같은 속성으로 이미 빌드 · 리뷰 Minor 7) — 문면 고정(보드 없이는 업로드를 못 돌린다)")
+    src = open(FLASH, encoding="utf-8").read()
+    up = [ln for ln in src.splitlines() if "compile --upload" in ln and not ln.lstrip().startswith("#")]
+    check(len(up) == 1 and '"${EXTRA_UP[@]}"' in up[0], f"업로드 줄 {up}")
+    defs = [ln for ln in src.splitlines() if ln.strip().startswith("EXTRA_UP=(") and "--build-property" in ln]
+    check(len(defs) == 1 and "--clean" not in defs[0], f"EXTRA_UP 정의 {defs}")
+
+
 if __name__ == "__main__":
     test_range()
     test_build_only()
+    test_upload_no_second_clean()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

@@ -12,7 +12,20 @@
 
 set -uo pipefail
 
-PORT="${1:-$(ls /dev/ttyACM* /dev/ttyUSB* 2>/dev/null | head -1)}"
+MAIN_SN="68:EE:8F:4F:5D:38"                          # 메인 안경(프레임 안) — 번호 정본 = Rpi5/CLAUDE.md 「ESP32 실HW 함정」
+BYID_DIR="${ESP32_BYID_DIR:-/dev/serial/by-id}"      # 시험에서만 바꾼다
+# 🔴 포트를 안 주면 메인 안경을 시리얼번호로만 찾는다 — 「첫 ttyACM」은 인터락 아두이노일 수 있다(25초 동안 인터락을
+#    읽고 엉뚱한 안내를 냈다 · 시연 중이면 ACK 도 가로챈다). 다른 보드는 포트를 직접 준다.
+if [ -n "${1:-}" ]; then
+  PORT="$1"
+else
+  PORT=$(ls "$BYID_DIR"/*"_${MAIN_SN}-if"* 2>/dev/null | head -1)
+  if [ -z "$PORT" ]; then
+    echo "❌ 메인 안경(…5D:38)을 USB 로 찾지 못했습니다 — 안경을 USB-C 로 파이에 꽂으세요(배터리만으로는 안 보인다)."
+    echo "   다른 보드는 포트를 직접 주세요: $0 /dev/serial/by-id/<그 보드>"
+    exit 1
+  fi
+fi
 IP_FILE="${2:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/Demo/.camera_ip}"
 TIMEOUT="${3:-25}"
 
@@ -26,9 +39,14 @@ stty -F "$PORT" 115200 raw -echo 2>/dev/null
 OLD_IP=$(cat "$IP_FILE" 2>/dev/null || echo "(없음)")
 
 # 시리얼을 읽으며 IP 패턴을 찾는다. 연결 직후 로그와 주기 상태줄 둘 다 대응.
+# 🔑 읽은 줄은 잠시 남겨 부팅 로그의 「Camera OK jpeg_quality=… fb_count=…」(굽은 값)를 함께 보인다(대처 V20)
+SERIAL_LOG=$(mktemp)
 IP=$(timeout "$TIMEOUT" cat "$PORT" 2>/dev/null \
+  | tee "$SERIAL_LOG" \
   | stdbuf -oL grep -m1 -oE 'IP[:=] ?[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' \
   | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
+CAM_LINE=$(grep -a "Camera OK" "$SERIAL_LOG" 2>/dev/null | tail -1 | tr -d '\r')
+rm -f "$SERIAL_LOG"
 
 if [ -z "$IP" ] || [ "$IP" = "0.0.0.0" ]; then
   echo "❌ IP를 읽지 못했습니다."
@@ -41,6 +59,11 @@ fi
 echo "$IP" > "$IP_FILE"
 
 echo "✅ ESP32 IP: $IP"
+if [ -n "$CAM_LINE" ]; then
+  echo "📷 부팅 카메라 설정: $CAM_LINE"
+else
+  echo "📷 부팅 줄 없음 — 이미 켜져 있던 보드다(굽은 값을 보려면 RESET 뒤 다시 · 굽기 직후에는 나온다)"
+fi
 if [ "$OLD_IP" != "$IP" ]; then
   echo "   ($OLD_IP → $IP 로 갱신)"
 else
