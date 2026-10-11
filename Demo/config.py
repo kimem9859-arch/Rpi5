@@ -206,6 +206,17 @@ CAMERA_FLIP_VERTICAL = True
 # 🔴 적용은 `frame_orient` 가 전담한다 — 여기 켜고 다른 곳에서 또 돌리지 말 것.
 CAMERA_ROTATE_CCW90 = True
 
+# 🔑 처리 흐름 1단계(설계 2026-10-12 §3) — 끄면 종전. 측정 session.json 「설정」에 남는다.
+ORIENT_ONE_REMAP = os.environ.get("SOP_ORIENT_ONE_REMAP", "1") != "0"      # 안2 — 반전·보정·회전 = remap 한 번
+DISPLAY_SCALE_IN_PAINT = os.environ.get("SOP_DISPLAY_PAINT", "1") != "0"   # 안1 — 화면 확대 = Qt 그리기(GIL 밖)
+try:
+    DISPLAY_EVERY = int(os.environ.get("SOP_DISPLAY_EVERY", "1"))          # 화면 덜 그리기 — N 장에 1장(1 = 매 장)
+    if DISPLAY_EVERY < 1:
+        raise ValueError(DISPLAY_EVERY)
+except ValueError:
+    print(f"[config] ⚠️ SOP_DISPLAY_EVERY={os.environ.get('SOP_DISPLAY_EVERY')!r} 를 못 쓴다(1 이상 정수) — 1 로 돈다")
+    DISPLAY_EVERY = 1
+
 # 카메라 영역을 **채워서** 표시할지. 회전 뒤 프레임이 세로(480×640)라 가로 UI 에
 # 그냥 넣으면 좌우에 검은 띠가 생긴다. 켜면 넘치는 만큼 잘라내 띠를 없앤다.
 # 🔴 **표시 전용이다.** 검출·ROI 판정·녹화는 잘리지 않은 전체 프레임으로 돈다 —

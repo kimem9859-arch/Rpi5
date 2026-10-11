@@ -62,6 +62,50 @@ def test_ring_px():
     assert fo.ring_px(640, 480) == config.HAND_ROI_RING_PX_VGA
     assert fo.ring_px(768, 1024) == round(config.HAND_ROI_RING_PX_VGA * 1.6)
 
+def _same_as_runtime(img, maps):
+    w, h = img.shape[1], img.shape[0]
+    old = fo.apply_full(img, maps)
+    new = fo.apply_full_map(img, fo.full_map(maps, w, h))
+    return old.shape == new.shape and int(np.abs(old.astype(int) - new.astype(int)).max()) == 0
+
+
+def test_full_map_same_pixels_synthetic():
+    """안2 — 합친 맵 한 번 = 반전 → 보정 → 회전과 화소까지 같다(설계 2026-10-12 §3 · 중단 규칙 ①)."""
+    maps, st, _ = fo.load_undistort(1024, 768)
+    assert maps is not None, st
+    rng = np.random.default_rng(0)
+    for _ in range(3):
+        assert _same_as_runtime(rng.integers(0, 256, (768, 1024, 3), dtype=np.uint8), maps)
+    grad = np.dstack([np.tile(np.arange(1024) % 256, (768, 1)).astype(np.uint8)] * 3)
+    assert _same_as_runtime(grad, maps)
+
+
+def test_full_map_same_pixels_real_frames():
+    """실제 안경 XGA 원본 30장(있으면) — 없으면 건너뜀."""
+    import cv2, glob
+    files = sorted(glob.glob(os.path.expanduser("~/lab/화면검사/20261011_②A_뒤/f*.jpg")))[:30]
+    if not files:
+        print("  원본 프레임 없음 — 건너뜀"); return
+    maps, _, _ = fo.load_undistort(1024, 768)
+    for p in files:
+        assert _same_as_runtime(cv2.imread(p), maps), p
+
+
+def test_full_map_none_and_flags():
+    """맵이 없으면 None(호출부가 종전 반전+회전) · 반전/회전 스위치를 꺼도 같다."""
+    import config
+    assert fo.full_map(None, 1024, 768) is None
+    maps, _, _ = fo.load_undistort(1024, 768)
+    img = np.random.default_rng(1).integers(0, 256, (768, 1024, 3), dtype=np.uint8)
+    keep = (config.CAMERA_FLIP_VERTICAL, config.CAMERA_ROTATE_CCW90)
+    try:
+        for fl in (True, False):
+            for ro in (True, False):
+                config.CAMERA_FLIP_VERTICAL, config.CAMERA_ROTATE_CCW90 = fl, ro
+                assert _same_as_runtime(img, maps), (fl, ro)
+    finally:
+        config.CAMERA_FLIP_VERTICAL, config.CAMERA_ROTATE_CCW90 = keep
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

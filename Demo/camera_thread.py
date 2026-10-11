@@ -249,6 +249,7 @@ class CameraThread(QThread):
         self._raw_seq            = 0         # 측정 기록이 꺼졌을 때 원본 녹화가 쓰는 처리 순번
         self._tracks             = []
         self._undistort_map      = None
+        self._full_map           = None   # 안2 — 반전·보정·회전 합친 맵(설계 2026-10-12 §3)
         self._lock               = threading.Lock()
         self._ring_px            = config.HAND_ROI_RING_PX_VGA   # 첫 프레임에 해상도 비례로 정한다
         self._calib_wh           = None      # 보정·링을 정한 프레임 크기 — 바뀌면 다시 정한다
@@ -374,6 +375,7 @@ class CameraThread(QThread):
         """첫 프레임 크기로 보정 파일과 픽셀 배율을 정한다 (spec 2026-09-23 §2.2·§2.4)."""
         maps, status, path = frame_orient.load_undistort(w, h)
         self._undistort_map = maps
+        self._full_map = frame_orient.full_map(maps, w, h) if config.ORIENT_ONE_REMAP else None
         self._ring_px = frame_orient.ring_px(w, h)
         if maps is None:
             self.log_signal.emit(f"[캘리브레이션] {w}×{h} 보정 파일 없음({status}) — "
@@ -634,7 +636,7 @@ class CameraThread(QThread):
         #    회전을 앞에 두면 세로(480×640 · 768×1024)가 되어 센서 원본 크기(가로)로
         #    만든 왜곡보정 맵이 'mismatch' 로 조용히 꺼진다.
         t_or = time.perf_counter()
-        frame = frame_orient.flip(frame)
+        raw = frame
 
         with self._lock:
             is_active = self._is_active
@@ -645,10 +647,13 @@ class CameraThread(QThread):
         if not is_active:
             # 🔴 비활성 미리보기도 같은 방향이어야 한다 — 여기서 회전을 빼면
             #    검출을 끈 순간 화면만 옆으로 눕는다.
-            return frame_orient.rotate(frame)
+            return frame_orient.apply(raw)
 
-        h, w, _ = frame.shape
-        frame = frame_orient.rotate(self._undistort(frame))
+        h, w, _ = raw.shape
+        if self._full_map is not None:          # 안2 — 반전·보정·회전 = remap 한 번(설계 2026-10-12 §3 · 화소 같음)
+            frame = frame_orient.apply_full_map(raw, self._full_map)
+        else:
+            frame = frame_orient.rotate(self._undistort(frame_orient.flip(raw)))
         self._mark("orient_ms", t_or)
         if self._m_row is not None and self._m_row["frame"] % 30 == 1:
             self._m_row["env"] = [self._m_row["frame"], measure_log.now_ms(self._m_row["t_recv"]),

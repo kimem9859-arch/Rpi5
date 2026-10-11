@@ -111,6 +111,28 @@ def apply_full(frame, maps):
     return rotate(undistort(flip(frame), maps))
 
 
+def full_map(maps, w, h):
+    """반전 → 왜곡보정 → 회전을 맵 하나로(설계 2026-10-12 §3 안2) → (map1, map2) 또는 None(맵 없음 — 호출부가 종전 순서).
+
+    🔑 반전·회전은 화소 자리 바꾸기라 보간은 왜곡보정 한 번뿐이다 — 결과가 `apply_full` 과 화소까지 같다
+       (selftest/test_frame_orient.py). w·h = 센서 원본(가로) 크기 · 맵도 그 크기다.
+    """
+    if maps is None:
+        return None
+    mx, my = cv2.convertMaps(maps[0], maps[1], cv2.CV_32FC1)
+    if config.CAMERA_FLIP_VERTICAL:
+        my = (h - 1) - my                       # 반전된 그림의 y = 원본의 (h-1-y)
+    if config.CAMERA_ROTATE_CCW90:
+        mx = cv2.rotate(mx, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        my = cv2.rotate(my, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return cv2.convertMaps(mx, my, cv2.CV_16SC2)
+
+
+def apply_full_map(frame, fmap):
+    """`full_map` 으로 한 번에 — `apply_full(frame, maps)` 와 같은 결과."""
+    return cv2.remap(frame, fmap[0], fmap[1], cv2.INTER_LINEAR)
+
+
 def _selftest() -> int:
     """있는 보정 파일마다 순서·크기 규약을 확인한다."""
     for (w, h) in ((640, 480), (1024, 768)):

@@ -184,7 +184,19 @@ def test_error_frame_leaves_no_boxes_env():
     check([r["frame"] for r in rows(d, "env")] == [], f"env 프레임 {[r['frame'] for r in rows(d, 'env')]}")
 
 
+def test_full_map_follows_size():
+    print("\n[안2] 프레임 크기가 바뀌면 합친 맵도 다시 만든다(VGA↔XGA 펌웨어 바꿈 · 처리 흐름 1단계 Review Focus 2)")
+    th = ct.CameraThread()
+    th._ensure_calibration(1024, 768)
+    a = th._full_map
+    th._ensure_calibration(640, 480)
+    b = th._full_map
+    check(a is not None and (b is None or b[0].shape[:2] != a[0].shape[:2]),
+          f"XGA {None if a is None else a[0].shape} → VGA {None if b is None else b[0].shape}")
+
+
 if __name__ == "__main__":
+    test_full_map_follows_size()
     test_frames_and_boxes()
     test_env_every_30_frames()
     test_error_frame_leaves_no_row()
