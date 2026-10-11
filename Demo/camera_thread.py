@@ -249,6 +249,7 @@ class CameraThread(QThread):
         self._raw_seq            = 0         # 측정 기록이 꺼졌을 때 원본 녹화가 쓰는 처리 순번
         self._tracks             = []
         self._undistort_map      = None
+        self._shown              = 0      # 화면 덜 그리기 차례 셈(설계 2026-10-12 §3)
         self._full_map           = None   # 안2 — 반전·보정·회전 합친 맵(설계 2026-10-12 §3)
         self._lock               = threading.Lock()
         self._ring_px            = config.HAND_ROI_RING_PX_VGA   # 첫 프레임에 해상도 비례로 정한다
@@ -393,6 +394,14 @@ class CameraThread(QThread):
             self._measure.event("camera", what="size", w=int(w), h=int(h))   # 해상도 — 세션 정보
             self._calib_wh = (w, h)
             self._init_calibration(w, h)
+
+    def _show_due(self):
+        """이 장을 화면으로 보낼 차례인가 — 화면 덜 그리기(설계 2026-10-12 §3 · config.DISPLAY_EVERY).
+        🔑 판정(roi_signal)은 _process_frame 이 매 장 보낸다 — 여기서 거르는 것은 화면용 색 변환·복사·보내기뿐.
+        ⚠️ N>1 이면 화면 FPS 표시·fps 사건·카메라 영역 녹화가 화면 갱신 기준이라 N 분의 1 로 보인다(측정 12 는 판정기 기록이라 그대로)."""
+        due = self._shown % max(1, config.DISPLAY_EVERY) == 0
+        self._shown += 1
+        return due
 
     def _undistort(self, frame):
         if self._undistort_map is None:
@@ -558,11 +567,12 @@ class CameraThread(QThread):
                         self._frame_error(e)
                         continue
 
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    h, w, ch = rgb.shape
-                    self.change_pixmap_signal.emit(
-                        QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
-                    )
+                    if self._show_due():
+                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        h, w, ch = rgb.shape
+                        self.change_pixmap_signal.emit(
+                            QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
+                        )
                     self._measure_end()                      # 화면으로 넘기기까지가 처리 끝
 
             except Exception as e:

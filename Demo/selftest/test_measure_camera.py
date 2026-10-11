@@ -195,7 +195,28 @@ def test_full_map_follows_size():
           f"XGA {None if a is None else a[0].shape} → VGA {None if b is None else b[0].shape}")
 
 
+def test_display_every():
+    print("\n[화면 덜 그리기] N 장에 1장만 화면으로 · 판정 신호는 매 장(처리 흐름 1단계 · Review Focus 5)")
+    import subprocess
+    import config
+    keep = config.DISPLAY_EVERY
+    try:
+        config.DISPLAY_EVERY = 2
+        th = ct.CameraThread()
+        check([th._show_due() for _ in range(4)] == [True, False, True, False], "2 = 한 장 걸러")
+        config.DISPLAY_EVERY = 1
+        th = ct.CameraThread()
+        check(all(th._show_due() for _ in range(3)), "1 = 매 장(종전)")
+    finally:
+        config.DISPLAY_EVERY = keep
+    for bad in ("0", "-1", "abc"):
+        out = subprocess.run([sys.executable, "-c", "import config; print('값', config.DISPLAY_EVERY)"], cwd=_DEMO_DIR,
+                             env=dict(os.environ, SOP_DISPLAY_EVERY=bad), capture_output=True, text=True).stdout
+        check("값 1" in out and "SOP_DISPLAY_EVERY" in out, f"{bad!r} → 경고하고 1")
+
+
 if __name__ == "__main__":
+    test_display_every()
     test_full_map_follows_size()
     test_frames_and_boxes()
     test_env_every_30_frames()
