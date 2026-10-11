@@ -53,6 +53,10 @@ def main():
         window.showFullScreen()
     else:
         window.show()
+    if os.environ.get("SOP_REHEARSE_WORKER") == "1":      # 집 리허설에서만 — 가상 작업자(학교 방문 준비 설계 §7.1)
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "test"))
+        import rehearse_worker
+        window._rehearse_worker = rehearse_worker.attach(window)   # 참조를 잡아 둔다(타이머가 사라지지 않게)
     sys.exit(app.exec())
 
 
