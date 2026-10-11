@@ -315,12 +315,44 @@ def items_R7(out, twice):
     return [it]
 
 
+def items_R6(out, twice):
+    """램프 지연 — 도구 정확도(확정 · 가짜 카메라 램프 흉내 지연 0.08초) + --screen 대안이 끝까지(흐름)."""
+    import lamp_latency as LL
+    acc = _base("R6", "램프 지연 도구 정확도(흉내 지연 80ms)", "확정", "가짜 카메라 19.5장/초 · 램프 흉내 · 가짜 인터락",
+                expect={"지연 중앙 ms": (80.0, 135.0)})
+    for k in range(2 if twice else 1):
+        cam = FakeCamera(load_frames(SRC_STILL, 200), port=config.CAMERA_TCP_PORT, fps=19.5, mimic=True).start()
+        fi = FakeInterlock(on_cmd=lambda c, t: cam.lamp(c == "WARN", 0.08)).start()
+        try:
+            r = LL.run("127.0.0.1", config.CAMERA_TCP_PORT, fi.port, n_meas=24, interval=1.5, settle_s=0.0,
+                       out=os.path.join(out, f"R6_{k + 1}"))
+        finally:
+            cam.stop()
+            fi.stop()
+            time.sleep(0.5)
+        if "error" in r:
+            acc["errors"].append(r["error"])
+            continue
+        acc["values"].setdefault("지연 중앙 ms", []).append(r["med"])
+        if r.get("warning"):
+            acc["warnings"].append(r["warning"])
+        acc["samples"]["잰 횟수"] = (r["n"], 20)
+    scr = _base("R6-화면", "램프 대안 --screen(끝까지 · 집은 화면을 못 봄)", "흐름", "offscreen — 자리 못 찾음 오류가 정상")
+    with Devices():
+        env = dict(os.environ, QT_QPA_PLATFORM="offscreen", SOP_CAMERA_HOST="127.0.0.1")
+        r = subprocess.run([sys.executable, os.path.join(TEST, "lamp_latency.py"), "--screen", "--n", "2",
+                            "--interval", "0.6"], cwd=DEMO, env=env, capture_output=True, text=True, timeout=120)
+    if "V11" not in r.stdout or "Traceback" in r.stderr:
+        scr["errors"].append(f"--screen 이 끝까지 못 돎 · {r.stdout[-200:]} {r.stderr[-200:]}")
+    return [acc, scr]
+
+
 def _later(iid, title, task):
     return lambda out, twice: [_base(iid, title, "흐름", "—", finished=False, errors=[f"아직 — 계획 {task}"])]
 
 
 ITEMS = {"R0": items_R0, "R1": items_R1, "R2": items_R2, "R3": items_R3, "R4": items_R4,
-         "R5": _later("R5", "펌웨어 빌드 · 재압축", "Task 8"), "R6": _later("R6", "램프 지연 도구", "Task 7"),
+         "R5": _later("R5", "펌웨어 빌드 · 재압축", "Task 8"), "R6": items_R6,
          "R7": items_R7, "R8": _later("R8", "되돌리기", "Task 11")}
 
 SCHOOL = {
