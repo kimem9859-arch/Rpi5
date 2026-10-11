@@ -54,9 +54,7 @@ HOTWORDS  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice", "h
 BPE_VOCAB = os.path.expanduser("~/lab/tts/bpe.vocab")
 
 WINDOW_SEC = 6.0      # 판정에 쓰는 최근 구간
-LISTEN_SEC = 20.0     # 🔑 호출 뒤 질문을 기다리는 시간.
-                      #    🔴 8초는 짧았다 — 2026-09-07 실측에서 사용자가 다시
-                      #    말하기까지 12초가 걸려 깨어남이 이미 풀려 있었다.
+LISTEN_SEC = config.VOICE_LISTEN_SEC   # 🔑 호출 뒤 질문을 기다리는 시간(값과 이유 = config)
 LAG_LIMIT  = 2.0      # 🔴 도착한 지 이보다 오래된 소리는 밀린 것 — 버린다(최신 우선 · voice_mic)
 QUIET_TAIL = 0.4      # 발화가 끝났다고 보기까지 필요한 뒤쪽 무음
 CHIME_MUTE_SEC = 0.8  # 🔴 띠링을 낸 뒤 이만큼 들어온 소리는 버린다(2026-10-08) — 안경 프레임 안에서는 스피커가

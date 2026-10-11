@@ -322,7 +322,52 @@ def test_busy_unprompted():
           "답이 없으면(호출만) 호출 + 21초(대화창) + 1초 뒤 다시 안내")
 
 
+def test_busy_slow_answer():
+    print("\n[대화 중 · 늦은 답] 질문을 받았으면 LLM 한도까지 기다린다 · 답 재생 끝은 그 답의 소리만 센다(최종 리뷰 I1)")
+    ev = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B1")]
+    v = [V(500, "stt", text="가디야."), V(500, "wake"), V(8500, "stt", text="지금몇단계야?")]
+    check(G.assistant_busy(v, 25000.0)[0], "호출 + 8초 질문 → 호출 + 24.5초에도 아직 대화 중(답을 기다린다)")
+    check(G.assistant_busy(v + [V(33500, "answer", src="LLM")], 33600.0)[0], "질문 + 25초 답 → 답 재생 중")
+    v2 = v + [V(33500, "answer", src="LLM"), V(33600, "play_start", key="cue_B1"), V(33900, "play_end", key="cue_B1")]
+    check(G.assistant_busy(v2, 34000.0)[0], "안내 소리 재생 끝은 답 끝으로 세지 않는다")
+    v3 = v2 + [V(34000, "play_start", key=None), V(36000, "play_end", key=None)]
+    check(G.assistant_busy(v3, 36100.0) == (False, 36000.0), "그 답(LLM · 키 없음)의 재생 끝 = 대화 끝")
+    v4 = [V(500, "stt", text="가디야."), V(500, "wake")]
+    check(not G.assistant_busy(v4, 22000.0)[0], "질문 없이 호출만 = 대화창(20초) + 1초 뒤 풀림(종전과 같음)")
+    g = G.Guide(rows((1, "B1 B2")), "EMO", cue_sink=lambda k, t: None)
+    check(g.step(ev, 25000.0, voice=v) is None, "늦은 답을 기다리는 동안 버튼 안내를 내지 않는다")
+
+
+def _csv_rows(rows):
+    def q(x):
+        return '"' + json.dumps(x, ensure_ascii=False).replace('"', '""') + '"'
+    return "t_ms,kind,data\n" + "".join(f"{t},{k},{q(d)}\n" for t, k, d in rows)
+
+
+def test_replay_result_say():
+    print("\n[재생] 결과창 말 · 판 사이 「said」 에서도 재생 도구가 죽지 않는다(최종 리뷰 I2)")
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "session.json"), "w", encoding="utf-8") as f:
+            json.dump({"입력": {"대본": "s.csv"}, "측정기록": True}, f)
+        with open(os.path.join(d, "s.csv"), "w", encoding="utf-8") as f:
+            f.write("판,행동,대상,기대,메모,누름\n1,정상,,,,B1 말\n1,질문,작업 결과 어때?,,,\n")
+        ev = [(0, "run_start", {}), (10, "state", {"old": "X", "new": "PROCESS_RUN", "expected": "B1"}),
+              (2000, "press", {"button": "B1", "expected": "B1", "state": "MONITOR", "source": "gpio"}),
+              (2000, "run_end", {"ok": True}), (9000, "run_start", {})]
+        with open(os.path.join(d, "events.csv"), "w", encoding="utf-8") as f:
+            f.write(_csv_rows(ev))
+        try:
+            out = G.replay(d, dump=False)
+        except Exception as e:                       # noqa: BLE001
+            check(False, f"재생이 죽음 — {type(e).__name__}: {e}")
+            return
+        says = [o for o in out if o[3] in ("작업 결과 어때?", "넘어감")]
+        check(len(says) == 2 and all(o[1] == 1 for o in says), f"결과창 말 · 넘어감 = 1번째 판으로 남는다 · {out}")
+
+
 def main():
+    test_replay_result_say()
+    test_busy_slow_answer()
     test_busy_unprompted()
     test_say_flow()
     test_say_end_cases()

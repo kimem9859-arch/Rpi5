@@ -40,7 +40,10 @@ ACK_WAIT_MS = 3000.0     # 안내 요청 뒤 이만큼 응답이 없으면 「�
 TICK_SEC = 0.1
 SAY_TIMEOUT_MS = 30000.0   # 말 띠를 띄운 지 이만큼이면 「시간」으로 지운다(3판 D23)
 SAY_KINDS = ("say", "say_wait")
-BUSY_LISTEN_MS = 21000.0   # 호출 뒤 답이 없을 때 대화 중으로 보는 시간 = 대화창 20초 + 여유(voice_assistant.LISTEN_SEC)
+LISTEN_MS = config.VOICE_LISTEN_SEC * 1000      # 음성비서 대화창(호출 뒤 질문을 받는 시간)
+BUSY_LISTEN_MS = LISTEN_MS + 1000.0            # 호출만 하고 질문이 없을 때 대화 중으로 보는 시간 = 대화창 + 여유
+ANSWER_WAIT_MS = (config.LLM_TIMEOUT_SEC + 2.0 + 3.0) * 1000   # 질문 → 답이 늦을 수 있는 한도 = LLM 한도 + 기다림 여유 2초
+                                                                # + 대체 문장 합성 약 3초(최종 리뷰 I1)
 SWITCH_CHECK_MS = 1000.0  # 더 새 측정 세션이 생겼나 보는 간격(최종 리뷰 Important 2)
 LOCK_FILE = "/tmp/sop_measure_guide.lock"   # 한 대만(최종 리뷰 Important 3)
 RUN_STATES = ("PROCESS_RUN", "MONITOR")
@@ -273,18 +276,27 @@ class Guide:
 
 def assistant_busy(voice, now_ms):
     """음성비서가 대화 중인가(실물 피드백 — 「음성비서 사용 중에는 버튼 안내가 안 나왔으면」) → (대화 중?, 끝난 시각|None).
-    마지막 호출(wake) 뒤 답(answer)의 재생이 끝날 때까지 · 답이 없으면 호출 + 21초까지. 비상 중 호출은 wake 가 없어(무반응) 해당 없음."""
+    마지막 호출(wake) 뒤 답(answer)의 재생이 끝날 때까지. 답이 아직 없으면 — 질문을 받았으면 질문 + LLM 한도까지 ·
+    호출만이면 대화창 + 1초까지(최종 리뷰 I1). 답 재생 끝 = 그 답의 소리 키와 같은 play_end 만(안내 소리 끝을 세지 않는다).
+    비상 중 호출은 wake 가 없어(무반응) 해당 없음."""
     t_w = None
     for t, k, _ in voice or ():
         if k == "wake":
             t_w = t
     if t_w is None:
         return False, None
-    t_a = next((t for t, k, _ in voice if k == "answer" and t >= t_w), None)
-    if t_a is None:
+    ans = next(((t, d.get("key")) for t, k, d in voice if k == "answer" and t >= t_w), None)
+    if ans is None:
         end = t_w + BUSY_LISTEN_MS
+        for t, k, d in voice:
+            text = d.get("text") or ""
+            if k != "stt" or not VL.is_question(text, True):
+                continue
+            if t_w <= t <= t_w + LISTEN_MS or (t < t_w and t_w - t <= LISTEN_MS and VL.is_wake(text)):
+                end = max(end, t + ANSWER_WAIT_MS)       # 질문을 받았다 — 답이 늦을 수 있다
         return now_ms < end, (None if now_ms < end else end)
-    t_e = next((t for t, k, _ in voice if k == "play_end" and t >= t_a), None)
+    t_a, key = ans
+    t_e = next((t for t, k, d in voice if k == "play_end" and t >= t_a and d.get("key") == key), None)
     if t_e is None:
         end = t_a + BUSY_LISTEN_MS                       # 답 재생 끝이 안 오면(끊김) 안전판
         return now_ms < end, (None if now_ms < end else end)
@@ -660,7 +672,8 @@ def replay(d, dump=True):
     ev = sorted(measure_check.load_events(os.path.join(d, "events.csv")), key=lambda e: e[0])
     vp = os.path.join(d, "voice_events.csv")
     voice = sorted(measure_check.load_events(vp), key=lambda e: e[0]) if os.path.exists(vp) else []
-    g = Guide(rows, MR.emo_button())
+    logd = {}
+    g = Guide(rows, MR.emo_button(), log_sink=lambda _t, _k, data: logd.update(data))
     g.restore(measure_check.load_events(os.path.join(d, "guide.csv")))
     out, i, j, t = [], 0, 0, ev[0][0] if ev else 0.0
     while i < len(ev):
@@ -669,12 +682,15 @@ def replay(d, dump=True):
             i += 1
         while j < len(voice) and voice[j][0] <= t:
             j += 1
+        logd.clear()
         c = g.step(ev[:i], t, voice=voice[:j])
         if c:
-            r = g.view["run"]
-            out.append((round(t), r["i"], r["script"], c[1]))
+            # 🔑 판 번호 = 그 결정을 적은 기록 줄에서 — 결과창 말·판 사이 「said」 는 열린 판이 없다(최종 리뷰 I2)
+            r = g.view.get("run") or {}
+            run_i, script = logd.get("run", r.get("i")), logd.get("script", r.get("script"))
+            out.append((round(t), run_i, script, c[1]))
             if dump:
-                print(f"{t:14.1f} · {r['i']:2d}번째 판 · 대본 {r['script']} · {c[0]} {c[1]}")
+                print(f"{t:14.1f} · {run_i}번째 판 · 대본 {script} · {c[0]} {c[1]}")
     return out
 
 
