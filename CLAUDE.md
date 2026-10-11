@@ -15,6 +15,7 @@
 - 테스트 절차 전체: **`Demo/docs/TESTING_FSM.md`**. 실HW 테스트는 **라즈베리파이에서** 수행.
 
 ## 추론 백엔드 — `detector.py` (★ console_v1.hef 통합 지점)
+- **처리 2단계 2a**(`SOP_INFER_MODEL=1` · 기본 끔) — 버튼 · 공구 · 손바닥 · 손 관절 모두 InferModel(`hailo_infer.py` · 추론 중 GIL 을 놓는다)로. 손은 blaze 의 추론 통로 이름만 대역으로 바꿔 끼운다(blaze 소스 무변경). 🔴 한 장치에 종전 방식과 섞어 올리지 않는다 — 출력 비교는 `test/infer_model_check.py`(두 방식을 별도 프로세스로).
 - `PyTorchDetector`(Phase A, `person_v1.pt`(옛 best.pt — 사람 1종이라 버튼을 못 찾는다 · 상위 통합문서 §6 ⏸), ultralytics CPU) ↔ `HailoDetector`(Phase B, .hef, Hailo-8). `config.INFERENCE_BACKEND`로 전환.
 - ✅ **console_v1.hef 배선 완료** (상세 [`../dev/ai_model/README.md`](../dev/ai_model/README.md)):
   - 입력 **uint8 640×640 RGB**(float 정규화 ❌, stretch 리사이즈), 출력 **HailoRT NMS 결과** 파싱(raw 텐서 ❌), **HailoRT 4.x**.
@@ -36,6 +37,7 @@
 
 ### `camera_thread.py` (카메라 + 추론)
 - `CameraThread`(QThread) — ESP32-S3 TCP 스트림: 4바이트 헤더+JPEG, 수신 전용 스레드+처리 루프 분리(최신 프레임만), 자동 재연결. 처리순서: **수직 플립 → undistort → 회전(CCW90)** → detector(YOLO) → **손 검출(`hand_tracker`)** → `roi_at_point` → `roi_signal` → FSM. 반전·보정·회전은 `frame_orient.full_map` 맵 하나로 remap 한 번(결과 화소 같음 · 끄기 `SOP_ORIENT_ONE_REMAP=0`) · 화면 확대는 QLabel 그리기(GIL 밖 · 끄기 `SOP_DISPLAY_PAINT=0`) · 화면은 `SOP_DISPLAY_EVERY` 장에 1장.
+  - **처리 2단계 2b**(`SOP_PIPELINE2=1` · 기본 끔) — 받기·풀기·보정을 앞단 스레드가 하고 한 칸 우편함(최신 한 장 · 연결 번호 검사)으로 넘긴다. 측정 기록 형식은 그대로.
   - **`frame_orient.py`** — 방향 보정(반전·회전)의 **단일 출처**. ESP32 장착 구도가 시계방향 90° 로 바뀌어 반시계 90° 보정이 붙었고, 프레임이 **세로**가 된다(VGA 640×480 → 480×640 · XGA 1024×768 → 768×1024). 런타임과 측정 도구(`test/tool_probe`·`test/bench_detector`)가 같은 모듈을 쓴다 — `roi_zones` 와 같은 이유(도구가 Qt·Hailo 를 못 끌어온다).
   - 🔴 **회전은 반드시 undistort 뒤다.** 앞에 두면 가로세로가 뒤바뀌어 `_init_calibration` 이 보정 파일(센서 원본 해상도 전용)을 'mismatch' 로 판단해 **왜곡보정을 조용히 끈다**(로그 한 줄만 남고 화면은 멀쩡해 보인다).
   - **해상도는 런타임이 첫 프레임으로 맞춘다** — 보정 파일 선택과 픽셀 설정(링 = `HAND_ROI_RING_PX_VGA` 25 × `frame_orient.px_scale` → XGA 40px)이 첫 프레임 크기를 따른다. 펌웨어만 VGA↔XGA 로 바꿔 구우면 된다. 로그 `[캘리브레이션] <파일> 로드 (<w>×<h>) · 링 <n>px` 로 확인.
@@ -76,6 +78,7 @@ ESP32-S3(OV3660) ─TCP:8888→ CameraThread
 
 - ESP32 펌웨어(.ino) = **Arduino CLI**(IDE 아님), **라즈베리파이에서만** 편집·컴파일(Windows 엔 미설치).
 - `original/` = 참고용 구버전(`yolo_hailo_tcp.py` = RPi Hailo 추론 핵심, `provision_wifi.py` 등 RPi 전용).
+- **집 리허설 · 학교 사전 점검** = `Demo/test/rehearse.py`(가짜 장치 `fake_camera` · `fake_interlock` · `rehearse_glass` · 가상 작업자 `rehearse_worker` · 판정 `rehearse_judge`) · `Demo/test/school_check.py` — 집과 학교의 차이는 `SOP_CAMERA_HOST`(카메라 주소)뿐 · 리허설 세션은 `SOP_MEASURE_BASE` 로 따로. 램프 지연 `test/lamp_latency.py` · 근거 분석 `test/measure_basis.py`.
 - **촬영·런처 함정** = `../.claude/skills/촬영/` · **데이터셋·라벨링** = `../.claude/skills/데이터셋/` · **벤치·DB·시뮬레이터** = `../.claude/skills/측정도구/`
   - 파이프라인 문서 = `Demo/docs/dataset_pipeline.md` · 라벨링 기준 = `Demo/docs/labeling_guide.md` · 장소2·3 촬영 = `Demo/docs/촬영지시서.md` · FSM 테스트 = `Demo/docs/TESTING_FSM.md`
 

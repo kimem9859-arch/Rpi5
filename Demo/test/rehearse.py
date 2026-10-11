@@ -378,13 +378,35 @@ def items_R5(out, twice):
     return [build, probe]
 
 
-def _later(iid, title, task):
-    return lambda out, twice: [_base(iid, title, "흐름", "—", finished=False, errors=[f"아직 — 계획 {task}"])]
+def items_R8(out, twice):
+    """되돌리기 — 출발 전 태그 · 펌웨어 백업 대조(md5) · esptool · 처리 설정 1 = 스위치 없음(흐름)."""
+    it = _base("R8", "되돌리기 수단 점검", "흐름", "실제로 되돌리지 않고 수단이 있는지만")
+    rpi5 = os.path.dirname(DEMO)
+    r = subprocess.run(["git", "-C", rpi5, "rev-parse", "-q", "--verify", "학교1012-전^{commit}"], capture_output=True, text=True)
+    if r.returncode != 0:
+        it["errors"].append("출발 전 태그 학교1012-전 없음")
+    bins = sorted(glob.glob(os.path.expanduser("~/lab/esp32-link/main_5D38_full_*.bin")))
+    if not bins:
+        it["errors"].append("안경 펌웨어 백업 없음")
+    else:
+        r = subprocess.run(["md5sum", "-c", os.path.basename(bins[-1]) + ".md5"], cwd=os.path.dirname(bins[-1]),
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            it["errors"].append(f"백업 md5 불일치 {os.path.basename(bins[-1])} · {r.stdout[-120:]}")
+        it["home"] += f" · 최근 백업 {os.path.basename(bins[-1])}"
+    r = subprocess.run(["esptool", "version"], capture_output=True, text=True)
+    if r.returncode != 0:
+        it["errors"].append("esptool 이 없다")
+    r = subprocess.run([sys.executable, os.path.join(DEMO, "selftest", "test_measure_runner.py")], capture_output=True,
+                       text=True, timeout=300)
+    if r.returncode != 0:
+        it["errors"].append("실행기 처리 설정 시험 실패(처리 설정 1 = 스위치 없음)")
+    return [it]
 
 
 ITEMS = {"R0": items_R0, "R1": items_R1, "R2": items_R2, "R3": items_R3, "R4": items_R4,
          "R5": items_R5, "R6": items_R6,
-         "R7": items_R7, "R8": _later("R8", "되돌리기", "Task 11")}
+         "R7": items_R7, "R8": items_R8}
 
 SCHOOL = {
     "R0": "python3 Demo/test/school_check.py",
