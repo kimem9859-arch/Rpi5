@@ -38,7 +38,7 @@ SRC_HANDS = os.path.join(DEMO, "recordings", "20261006_201449_camera.mp4")    # 
 VOICE_SCRIPT = os.path.join(SCEN, "장소1_⑤음성.csv")
 BASIS_SCRIPT = os.path.join(SCEN, "장소1_⑥근거.csv")
 PROC = {"2": "종전", "1": "1단계", "3": "1단계+화면 덜 그리기", "4": "1단계+2a", "5": "1단계+2a+2b"}
-PROC_ORDER = ["2", "1", "3", "4"]  # Task 10 이 5 를 더한다
+PROC_ORDER = ["2", "1", "3", "4", "5"]
 EXPECT_1 = (14.5, 17.0)            # 1단계 기대(상위 설계 근거 · 설계 근거용) — 범위 밖이면 ⚠️(학교 필수)
 
 

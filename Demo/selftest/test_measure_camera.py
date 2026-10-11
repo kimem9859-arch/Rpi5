@@ -228,7 +228,96 @@ def test_display_every():
         check(r.stdout.strip() == want and var in r.stderr, f"{var}={bad!r} → 표준출력 {r.stdout.strip()!r} · 경고는 표준오류")
 
 
+def _jpegs(n):
+    import cv2
+    return [cv2.imencode(".jpg", np.full((48, 64, 3), 20 + 30 * i, np.uint8))[1].tobytes() for i in range(n)]
+
+
+_TIME_COLS = {"t_recv_ms", "t_start_ms", "t_done_ms", "decode_ms", "orient_ms", "detect_ms", "track_ms", "hand_ms",
+              "tool_ms", "zone_ms"}
+
+
+def _no_time(d, name):
+    return [{k: v for k, v in r.items() if k not in _TIME_COLS} for r in rows(d, name)]
+
+
+def test_pipeline2_orient_same():
+    print("\n[2b] 앞단 보정(_orient) = 종전 보정과 같은 화소(안2 켬 · 끔 · 학교 방문 준비 설계 §3.3)")
+    import frame_orient
+    keep = config.ORIENT_ONE_REMAP
+    try:
+        for on in (True, False):
+            config.ORIENT_ONE_REMAP = on
+            th = ct.CameraThread()
+            th._ensure_calibration(1024, 768)
+            raw = np.random.default_rng(1).integers(0, 255, (768, 1024, 3), np.uint8)
+            a, ms = th._orient(raw)
+            b = frame_orient.rotate(th._undistort(frame_orient.flip(raw)))
+            check(np.array_equal(a, b) and ms >= 0, f"안2 {'켬' if on else '끔'} → 같은 화소")
+    finally:
+        config.ORIENT_ONE_REMAP = keep
+
+
+def test_pipeline2_same_rows():
+    print("\n[2b] 한 장씩 차례로 넣으면 앞단+뒷단 기록 = 한 줄 경로 기록(시각 칸 제외)")
+    import cv2
+    jp = _jpegs(5)
+    got = {}
+    for mode in ("serial", "pipe"):
+        d = tempfile.mkdtemp()
+        lg = ML.MeasureLog(d, ["frames", "boxes", "env", "events"])
+        th = ct.CameraThread()
+        th.set_measure(lg)
+        th._conn_gen = 1
+        for i, data in enumerate(jp):
+            t = 100.0 + i
+            if mode == "serial":                         # 지금 고리(run)의 한 장 차례 그대로
+                frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+                th._measure_begin(t, 0.0, i + 1)
+                th._ensure_calibration(frame.shape[1], frame.shape[0])
+                th._process_frame(frame, t)
+                th._measure_end()
+            else:
+                check(th._front_once(data, t, i + 1, 1), f"앞단 {i} 넣음")
+                check(th._back_once(th._take_ready()) is not None, f"뒷단 {i} 처리")
+                th._measure_end()
+        lg.close()
+        got[mode] = (_no_time(d, "frames"), _no_time(d, "boxes"))
+    check(len(got["pipe"][0]) == 5 and got["serial"] == got["pipe"], f"기록이 같다 {got['pipe'][0][:1]} · {got['serial'][0][:1]}")
+
+
+def test_pipeline2_generation():
+    print("\n[2b] 연결이 바뀐 뒤 옛 연결의 장은 처리하지 않는다(Review Focus 4) · 덮어쓴 장 수")
+    jp = _jpegs(3)
+    th = ct.CameraThread()
+    th._conn_gen = 2
+    check(th._front_once(jp[0], 1.0, 1, 1) is False and th._take_ready() is None, "옛 세대가 넣으려 하면 버림")
+    check(th._front_once(jp[0], 1.0, 1, 2) and th._front_once(jp[1], 2.0, 2, 2), "같은 세대 두 장")
+    check(th._front_dropped == 1, f"안 꺼낸 장을 덮음 = 1 → {th._front_dropped}")
+    item = th._take_ready()
+    th._conn_gen = 3
+    check(th._back_once(item) is None, "꺼낸 뒤 연결이 바뀌었으면 처리하지 않는다")
+    check(th._front_once(b"garbage", 3.0, 3, 3) is False and th._take_ready() is None, "깨진 바이트 → 그 장만 버림")
+
+
+def test_pipeline2_stop():
+    print("\n[2b] stop 뒤 앞단 스레드가 3초 안에 끝난다")
+    import threading
+    th = ct.CameraThread()
+    th._conn_gen = 1
+    t = threading.Thread(target=th._front_worker, args=(1,), daemon=True)
+    t.start()
+    th._running = False
+    th._raw_event.set()
+    t.join(3)
+    check(not t.is_alive(), "끝남")
+
+
 if __name__ == "__main__":
+    test_pipeline2_orient_same()
+    test_pipeline2_same_rows()
+    test_pipeline2_generation()
+    test_pipeline2_stop()
     test_display_every()
     test_full_map_follows_size()
     test_frames_and_boxes()

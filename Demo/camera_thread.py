@@ -286,6 +286,11 @@ class CameraThread(QThread):
         self._m_frame = 0                       # 처리한 프레임 번호(재연결해도 계속 늘어난다)
         self._m_row = None                      # 지금 프레임의 측정 칸(_measure_begin~_end)
         self._recv_seq = 0                      # 받은 프레임 누적 수(덮어써 처리 못 한 것 포함 · 측정 27)
+        # 처리 2단계 2b — 앞단(풀기 · 보정) → 한 칸 우편함 → 뒷단(추론 · 판정)(학교 방문 준비 설계 §3.3 · SOP_PIPELINE2=1)
+        self._ready = None                      # (연결 번호, 받은 시각, 받은 누적 수, 풀기 ms, 보정된 장, 보정 ms)
+        self._ready_lock = threading.Lock()
+        self._ready_event = threading.Event()
+        self._front_dropped = 0                 # 뒷단이 꺼내기 전에 덮어쓴 장 수
 
     def _on_connected(self):
         """(재)연결 직후 — 끊기기 전 트랙을 버리고 GUI 에 알린다(R5 · 설계 D9).
@@ -530,42 +535,66 @@ class CameraThread(QThread):
                                            args=(self.sock, self._conn_gen), daemon=True)
             recv_thread.start()
 
+            front, front_stop = None, threading.Event()
+            if config.PIPELINE2:
+                # 2b — 받기·풀기·보정은 앞단 스레드가 · 이 고리는 우편함에서 꺼내 추론 · 판정(학교 방문 준비 설계 §3.3)
+                with self._ready_lock:
+                    self._ready = None                   # 끊기기 전 장을 새 연결에서 쓰지 않는다
+                self._ready_event.clear()
+                front = threading.Thread(target=self._front_worker, args=(self._conn_gen, front_stop), daemon=True)
+                front.start()
             try:
                 while self._running:
-                    if not self._raw_event.wait(timeout=TCP_RECV_TIMEOUT_SEC):
-                        self.log_signal.emit("[카메라] 수신 타임아웃")
-                        self._measure.event("camera", what="timeout")
-                        break
-                    self._raw_event.clear()
+                    if front is not None:
+                        if not self._ready_event.wait(timeout=TCP_RECV_TIMEOUT_SEC):
+                            self.log_signal.emit("[카메라] 수신 타임아웃")
+                            self._measure.event("camera", what="timeout")
+                            break
+                        self._ready_event.clear()
+                        if self._recv_error:
+                            break
+                        try:
+                            frame = self._back_once(self._take_ready())
+                        except Exception as e:                   # noqa: BLE001
+                            self._frame_error(e)                 # 그 장만 버린다(C12 와 같다)
+                            continue
+                        if frame is None:
+                            continue
+                    else:
+                        if not self._raw_event.wait(timeout=TCP_RECV_TIMEOUT_SEC):
+                            self.log_signal.emit("[카메라] 수신 타임아웃")
+                            self._measure.event("camera", what="timeout")
+                            break
+                        self._raw_event.clear()
 
-                    if self._recv_error:
-                        break
+                        if self._recv_error:
+                            break
 
-                    with self._raw_lock:
-                        got = self._latest_raw
-                        seq = self._recv_seq          # got 과 같은 순간의 누적 수(측정 27)
+                        with self._raw_lock:
+                            got = self._latest_raw
+                            seq = self._recv_seq          # got 과 같은 순간의 누적 수(측정 27)
 
-                    if got is None:
-                        continue
-                    data, t_frame = got
+                        if got is None:
+                            continue
+                        data, t_frame = got
 
-                    t_dec = time.perf_counter()
-                    frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-                    if frame is None:
-                        continue
-                    self._measure_begin(t_frame, round((time.perf_counter() - t_dec) * 1000, 3), seq)
+                        t_dec = time.perf_counter()
+                        frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+                        if frame is None:
+                            continue
+                        self._measure_begin(t_frame, round((time.perf_counter() - t_dec) * 1000, 3), seq)
 
-                    h, w = frame.shape[:2]
-                    self._ensure_calibration(w, h)
+                        h, w = frame.shape[:2]
+                        self._ensure_calibration(w, h)
 
-                    try:
-                        frame = self._process_frame(frame, t_frame)
-                    except Exception as e:                   # noqa: BLE001
-                        # 🔴 프레임 하나의 처리 오류(Hailo 일시 오류·공구 게이트 경쟁 등)로 연결을 끊지
-                        #    않는다 — 종전에는 아래 「수신 오류」로 가서 소켓을 닫고 3초 뒤 다시 붙어,
-                        #    영상이 끊기고 로그는 네트워크 탓처럼 보였다(검토 C12). 그 프레임만 버린다.
-                        self._frame_error(e)
-                        continue
+                        try:
+                            frame = self._process_frame(frame, t_frame)
+                        except Exception as e:                   # noqa: BLE001
+                            # 🔴 프레임 하나의 처리 오류(Hailo 일시 오류·공구 게이트 경쟁 등)로 연결을 끊지
+                            #    않는다 — 종전에는 아래 「수신 오류」로 가서 소켓을 닫고 3초 뒤 다시 붙어,
+                            #    영상이 끊기고 로그는 네트워크 탓처럼 보였다(검토 C12). 그 프레임만 버린다.
+                            self._frame_error(e)
+                            continue
 
                     if self._show_due():
                         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -584,6 +613,10 @@ class CameraThread(QThread):
                     _close_sock(self.sock)       # shutdown 으로 막힌 수신을 깨운다(C19)
                     self.sock = None
                 recv_thread.join(timeout=3)
+                if front is not None:
+                    front_stop.set()
+                    self._raw_event.set()                # 앞단을 깨워 끝나게
+                    front.join(timeout=3)
 
             if self._running:
                 self.log_signal.emit(f"[카메라] 스트림 끊김. {TCP_RECONNECT_DELAY_SEC:.0f}초 후 재연결...")
@@ -632,9 +665,73 @@ class CameraThread(QThread):
             self._measure.row("env", r["env"])
 
     # =========================================================================
+    # [처리 2단계 2b] 앞단(풀기 · 보정) → 한 칸 우편함 → 뒷단 — 학교 방문 준비 설계 §3.3
+    # =========================================================================
+    def _orient(self, raw):
+        """방향 보정(반전 → 왜곡보정 → 회전) → (보정된 장, ms) · 화소는 _process_frame 안 보정과 같다."""
+        t0 = time.perf_counter()
+        if self._full_map is not None:
+            frame = frame_orient.apply_full_map(raw, self._full_map)
+        else:
+            frame = frame_orient.rotate(self._undistort(frame_orient.flip(raw)))
+        return frame, round((time.perf_counter() - t0) * 1000, 3)
+
+    def _front_once(self, data, t_frame, seq, gen):
+        """앞단 한 장 — 풀기 → 크기 맞춤 → 보정 → 우편함(최신 한 장 · 안 꺼낸 장은 덮는다). 옛 연결 · 깨진 바이트면 False."""
+        if gen != self._conn_gen:
+            return False
+        t_dec = time.perf_counter()
+        frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            return False
+        dec_ms = round((time.perf_counter() - t_dec) * 1000, 3)
+        h, w = frame.shape[:2]
+        self._ensure_calibration(w, h)
+        oriented, or_ms = self._orient(frame)
+        with self._ready_lock:
+            if gen != self._conn_gen:
+                return False                     # 보정하는 사이 연결이 바뀌었다(Review Focus 4)
+            if self._ready is not None:
+                self._front_dropped += 1
+            self._ready = (gen, t_frame, seq, dec_ms, oriented, or_ms)
+        self._ready_event.set()
+        return True
+
+    def _take_ready(self):
+        with self._ready_lock:
+            item, self._ready = self._ready, None
+        return item
+
+    def _back_once(self, item):
+        """뒷단 한 장 — 측정 칸을 열고 보정된 장으로 처리 → 처리한 장 · 빈 우편함 · 옛 연결이면 None(_measure_end 는 부른 쪽)."""
+        if item is None or item[0] != self._conn_gen:
+            return None
+        _, t_frame, seq, dec_ms, oriented, or_ms = item
+        self._measure_begin(t_frame, dec_ms, seq)
+        return self._process_frame(None, t_frame, pre=(oriented, or_ms))
+
+    def _front_worker(self, gen, stop=None):
+        """앞단 스레드 — 받기 스레드가 알린 최신 장을 풀고 보정해 우편함에 · 연결이 바뀌거나 멈추면 끝난다."""
+        stop = stop or threading.Event()
+        while self._running and not stop.is_set() and gen == self._conn_gen and not self._recv_error:
+            if not self._raw_event.wait(timeout=0.5):
+                continue
+            self._raw_event.clear()
+            with self._raw_lock:
+                got = self._latest_raw
+                seq = self._recv_seq
+            if got is None:
+                continue
+            try:
+                self._front_once(got[0], got[1], seq, gen)
+            except Exception as e:                           # noqa: BLE001
+                self._frame_error(e)                         # 그 장만 버린다
+        self._ready_event.set()                              # 뒷단을 깨워 연결 끝(받기 오류)을 알게
+
+    # =========================================================================
     # [프레임 처리]
     # =========================================================================
-    def _process_frame(self, frame, t=None):
+    def _process_frame(self, frame, t=None, pre=None):
         """프레임 하나를 처리한다. t = 그 프레임을 다 받은 시각(`time.monotonic()` · 없으면 지금).
 
         🔑 체류 시각은 이 t 다(C16) — GUI 가 신호를 처리한 시각으로 재면 GUI 가 멈췄다 풀릴 때
@@ -657,14 +754,19 @@ class CameraThread(QThread):
         if not is_active:
             # 🔴 비활성 미리보기도 같은 방향이어야 한다 — 여기서 회전을 빼면
             #    검출을 끈 순간 화면만 옆으로 눕는다.
-            return frame_orient.apply(raw)
+            return pre[0] if pre is not None else frame_orient.apply(raw)
 
-        h, w, _ = raw.shape
-        if self._full_map is not None:          # 안2 — 반전·보정·회전 = remap 한 번(설계 2026-10-12 §3 · 화소 같음)
-            frame = frame_orient.apply_full_map(raw, self._full_map)
+        if pre is not None:                     # 2b — 앞단이 보정해 둔 장 · 보정 시간도 앞단이 쟀다(학교 방문 준비 설계 §3.3)
+            frame = pre[0]
+            if self._m_row is not None:
+                self._m_row["orient_ms"] = pre[1]
         else:
-            frame = frame_orient.rotate(self._undistort(frame_orient.flip(raw)))
-        self._mark("orient_ms", t_or)
+            h, w, _ = raw.shape
+            if self._full_map is not None:          # 안2 — 반전·보정·회전 = remap 한 번(설계 2026-10-12 §3 · 화소 같음)
+                frame = frame_orient.apply_full_map(raw, self._full_map)
+            else:
+                frame = frame_orient.rotate(self._undistort(frame_orient.flip(raw)))
+            self._mark("orient_ms", t_or)
         if self._m_row is not None and self._m_row["frame"] % 30 == 1:
             self._m_row["env"] = [self._m_row["frame"], measure_log.now_ms(self._m_row["t_recv"]),
                                   *_env_metrics(frame)]
