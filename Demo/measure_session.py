@@ -5,6 +5,7 @@ run_measure.sh 가 부른다: python3 measure_session.py --place 1 --kind 1 --ha
 🔴 사람은 번호로만 — 이름을 적지 않는다(GitHub 제출 저장소 규칙).
 """
 import argparse
+import csv
 import datetime
 import json
 import os
@@ -19,9 +20,11 @@ KINDS = {0: "시험", 1: "정상", 2: "위반", 3: "장갑", 4: "음성끔"}
 HANDS = {1: "맨손", 2: "장갑"}
 # 안경 전원 — 이번 측정은 무선(배터리)이 조건이다(측정 설계 D23 · USB 를 꽂은 세션은 다른 조건)
 POWERS = {1: "무선(배터리)", 2: "유선(USB)"}
-BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "measure")
-# 시나리오표 — 실행기에서 번호로 고른다(터미널에서 한글·①을 치지 않게 · 2026-10-09 본 측정 직전)
-SCENARIO_DIR = os.path.join(BASE, "시나리오")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# 🔑 리허설은 실제 측정 폴더를 건드리지 않는다 — SOP_MEASURE_BASE(학교 방문 준비 설계 §7.1 · Review Focus 2)
+BASE = os.environ.get("SOP_MEASURE_BASE") or os.path.join(_HERE, "measure")
+# 시나리오표 — 실행기에서 번호로 고른다(터미널에서 한글·①을 치지 않게 · 2026-10-09 본 측정 직전) · 리허설도 같은 대본
+SCENARIO_DIR = os.path.join(_HERE, "measure", "시나리오")
 
 
 def scenario_files(d=SCENARIO_DIR):
@@ -35,7 +38,8 @@ SETTINGS = ("FSM_DWELL_THRESHOLD_SEC", "FSM_GAP_FILL_SEC", "PRESS_CONFIRM_WINDOW
             "INFERENCE_BACKEND", "HEF_MODEL_PATH", "HAND_ENABLED", "HAND_MODELS_DIR",
             "TOOL_ENABLED", "TOOL_BACKEND", "TOOL_HEF_PATH", "TOOL_NAMES", "TOOL_MODEL_PATH", "TOOL_WORKER_PYTHON",
             "INTERLOCK_ENABLED", "GPIO_INPUT_ENABLED", "VOICE_ALERTS", "LLM_ENABLED", "DEMO_CAPTURE",
-            "ORIENT_ONE_REMAP", "DISPLAY_SCALE_IN_PAINT", "DISPLAY_EVERY")   # 처리 흐름 1단계(설계 2026-10-12 §3)
+            "ORIENT_ONE_REMAP", "DISPLAY_SCALE_IN_PAINT", "DISPLAY_EVERY",   # 처리 흐름 1단계(설계 2026-10-12 §3)
+            "INFER_MODEL", "PIPELINE2")                                      # 처리 2단계(학교 방문 준비 설계 §3.4)
 
 
 def session_dir_name(place, kind, now=None):
@@ -63,6 +67,23 @@ def _git_dirty():
         return bool(r.stdout.strip()) if r.returncode == 0 else None
     except Exception:                                # noqa: BLE001
         return None
+
+
+def copy_script(src, dst, from_run=1):
+    """대본을 세션 폴더로 — from_run > 1 이면 그 판부터의 줄만(판 번호는 그대로 · 진행 도우미 · 세기가 그 판부터 맞춘다 · V15)."""
+    if from_run <= 1:
+        shutil.copy2(src, dst)
+        return
+    with open(src, encoding="utf-8-sig", newline="") as f:
+        rd = csv.reader(f)
+        head = next(rd)
+        rows = list(rd)
+    k = head.index("판")
+    keep = [r for r in rows if len(r) > k and r[k].strip().isdigit() and int(r[k]) >= from_run]
+    with open(dst, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(head)
+        w.writerows(keep)
 
 
 def write_session(out_dir, answers, measure_on):
@@ -104,6 +125,8 @@ def main():
     ap.add_argument("--script-dir", default=SCENARIO_DIR)
     ap.add_argument("--firmware", default="glass_voice")      # 남길 펌웨어(실콘솔 plan Task 11 Step 1)
     ap.add_argument("--power", type=int, default=1, choices=tuple(POWERS))   # 안경 전원(측정 설계 D23)
+    ap.add_argument("--from-run", default="1")             # 몇 판부터(학교 방문 준비 설계 §8.1 V15)
+    ap.add_argument("--processing", default="1")           # 처리 설정 번호(§3.4) — 기록만(스위치는 실행기가 환경변수로)
     ap.add_argument("--on", type=int, default=1, choices=(0, 1))
     a = ap.parse_args()
     # 🔑 대본은 폴더를 만들기 전에 확인한다 — 복사가 실패하면 반쪽 세션 폴더가 남았다(리뷰 I-3)
@@ -115,6 +138,7 @@ def main():
         a.script = os.path.join(a.script_dir, names[int(a.script) - 1])
     if a.script and not os.path.isfile(a.script):
         ap.error(f"대본 파일이 없다: {a.script}")
+    rows = []
     if a.script.endswith(".csv"):
         # 🔑 누름 낱말도 폴더를 만들기 전에 — 틀리면 진행 도우미가 켜지자마자 꺼진다(최종 리뷰 Minor 10 · 진행 도우미 설계 §4.2)
         import measure_script
@@ -132,15 +156,29 @@ def main():
             if empty:
                 print(f"⚠️ 누름 칸이 빈 누름 줄(판 {'·'.join(map(str, empty))}) — 진행 도우미가 그 줄을 안내하지 않는다",
                       file=sys.stderr)
+    # 🔑 몇 판부터도 폴더를 만들기 전에 — 반쪽 세션 폴더가 남지 않게(Review Focus 3)
+    try:
+        a.from_run = int(str(a.from_run).strip() or "1")
+    except ValueError:
+        ap.error(f"몇 판부터 「{a.from_run}」 은(는) 1부터의 숫자여야 한다")
+    if a.from_run < 1:
+        ap.error(f"몇 판부터 {a.from_run} — 1부터")
+    if a.from_run > 1:
+        if not rows:
+            ap.error("몇 판부터는 누름 칸이 있는 대본을 골랐을 때만 — 대본을 고르거나 엔터(1)")
+        last = max(int(r["판"]) for r in rows)
+        if a.from_run > last:
+            ap.error(f"몇 판부터 {a.from_run} — 대본의 마지막 판은 {last}")
     os.makedirs(a.base, exist_ok=True)
     out = os.path.join(a.base, session_dir_name(a.place, a.kind))
     answers = {"장소": a.place, "세션": KINDS[a.kind], "손": HANDS[a.hand], "사람": a.person,
                "조명": a.light, "대본": os.path.basename(a.script) if a.script else "",
-               "펌웨어": a.firmware or "glass_voice", "안경전원": POWERS[a.power]}
+               "펌웨어": a.firmware or "glass_voice", "안경전원": POWERS[a.power],
+               "시작판": a.from_run, "처리설정": a.processing}
     write_session(out, answers, a.on == 1)
     if a.script:
         # 대본 형식은 1단계-나에서 정한다 — 여기서는 원래 이름 그대로 복사만
-        shutil.copy2(a.script, os.path.join(out, os.path.basename(a.script)))
+        copy_script(a.script, os.path.join(out, os.path.basename(a.script)), a.from_run)
     print(out)
 
 

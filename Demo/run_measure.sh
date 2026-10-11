@@ -11,8 +11,23 @@ W=$(ask "사람 번호 (1~9)")
 L=$(ask "조명·조도 (선택 · 엔터 = 건너뜀)")
 echo "  대본 목록:"; python3 measure_session.py --list-scripts
 S=$(ask "대본 (번호 또는 파일 경로 · 엔터 = 없음)")
+FR=$(ask "몇 판부터 (엔터 = 1 · 시연이 죽었을 때 그 판부터 다시)")
 F=$(ask "펌웨어 (엔터 = glass_voice)")
 G=$(ask "안경 전원 (엔터 = 무선·배터리 · 2 = 유선·USB)")
+# 🔑 처리 설정은 번호로 — 환경변수를 손으로 치지 않는다 · 셸에 남은 값을 먼저 지운다(학교 방문 준비 설계 §3.4 · Review Focus 1)
+unset SOP_ORIENT_ONE_REMAP SOP_DISPLAY_PAINT SOP_DISPLAY_EVERY SOP_INFER_MODEL SOP_PIPELINE2
+echo "  처리 설정: 1 1단계(기본) · 2 종전 · 3 1단계+화면 덜 그리기 · 4 1단계+2a · 5 1단계+2a+2b"
+PR=$(ask "처리 설정 (엔터 = 1)")
+case "${PR:-1}" in
+  1) ;;
+  2) export SOP_ORIENT_ONE_REMAP=0 SOP_DISPLAY_PAINT=0 ;;
+  3) export SOP_DISPLAY_EVERY=2 ;;
+  4) export SOP_INFER_MODEL=1 ;;
+  5) export SOP_INFER_MODEL=1 SOP_PIPELINE2=1 ;;
+  *) echo "  ❌ 처리 설정 「${PR}」 은(는) 1~5 가운데 하나여야 한다 — 다시 실행하세요"
+     read -rp "  엔터를 누르면 창을 닫는다 > " _
+     exit 1 ;;
+esac
 ON=$(ask "측정 기록 (1 켬 · 0 끔 — 시험 세션의 끔 회차)")
 # 🔴 음성 끔은 세션 정보를 쓰기 **전에** 내보낸다 — session.json 의 「음성」이 이 값을 읽는다
 if [ "$K" = "4" ]; then export SOP_VOICE=0; fi
@@ -26,7 +41,8 @@ if awk -v f="${FREE:-0}" 'BEGIN { exit !(f < 1) }'; then
   [ "$Y" = "y" ] || exit 1
 fi
 if ! DIR=$(python3 measure_session.py --place "$P" --kind "$K" --hand "$H" --person "$W" --light "$L" \
-      ${S:+--script "$S"} --firmware "${F:-glass_voice}" --power "${G:-1}" --on "$ON"); then
+      ${S:+--script "$S"} --firmware "${F:-glass_voice}" --power "${G:-1}" \
+      --from-run "${FR:-1}" --processing "${PR:-1}" --on "$ON"); then
   # 🔴 창이 말없이 닫히지 않게 — 위 오류(argparse)를 읽고 다시 실행한다(리뷰 I-3)
   echo "  ❌ 세션 정보를 만들지 못했다 — 위 오류를 보고 다시 실행하세요"
   read -rp "  엔터를 누르면 창을 닫는다 > " _
@@ -36,7 +52,8 @@ echo "  세션 폴더: $DIR"
 echo "  📣 노트북 SSH 창: bash ~/sop-project/Rpi5/Demo/run_guide.sh  (안내 소리 · N = NG · U = 취소)"
 # 끔 회차는 물려받은 값도 지운다 — 기록이 저절로 켜지지 않게
 if [ "$ON" = "1" ]; then export SOP_MEASURE_DIR="$DIR"; else unset SOP_MEASURE_DIR; fi
-bash ./run_demo.sh
+# SOP_DEMO_LAUNCHER = 시험에서만(시연 대신 환경변수를 적는 스크립트) — 평소에는 없다
+bash "${SOP_DEMO_LAUNCHER:-./run_demo.sh}"
 # 시연을 닫으면 세기(보고 도구)가 바로 센다 — 측정 설계 D10 · 기록 끔 회차는 셀 것이 없다
 if [ "$ON" = "1" ]; then
   # 음성 데몬은 run_demo.sh 종료(kill) 뒤에야 끝 사건(measure_end)을 쓴다 — 최대 5초 기다린 뒤 센다

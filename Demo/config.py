@@ -221,6 +221,8 @@ except ValueError:
 if DISPLAY_EVERY > 5:        # 약 10fps 에서 N 이 크면 화면 간격이 끊김 기준(2초)에 닿아 2차 점검·FPS 가 끊김으로 보인다
     print(f"[config] ⚠️ SOP_DISPLAY_EVERY={DISPLAY_EVERY} 는 너무 크다 — 5 로 돈다", file=sys.stderr)
     DISPLAY_EVERY = 5
+INFER_MODEL = os.environ.get("SOP_INFER_MODEL", "0") == "1"   # 처리 2단계 2a — Hailo 추론을 InferModel 로(추론 중 GIL 을 놓는다 · 학교 방문 준비 설계 §3.2)
+PIPELINE2 = os.environ.get("SOP_PIPELINE2", "0") == "1"       # 처리 2단계 2b — 받기·풀기·보정을 앞단 스레드로 겹친다(§3.3)
 
 # 카메라 영역을 **채워서** 표시할지. 회전 뒤 프레임이 세로(480×640)라 가로 UI 에
 # 그냥 넣으면 좌우에 검은 띠가 생긴다. 켜면 넘치는 만큼 잘라내 띠를 없앤다.

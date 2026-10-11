@@ -65,7 +65,7 @@ def test_cli_prints_dir():
 def test_launcher_records_glasses_power():
     print("\n[세션] 실행기 「안경 전원」 2 = 유선(USB) 이 session.json 에 남는다(측정 설계 D23)")
     d = _launcher_copy()
-    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="1\n0\n1\n1\n\n\n\n2\n0\n\n",
+    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="1\n0\n1\n1\n\n\n\n\n2\n\n0\n\n",
                        capture_output=True, text=True, timeout=60)
     found = [os.path.join(d, "measure", x, "session.json") for x in os.listdir(os.path.join(d, "measure"))] \
         if os.path.isdir(os.path.join(d, "measure")) else []
@@ -122,7 +122,7 @@ def test_free_space_check_precise():
 def test_launcher_bad_input_keeps_window():
     print("\n[세션] 입력 오류면 이유를 보이고 기다린다 · 세션 폴더를 남기지 않는다(리뷰 I-3)")
     d = _launcher_copy()
-    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="4\n0\n1\n1\n\n\n\n\n1\n\n",
+    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="4\n0\n1\n1\n\n\n\n\n\n\n1\n\n",
                        capture_output=True, text=True, timeout=60)
     check("세션 정보를 만들지 못했다" in r.stdout and "STUB" not in r.stdout, f"{r.stdout[-300:]}")
     check(not os.path.isdir(os.path.join(d, "measure")) or not os.listdir(os.path.join(d, "measure")),
@@ -132,7 +132,7 @@ def test_launcher_bad_input_keeps_window():
 def test_launcher_off_ignores_inherited_dir():
     print("\n[세션] 기록 끔 회차는 물려받은 SOP_MEASURE_DIR 도 지운다(리뷰 I-3)")
     d = _launcher_copy()
-    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="1\n0\n1\n1\n\n\n\n\n0\n\n",
+    r = subprocess.run(["bash", os.path.join(d, "run_measure.sh")], input="1\n0\n1\n1\n\n\n\n\n\n\n0\n\n",
                        capture_output=True, text=True, timeout=60, env=dict(os.environ, SOP_MEASURE_DIR="/tmp/옛폴더"))
     check("STUB MEASURE=없음" in r.stdout, f"{r.stdout[-300:]}")
 

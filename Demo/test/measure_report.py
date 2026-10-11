@@ -482,8 +482,11 @@ def _processing(s):
     if "ORIENT_ONE_REMAP" not in s:
         return "처리 종전(스위치 기록 전)"
     onoff = lambda v: "켬" if v else "끔"   # noqa: E731
-    return (f"처리 안2 {onoff(s.get('ORIENT_ONE_REMAP'))} · 안1 {onoff(s.get('DISPLAY_SCALE_IN_PAINT'))}"
+    line = (f"처리 안2 {onoff(s.get('ORIENT_ONE_REMAP'))} · 안1 {onoff(s.get('DISPLAY_SCALE_IN_PAINT'))}"
             f" · 화면 {s.get('DISPLAY_EVERY') or 1}장에 1장")
+    if "INFER_MODEL" in s:                       # 처리 2단계 기록 뒤 세션만(학교 방문 준비 설계 §3.4)
+        line += f" · 2a {onoff(s.get('INFER_MODEL'))} · 2b {onoff(s.get('PIPELINE2'))}"
+    return line
 
 
 def _rec_compare(sessions, per, below):

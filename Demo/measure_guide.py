@@ -31,7 +31,7 @@ import measure_prompt         # noqa: E402 — 측정 화면 띠(3판 D20)
 import measure_script as MS   # noqa: E402
 import voice_lib as VL         # noqa: E402 — 호출어 판정(음성비서와 같은 규칙)
 
-MEASURE_DIR = os.path.join(_DEMO, "measure")
+MEASURE_DIR = os.environ.get("SOP_MEASURE_BASE") or os.path.join(_DEMO, "measure")   # 리허설 = 따로(학교 방문 준비 설계 §7.1)
 SKIP_DIRS = {"폐기", "시나리오"}
 GAP_MS = 1000.0          # 직전 행동·안내에서 이만큼 지나야 다음 안내(설계 D8)
 HOVER_WAIT_MS = 4000.0   # 머묾 안내 뒤 경고 해제가 없으면 이만큼 뒤 다음으로
