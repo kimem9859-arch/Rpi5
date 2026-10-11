@@ -131,6 +131,8 @@ class Guide:
         self.rows, self.emo = rows or [], emo
         self.prompt_sink = prompt_sink or (lambda title, line: None)   # 측정 화면 띠(3판) — (None, None) = 지움
         self.say_texts = say_texts(self.rows)
+        self.scene_texts = scene_texts(self.rows)   # 근거 측정 장면 안내(학교 방문 준비 설계 §5.2)
+        self._scene = None       # 띠에 띄운 장면 (실제 판 번호, 대본 판)
         self.say = None          # 띄운 말 {run, script, tok, t0, text, emergency, stage}
         self.said = set()        # 끝난 말 {(실제 판 번호, 낱말 자리)}
         self.waits = tool_waits() if waits is None else waits
@@ -230,6 +232,7 @@ class Guide:
         cur = runs[-1] if runs and runs[-1]["end"] == "open" else None
         r = res["runs"][-1] if cur is not None else None
         self.view = {"res": res, "run": r, "cur": cur, "say": self.say}
+        self._scene_prompt(r)
         busy, busy_end = assistant_busy(voice, now_ms)
         if r is None and self.auto and self.say is None and res["runs"] and not busy:
             return self._result_say(res["runs"][-1], runs[-1], now_ms, busy_end)
@@ -260,6 +263,23 @@ class Guide:
         self.log_sink(now_ms, "cue", {"run": r["i"], "script": r["script"], "tok": c[0], "key": c[1]})
         return ("cue", c[1])
 
+
+    def _scene_prompt(self, r):
+        """근거 측정 장면 안내(학교 방문 준비 설계 §5.2) — 열린 판의 「안내」 칸을 띠에 한 번 · 말 띠가 먼저 · 판이 닫히면 지움.
+        🔑 안내 칸이 없는 대본(지금 대본)은 띠를 건드리지 않는다 — 말 띠와 서로 지우지 않게."""
+        if not self.scene_texts:
+            return
+        key = (r["i"], r["script"]) if r is not None and r.get("script") is not None else None
+        text = self.scene_texts.get(key[1]) if key else None
+        if self.say is not None:
+            self._scene = None                           # 말 띠가 끝나면(지워지면) 다시 띄운다
+            return
+        if text and key != self._scene:
+            self._scene = key
+            self.prompt_sink(f"📋 판 {key[1]} — 이렇게 하세요", text)
+        elif not text and self._scene is not None:
+            self._scene = None
+            self.prompt_sink(None, None)
 
     def _result_say(self, last, run, now_ms, busy_end=None):
         """판 끝 말(결과창 · 3판 D22) — 완주로 닫힌 판의 마지막 누름 뒤 말을 다음 「작업 시작」 전까지 띄운다."""
@@ -305,6 +325,16 @@ def assistant_busy(voice, now_ms):
         end = t_a + BUSY_LISTEN_MS                       # 답 재생 끝이 안 오면(끊김) 안전판
         return now_ms < end, (None if now_ms < end else end)
     return False, t_e
+
+
+def scene_texts(rows):
+    """{대본 판: 안내} — 그 판 줄들 가운데 처음 채워진 「안내」 칸(학교 방문 준비 설계 §5.2 · 근거 측정 장면 지시)."""
+    out = {}
+    for r in rows or ():
+        t = (r.get("안내") or "").strip()
+        if t:
+            out.setdefault(int(r["판"]), t)
+    return out
 
 
 def say_texts(rows):

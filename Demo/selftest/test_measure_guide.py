@@ -406,6 +406,7 @@ def test_say_minor_fixes():
 
 
 def main():
+    test_scene_prompt()
     test_say_minor_fixes()
     test_replay_result_say()
     test_busy_slow_answer()
@@ -430,6 +431,33 @@ def main():
         return 1
     print("✅ 전부 통과")
     return 0
+
+
+def test_scene_prompt():
+    print("\n[장면 안내] 대본 「안내」 칸 → 판이 열리면 띠 한 번 · 닫히면 지움 · 안내 없는 판 · 대본은 띠를 건드리지 않음(학교 방문 준비 설계 §5.2)")
+    rs = rows((1, "B1"), (2, "B1"))
+    rs[0]["안내"], rs[1]["안내"] = "", "G2 · B1 — B2 위를 지나서 누르기"
+    out = []
+    g = G.Guide(rs, "EMO", cue_sink=lambda k, t: None, prompt_sink=lambda a, b: out.append((a, b)))
+    ev = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B1")]
+    g.step(ev, 100.0)
+    check(out == [], f"안내 없는 판 1 → 띠 없음 {out}")
+    ev += [E(500, "press", button="B1", expected="B1", state="PROCESS_RUN", source="gpio"), E(600, "run_end"),
+           E(1000, "run_start"), ST(1010, "PROCESS_RUN", "B1")]
+    g.step(ev, 1100.0)
+    g.step(ev, 1200.0)
+    check(out == [("📋 판 2 — 이렇게 하세요", "G2 · B1 — B2 위를 지나서 누르기")], f"판 2 열림 → 한 번 {out}")
+    ev += [E(1500, "press", button="B1", expected="B1", state="PROCESS_RUN", source="gpio"), E(2000, "run_end")]
+    g.step(ev, 2100.0)
+    check(out[-1] == (None, None), f"판이 닫히면 지움 {out}")
+    plain = []
+    g2 = G.Guide(rows((1, "B1")), "EMO", cue_sink=lambda k, t: None, prompt_sink=lambda a, b: plain.append((a, b)))
+    g2.step([E(0, "run_start"), ST(10, "PROCESS_RUN", "B1")], 100.0)
+    check(plain == [], f"안내 칸 없는 대본(지금 대본) → 띠 없음 {plain}")
+    g.say = {"run": 3}
+    n = len(out)
+    g._scene_prompt({"i": 3, "script": 2})
+    check(len(out) == n, "말 띠가 떠 있으면 장면 띠를 띄우지 않는다")
 
 
 if __name__ == "__main__":

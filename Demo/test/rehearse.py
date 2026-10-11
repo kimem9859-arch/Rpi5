@@ -292,13 +292,36 @@ def items_R0(out, twice):
     return [it]
 
 
+def items_R7(out, twice):
+    """근거 측정 — 대본 앞 3판(G1 · G1 · G2) · 장면 띠 · 분석 도구가 끝까지(흐름 · 녹화 장면이라 값은 의미 없음)."""
+    it = _base("R7", "근거 측정(대본 · 장면 띠 · 분석)", "흐름", "가짜 카메라(정지 장면 — 손 없음) · 가상 작업자 · 앞 3판")
+    for k in range(2 if twice else 1):
+        with Devices() as dev:
+            r = run_session(out, f"R7_{k + 1}", BASIS_SCRIPT, extra={"SOP_REHEARSE_RUNS": "3"}, guide=True,
+                            timeout=600, devices=dev)
+        _merge(it, r)
+        if not r["dir"]:
+            continue
+        it["script"] = (3, RJ.session_stats(r["dir"])["runs"])
+        b = subprocess.run([sys.executable, os.path.join(TEST, "measure_basis.py"), r["dir"]], capture_output=True,
+                           text=True, timeout=120)
+        with open(os.path.join(out, "logs", f"R7_{k + 1}_basis.log"), "w", encoding="utf-8") as f:
+            f.write(b.stdout + b.stderr)
+        if b.returncode not in (0, 1) or not os.path.exists(os.path.join(r["dir"], "basis.json")):
+            it["errors"].append(f"분석 도구 종료 {b.returncode} · {b.stderr[-200:]}")
+        glog = open(os.path.join(out, "logs", f"R7_{k + 1}_guide.log"), encoding="utf-8", errors="replace").read()
+        if "Traceback" in glog:
+            it["errors"].append("진행 도우미 오류(로그)")
+    return [it]
+
+
 def _later(iid, title, task):
     return lambda out, twice: [_base(iid, title, "흐름", "—", finished=False, errors=[f"아직 — 계획 {task}"])]
 
 
 ITEMS = {"R0": items_R0, "R1": items_R1, "R2": items_R2, "R3": items_R3, "R4": items_R4,
          "R5": _later("R5", "펌웨어 빌드 · 재압축", "Task 8"), "R6": _later("R6", "램프 지연 도구", "Task 7"),
-         "R7": _later("R7", "근거 측정", "Task 6"), "R8": _later("R8", "되돌리기", "Task 11")}
+         "R7": items_R7, "R8": _later("R8", "되돌리기", "Task 11")}
 
 SCHOOL = {
     "R0": "python3 Demo/test/school_check.py",

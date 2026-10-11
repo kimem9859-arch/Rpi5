@@ -77,7 +77,7 @@ def load_script(path, buttons=None, emo="EMO"):
                 r["판"] = int(r.get("판", ""))
             except ValueError:
                 raise ValueError(f"대본 {name} {n}행 — 판 「{r.get('판')}」 은(는) 1부터의 숫자여야 한다") from None
-            for k in ("대상", "기대", "메모", "누름"):
+            for k in ("대상", "기대", "메모", "누름", "안내"):   # 안내 = 근거 측정 장면 지시(학교 방문 준비 설계 §5.2 · 없어도 된다)
                 r.setdefault(k, "")
             if buttons and r["행동"] in ("위반", "머묾") and r["대상"] not in buttons:
                 raise ValueError(f"대본 {name} {n}행 — {r['행동']} 대상 「{r['대상']}」 은(는) 레시피 버튼({'·'.join(buttons)}) 가운데 하나여야 한다")
