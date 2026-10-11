@@ -26,9 +26,17 @@ TRIM_REL = 0.02         # 앞뒤 무음 = 최고점의 2% 미만(저널 §12.94 
 TRIM_PAD_SEC = 0.02     # 자른 뒤 남기는 여유
 
 
+# 🔴 Supertonic 2 가 받지 않는 글자(2026-10-11 실물 — 「클린·가스차단」 「펌프/퍼지」 가 든 답이 ValueError 로 합성 실패 →
+#    「지금은 답변할 수 없습니다」) · 옛 kss 는 넘겼다. 괄호·따옴표는 지우고 가운뎃점은 띄어쓰기로.
+_DROP = str.maketrans({c: "" for c in "「」『』“”‘’\"'〈〉《》"})
+_SPACE = re.compile(r"[·ㆍ・]+")
+_UNSUPPORTED = re.compile(r"'(.)'")
+
+
 def read_out(text):
-    """버튼 이름(B1~B4 · EMO)을 한글 읽기로 — 모든 합성이 지난다(고정 wav · LLM 답 · 안내)."""
-    return _READ_RE.sub(lambda m: _READ[m.group(0)], text or "")
+    """합성 전 글 다듬기 — 버튼 이름(B1~B4 · EMO)을 한글 읽기로 · 엔진이 안 받는 글자를 정리(모든 합성이 지난다)."""
+    t = _READ_RE.sub(lambda m: _READ[m.group(0)], text or "").translate(_DROP).replace("…", ".")
+    return re.sub(r"\s{2,}", " ", _SPACE.sub(" ", t)).strip()
 
 
 def downsample(x, src, dst):
@@ -115,6 +123,8 @@ class Tts:
         else:
             raise ValueError(f"알 수 없는 TTS_ENGINE: {self.engine!r}(\"supertonic2\" 또는 \"kss\")")
 
+    last_error = ""
+
     def synth(self, text, speed=None):
         """`(pcm bytes, 레이트, 말하는 시간초)` — 실패하면 None. speed 없음 = 엔진 기본(kss 1.0 · supertonic2 config)."""
         text = read_out(text)
@@ -127,14 +137,24 @@ class Tts:
                 if not pcm:
                     return None
                 return pcm.tobytes(), a.sample_rate, len(pcm) / a.sample_rate
-            wav, _ = self._st.synthesize(text, voice_style=self._style, lang="ko", total_steps=config.TTS_ST_STEPS,
-                                         speed=config.TTS_ST_SPEED if speed is None else speed)
+            sp = config.TTS_ST_SPEED if speed is None else speed
+            try:
+                wav, _ = self._st.synthesize(text, voice_style=self._style, lang="ko", total_steps=config.TTS_ST_STEPS,
+                                             speed=sp)
+            except ValueError as e:              # 🔑 그래도 안 받는 글자가 있으면 그 글자만 빼고 한 번 더
+                bad = set(_UNSUPPORTED.findall(str(e)))
+                if not bad:
+                    raise
+                text = re.sub(r"\s{2,}", " ", "".join(" " if c in bad else c for c in text)).strip()
+                wav, _ = self._st.synthesize(text, voice_style=self._style, lang="ko", total_steps=config.TTS_ST_STEPS,
+                                             speed=sp)
             x = deess(trim(downsample(wav, self._st.sample_rate, config.TTS_OUT_RATE), config.TTS_OUT_RATE),
                       config.TTS_OUT_RATE)
             if x.size == 0:
                 return None
             return to_pcm(x), config.TTS_OUT_RATE, x.size / config.TTS_OUT_RATE
-        except Exception:                      # noqa: BLE001 — 데몬은 살아야 한다
+        except Exception as e:                 # noqa: BLE001 — 데몬은 살아야 한다
+            self.last_error = f"{type(e).__name__}: {e}"[:200]      # 🔑 부른 쪽이 로그에 남긴다(조용히 None 이던 것)
             return None
 
 

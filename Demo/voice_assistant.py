@@ -953,6 +953,8 @@ class Assistant:
         """
         got = self.tts.synth(said)
         if not got:
+            m["합성오류"] = getattr(self.tts, "last_error", "")
+            log(f"🔴 답 합성 실패 — {m['합성오류']} · 예비 답으로: {said}")
             self._answer_a(tool_q, "고정-합성실패", m)
             return
         pcm, rate, sec = got

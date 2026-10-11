@@ -60,7 +60,7 @@ def main():
     import numpy as np
     import config
     import voice_tts as V
-    check(V.read_out("B1 다음 B4 · EMO 해제") == "비원 다음 비포 · 비상정지 해제", "버튼 이름 → 한글 읽기")
+    check(V.read_out("B1 다음 B4 · EMO 해제") == "비원 다음 비포 비상정지 해제", "버튼 이름 → 한글 읽기 · 가운뎃점은 띄어쓰기(Supertonic 이 안 받는다)")
     sr = 44100
     tt = np.arange(sr) / sr
     lo = V.downsample(np.sin(2 * np.pi * 1000 * tt) * 0.5, 44100, 22050)
@@ -99,6 +99,11 @@ def main():
         finally:
             V.deess = orig
         check(called == [config.TTS_OUT_RATE], "supertonic2 합성이 센 소리 줄이기를 지난다")
+    # ── 지원하지 않는 글자(2026-10-11 실물 — 「클린·가스차단」·「펌프/퍼지」 답이 합성 실패 → 「답변할 수 없습니다」) ──
+    for q in ("다음 단계는 2단계 「펌프/퍼지」이고, 버튼 B2를 누르셔야 합니다.", "지금은 1단계 「클린·가스차단」입니다.",
+              "『주의』 ‘렌치’ “확인” … 끝"):
+        check(t.synth(q) is not None, f"괄호·가운뎃점이 있어도 합성된다 — {q}")
+    check(V.read_out("1단계 「클린·가스차단」") == "1단계 클린 가스차단", f"합성 전 글자 정리 · {V.read_out('1단계 「클린·가스차단」')!r}")
     import voice_assistant as va
     check(va.build_stt() is not None, f"받아쓰기가 저장소 핫워드 목록(「가디언 :8.0」 꼴)을 읽는다 — {os.path.basename(va.HOTWORDS)}")
     try:
