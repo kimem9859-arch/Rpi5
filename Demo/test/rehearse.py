@@ -275,11 +275,28 @@ def items_R4(out, twice):
     return [it]
 
 
+def items_R0(out, twice):
+    """사전 점검 — 가짜 장치를 띄운 채 --home 으로 끝까지 · ❌ 수(집 · 건너뜀 제외)."""
+    it = _base("R0", "사전 점검(school_check --home)", "흐름", "가짜 장치 · 실물 전용 항목은 건너뜀")
+    os.makedirs(os.path.join(out, "logs"), exist_ok=True)
+    for k in range(2 if twice else 1):
+        with Devices() as dev:
+            env = dict(os.environ, **dev.env())
+            r = subprocess.run([sys.executable, os.path.join(TEST, "school_check.py"), "--home"], cwd=DEMO, env=env,
+                               capture_output=True, text=True, timeout=180)
+        with open(os.path.join(out, "logs", f"R0_{k + 1}.log"), "w", encoding="utf-8") as f:
+            f.write(r.stdout + r.stderr)
+        bad = [ln.strip() for ln in r.stdout.splitlines() if ln.strip().startswith("❌") and "건 —" not in ln]
+        if r.returncode != 0:
+            it["errors"] += bad or [f"종료 코드 {r.returncode} · {r.stderr[-200:]}"]
+    return [it]
+
+
 def _later(iid, title, task):
     return lambda out, twice: [_base(iid, title, "흐름", "—", finished=False, errors=[f"아직 — 계획 {task}"])]
 
 
-ITEMS = {"R0": _later("R0", "사전 점검", "Task 5"), "R1": items_R1, "R2": items_R2, "R3": items_R3, "R4": items_R4,
+ITEMS = {"R0": items_R0, "R1": items_R1, "R2": items_R2, "R3": items_R3, "R4": items_R4,
          "R5": _later("R5", "펌웨어 빌드 · 재압축", "Task 8"), "R6": _later("R6", "램프 지연 도구", "Task 7"),
          "R7": _later("R7", "근거 측정", "Task 6"), "R8": _later("R8", "되돌리기", "Task 11")}
 
