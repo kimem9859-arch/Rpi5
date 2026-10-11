@@ -42,8 +42,18 @@ RUN_STATES = ("PROCESS_RUN", "MONITOR")
 RED, YEL, GRN, DIM, BOLD, RST = "\033[41;97m", "\033[43;30m", "\033[32m", "\033[2m", "\033[1m", "\033[0m"
 
 
+def tool_waits(path=None):
+    """레시피의 공구 대기 → {버튼: ms} — 「초기화」 안내 때를 정한다(설계 D17 · 값을 여기 따로 적지 않는다)."""
+    with open(path or MR.RECIPE, encoding="utf-8") as f:
+        steps = json.load(f).get("steps") or ()
+    return {s["button"]: float(s["sub"]["sec"]) * 1000 for s in steps
+            if (s.get("sub") or {}).get("type") == "wait_tool"}
+
+
 def cue_key(tok):
     """낱말 → 고정 wav 키(make_answers.CUES)."""
+    if tok.kind == "reset":
+        return "cue_reset"
     if tok.kind == "press":
         return f"cue_{tok.name}"
     if tok.kind == "hover":
@@ -51,10 +61,13 @@ def cue_key(tok):
     return f"cue_tool_{MS.TOOLS[tok.name]}"
 
 
-def live_state(run):
-    """열린 판 → 지금 판정기 상태 · 기대 버튼 · 마지막 행동 시각 · 경고 해제 시각들(설계 D8)."""
-    st = {"state": None, "expected": None, "last": run["t0"], "released": []}
+def live_state(run, waits=None):
+    """열린 판 → 지금 판정기 상태 · 기대 버튼 · 마지막 행동 시각 · 경고 해제 시각들(설계 D8)
+    · 공구 대기가 끝나는 시각(waits = tool_waits() · 설계 D17 — 틀린 공구를 쥐고 있으면 대기가 끝나도 서브가 안 끝난다)."""
+    st = {"state": None, "expected": None, "last": run["t0"], "released": [], "tool_end": None}
     for t, k, d in run["ev"]:
+        if k == "sub" and d.get("what") == "start" and d.get("button") in (waits or {}):
+            st["tool_end"] = t + waits[d["button"]]
         if k == "state":
             st["state"], st["expected"] = d.get("new"), d.get("expected")
         if k in ("press", "release", "step_done", "sub"):
@@ -84,6 +97,8 @@ def next_cue(toks, consumed, cued, st, now_ms):
             return None
         if now_ms - max([st["last"]] + list(cued.values())) < GAP_MS:
             return None
+        if x.kind == "reset" and (st.get("tool_end") is None or now_ms < st["tool_end"] + GAP_MS):
+            return None                                  # 공구 대기가 끝나고 1초 뒤(설계 D17)
         return n, cue_key(x)
     return None
 
@@ -91,8 +106,9 @@ def next_cue(toks, consumed, cued, st, now_ms):
 class Guide:
     """한 세션을 따라간다 — 판 맞춤 · 안내 결정 · NG 기록(소리·파일 쓰기는 sink 로 · 시험은 sink 를 바꾼다)."""
 
-    def __init__(self, rows, emo, cue_sink=None, log_sink=None):
+    def __init__(self, rows, emo, cue_sink=None, log_sink=None, waits=None):
         self.rows, self.emo = rows or [], emo
+        self.waits = tool_waits() if waits is None else waits
         self.auto = MS.has_tokens(self.rows)   # 누름 칸 없는 대본 = 안내·자동 NG 없이 N 만(최종 리뷰 Important 5a)
         self.marks = []          # [(t, "ng"|"undo", 이유)]
         self.cued = {}           # {(실제 판 번호, 낱말 자리): 요청 시각}
@@ -143,7 +159,7 @@ class Guide:
             return None
         toks = res["order"][r["script"]]
         mine = {n: t for (i, n), t in self.cued.items() if i == r["i"]}
-        c = next_cue(toks, r["consumed"], mine, live_state(cur), now_ms)
+        c = next_cue(toks, r["consumed"], mine, live_state(cur, self.waits), now_ms)
         if c is None:
             return None
         self.cued[(r["i"], c[0])] = now_ms

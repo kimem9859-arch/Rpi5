@@ -4,6 +4,7 @@
 🔴 순수 모듈이다(Qt · 장치 없음) — 사건 목록과 대본 줄만 받는다. 판정을 다시 하지 않고 시연이 적은 사건을 대조한다.
 
 누름 칸 낱말: B2(맞는 누름) · B3@B1(B1 차례에 B3) · EMO@B4 · ~B4@B3(머묾 — 안내만) · #렌치(공구 — 안내만)
+             · 초기화(「작업 초기화」 — 안내만 · 공구 대기가 끝난 뒤 · 설계 D17)
              · 끝의 ? = 그 낱말부터는 판이 먼저 끝나도 된다.
 판 상태: ok 대본대로 · ng 자동(안내와 다른 버튼) 또는 수동(N 키) · partial 일찍 끝남(결과로 남김 · D16)
         · extra 대본을 다 끝낸 뒤 · open 아직 안 끝남(진행 도우미).
@@ -16,7 +17,8 @@ from collections import namedtuple
 
 ACTIONS = ("정상", "위반", "머묾", "틀린공구", "호출", "질문", "비상질문")   # 대본 행동(세기 설계 §5)
 TOOLS = {"렌치": "wrench", "드라이버": "driver", "플라이어": "pliers"}
-Token = namedtuple("Token", "kind name expected optional row")              # kind = press · hover · tool
+RESET = "초기화"
+Token = namedtuple("Token", "kind name expected optional row")              # kind = press · hover · tool · reset
 _TOK = re.compile(r"^(?P<hover>~)?(?P<tool>#)?(?P<name>[^@?~#\s]+)(?:@(?P<exp>[^@?~#\s]+))?(?P<opt>\?)?$")
 
 
@@ -28,6 +30,11 @@ def parse_tokens(text, buttons, emo="EMO", row=None):
         if not m:
             raise ValueError(f"낱말 「{w}」 을(를) 읽을 수 없다")
         name, exp, opt = m.group("name"), m.group("exp"), bool(m.group("opt"))
+        if name == RESET:
+            if w != RESET:
+                raise ValueError(f"초기화 낱말 「{w}」 — 꾸밈 없이 「{RESET}」 만")
+            out.append(Token("reset", name, None, False, row))
+            continue
         if m.group("tool"):
             if name not in TOOLS or exp or m.group("hover"):
                 raise ValueError(f"공구 낱말 「{w}」 — #{' · #'.join(TOOLS)} 가운데 하나")

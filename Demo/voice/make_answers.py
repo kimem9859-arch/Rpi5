@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """답변 wav 사전 합성 — 시연용 정형 답변은 문장이 유한하다.
 
-실행: ~/env/tts/.venv/bin/python Demo/voice/make_answers.py
+실행: ~/env/tts/.venv/bin/python Demo/voice/make_answers.py [키 …]
+      키를 주면 그것만 만든다(예: cue_reset) — 안 주면 전부 다시 만든다(이미 들어 본 소리도 바뀐다)
 
 🔑 미리 만들어 두는 이유 세 가지:
    ① 응답이 0.4초 빨라진다(런타임 합성 시간이 사라진다 — §10.49 = 0.37~1.05초)
@@ -47,12 +48,16 @@ ANSWERS.update(voice_card.alert_texts())    # 🔔 알림 9개 — alert_emo · 
 CUES = {"cue_B1": "비원", "cue_B2": "비투", "cue_B3": "비쓰리", "cue_B4": "비포", "cue_EMO": "비상정지",
         "cue_hover_B1": "비원 머물기", "cue_hover_B2": "비투 머물기", "cue_hover_B3": "비쓰리 머물기",
         "cue_hover_B4": "비포 머물기",
-        "cue_tool_wrench": "렌치", "cue_tool_driver": "드라이버", "cue_tool_pliers": "플라이어", "cue_ng": "다시"}
+        "cue_tool_wrench": "렌치", "cue_tool_driver": "드라이버", "cue_tool_pliers": "플라이어", "cue_ng": "다시",
+        "cue_reset": "작업 초기화"}      # 틀린 공구 판 끝(설계 D17)
 ANSWERS.update(CUES)
 KSS_KEEP = os.path.join(os.path.dirname(OUT), "wav_kss")     # 되돌리기 = 이 폴더를 wav 로(설계 §9)
 
 
-def main():
+def main(keys=None):
+    unknown = set(keys or ()) - set(ANSWERS)
+    if unknown:
+        raise SystemExit(f"모르는 키: {sorted(unknown)}")
     os.makedirs(OUT, exist_ok=True)
     if config.TTS_ENGINE != "kss" and not os.path.isdir(KSS_KEEP):
         shutil.copytree(OUT, KSS_KEEP)          # 🔑 처음 바꿀 때 한 번만 — 옛 kss 소리를 덮어쓰기 전에
@@ -61,6 +66,8 @@ def main():
     tts = voice_tts.Tts()
     print(f"모델 적재({tts.engine}) {time.time() - t0:.2f}s")
     for k, text in ANSWERS.items():
+        if keys and k not in keys:
+            continue
         t = time.time()
         got = tts.synth(text)
         el = time.time() - t
@@ -77,4 +84,4 @@ def main():
         print(f"  {k:16s} {len(text):2d}자 · 합성 {el:.2f}s · {sec:.2f}초 · {rate}Hz → {path}")
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

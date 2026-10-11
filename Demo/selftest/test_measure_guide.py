@@ -178,8 +178,45 @@ def test_no_token_rows():
     check(g.step(ev, 5000.0) is None and not g.auto, "안내·「다시」 없음")
 
 
+def test_reset_cue():
+    print("\n[초기화 안내] 틀린 공구 — 공구 대기(레시피)가 끝나고 1초 뒤 「작업 초기화」 한 번(설계 D17)")
+    check(G.tool_waits() == {"B2": 10000.0}, f"레시피 공구 대기 = {G.tool_waits()}")
+    try:
+        R = rows((1, "B2 #플라이어 초기화"))
+    except ValueError as e:
+        check(False, f"「초기화」 를 못 읽음 — {e}")
+        return
+    check(G.cue_key(R[0]["낱말"][2]) == "cue_reset", "초기화 안내 키")
+    sent = []
+    g = G.Guide(R, "EMO", cue_sink=lambda k, t: sent.append(k), waits={"B2": 10000.0})
+    ev = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B2")]
+    g.step(ev, 1100.0)
+    ev += [E(2000, "press", button="B2", expected="B2", state="MONITOR", source="gpio"),
+           E(2000, "sub", what="start", button="B2", label="N2 퍼지")]
+    g.step(ev, 3000.0)
+    check(g.step(ev, 12900.0) is None, "공구 대기 끝(12.0초) + 1초 전에는 안 낸다")
+    check(g.step(ev, 13000.0) == ("cue", "cue_reset"), "공구 대기 끝 + 1초 = 「작업 초기화」")
+    check(g.step(ev, 20000.0) is None, "한 번만")
+    check(sent == ["cue_B2", "cue_tool_pliers", "cue_reset"], f"낸 안내 = {sent}")
+
+
+def test_cue_sounds_exist():
+    print("\n[소리] 진행 도우미가 낼 수 있는 안내마다 소리(make_answers.CUES)가 있다 — 없으면 안경에서 조용히 안 난다")
+    sys.path.insert(0, os.path.join(_DEMO, "voice"))
+    import make_answers
+    try:
+        toks = MS.parse_tokens("B1 B2 B3 B4 EMO ~B1@B2 ~B2@B1 ~B3@B1 ~B4@B1 #렌치 #드라이버 #플라이어 초기화", B)
+    except ValueError as e:
+        check(False, f"낱말을 못 읽음 — {e}")
+        return
+    keys = {G.cue_key(t) for t in toks} | {"cue_ng"}
+    check(keys <= set(make_answers.CUES), f"소리 없는 안내 = {sorted(keys - set(make_answers.CUES))}")
+
+
 def main():
     test_next_cue()
+    test_reset_cue()
+    test_cue_sounds_exist()
     test_guide_step_and_ng()
     test_resume_from_guide_csv()
     test_no_script()

@@ -172,8 +172,30 @@ def test_emo_repress():
     check(got == [("EMO", "B4"), ("EMO", "B4")], f"{got}")
 
 
+def test_reset_token():
+    print("\n[초기화] 「작업 초기화」 안내 낱말 — 누름이 아니라 판 맞춤·NG 에 끼지 않는다(설계 D17)")
+    try:
+        t = MS.parse_tokens("B2 #플라이어 초기화", B)
+    except ValueError as e:
+        check(False, f"「초기화」 를 못 읽음 — {e}")
+        return
+    check([(x.kind, x.name, x.expected) for x in t] == [("press", "B2", "B2"), ("tool", "플라이어", None),
+                                                         ("reset", "초기화", None)], f"{t}")
+    for bad in ("초기화@B1", "초기화?"):
+        try:
+            MS.parse_tokens(bad, B)
+            check(False, f"「{bad}」 를 못 잡음")
+        except ValueError:
+            check(True, f"「{bad}」 = ValueError")
+    R = rows((1, "B2 #플라이어 초기화"), (2, "B1"))
+    m = MS.match(_run(0, [P(10, "B2", "B2")]) + _run(100, [P(110, "B1", "B1")]), R)
+    check([(r["script"], r["status"]) for r in m["runs"]] == [(1, "ok"), (2, "ok")],
+          f"{[(r['script'], r['status']) for r in m['runs']]} — B2 만 누르고 초기화한 판 = ok")
+
+
 def main():
     test_parse_tokens()
+    test_reset_token()
     test_load_script()
     test_run_presses_ignored()
     test_match_ok_ng_retry()
