@@ -79,8 +79,22 @@ def test_runner_and_gil():
         r.close()
 
 
+def test_hand_close_closes_runners():
+    print("\n[손 검출기] 닫을 때 2a 추론기를 명시적으로 닫는다(GC 에 맡기지 않음 · 리뷰 Minor 12) — 장치 없이")
+    import hand_tracker as HT
+    closed = []
+    fake = type("R", (), {"close": lambda self: closed.append(1)})()
+    ht = HT.HandTracker.__new__(HT.HandTracker)
+    ht._infer = type("I", (), {"network_group_list": [HT._RunnerGroup(fake), object()]})()
+    ht._det = ht._lm = object()
+    ht.available = True
+    ht.close()
+    check(closed == [1] and ht.available is False, f"닫힘 {closed}")
+
+
 if __name__ == "__main__":
     test_parse_nms()
+    test_hand_close_closes_runners()
     test_runner_and_gil()
     print()
     if _fails:

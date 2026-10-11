@@ -157,10 +157,12 @@ def throttled():
               "" if ok or not out else "V7 · 전원 어댑터 · 열 확인(이 세션은 ⚠️)")
 
 
-def free_space(path, min_gb=2.0):
+def free_space(path, min_gb=1.0):
+    """남은 공간 — 문턱은 실행기 경고(1GB)와 같게 · 측정 세션 하나는 약 10MB(원본 녹화를 켜면 훨씬 크다)."""
     gb = shutil.disk_usage(path if os.path.isdir(path) else os.path.dirname(path)).free / 1e9
     ok = gb >= min_gb
-    return _c("파이", "남은 공간", ok, f"{gb:.1f}GB", "" if ok else "V8 · 지난 원본 녹화를 옮긴다(지우지 않음)")
+    return _c("파이", "남은 공간", ok, f"{gb:.1f}GB",
+              "" if ok else "V8 · 원본 녹화를 끄고 · 지난 녹화(Demo/recordings)는 사용자 확인 뒤 외장 저장소로(지우지 않음)")
 
 
 def mem_avail(min_mb=500):

@@ -175,6 +175,7 @@ class HandTracker:
         self._log = log or (lambda m: print(m))
         self._lock = threading.Lock()
         self._det = self._lm = None
+        self._infer = None       # 공유 추론기(2a 면 InferModel 추론기를 담는다 — close 에서 닫는다)
         self.available = False
         self.reason = ""
         # 마지막 프레임의 손 랜드마크 21점(numpy Nx3). 손이 없으면 None.
@@ -206,6 +207,7 @@ class HandTracker:
                 blazedetector.InferVStreams = _RunnerStreams
                 blazelandmark.InferVStreams = _RunnerStreams
             infer = _SharedInference()
+            self._infer = infer
             self._det = BlazeDetector("blazepalm", infer)
             self._det.set_debug(debug=False)
             self._det.load_model(palm)
@@ -261,6 +263,10 @@ class HandTracker:
             return None
 
     def close(self):
+        # 2a — InferModel 추론기를 명시적으로 닫는다(GC 에 맡기지 않는다 · 종료 순서 · 학교 방문 준비 최종 리뷰 Minor 12)
+        for g in (getattr(self._infer, "network_group_list", None) or ()) if getattr(self, "_infer", None) else ():
+            if isinstance(g, _RunnerGroup):
+                g._runner.close()
         self._det = self._lm = None
         self.available = False
 

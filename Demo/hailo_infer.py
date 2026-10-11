@@ -46,7 +46,7 @@ class InferRunner:
             return {k: v.copy()[np.newaxis] for k, v in self._outs.items()}   # 배치 축 — InferVStreams 결과와 같은 모양
 
     def close(self):
-        self._stack.close()
+        self._stack.close()                       # 두 번 불러도 된다(ExitStack 은 한 번만 닫는다)
 
 
 def nms_classes(hef_path):

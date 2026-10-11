@@ -126,7 +126,7 @@ def run_session(out, name, script="", processing="", extra=None, guide=False, ti
     logs = os.path.join(out, "logs")
     os.makedirs(logs, exist_ok=True)
     log = os.path.join(logs, f"{name}.log")
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", SOP_FULLSCREEN="0", SOP_REHEARSE_WORKER="1",
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", SOP_FULLSCREEN="0", SOP_REHEARSE_WORKER="1", SOP_REHEARSAL="1",
                SOP_MEASURE_BASE=os.path.join(out, "measure"), **(devices.env() if devices else {}), **(extra or {}))
     for k in ("SOP_ORIENT_ONE_REMAP", "SOP_DISPLAY_PAINT", "SOP_DISPLAY_EVERY", "SOP_INFER_MODEL", "SOP_PIPELINE2"):
         env.pop(k, None)
@@ -156,6 +156,10 @@ def run_session(out, name, script="", processing="", extra=None, guide=False, ti
     if p.returncode not in (0, None) and finished:
         errors.append(f"실행기 종료 코드 {p.returncode}")
     warnings = [ln.strip() for ln in text.splitlines() if "[config] ⚠️" in ln]
+    import re
+    for code in re.findall(r"=== 종료 \(exit code: (-?\d+)\)", text):
+        if code != "0":
+            errors.append(f"시연 종료 코드 {code}")      # 🔑 오류 Enter 대기를 답 끝 빈 줄이 채워 조용히 넘어가지 않게(리뷰 Minor 6)
     if not finished:
         errors.append(f"시간 상한 {timeout}초 넘김")
     return {"dir": d, "finished": finished and d is not None, "errors": errors, "warnings": warnings,
@@ -252,6 +256,16 @@ def items_R3(out, twice, order=None):
     if "1" in its:
         its["1"]["expect"] = {"처리 fps": EXPECT_1}
     out_items = [its[n] for n in order]
+    if "4" in order:
+        same = _base("R3-2a출력", "2a 출력 동일(지금 방식 vs InferModel · 손 녹화 120장)", "확정", "같은 입력 → 같은 출력")
+        r = subprocess.run([sys.executable, os.path.join(TEST, "infer_model_check.py"), SRC_HANDS, "--limit", "120"],
+                           cwd=DEMO, capture_output=True, text=True, timeout=1800)
+        with open(os.path.join(out, "logs", "R3_2a출력.log"), "w", encoding="utf-8") as f:
+            f.write(r.stdout + r.stderr)
+        same["same"] = r.returncode == 0
+        if r.returncode not in (0, 1):
+            same["errors"].append(f"비교 도구 오류 {r.returncode} · {r.stdout[-200:]}")
+        out_items.append(same)
     if "4" in its and "5" in its:
         pair = _base("R3-2b", "2b 효과(+2a 와 +2a+2b 가 갈리나)", "임시", "가짜 카메라",
                      values={"+2a": its["4"]["values"]["처리 fps"], "+2a+2b": its["5"]["values"]["처리 fps"]},
@@ -293,16 +307,15 @@ def items_R0(out, twice):
 
 
 def items_R7(out, twice):
-    """근거 측정 — 대본 앞 3판(G1 · G1 · G2) · 장면 띠 · 분석 도구가 끝까지(흐름 · 녹화 장면이라 값은 의미 없음)."""
-    it = _base("R7", "근거 측정(대본 · 장면 띠 · 분석)", "흐름", "가짜 카메라(정지 장면 — 손 없음) · 가상 작업자 · 앞 3판")
+    """근거 측정 — 대본 14판 전부(G1~G7 · 머묾 낱말 포함) · 장면 띠 · 분석 도구가 끝까지(흐름 · 녹화 장면이라 값은 의미 없음)."""
+    it = _base("R7", "근거 측정(대본 전부 · 장면 띠 · 분석)", "흐름", "가짜 카메라(정지 장면 — 손 없음) · 가상 작업자(머묾은 못 함 → 4초 뒤 다음)")
     for k in range(2 if twice else 1):
         with Devices() as dev:
-            r = run_session(out, f"R7_{k + 1}", BASIS_SCRIPT, extra={"SOP_REHEARSE_RUNS": "3"}, guide=True,
-                            timeout=600, devices=dev)
+            r = run_session(out, f"R7_{k + 1}", BASIS_SCRIPT, guide=True, timeout=1800, devices=dev)
         _merge(it, r)
         if not r["dir"]:
             continue
-        it["script"] = (3, RJ.session_stats(r["dir"])["runs"])
+        it["script"] = (_script_runs(BASIS_SCRIPT), RJ.session_stats(r["dir"])["runs"])
         b = subprocess.run([sys.executable, os.path.join(TEST, "measure_basis.py"), r["dir"]], capture_output=True,
                            text=True, timeout=120)
         with open(os.path.join(out, "logs", f"R7_{k + 1}_basis.log"), "w", encoding="utf-8") as f:
@@ -417,8 +430,11 @@ SCHOOL = {
     "R3-3": "bash Demo/run_measure.sh · 처리 설정 3", "R3-4": "bash Demo/run_measure.sh · 처리 설정 4",
     "R3-5": "bash Demo/run_measure.sh · 처리 설정 5", "R3-2b": "R3-4 · R3-5 를 번갈아 두 번",
     "R4": "python3 ~/lab/화면검사/cam_grab.py grab ~/lab/화면검사/<날짜>_E1_책상 30 (host 인자 없이)",
+    "R3-2a출력": "python3 Demo/test/infer_model_check.py <그날 측정 녹화 mp4> --limit 120 (시연 끔)",
     "R5": "bash arduino/flash_esp32.sh main --jpeg-quality N (굽기 · 진행표 5단계)",
+    "R5-압축": "진행표 5단계 — 실제 변형을 굽고 같은 장면 60초(받은 fps · 장 크기 · 버튼 확정 · 손끝 보임)",
     "R6": "python3 Demo/test/lamp_latency.py (시연 끔)",
+    "R6-화면": "python3 Demo/test/lamp_latency.py --screen (램프가 안 보일 때 · 안경이 콘솔 모니터를 보게)",
     "R7": "bash Demo/run_measure.sh · 대본 장소1_⑥근거 + 진행 도우미 → python3 Demo/test/measure_basis.py <세션>",
     "R8": "진행표 되돌리기 모음",
 }

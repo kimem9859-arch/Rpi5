@@ -128,6 +128,14 @@ def test_demo_running_skips_glass():
         check({"연결 · 받기", "안경 마이크 · 명령 포트", "RUN 응답", "장치를 쥔 프로세스"} <= sk, f"건너뜀 {sk}")
 
 
+def test_free_space_threshold():
+    print("\n[파이] 남은 공간 문턱 = 실행기 경고와 같은 1GB · 모자라면 V8(지우지 않고 사용자 확인)")
+    import inspect
+    check(inspect.signature(SC.free_space).parameters["min_gb"].default == 1.0, "기본 문턱 1GB")
+    c = SC.free_space(tempfile.gettempdir(), min_gb=10 ** 6)
+    check(c.ok is False and "V8" in c.fix and "사용자" in c.fix, f"{c}")
+
+
 if __name__ == "__main__":
     test_ip_band()
     test_stray_env()
@@ -135,6 +143,7 @@ if __name__ == "__main__":
     test_recv_probe()
     test_run_home_and_no_secret()
     test_demo_running_skips_glass()
+    test_free_space_threshold()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")
