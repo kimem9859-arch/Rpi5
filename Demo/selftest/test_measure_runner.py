@@ -35,7 +35,7 @@ def _runner(answers, extra_env=None):
     probe = os.path.join(d, "probe.sh")
     with open(probe, "w") as f:
         f.write('#!/bin/bash\nenv | grep -E "^SOP_(ORIENT|DISPLAY|INFER|PIPELINE)" | sort > "$PROBE_OUT"\n')
-    env = dict(os.environ, SOP_MEASURE_BASE=os.path.join(d, "measure"), SOP_DEMO_LAUNCHER=probe,
+    env = dict(os.environ, SOP_REHEARSAL="1", SOP_MEASURE_BASE=os.path.join(d, "measure"), SOP_DEMO_LAUNCHER=probe,
                PROBE_OUT=os.path.join(d, "env.txt"), **(extra_env or {}))
     r = subprocess.run(["bash", os.path.join(_DEMO_DIR, "run_measure.sh")], input="\n".join(answers) + "\n\n\n",
                        capture_output=True, text=True, env=env, timeout=60)
@@ -118,6 +118,16 @@ def test_guide_waits_for_missing_base():
     check(G.pick_session(base="/tmp/없는-측정-폴더-시험") is None, "없는 폴더 → None")
 
 
+def test_stray_rehearsal_vars():
+    print("\n[실행기] 리허설 변수(SOP_CAMERA_HOST · SOP_MEASURE_BASE · SOP_REHEARSE_*)가 남은 셸 → 질문 전에 멈춤(리뷰 Minor 8)")
+    for var, val in (("SOP_CAMERA_HOST", "127.0.0.1"), ("SOP_REHEARSE_WORKER", "1"), ("SOP_MEASURE_BASE", "/tmp/x")):
+        env = {k: v for k, v in os.environ.items() if k != "SOP_REHEARSAL"}
+        env[var] = val
+        r = subprocess.run(["bash", os.path.join(_DEMO_DIR, "run_measure.sh")], input="\n", capture_output=True,
+                           text=True, env=env, timeout=30)
+        check(r.returncode != 0 and var in r.stdout and "장소" not in r.stdout, f"{var} → 코드 {r.returncode} · {r.stdout[:90]!r}")
+
+
 if __name__ == "__main__":
     test_processing_numbers()
     test_from_run()
@@ -125,6 +135,7 @@ if __name__ == "__main__":
     test_report_processing_line()
     test_stdout_is_only_the_path()
     test_guide_waits_for_missing_base()
+    test_stray_rehearsal_vars()
     print()
     if _fails:
         print(f"❌ 실패 {len(_fails)}건")

@@ -2,6 +2,16 @@
 # 측정 실행기 — 시연 프로그램을 측정 기록을 켠 채 띄운다(측정 도구 정합 §4.3 적기 · D9~D19).
 # 「시연」 바로가기(run_demo.sh)는 그대로 — 여기서만 SOP_MEASURE_DIR 를 준다.
 cd "$(dirname "$0")" || exit 1
+# 🔴 리허설 전용 변수가 남은 셸에서는 실제 측정을 시작하지 않는다 — 가상 작업자가 시연 버튼을 누르거나, 세션이 리허설 폴더 ·
+#    가짜 카메라 주소로 간다(학교 방문 준비 최종 리뷰 Minor 8). 리허설은 SOP_REHEARSAL=1 을 함께 준다.
+if [ "${SOP_REHEARSAL:-}" != "1" ]; then
+  STRAY=$(env | grep -oE '^SOP_(CAMERA_HOST|MEASURE_BASE|REHEARSE_[A-Z_]+)=' | tr -d '=' | tr '\n' ' ')
+  if [ -n "$STRAY" ]; then
+    echo "❌ 리허설 변수가 셸에 남아 있다: ${STRAY}— 새 터미널을 열고 다시 실행하세요(대처 V9)"
+    read -rp "  엔터를 누르면 창을 닫는다 > " _
+    exit 1
+  fi
+fi
 ask() { local v; read -rp "  $1 > " v; echo "$v"; }
 echo "== 측정 세션 =="
 P=$(ask "장소 (1 장소1 · 2 장소2 · 3 장소3)")
