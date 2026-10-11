@@ -257,7 +257,13 @@ def test_say_flow():
     v += [V(16000, "stt", text="지금몇단계야?")]
     check(g.step(ev, 16100.0, voice=v) == ("said", "질문") and out[-1] == ("p", None, None), "질문 받음 → 끝 · 띠 지움")
     check(logged[-1][0] == "said" and logged[-1][1].get("attempts") == 3, f"호출 시도 = 띄운 동안 받아쓰기 조각 수 · {logged[-1]}")
-    check(g.step(ev, 17200.0, voice=v) == ("cue", "cue_B2"), "말이 끝나면 미룬 B2 소리")
+    check(g.step(ev, 17200.0, voice=v) is None, "질문 뒤 음성비서가 답하는 동안(확인 중 · 생각 중)은 버튼 소리를 미룬다(실물 피드백)")
+    v += [V(17000, "play_start", key="checking"), V(18000, "play_end", key="checking"), V(20000, "answer", src="LLM"),
+          V(20300, "play_start", key=None)]
+    check(g.step(ev, 21000.0, voice=v) is None, "답 재생 중 = 미룸")
+    v += [V(23000, "play_end", key=None)]
+    check(g.step(ev, 23900.0, voice=v) is None, "답이 끝나고 1초 전 = 미룸")
+    check(g.step(ev, 24100.0, voice=v) == ("cue", "cue_B2"), "답이 끝나고 1초 뒤 미룬 B2 소리")
     ev += [E(18000, "press", button="B2", expected="B2", state="MONITOR", source="gpio"), E(18000, "run_end", ok=True)]
     check(g.step(ev, 18900.0, voice=v) is None, "결과창 말 = 완주 + 1초 전에는 안 띄운다")
     check(g.step(ev, 19100.0, voice=v) == ("say", "작업 결과 어때?"), "판 끝 말 = 결과창(판이 닫힌 뒤)")
@@ -302,7 +308,22 @@ def test_say_end_cases():
     check(g.step(ev, 13100.0) == ("said", "넘어감") and out[-1] == ("p", None, None), "다음 버튼을 누르면 넘어감 · 띠 지움")
 
 
+def test_busy_unprompted():
+    print("\n[대화 중] 띠 없이 스스로 「가디언」을 불러도 답이 끝날 때까지 버튼 소리를 미룬다 · 답이 없으면 21초 뒤 다시")
+    out = []
+    g = G.Guide(rows((1, "B1 B2")), "EMO", cue_sink=lambda k, t: out.append(k))
+    ev = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B1")]
+    v = [V(500, "stt", text="가디야."), V(500, "wake")]
+    check(g.step(ev, 1100.0, voice=v) is None, "호출 뒤 = 미룸")
+    v2 = v + [V(5000, "answer", src="LLM"), V(5200, "play_start", key=None), V(7000, "play_end", key=None)]
+    check(g.step(ev, 8100.0, voice=v2) == ("cue", "cue_B1"), "답이 끝나고 1초 뒤 = 안내")
+    g = G.Guide(rows((1, "B1 B2")), "EMO", cue_sink=lambda k, t: None)
+    check(g.step(ev, 22400.0, voice=v) is None and g.step(ev, 22600.0, voice=v) == ("cue", "cue_B1"),
+          "답이 없으면(호출만) 호출 + 21초(대화창) + 1초 뒤 다시 안내")
+
+
 def main():
+    test_busy_unprompted()
     test_say_flow()
     test_say_end_cases()
     test_next_cue()

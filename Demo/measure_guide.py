@@ -40,6 +40,7 @@ ACK_WAIT_MS = 3000.0     # 안내 요청 뒤 이만큼 응답이 없으면 「�
 TICK_SEC = 0.1
 SAY_TIMEOUT_MS = 30000.0   # 말 띠를 띄운 지 이만큼이면 「시간」으로 지운다(3판 D23)
 SAY_KINDS = ("say", "say_wait")
+BUSY_LISTEN_MS = 21000.0   # 호출 뒤 답이 없을 때 대화 중으로 보는 시간 = 대화창 20초 + 여유(voice_assistant.LISTEN_SEC)
 SWITCH_CHECK_MS = 1000.0  # 더 새 측정 세션이 생겼나 보는 간격(최종 리뷰 Important 2)
 LOCK_FILE = "/tmp/sop_measure_guide.lock"   # 한 대만(최종 리뷰 Important 3)
 RUN_STATES = ("PROCESS_RUN", "MONITOR")
@@ -224,7 +225,8 @@ class Guide:
         cur = runs[-1] if runs and runs[-1]["end"] == "open" else None
         r = res["runs"][-1] if cur is not None else None
         self.view = {"res": res, "run": r, "cur": cur, "say": self.say}
-        if r is None and self.auto and self.say is None and res["runs"]:
+        busy, busy_end = assistant_busy(voice, now_ms)
+        if r is None and self.auto and self.say is None and res["runs"] and not busy:
             return self._result_say(res["runs"][-1], runs[-1], now_ms)
         if r is None or r["script"] is None or not self.auto:
             return None
@@ -235,10 +237,15 @@ class Guide:
                 self.log_sink(now_ms, "cue", {"run": r["i"], "script": r["script"], "key": "cue_ng"})
                 return ("ng", "cue_ng")
             return None
+        if busy:
+            return None                                  # 🔑 음성비서가 대화 중 — 버튼 소리·다음 말 띠를 미룬다(실물 피드백)
         toks = res["order"][r["script"]]
         mine = {n: t for (i, n), t in self.cued.items() if i == r["i"]}
         done = {n for (i, n) in self.said if i == r["i"]}
-        c = next_cue(toks, r["consumed"], mine, live_state(cur, self.waits), now_ms, done)
+        st = live_state(cur, self.waits)
+        if busy_end is not None:
+            st["last"] = max(st["last"], busy_end)        # 대화가 끝나고 1초 뒤(D8 간격)
+        c = next_cue(toks, r["consumed"], mine, st, now_ms, done)
         if c is None:
             return None
         if c[1] == "say":
@@ -262,6 +269,26 @@ class Guide:
                     return None
                 return self._show_say(last["i"], last["script"], n, toks, now_ms)
         return None
+
+
+def assistant_busy(voice, now_ms):
+    """음성비서가 대화 중인가(실물 피드백 — 「음성비서 사용 중에는 버튼 안내가 안 나왔으면」) → (대화 중?, 끝난 시각|None).
+    마지막 호출(wake) 뒤 답(answer)의 재생이 끝날 때까지 · 답이 없으면 호출 + 21초까지. 비상 중 호출은 wake 가 없어(무반응) 해당 없음."""
+    t_w = None
+    for t, k, _ in voice or ():
+        if k == "wake":
+            t_w = t
+    if t_w is None:
+        return False, None
+    t_a = next((t for t, k, _ in voice if k == "answer" and t >= t_w), None)
+    if t_a is None:
+        end = t_w + BUSY_LISTEN_MS
+        return now_ms < end, (None if now_ms < end else end)
+    t_e = next((t for t, k, _ in voice if k == "play_end" and t >= t_a), None)
+    if t_e is None:
+        end = t_a + BUSY_LISTEN_MS                       # 답 재생 끝이 안 오면(끊김) 안전판
+        return now_ms < end, (None if now_ms < end else end)
+    return False, t_e
 
 
 def say_texts(rows):
