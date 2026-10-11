@@ -1,4 +1,5 @@
 import os
+import sys
 
 _BASE_DIR = os.path.dirname(__file__)
 
@@ -214,8 +215,12 @@ try:
     if DISPLAY_EVERY < 1:
         raise ValueError(DISPLAY_EVERY)
 except ValueError:
-    print(f"[config] ⚠️ SOP_DISPLAY_EVERY={os.environ.get('SOP_DISPLAY_EVERY')!r} 를 못 쓴다(1 이상 정수) — 1 로 돈다")
+    print(f"[config] ⚠️ SOP_DISPLAY_EVERY={os.environ.get('SOP_DISPLAY_EVERY')!r} 를 못 쓴다(1 이상 정수) — 1 로 돈다",
+          file=sys.stderr)   # 🔴 표준오류로만 — 실행기가 measure_session 의 표준출력(세션 폴더 경로)을 받는다
     DISPLAY_EVERY = 1
+if DISPLAY_EVERY > 5:        # 약 10fps 에서 N 이 크면 화면 간격이 끊김 기준(2초)에 닿아 2차 점검·FPS 가 끊김으로 보인다
+    print(f"[config] ⚠️ SOP_DISPLAY_EVERY={DISPLAY_EVERY} 는 너무 크다 — 5 로 돈다", file=sys.stderr)
+    DISPLAY_EVERY = 5
 
 # 카메라 영역을 **채워서** 표시할지. 회전 뒤 프레임이 세로(480×640)라 가로 UI 에
 # 그냥 넣으면 좌우에 검은 띠가 생긴다. 켜면 넘치는 만큼 잘라내 띠를 없앤다.
@@ -522,10 +527,10 @@ try:
     if not (0 < MIC_GAIN < float("inf")):              # 🔑 inf·nan 도 막는다 — 증폭 결과가 NaN 이 된다
         raise ValueError(MIC_GAIN)
 except ValueError:
-    print(f"[config] ⚠️ SOP_MIC_GAIN={os.environ.get('SOP_MIC_GAIN')!r} 를 못 쓴다(0 보다 큰 유한한 수) — ×4 로 돈다")
+    print(f"[config] ⚠️ SOP_MIC_GAIN={os.environ.get('SOP_MIC_GAIN')!r} 를 못 쓴다(0 보다 큰 유한한 수) — ×4 로 돈다", file=sys.stderr)
     MIC_GAIN = 4.0
 if MIC_GAIN > 5:
-    print(f"[config] ⚠️ 마이크 증폭 ×{MIC_GAIN:g} — ×6 부터 발화가 이어 붙어 호출 인식이 떨어졌다(10/8 녹음 재생)")
+    print(f"[config] ⚠️ 마이크 증폭 ×{MIC_GAIN:g} — ×6 부터 발화가 이어 붙어 호출 인식이 떨어졌다(10/8 녹음 재생)", file=sys.stderr)
 LLM_ENABLED      = os.environ.get("SOP_LLM", "1") != "0"
 LLM_URL          = os.environ.get("SOP_LLM_URL", "http://192.168.1.12:11434/api/generate")
 LLM_MODEL        = "gemma4:e2b-it-qat"

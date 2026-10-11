@@ -209,10 +209,15 @@ def test_display_every():
         check(all(th._show_due() for _ in range(3)), "1 = 매 장(종전)")
     finally:
         config.DISPLAY_EVERY = keep
-    for bad in ("0", "-1", "abc"):
-        out = subprocess.run([sys.executable, "-c", "import config; print('값', config.DISPLAY_EVERY)"], cwd=_DEMO_DIR,
-                             env=dict(os.environ, SOP_DISPLAY_EVERY=bad), capture_output=True, text=True).stdout
-        check("값 1" in out and "SOP_DISPLAY_EVERY" in out, f"{bad!r} → 경고하고 1")
+    # 🔴 경고는 표준오류로만 — 실행기가 measure_session 의 표준출력(세션 폴더 경로)을 그대로 받는다(최종 리뷰 Important 1)
+    for var, bad, code, want in (("SOP_DISPLAY_EVERY", "0", "config.DISPLAY_EVERY", "값 1"),
+                                 ("SOP_DISPLAY_EVERY", "-1", "config.DISPLAY_EVERY", "값 1"),
+                                 ("SOP_DISPLAY_EVERY", "abc", "config.DISPLAY_EVERY", "값 1"),
+                                 ("SOP_DISPLAY_EVERY", "50", "config.DISPLAY_EVERY", "값 5"),
+                                 ("SOP_MIC_GAIN", "abc", "config.MIC_GAIN", "값 4.0")):
+        r = subprocess.run([sys.executable, "-c", f"import config; print('값', {code})"], cwd=_DEMO_DIR,
+                           env=dict(os.environ, **{var: bad}), capture_output=True, text=True)
+        check(r.stdout.strip() == want and var in r.stderr, f"{var}={bad!r} → 표준출력 {r.stdout.strip()!r} · 경고는 표준오류")
 
 
 if __name__ == "__main__":
