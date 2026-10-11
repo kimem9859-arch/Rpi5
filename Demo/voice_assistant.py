@@ -30,7 +30,7 @@ import numpy as np
 _DEMO_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _DEMO_DIR)
 
-from voice_lib import (amplify, answer_key, find_utterance, is_question,
+from voice_lib import (amplify, answer_key, find_utterance, is_question, lead_short,
                        is_tool_question, is_wake, noise_floor, read_tool_dets)
 from voice_lib import rms as vl_rms
 from voice_mic import MicReceiver
@@ -49,7 +49,8 @@ CMD_PORT = 8890
 RATE     = 16000
 
 STT_DIR   = os.path.expanduser("~/env/tts/sherpa-onnx-zipformer-korean-2024-06-24")
-HOTWORDS  = os.path.expanduser("~/lab/tts/hotwords_ko.txt")
+HOTWORDS  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice", "hotwords_ko.txt")   # 🔑 「가디언 :8.0」 = 그 낱말만
+                          #    세기 8(다른 낱말은 hotwords_score) — 전체를 6 으로 올리면 질문이 망가졌다(2026-10-11 · 종전 ~/lab/tts)
 BPE_VOCAB = os.path.expanduser("~/lab/tts/bpe.vocab")
 
 WINDOW_SEC = 6.0      # 판정에 쓰는 최근 구간
@@ -1164,6 +1165,7 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                 if len(buf) - e < int(RATE * QUIET_TAIL):  # 발화가 아직 안 끝났다
                     continue
                 in_speech = False
+                s = lead_short(s, e, RATE)                 # 🔑 짧은 조각(부름)만 첫소리를 살린다(2026-10-11)
                 seg_samples, buf = buf[s:e], buf[e:]
                 answered = handle_utterance(bot, stt, alog, seg_samples)
                 errs = 0

@@ -99,6 +99,8 @@ def main():
         finally:
             V.deess = orig
         check(called == [config.TTS_OUT_RATE], "supertonic2 합성이 센 소리 줄이기를 지난다")
+    import voice_assistant as va
+    check(va.build_stt() is not None, f"받아쓰기가 저장소 핫워드 목록(「가디언 :8.0」 꼴)을 읽는다 — {os.path.basename(va.HOTWORDS)}")
     try:
         Tts(engine="없음")
         check(False, "모르는 엔진을 못 잡음")

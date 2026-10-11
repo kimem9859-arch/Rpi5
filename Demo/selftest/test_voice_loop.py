@@ -599,7 +599,7 @@ def test_loop_chime_echo_dropped():
     def stt_by_len(heard):
         def stt(s):
             sec = len(s) / 16000
-            t = "아아" if sec < 0.9 else ("가디언" if sec < 1.4 else "지금 몇 단계야")
+            t = "아아" if sec < 1.2 else ("가디언" if sec < 1.6 else "지금 몇 단계야")   # 🔑 1초 미만 조각은 앞 0.25초가 더 붙는다(lead_short)
             heard.append(t)
             return t
         return stt
@@ -607,10 +607,11 @@ def test_loop_chime_echo_dropped():
     try:
         for mute in (1.5, 0.0):
             va.CHIME_MUTE_SEC = mute
-            # 호출어 0.8초 → (확정·띠링 ≈ 호출 끝 0.84초 뒤 — 10/8 실물 0.83초) → 메아리 0.5초 → 질문 1.5초 · 사이 1.2초
+            # 호출어 1.2초 → (확정·띠링 ≈ 호출 끝 0.84초 뒤 — 10/8 실물 0.83초) → 메아리 0.5초 → 질문 1.5초 · 사이 1.2초
+            # (호출어 길이는 길이로 가르는 가짜 받아쓰기 때문 — 짧은 조각은 lead_short 로 0.25초 길어져 메아리와 겹친다)
             # 🔑 사이를 발화 끝 판정(0.7초 무음)보다 길게 둔다 — 짧으면 호출어와 메아리가 한 발화로 붙는다(실물에서는
             #    띠링이 호출어 확정 뒤에만 나므로 붙지 않는다). 시험의 버림 시간(1.5초)은 일정 흔들림을 견디게 길게 둔다.
-            fg = FakeGlass([tone(0.8), tone(0.5), tone(1.5)], mic_port=0, cmd_port=0,
+            fg = FakeGlass([tone(1.2), tone(0.5), tone(1.5)], mic_port=0, cmd_port=0,
                            lead_sec=1.0, gap_sec=1.2, tail_sec=2.5, play_speed=0.05, quiet=True).start()
             heard, llm = [], FakeLlm()
             _run_once(fg, stt_by_len(heard), llm)

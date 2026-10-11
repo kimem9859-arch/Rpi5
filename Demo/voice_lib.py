@@ -116,6 +116,18 @@ def amplify(samples, gain):
     return (samples.astype("float32") * gain).clip(-32768, 32767).astype("int16")
 
 
+def lead_short(start, end, rate, short_sec=1.0, lead_sec=0.25):
+    """짧은 조각(부름)만 시작을 lead_sec 앞당긴다 → 새 시작(0 아래로 안 감).
+
+    🔑 「가디언」 첫소리 ㄱ 은 약하고 짧아 시작 문턱을 넘기 전이라, find_utterance 의 pre_ms 를 지나도 잘려
+       「아니야·어디야」로 받아써졌다(2026-10-11 안경 녹음 · 실시간 조각 재생 — 조용 21→25/31 · 소음 8→13/23 ·
+       헛호출 0/40). 1초 이상(질문)은 그대로 — 모든 조각에 하면 질문 받아쓰기 32개 중 18개가 바뀌었다.
+    """
+    if end - start >= int(rate * short_sec):
+        return start
+    return max(0, start - int(rate * lead_sec))
+
+
 def rms(samples):
     """DC 오프셋을 뺀 실효값.
 

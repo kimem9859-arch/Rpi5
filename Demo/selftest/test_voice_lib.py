@@ -219,6 +219,23 @@ for raw, want in [("", 4.0), ("0", 4.0), ("-1", 4.0), ("inf", 4.0), ("nan", 4.0)
     got = next((float(l.split()[1]) for l in out.splitlines() if l.startswith("GAIN ")), None)
     check(got == want, f"SOP_MIC_GAIN={raw!r} → {got}(기대 {want})")
 
+print("[짧은 조각 앞 붙이기] 1초 미만 조각만 시작을 0.25초 앞당긴다 — 「가디언」 첫소리 ㄱ 이 잘려 「아니야·어디야」로 받아써졌다(2026-10-11)")
+try:
+    from voice_lib import lead_short
+    r = 16000
+    check(lead_short(8000, 8000 + int(r * 0.6), r) == 8000 - int(r * 0.25), "0.6초 조각(부름) → 0.25초 앞당김")
+    check(lead_short(8000, 8000 + int(r * 1.0), r) == 8000, "1초 이상(질문) → 그대로 — 질문 받아쓰기를 바꾸지 않는다")
+    check(lead_short(1000, 1000 + int(r * 0.5), r) == 0, "앞에 0.25초가 없으면 처음부터")
+except ImportError:
+    check(False, "lead_short 가 없다")
+
+print("[핫워드] 저장소 안 목록 · 「가디언」만 세기 8(다른 낱말은 전체 세기) — 2026-10-11 녹음 재생 비교")
+import voice_assistant as _va
+_hw = open(_va.HOTWORDS, encoding="utf-8").read().splitlines()
+check(_va.HOTWORDS.startswith(_DEMO_DIR), f"저장소 안 파일 — {_va.HOTWORDS}")
+check("가디언 :8.0" in _hw and "가디언" not in _hw, f"「가디언 :8.0」 한 줄 · {_hw[:2]}")
+check({"가스", "공구", "펌프"} <= set(_hw), "도메인 낱말은 그대로")
+
 print()
 if _fails:
     print(f"🔴 실패 {len(_fails)}건")
