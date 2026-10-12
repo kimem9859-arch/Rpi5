@@ -10,12 +10,13 @@
 비전(버튼 검출 + 손) → 손-버튼 ROI 접촉 → §7.0 → **FSM 순서판정** → 물리 인터락(트랙 A)·안돈 피드백.
 
 ## 핵심 — FSM & 레시피 (fsm-interlock 작업으로 추가)
-- **`fsm.py` `SafetyFSM`** — 6상태 `State`(IDLE/READY/PROCESS_RUN/MONITOR/WARNING/BLOCK). 콜백 `on_state_change`·**`on_interlock(bool)`**(→트랙 A 차단)·`on_feedback`. 주요 메서드: `load_recipe()`·`update_vision(roi, now)`·`press_button()`·EMO 처리·`release_warning()`/`release_block()`. 오답 ROI→타이머→WARNING/BLOCK(방금 완료한 버튼·EMO 는 체류 판정 제외), **EMO→즉시 BLOCK**(해제 시 「작업 시작」 전 대기 IDLE · 기대단계 1, 위반 BLOCK 해제는 기대 유지). WARNING 중 정답 버튼 = 해제 + 단계 완료(판정기 규칙 · 서브 작업이 있는 단계는 화면이 먼저 받아 서브를 잇거나 시작 — 상위 §7.3-6·§8.2). 단위테스트 `Demo/selftest/test_fsm.py`.
+- **`fsm.py` `SafetyFSM`** — 6상태 `State`(IDLE/READY/PROCESS_RUN/MONITOR/WARNING/BLOCK). 콜백 `on_state_change`·**`on_interlock(bool)`**(→트랙 A 차단)·`on_feedback`. 주요 메서드: `load_recipe()`·`update_vision(roi, now)`·`press_button()`·EMO 처리·`release_warning()`/`release_block()`. 오답 ROI→타이머→WARNING/BLOCK(방금 완료한 버튼·EMO 는 체류 판정 제외) · **안 B — 틀린 버튼 안쪽에서 실제로 본 손끝이 느리면(VGA 437.5 = XGA 700px/s · 직전 3장 · 0.25초 안 손끝 기준) 체류를 기다리지 않고 즉시 WARNING**(`update_vision(…, tip=)` · 이유 `last_warn_reason` slow/dwell · 끄기 `SOP_SLOW_ENTRY_PX_S_VGA=0` = 종전 규칙 · 상위 spec `2026-10-12-판정기준-안B`), **EMO→즉시 BLOCK**(해제 시 「작업 시작」 전 대기 IDLE · 기대단계 1, 위반 BLOCK 해제는 기대 유지). WARNING 중 정답 버튼 = 해제 + 단계 완료(판정기 규칙 · 서브 작업이 있는 단계는 화면이 먼저 받아 서브를 잇거나 시작 — 상위 §7.3-6·§8.2). 단위테스트 `Demo/selftest/test_fsm.py`.
 - **`recipe.py`/`recipe.json`** — 정답 순서 단일 출처. **PM 정비 4단계**: B1 클린·가스차단 → B2 펌프/퍼지 → B3 전극 냉각 → B4 챔버 벤트 (+EMO). `current_step_name`이 여기서 옴. (정본 §5.1과 동기화됨)
 - 테스트 절차 전체: **`Demo/docs/TESTING_FSM.md`**. 실HW 테스트는 **라즈베리파이에서** 수행.
 
 ## 추론 백엔드 — `detector.py` (★ console_v1.hef 통합 지점)
 - **처리 2단계 2a**(`SOP_INFER_MODEL=1` · 기본 끔) — 버튼 · 공구 · 손바닥 · 손 관절 모두 InferModel(`hailo_infer.py` · 추론 중 GIL 을 놓는다)로. 손은 blaze 의 추론 통로 이름만 대역으로 바꿔 끼운다(blaze 소스 무변경). 🔴 한 장치에 종전 방식과 섞어 올리지 않는다 — 출력 비교는 `test/infer_model_check.py`(두 방식을 별도 프로세스로).
+  - **시연 런처(`run_demo.sh`)는 기본 켬**(2026-10-12 학교 처리 비교 · 셸에 값이 없을 때만 · 되돌리기 `SOP_INFER_MODEL=0 ./run_demo.sh`) · 측정 실행기(`run_measure.sh`)는 처리 설정 번호대로(1~3 끔 명시 · 4 · 5 켬) — config 기본은 끔 그대로.
 - `PyTorchDetector`(Phase A, `person_v1.pt`(옛 best.pt — 사람 1종이라 버튼을 못 찾는다 · 상위 통합문서 §6 ⏸), ultralytics CPU) ↔ `HailoDetector`(Phase B, .hef, Hailo-8). `config.INFERENCE_BACKEND`로 전환.
 - ✅ **console_v1.hef 배선 완료** (상세 [`../dev/ai_model/README.md`](../dev/ai_model/README.md)):
   - 입력 **uint8 640×640 RGB**(float 정규화 ❌, stretch 리사이즈), 출력 **HailoRT NMS 결과** 파싱(raw 텐서 ❌), **HailoRT 4.x**.
@@ -70,7 +71,7 @@
 ESP32-S3(OV3660) ─TCP:8888→ CameraThread
    (_recv_worker → 수직플립 → undistort → **회전CCW90** → detector → hand_tracker(손))
       ├─ change_pixmap_signal → SafetyConsole (화면)
-      └─ 검출 → zone_at_point(roi_zones: 링1/안쪽2 · 링 = VGA 25px × px_scale) → SafetyFSM.update_vision(roi, now = 카메라 수신 시각, level)
+      └─ 검출 → zone_at_point(roi_zones: 링1/안쪽2 · 링 = VGA 25px × px_scale) → SafetyFSM.update_vision(roi, now = 카메라 수신 시각, level, tip = 손끝 ÷ px_scale(VGA 기준))
          → 체류(§7.4 dwell 0.3·갭메우기 0.3) → 상태전이·on_interlock·피드백
 ```
 

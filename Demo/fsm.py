@@ -13,6 +13,7 @@
 
 import collections
 import enum
+import math
 
 import config
 from roi_zones import INSIDE as ZONE_INSIDE   # 구역 단계 정의는 roi_zones 가 단일 출처
@@ -45,7 +46,8 @@ class SafetyFSM:
     def __init__(self, step_count=None, dwell_threshold=None,
                  sequence=None, emo_button=None, gap_fill=None,
                  window_n=None, window_m=None,
-                 on_state_change=None, on_interlock=None, on_feedback=None):
+                 on_state_change=None, on_interlock=None, on_feedback=None,
+                 slow_px_s=None):
         # sequence: 레시피 steps 리스트 [{order, button, name}, ...] (recipe.json).
         # 주면 정답 순서·단계 이름을 거기서 읽고, 없으면 B1..B{step_count}로 대체.
         self._sequence = sequence
@@ -88,6 +90,15 @@ class SafetyFSM:
         self._win = collections.deque(maxlen=max(self.window_n, 1))
         # 누름 카메라 확인(2026-09-30) — 버튼 구역별 **실제** 관측 시각. 판정에는 쓰지 않는다.
         self._seen_log = {}
+
+        # 오입력 직전(안 B · 2026-10-12) — 틀린 버튼 안쪽에서 손끝이 느리면 체류를 기다리지 않고 즉시 경고.
+        # 문턱 0 이하 = 끔(종전 규칙). 속도 정의는 오프라인 모의 annotate_speed 와 같다(config 주석).
+        self.slow_px_s       = slow_px_s if slow_px_s is not None else config.FSM_SLOW_ENTRY_PX_S_VGA
+        self._speed_back_sec = config.FSM_SPEED_BACK_SEC
+        self._tips = collections.deque(maxlen=config.FSM_SPEED_BACK_N)   # 직전 장 (시각, 손끝 또는 None)
+        # 마지막 경고 이유 — "slow"(안 B) / "dwell"(체류) · 경고로 갈 때 세우고 경고 해제 · 작업 초기화 때 None.
+        # 콘솔이 경고 전이 콜백 안에서 읽어 기록한다.
+        self.last_warn_reason = None
 
     # ------------------------------------------------------------------ 헬퍼
     @property
@@ -134,6 +145,22 @@ class SafetyFSM:
         self._dwell_roi   = None
         self._dwell_start = None
 
+    def _tip_speed(self, now, tip):
+        """이 장 손끝 속도(px/s) — 직전 N 장 가운데 손끝이 있는 가장 가까운 장(BACK 초 안)과의 거리 ÷ 시간.
+
+        이 장에 손끝이 없거나 그런 장이 없으면 None(속도 모름 → 체류 규칙). 오프라인 모의
+        `annotate_speed` 와 같은 정의다 — 직전 장은 구역과 상관없이 update_vision 이 불린 장이다.
+        """
+        if tip is None:
+            return None
+        for t, p in reversed(self._tips):
+            if p is not None and now - t <= self._speed_back_sec + 1e-9:
+                dt = now - t
+                if dt <= 0:
+                    return None          # 같은 시각 · 거꾸로 간 시각 — 속도를 잴 수 없다
+                return math.hypot(tip[0] - p[0], tip[1] - p[1]) / dt
+        return None
+
     # ------------------------------------------------------ 정비 시퀀스 (§9.3 1~2)
     def load_recipe(self):
         """IDLE → READY → PROCESS RUN. 레시피(공정 매뉴얼) 로드 완료.
@@ -148,23 +175,32 @@ class SafetyFSM:
             self._goto(State.PROCESS_RUN)
 
     # ------------------------------------------------------ 비전 틱 (§9.3 3·5)
-    def update_vision(self, roi, now, level=ZONE_INSIDE):
+    def update_vision(self, roi, now, level=ZONE_INSIDE, tip=None):
         """매 프레임 호출. `roi`는 손이 들어와 있는 버튼 ROI id 또는 None.
 
         `level` = 구역 단계(`roi_zones`): **2=박스 안(위험) / 1=링(접근)**.
         기본값 2라 단계를 안 주는 기존 호출부·테스트는 종전과 똑같이 동작한다.
+        `tip` = 이 장 손끝 (x, y) **VGA 기준 px**(호출하는 쪽이 `frame_orient.px_scale` 로 나눠 준다) 또는 None.
+        없으면 속도를 모르므로 종전 체류 규칙 그대로다.
 
         - 손이 정답 ROI에 있어도 '눌림' 전까지는 진전시키지 않는다(press_button이 확정).
         - 오답 ROI 체류는 타이머로 스침(<임계) vs 위반(≥임계)을 가른다.
         - **체류는 링에서도 쌓이지만(예열), 차단 발화는 박스 안에서만 한다**(설계 C1).
           링에서만 임계를 넘겨도 경고하지 않는다 — 접근은 위반이 아니다. 대신 누적을
           유지해, 손이 박스 안으로 들어오는 순간 즉시 판정된다.
+        - **오입력 직전(안 B)** — 오답 박스 안에서 **이 장에 실제로 본**(갭메우기 유지 아님) 손끝의
+          속도가 `slow_px_s` 이하이면 체류를 기다리지 않고 즉시 경고(이유 "slow"). 체류 경고는 "dwell".
         """
         # --- ① 관측 기록 (상태 무관) ---
         # 손이 어디 있는지는 FSM 상태와 무관한 사실이다. 상태 게이트보다 먼저 기록해야
         # WARNING/BLOCK 해제 직후에도 최신 관측을 갖고 있다 — 그렇지 않으면 해제 직후
         # 낡은 값으로 판정하거나(런타임), 측정 도구가 FSM 상태를 관측 능력으로 오독한다
         # (`last_roi`가 경고가 뜬 동안 멈춰버리는 역설).
+        # 안 B — 이 장 손끝 속도는 직전 장 보관을 갱신하기 **전에** 잰다. 보관은 매 장(상태 무관) —
+        # 경고 · 차단 중에도 손은 움직이므로 해제 직후 첫 장도 직전 손끝으로 잰다(모의도 모든 장을 본다).
+        observed = roi is not None     # 🔴 ②의 갭메우기 · 창 유지로 바뀌기 전 — 「이 장에 본」 장인가
+        speed = self._tip_speed(now, tip)
+        self._tips.append((now, tip))
         if self.window_n > 0:
             self._win.append(roi)          # None 도 기록해야 '끊김'이 세어진다
         if roi is not None:
@@ -228,11 +264,20 @@ class SafetyFSM:
             return
 
         # 오답 ROI: 체류 타이머 (링에서도 누적 — 예열)
-        if self._dwell_roi != roi:
+        entered = self._dwell_roi != roi
+        if entered:
             self._dwell_roi   = roi
             self._dwell_start = now
-        elif now - self._dwell_start >= self.dwell_threshold and level == ZONE_INSIDE:
+        if (level == ZONE_INSIDE and observed and speed is not None
+                and self.slow_px_s > 0 and speed <= self.slow_px_s):
+            # 안 B — 오답 박스 안에서 이 장에 본 손끝이 느리다 = 누르기 직전 → 체류를 기다리지 않고 즉시 경고.
+            # 🔑 `_dwell_roi` 를 세운 채로 경고로 간다 — 콘솔 · 세기가 전이 순간 그 오답을 읽는다(체류 경고와 같은 순서).
+            self.last_warn_reason = "slow"
+            self._goto(State.WARNING)
+            self._reset_dwell()
+        elif not entered and now - self._dwell_start >= self.dwell_threshold and level == ZONE_INSIDE:
             # 체류 임계 초과 + 박스 안 → 위반 경고. 링이면 아무 일도 없이 누적만 이어진다.
+            self.last_warn_reason = "dwell"
             self._goto(State.WARNING)
             self._reset_dwell()
 
@@ -311,22 +356,26 @@ class SafetyFSM:
         self._reset_dwell()
         self._just_done = None
         self._emo_active = False
+        self._tips.clear()              # 안 B — 직전 손끝도 버린다(초기화 뒤 첫 장 = 속도 모름)
+        self.last_warn_reason = None
         self.expected_step = 1
         self._goto(State.IDLE)          # 이미 IDLE 이면 아무 일도 하지 않는다
 
     def forget_observation(self):
         """카메라 (재)연결 — 끊기기 전 관측을 버린다(R5 · 설계 D9).
 
-        체류·마지막 관측·창을 지운다. 🔴 방금 완료한 버튼 예외(_just_done)는 **유지**한다 —
+        체류·마지막 관측·창·직전 손끝(안 B)을 지운다. 🔴 방금 완료한 버튼 예외(_just_done)는 **유지**한다 —
         재연결 사이 손가락이 그 버튼 위에 그대로일 수 있다. 상태 전이는 하지 않는다.
         """
         self._reset_dwell()
         self._last_roi = self._last_level = self._last_seen = None
         self._win.clear()
+        self._tips.clear()              # 끊기기 전 손끝과 이어 재면 거짓 속도가 된다
 
     def release_warning(self):
         """WARNING 해제 버튼 → MONITOR 복귀. (기대단계 유지)"""
         if self.state == State.WARNING:
+            self.last_warn_reason = None
             self._goto(State.MONITOR)
 
     def release_block(self):

@@ -38,6 +38,7 @@ def test_session_json():
     check(on_disk == rec, "파일과 반환이 같다")
     for k in ("입력", "시작_벽시계", "시작_단조_ms", "코드", "설정", "측정기록"):
         check(k in rec, f"칸 {k}")
+    check("FSM_SLOW_ENTRY_PX_S_VGA" in MS.SETTINGS, "느린 손끝 문턱(판정 기준 안 B)도 남긴다")
     missing = [k for k in MS.SETTINGS if rec["설정"][k] is None]
     check(not missing, f"config 에 없는 설정 이름 {missing} — 이름이 틀렸거나 config 에서 사라졌다")
 

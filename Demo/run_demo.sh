@@ -7,6 +7,11 @@ echo "=== SOP 가디언 Demo 실행 ==="
 echo "경로: $(pwd)"
 echo
 
+# 🔑 처리 2단계 2a(InferModel)를 기본으로 켠다 = 처리 설정 4(1단계 + 2a) — 학교 실콘솔 처리 비교(2026-10-12 · 상위
+#    통합문서 §12.98-(2))에서 가장 빠르고 안정적이었다. 셸에 값이 없을 때만 켠다(측정 실행기는 번호대로 0/1 을 넘긴다).
+#    되돌리기 = SOP_INFER_MODEL=0 ./run_demo.sh
+export SOP_INFER_MODEL="${SOP_INFER_MODEL:-1}"
+
 # 🔑 음성비서를 함께 띄운다(설계 2026-10-03 §4.6 · D1′) — 죽으면 run_voice.sh 가 다시 띄운다.
 #    끄려면 SOP_VOICE=0 ./run_demo.sh · 로그 = logs/voice_<시각>.log(「준비 상태」 줄을 본다)
 VOICE_PID=""

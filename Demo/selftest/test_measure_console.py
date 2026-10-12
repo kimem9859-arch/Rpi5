@@ -78,6 +78,28 @@ def test_events_flow():
     check(fsm and float(fsm[0]["t_gui_ms"]) >= float(fsm[0]["t_recv_ms"]), f"판정 시각 ≥ 받은 시각 {fsm[:1]}")
 
 
+def test_warning_state_reason():
+    print("\n[화면 기록] 경고 상태 사건에 경고 이유(reason) — 판정 기준 안 B(설계 2026-10-12 §3)")
+    d = tempfile.mkdtemp()
+    win = make(d)
+    win._on_cta()
+    # 🔑 판정기가 이유를 아직 안 세우는 판(통합 전)에도 배선을 볼 수 있게 미리 넣어 둔다 —
+    #    판정기가 세우면(통합 뒤 "dwell") 그 값이 덮어쓴다. 어느 쪽이든 「전이 직후 판정기 값」을 적어야 한다.
+    win.fsm.last_warn_reason = "slow"
+    t0 = time.monotonic()
+    win.fsm.update_vision("B4", t0)               # 1단계 차례에 오답 B4 에 임계를 넘겨 머문다 → 체류 경고
+    win.fsm.update_vision("B4", t0 + 1.5)
+    want = getattr(win.fsm, "last_warn_reason", None)
+    win.close()
+    st = [x for _t, k, x in events(d) if k == "state"]
+    warn = [x for x in st if x["new"] == "WARNING"]
+    check(warn and warn[0].get("reason") == want and want is not None, f"경고 사건 reason = {warn} · 판정기 {want}")
+    other = [x for x in st if x["new"] != "WARNING"]
+    check(other and all("reason" not in x for x in other), f"다른 상태 사건은 그대로(reason 없음) {other}")
+    check(warn and all(k in warn[0] for k in ("old", "expected", "frame_t_ms", "dwell_roi", "dwell_start_ms")),
+          f"기존 키 유지 {warn[:1]}")
+
+
 def test_off_is_null():
     print("\n[화면 기록] 측정을 켜지 않으면 화면·카메라 모두 NullLog")
     win = make(None)
@@ -251,6 +273,7 @@ if __name__ == "__main__":
     test_prompt_bar_centered()
     test_prompt_bar()
     test_events_flow()
+    test_warning_state_reason()
     test_off_is_null()
     test_gpio_edge_time()
     test_gpio_edge_bad_clock()

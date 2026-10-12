@@ -5,6 +5,7 @@
    카메라는 127.0.0.1 의 가짜 TCP 서버(4바이트 길이 + JPEG — ESP32 와 같은 모양)로 흉내 낸다.
 정본 = 상위 docs/superpowers/specs/2026-09-25-런타임-문제수정-design.md §9.2
 """
+import math
 import os
 import socket
 import struct
@@ -124,25 +125,70 @@ def test_c16_roi_carries_frame_time():
     except TypeError as e:
         check(False, f"프레임 시각을 받지 못한다 — {e}")
         return
-    check(got == [("", 0, 123.5)], f"roi_signal = {got} — 받은 시각이 실려야 한다")
+    # 판정 기준 안 B(설계 2026-10-12 §3) — 손끝 두 값이 뒤에 붙는다 · 손 없음 = NaN(값 비교가 안 되니 isnan 으로)
+    ok = (len(got) == 1 and len(got[0]) == 5 and got[0][:3] == ("", 0, 123.5)
+          and math.isnan(got[0][3]) and math.isnan(got[0][4]))
+    check(ok, f"roi_signal = {got} — 받은 시각 + 손끝 없음(NaN, NaN)이 실려야 한다")
+
+
+class _FakeHand:
+    """손 검출기 대역 — 늘 같은 손끝(화면 px · 회전 뒤)을 준다."""
+
+    def __init__(self, tip):
+        self.tip = tip
+        self.last_score = None
+
+    def detect(self, frame, draw_on=None):
+        return self.tip
+
+    def close(self):
+        pass
+
+
+def test_roi_carries_fingertip_vga():
+    """안 B — 손끝을 **VGA 기준 px**(화면 px ÷ px_scale)로 싣는다. 판정기 문턱이 VGA 기준이라 해상도가 바뀌어도 같은 뜻."""
+    print("\n[안 B] 손끝 좌표(VGA 기준)")
+    th = ct.CameraThread()
+    th._ensure_calibration(1024, 768)                # XGA → 배율 1.6(긴 변 ÷ 640)
+    th._undistort_map = th._full_map = None          # 보정 맵은 작은 시험 장과 크기가 달라 뺀다(배율만 본다)
+    th._hand = _FakeHand((160, 320))                 # 화면 px
+    got = []
+    th.roi_signal.connect(lambda *a: got.append(a))
+    th._process_frame(np.zeros((48, 64, 3), np.uint8), 5.0)
+    check(len(got) == 1 and len(got[0]) == 5, f"roi_signal = {got} — 다섯 값")
+    if len(got) == 1 and len(got[0]) == 5:
+        tx, ty = got[0][3], got[0][4]
+        check(abs(tx - 100.0) < 1e-6 and abs(ty - 200.0) < 1e-6, f"손끝 = ({tx}, {ty}) — (100, 200) 이어야 한다(÷1.6)")
 
 
 def test_c16_console_passes_frame_time():
-    """C16 — 콘솔은 받은 시각을 그대로 판정기에 넘긴다(time.time() 으로 바꾸지 않는다)."""
+    """C16 — 콘솔은 받은 시각을 그대로 판정기에 넘긴다(time.time() 으로 바꾸지 않는다). 안 B — 손끝도 tip= 으로."""
     print("\n[C16] 콘솔 → 판정기")
     import safety_console as sc
     calls = []
-    fake = types.SimpleNamespace(
-        fsm=types.SimpleNamespace(update_vision=lambda roi, now, level: calls.append((roi, now, level))),
-        _last_roi=None, _append_log=lambda m: None, _press_pending=None,   # 누름 확인 기억(프레임마다 판정 · 2026-10-07)
-        _measure=__import__("measure_log").NullLog(), _last_frame_t=None,   # 측정 기록 자리(꺼짐)
-        _hand_gate_off=lambda t: False, _hand_gate_was=False)                # 공구를 든 동안 손 판정 끔(공구 구간 설계 D4) — 여기선 꺼지지 않음
+
+    def fake_console(off):
+        return types.SimpleNamespace(
+            fsm=types.SimpleNamespace(update_vision=lambda roi, now, level, tip=None: calls.append((roi, now, level, tip)),
+                                      forget_observation=lambda: None),
+            _last_roi=None, _append_log=lambda m: None, _press_pending=None,   # 누름 확인 기억(프레임마다 판정 · 2026-10-07)
+            _measure=__import__("measure_log").NullLog(), _last_frame_t=None,   # 측정 기록 자리(꺼짐)
+            _hand_gate_off=lambda t: off, _hand_gate_was=off)                    # 공구를 든 동안 손 판정 끔(공구 구간 설계 D4)
+
+    fake = fake_console(False)
+    nan = float("nan")
     try:
-        sc.SafetyConsole._on_roi(fake, "B2", 2, 77.25)
+        sc.SafetyConsole._on_roi(fake, "B2", 2, 77.25)              # 손끝을 안 주는 옛 호출(시험들) — 기본값 NaN
+        sc.SafetyConsole._on_roi(fake, "B2", 2, 77.5, 10.0, 20.0)   # 손끝 있음
+        sc.SafetyConsole._on_roi(fake, "", 0, 77.75, nan, nan)      # 손끝 없음
+        sc.SafetyConsole._on_roi(fake_console(True), "B2", 2, 78.0, 10.0, 20.0)   # 손 판정 끔 — 손끝도 넣지 않는다
     except TypeError as e:
-        check(False, f"슬롯이 시각을 받지 못한다 — {e}")
+        check(False, f"슬롯이 시각·손끝을 받지 못한다 — {e}")
         return
-    check(calls == [("B2", 77.25, 2)], f"update_vision 인자 = {calls}")
+    check(calls[:1] == [("B2", 77.25, 2, None)], f"update_vision 인자(손끝 안 줌) = {calls[:1]}")
+    check(calls[1:2] == [("B2", 77.5, 2, (10.0, 20.0))], f"update_vision 인자(손끝 있음) = {calls[1:2]}")
+    check(calls[2:3] == [(None, 77.75, 2, None)], f"update_vision 인자(손끝 NaN) = {calls[2:3]}")
+    check(calls[3:4] == [(None, 78.0, 2, None)], f"update_vision 인자(손 판정 끔) = {calls[3:4]}")
 
 # ---------------------------------------------------------------- C12 프레임 처리 오류
 class _FakeCam:

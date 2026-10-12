@@ -599,6 +599,199 @@ def test_seen_between_keeps_transitions():
     fsm.update_vision(None, 2.0)
     assert [n for _, n in log["states"]][-2:] == [State.MONITOR, State.PROCESS_RUN]
 
+
+# ============================================================================
+# 판정 기준 안 B(2026-10-12) — 틀린 버튼 안쪽에서 느린 손끝 → 즉시 경고
+# 설계 = docs/superpowers/specs/2026-10-12-판정기준-안B-design.md §1 · 계획 Task 1
+# 속도 정의 = 오프라인 모의 ~/lab/판정처리분석-20261011/judge/rules.py annotate_speed · SpeedGate
+# 손끝 tip = (x, y) VGA 기준 px. 문턱 437.5(VGA) = XGA 700.
+# ============================================================================
+SLOW = 437.5   # config 기본값과 같지만 환경변수(SOP_SLOW_ENTRY_PX_S_VGA)에 흔들리지 않게 고정
+
+
+def make_slow_fsm(slow_px_s=SLOW, threshold=0.3, gap_fill=0.3):
+    """안 B 시험용 — 체류 0.3 · 갭메우기 0.3(config 기본과 같음) · 창 끔 · PROCESS_RUN 까지 기동.
+
+    log["warn"] = 경고로 갈 때 콜백 안에서 읽은 (체류 대상 버튼, 경고 이유, last_roi) —
+    콘솔이 그 순간 `_dwell_roi` · `last_warn_reason` 을 읽으므로 순서까지 본다.
+    """
+    log = {"warn": [], "feedback": []}
+    box = {}
+
+    def on_state(old, new):
+        if new == State.WARNING:
+            f = box["fsm"]
+            log["warn"].append((f._dwell_roi, f.last_warn_reason, f.last_roi))
+
+    fsm = SafetyFSM(step_count=4, dwell_threshold=threshold, gap_fill=gap_fill,
+                    window_n=0, slow_px_s=slow_px_s,
+                    on_state_change=on_state,
+                    on_feedback=lambda lv: log["feedback"].append(lv))
+    box["fsm"] = fsm
+    fsm.load_recipe()
+    return fsm, log
+
+
+def test_b_slow_entry_warns_immediately():
+    """안 B ① — 틀린 버튼 안쪽 첫 관측 장이 느리면(0.07초 · 10px ≈ 143px/s) 즉시 경고 · 이유 slow."""
+    fsm, log = make_slow_fsm()
+    fsm.update_vision(None, 0.0, tip=(100, 100))           # 구역 밖 손끝(직전 장)
+    assert fsm.state == State.PROCESS_RUN
+    fsm.update_vision("B3", 0.07, tip=(110, 100))          # 기대 B1 · B3 안쪽 첫 장 · 느림
+    assert fsm.state == State.WARNING
+    assert fsm.last_warn_reason == "slow"
+    assert log["warn"] == [("B3", "slow", "B3")], "경고 순간 체류 대상 버튼이 그 오답이어야 한다(세기 · 콘솔)"
+    assert Feedback.WARNING in log["feedback"]
+    assert fsm._dwell_roi is None, "경고 뒤 체류는 지금처럼 비운다"
+    assert fsm.expected_step == 1
+    fsm.release_warning()                                  # 경고 해제 → 이유도 지운다
+    assert fsm.state == State.MONITOR
+    assert fsm.last_warn_reason is None
+
+
+def test_b_fast_entry_falls_back_to_dwell():
+    """안 B ② — 빠르면(0.07초 · 200px ≈ 2,857px/s) 즉시 경고 없음 → 안쪽 체류 0.3초에 경고 · 이유 dwell."""
+    fsm, log = make_slow_fsm()
+    fsm.update_vision(None, 0.0, tip=(100, 100))
+    fsm.update_vision("B3", 0.07, tip=(300, 100))          # 빠름 → 체류 시작만
+    assert fsm.state == State.MONITOR
+    assert fsm.last_warn_reason is None
+    # 체류 중에도 손끝이 계속 빠르게 움직인다(200px / 0.07초) — 느림 규칙에 걸리지 않게
+    for i, t in enumerate((0.14, 0.21, 0.28, 0.35)):
+        fsm.update_vision("B3", t, tip=(100 if i % 2 == 0 else 300, 100))
+        assert fsm.state == State.MONITOR, f"{t}초 — 체류 0.28 < 0.3 이면 아직 경고 아님"
+    fsm.update_vision("B3", 0.42, tip=(100, 100))          # 여전히 빠름 · 0.42 − 0.07 = 0.35 ≥ 0.3
+    assert fsm.state == State.WARNING
+    assert fsm.last_warn_reason == "dwell"
+    assert log["warn"] == [("B3", "dwell", "B3")]
+
+
+def test_b_slow_on_excluded_buttons_does_not_warn():
+    """안 B ③ — 정답 버튼 · 방금 누른 버튼 · EMO 는 느려도 경고 없음(체류 판정 제외 그대로)."""
+    # 정답 버튼(B1)
+    fsm, _ = make_slow_fsm()
+    fsm.update_vision(None, 0.0, tip=(100, 100))
+    fsm.update_vision("B1", 0.07, tip=(105, 100))
+    fsm.update_vision("B1", 0.14, tip=(106, 100))
+    assert fsm.state == State.MONITOR and fsm.last_warn_reason is None
+
+    # 방금 누른 버튼(B1 완료 → 기대 B2 · 손가락이 B1 위에 그대로)
+    fsm, _ = make_slow_fsm()
+    fsm.update_vision("B1", 0.0, tip=(100, 100))
+    fsm.press_button("B1", 0.0)
+    assert fsm.correct_roi == "B2"
+    for i, t in enumerate((0.07, 0.14, 0.21, 0.28)):
+        fsm.update_vision("B1", t, tip=(101 + i, 100))
+    assert fsm.state == State.MONITOR and fsm.last_warn_reason is None
+
+    # EMO
+    fsm, _ = make_slow_fsm()
+    fsm.update_vision(None, 0.0, tip=(100, 100))
+    fsm.update_vision("EMO", 0.07, tip=(105, 100))
+    fsm.update_vision("EMO", 0.14, tip=(106, 100))
+    assert fsm.state == State.MONITOR and fsm.last_warn_reason is None
+
+
+def test_b_slow_in_ring_does_not_warn():
+    """안 B ④ — 링(접근)에서 느려도 경고 없음(링은 체류 누적만) · 안쪽에 들어온 장이 느리면 그때 즉시."""
+    fsm, _ = make_slow_fsm()
+    fsm.update_vision("B3", 0.0, level=RING, tip=(100, 100))
+    fsm.update_vision("B3", 0.07, level=RING, tip=(103, 100))     # 링 · 느림 → 없음
+    assert fsm.state == State.MONITOR
+    assert fsm.last_warn_reason is None
+    fsm.update_vision("B3", 0.14, level=INSIDE, tip=(106, 100))   # 안쪽 · 느림 · 체류 0.14 < 0.3
+    assert fsm.state == State.WARNING
+    assert fsm.last_warn_reason == "slow"
+
+
+def test_b_gap_filled_frame_does_not_judge_speed():
+    """안 B ⑤ — 갭메우기로 유지된 장은 「이 장에 본」 장이 아니라 속도 경고를 내지 않는다 · 다음 관측 장에서 판단.
+
+    🔑 손끝이 구역 밖에서 잡혔는데(roi=None · tip 있음) 갭메우기가 B3 를 유지하는 장이 실제로 이 가드를 시험한다 —
+       그 장은 손끝 속도가 느려도(직전 손끝과 2px) 경고하면 안 된다.
+    """
+    fsm, _ = make_slow_fsm()
+    fsm.update_vision("B3", 0.0, tip=(100, 100))           # 안쪽 첫 장 — 직전 손끝 없음 → 속도 모름
+    assert fsm.state == State.MONITOR
+    fsm.update_vision(None, 0.07)                          # 갭메우기 유지(B3) · 손끝 없음
+    assert fsm.state == State.MONITOR
+    fsm.update_vision(None, 0.14, tip=(102, 100))          # 갭메우기 유지(B3) · 손끝은 구역 밖 · 느림
+    assert fsm.state == State.MONITOR, "갭메우기 장은 느려도 속도 경고를 내지 않는다"
+    assert fsm.last_warn_reason is None
+    fsm.update_vision("B3", 0.21, tip=(104, 100))          # 다음 관측 장 · 느림 · 체류 0.21 < 0.3
+    assert fsm.state == State.WARNING
+    assert fsm.last_warn_reason == "slow"
+
+
+def test_b_stale_previous_tip_means_unknown_speed():
+    """안 B ⑥ — 직전 손끝이 0.25초보다 오래됐거나 직전 3장 밖이면 속도 모름 → 체류 규칙으로."""
+    # 0.25초보다 오래됨
+    fsm, _ = make_slow_fsm()
+    fsm.update_vision(None, 0.0, tip=(100, 100))
+    fsm.update_vision("B3", 0.30, tip=(102, 100))          # 0.30초 전 손끝 → 속도 모름
+    assert fsm.state == State.MONITOR
+    fsm.update_vision("B3", 0.45)                          # 손끝 없음 → 속도 모름
+    assert fsm.state == State.MONITOR
+    fsm.update_vision("B3", 0.65)                          # 체류 0.35 ≥ 0.3
+    assert fsm.state == State.WARNING
+    assert fsm.last_warn_reason == "dwell"
+
+    # 직전 3장 밖(0.25초 안이어도) — 손끝 있는 장 뒤로 손끝 없는 장이 3장
+    fsm, _ = make_slow_fsm()
+    fsm.update_vision(None, 0.00, tip=(100, 100))
+    for t in (0.03, 0.06, 0.09):
+        fsm.update_vision(None, t)                         # update_vision 이 불린 장 = 구역과 상관없이 센다
+    fsm.update_vision("B3", 0.12, tip=(101, 100))          # 손끝 있는 장이 4장 전 → 속도 모름
+    assert fsm.state == State.MONITOR
+    assert fsm.last_warn_reason is None
+
+
+def test_b_threshold_zero_is_current_rule():
+    """안 B ⑦ — 문턱 0(끔) = 지금 규칙: 손끝이 멈춰 있어도(속도 0) 즉시 경고 없음 → 체류 0.3초에 dwell."""
+    fsm, log = make_slow_fsm(slow_px_s=0)
+    fsm.update_vision(None, 0.0, tip=(100, 100))
+    fsm.update_vision("B3", 0.07, tip=(100, 100))          # 속도 0 — 0 ≤ 0 이어도 끔이면 없음
+    assert fsm.state == State.MONITOR
+    fsm.update_vision("B3", 0.14, tip=(100, 100))
+    fsm.update_vision("B3", 0.28, tip=(100, 100))
+    assert fsm.state == State.MONITOR
+    fsm.update_vision("B3", 0.42, tip=(100, 100))          # 체류 0.35 ≥ 0.3
+    assert fsm.state == State.WARNING
+    assert fsm.last_warn_reason == "dwell"
+    assert log["warn"] == [("B3", "dwell", "B3")]
+
+
+def test_b_default_threshold_from_config():
+    """안 B — slow_px_s 를 안 주면 config 값(환경변수 SOP_SLOW_ENTRY_PX_S_VGA · 기본 437.5 = XGA 700)."""
+    import config
+    assert SafetyFSM().slow_px_s == config.FSM_SLOW_ENTRY_PX_S_VGA
+    assert config.FSM_SPEED_BACK_SEC == 0.25
+    assert config.FSM_SPEED_BACK_N == 3
+
+
+def test_b_forget_and_reset_clear_previous_tips():
+    """안 B ⑧ — 재연결(forget_observation) · 작업 초기화(reset) 뒤에는 직전 손끝이 없어 첫 장 속도 모름."""
+    fsm, _ = make_slow_fsm()
+    fsm.update_vision(None, 0.0, tip=(100, 100))
+    fsm.forget_observation()                               # 카메라 재연결
+    fsm.update_vision("B3", 0.07, tip=(101, 100))          # 이어 붙으면 느림(14px/s)인데 — 속도 모름
+    assert fsm.state == State.MONITOR
+    assert fsm.last_warn_reason is None
+
+    fsm, _ = make_slow_fsm()
+    fsm.update_vision(None, 0.0, tip=(100, 100))
+    fsm.update_vision("B3", 0.07, tip=(101, 100))          # 느림 → 경고 · 이유 slow
+    assert fsm.last_warn_reason == "slow"
+    fsm.update_vision(None, 0.10, tip=(101, 100))          # 초기화 직전 손끝
+    fsm.reset()
+    assert fsm.state == State.IDLE
+    assert fsm.last_warn_reason is None, "작업 초기화는 경고 이유도 지운다"
+    fsm.load_recipe()
+    fsm.update_vision("B3", 0.14, tip=(102, 100))          # 직전 손끝이 지워져 속도 모름
+    assert fsm.state == State.MONITOR
+    assert fsm.last_warn_reason is None
+
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

@@ -226,8 +226,10 @@ class CameraThread(QThread):
     change_pixmap_signal      = pyqtSignal(QImage)
     log_signal                = pyqtSignal(str)
     yolo_detections_signal    = pyqtSignal(list)
-    roi_signal                = pyqtSignal(str, int, float)  # (버튼 ROI 라벨, 단계, 프레임을 받은 시각) — ""·0 = 없음
-                                                 # 🔴 @pyqtSlot(str, int, float) 와 짝을 맞출 것(C16)
+    roi_signal                = pyqtSignal(str, int, float, float, float)  # (버튼 ROI 라벨, 단계, 프레임을 받은 시각,
+                                                 #  손끝 x, y — VGA 기준 px(화면 px ÷ px_scale · 판정 기준 안 B 설계 §3))
+                                                 # ""·0 = 없음 · 손끝 없음 = NaN
+                                                 # 🔴 @pyqtSlot(str, int, float, float, float) 와 짝을 맞출 것(C16)
                                                      # 단계 2=박스 안(위험) / 1=링(접근). roi_zones 참조
     connect_failed_signal     = pyqtSignal(int)   # 연속 실패 횟수 — 알림용
     tool_signal               = pyqtSignal(list, object)  # (dets, fingertip) — A-2 공구 판정 입력
@@ -253,6 +255,7 @@ class CameraThread(QThread):
         self._full_map           = None   # 안2 — 반전·보정·회전 합친 맵(설계 2026-10-12 §3)
         self._lock               = threading.Lock()
         self._ring_px            = config.HAND_ROI_RING_PX_VGA   # 첫 프레임에 해상도 비례로 정한다
+        self._px_scale           = 1.0       # 화면 px ÷ 이 값 = VGA 기준 px(손끝 · 판정 기준 안 B) — 링과 함께 정한다
         self._calib_wh           = None      # 보정·링을 정한 프레임 크기 — 바뀌면 다시 정한다
 
         # 지연 개선: 수신 전용 스레드 → 최신 프레임만 유지
@@ -383,6 +386,7 @@ class CameraThread(QThread):
         self._undistort_map = maps
         self._full_map = frame_orient.full_map(maps, w, h) if config.ORIENT_ONE_REMAP else None
         self._ring_px = frame_orient.ring_px(w, h)
+        self._px_scale = frame_orient.px_scale(w, h)
         if maps is None:
             self.log_signal.emit(f"[캘리브레이션] {w}×{h} 보정 파일 없음({status}) — "
                                  f"test/calib_capture.py 로 만들 것. 보정 없이 진행")
@@ -834,8 +838,8 @@ class CameraThread(QThread):
             self._m_row["tip"] = fingertip
             self._m_row["tip_score"] = getattr(self._hand, "last_score", None) or ""
 
-        # 🔴 집계 전용이다 — 판정에 쓰지 않는다. roi_signal 은 ROI 라벨만 주므로
-        #    「ROI 밖의 손」과 「손 없음」이 구별되지 않는다(설계 §3.6).
+        # 🔴 집계 전용이다 — 판정에 쓰지 않는다. 처음 만들 때 roi_signal 은 ROI 라벨만 주어
+        #    「ROI 밖의 손」과 「손 없음」이 구별되지 않았다(설계 §3.6 · 지금은 손끝도 싣지만 집계는 이쪽 그대로).
         self.hand_signal.emit(fingertip is not None)
 
         # 공구 검출(A-2) — 서브 작업 동안만. 🔑 손끝을 **같은 프레임의 것**으로
@@ -871,7 +875,10 @@ class CameraThread(QThread):
         self._mark("zone_ms", t0)
         if self._m_row is not None:
             self._m_row["roi"], self._m_row["level"] = roi, level
-        self.roi_signal.emit(roi or "", level or 0, t)
+        # 🔑 손끝은 VGA 기준으로 싣는다 — 판정기의 속도 문턱(px/s)이 VGA 기준이라 해상도가 바뀌어도 같은 뜻(안 B 설계 §3)
+        tx, ty = ((fingertip[0] / self._px_scale, fingertip[1] / self._px_scale) if fingertip
+                  else (float("nan"), float("nan")))
+        self.roi_signal.emit(roi or "", level or 0, t, float(tx), float(ty))
 
         if sink is not None:
             sink(frame, clean_frame)

@@ -26,12 +26,13 @@ F=$(ask "펌웨어 (엔터 = glass_voice)")
 G=$(ask "안경 전원 (엔터 = 무선·배터리 · 2 = 유선·USB)")
 # 🔑 처리 설정은 번호로 — 환경변수를 손으로 치지 않는다 · 셸에 남은 값을 먼저 지운다(학교 방문 준비 설계 §3.4 · Review Focus 1)
 unset SOP_ORIENT_ONE_REMAP SOP_DISPLAY_PAINT SOP_DISPLAY_EVERY SOP_INFER_MODEL SOP_PIPELINE2
-echo "  처리 설정: 1 1단계(기본) · 2 종전 · 3 1단계+화면 덜 그리기 · 4 1단계+2a · 5 1단계+2a+2b"
+echo "  처리 설정: 1 1단계 · 2 종전 · 3 1단계+화면 덜 그리기 · 4 1단계+2a(시연 런처 기본) · 5 1단계+2a+2b"
 PR=$(ask "처리 설정 (엔터 = 1)")
+# 🔴 1~3 은 2a 끔을 명시한다 — 시연 런처(run_demo.sh)가 값이 없으면 2a 를 켜므로(2026-10-12) 비워 두면 4 처럼 돈다
 case "${PR:-1}" in
-  1) ;;
-  2) export SOP_ORIENT_ONE_REMAP=0 SOP_DISPLAY_PAINT=0 ;;
-  3) export SOP_DISPLAY_EVERY=2 ;;
+  1) export SOP_INFER_MODEL=0 ;;
+  2) export SOP_ORIENT_ONE_REMAP=0 SOP_DISPLAY_PAINT=0 SOP_INFER_MODEL=0 ;;
+  3) export SOP_DISPLAY_EVERY=2 SOP_INFER_MODEL=0 ;;
   4) export SOP_INFER_MODEL=1 ;;
   5) export SOP_INFER_MODEL=1 SOP_PIPELINE2=1 ;;
   *) echo "  ❌ 처리 설정 「${PR}」 은(는) 1~5 가운데 하나여야 한다 — 다시 실행하세요"

@@ -29,14 +29,14 @@ def _script_file(d):
     return p
 
 
-def _runner(answers, extra_env=None):
-    """실행기를 표준입력 답으로 돌린다 — 시연 대신 환경변수를 적어 두는 스크립트를 띄운다."""
+def _runner(answers, extra_env=None, launcher=None):
+    """실행기를 표준입력 답으로 돌린다 — 시연 대신 환경변수를 적어 두는 스크립트를 띄운다(launcher = 다른 가짜 런처)."""
     d = tempfile.mkdtemp()
     probe = os.path.join(d, "probe.sh")
     with open(probe, "w") as f:
         f.write('#!/bin/bash\nenv | grep -E "^SOP_(ORIENT|DISPLAY|INFER|PIPELINE)" | sort > "$PROBE_OUT"\n')
-    env = dict(os.environ, SOP_REHEARSAL="1", SOP_MEASURE_BASE=os.path.join(d, "measure"), SOP_DEMO_LAUNCHER=probe,
-               PROBE_OUT=os.path.join(d, "env.txt"), **(extra_env or {}))
+    env = dict(os.environ, SOP_REHEARSAL="1", SOP_MEASURE_BASE=os.path.join(d, "measure"),
+               SOP_DEMO_LAUNCHER=launcher or probe, PROBE_OUT=os.path.join(d, "env.txt"), **(extra_env or {}))
     r = subprocess.run(["bash", os.path.join(_DEMO_DIR, "run_measure.sh")], input="\n".join(answers) + "\n\n\n",
                        capture_output=True, text=True, env=env, timeout=60)
     seen = open(env["PROBE_OUT"]).read().split() if os.path.exists(env["PROBE_OUT"]) else None
@@ -54,15 +54,47 @@ def test_processing_numbers():
     print("\n[실행기] 처리 설정 번호 → 스위치 · 셸에 남은 스위치는 먼저 지운다(Review Focus 1)")
     stale = {"SOP_DISPLAY_EVERY": "2", "SOP_INFER_MODEL": "1"}
     r, seen, sessions = _runner(_answers(processing=""), stale)
-    check(seen == [], f"엔터(1 = 1단계) → 남은 스위치 없음 · {seen} · {r.stderr[-200:]}")
+    # 🔴 1~3 은 2a 끔을 명시한다 — 시연 런처가 값이 없으면 2a 를 켜므로(판정 기준 안 B 설계 §3 · 2026-10-12)
+    check(seen == ["SOP_INFER_MODEL=0"], f"엔터(1 = 1단계) → 남은 스위치 없음 · 2a 끔 명시 · {seen} · {r.stderr[-200:]}")
     s = json.load(open(os.path.join(sessions[0], "session.json"), encoding="utf-8"))
     check(s["설정"]["DISPLAY_EVERY"] == 1 and s["설정"]["INFER_MODEL"] is False, f"session.json 설정 {s['설정'].get('INFER_MODEL')}")
-    r, seen, _ = _runner(_answers(processing="2"))
-    check(seen == ["SOP_DISPLAY_PAINT=0", "SOP_ORIENT_ONE_REMAP=0"], f"2 = 종전 → {seen}")
-    r, seen, _ = _runner(_answers(processing="5"))
-    check(seen == ["SOP_INFER_MODEL=1", "SOP_PIPELINE2=1"], f"5 = 1단계+2a+2b → {seen}")
+    for pr, want in (("1", ["SOP_INFER_MODEL=0"]),
+                     ("2", ["SOP_DISPLAY_PAINT=0", "SOP_INFER_MODEL=0", "SOP_ORIENT_ONE_REMAP=0"]),
+                     ("3", ["SOP_DISPLAY_EVERY=2", "SOP_INFER_MODEL=0"]),
+                     ("4", ["SOP_INFER_MODEL=1"]),
+                     ("5", ["SOP_INFER_MODEL=1", "SOP_PIPELINE2=1"])):
+        r, seen, _ = _runner(_answers(processing=pr))
+        check(seen == want, f"{pr} → {seen}")
     r, seen, sessions = _runner(_answers(processing="9"))
     check(r.returncode != 0 and seen is None and sessions == [], f"없는 번호 → 시연 · 폴더 없이 멈춤(코드 {r.returncode})")
+
+
+def _demo_copy():
+    """진짜 run_demo.sh 를 임시 폴더에 복사 — main.py 는 가짜(2a 스위치만 적는다 · GUI 를 띄우지 않는다)."""
+    import shutil
+    d = tempfile.mkdtemp()
+    shutil.copy(os.path.join(_DEMO_DIR, "run_demo.sh"), d)
+    with open(os.path.join(d, "main.py"), "w", encoding="utf-8") as f:
+        f.write('import os\nopen(os.environ["PROBE_OUT"], "w").write("SOP_INFER_MODEL=" + os.environ.get("SOP_INFER_MODEL", "없음"))\n')
+    return os.path.join(d, "run_demo.sh")
+
+
+def test_demo_launcher_default_2a():
+    print("\n[시연 런처] 셸에 값이 없으면 2a 켬 · 실행기는 번호대로(판정 기준 안 B 설계 §3 · 학교 처리 비교 2026-10-12)")
+    demo = _demo_copy()
+    out = os.path.join(os.path.dirname(demo), "env.txt")
+    base = {k: v for k, v in os.environ.items() if k != "SOP_INFER_MODEL"}
+    for given, want in ((None, "1"), ("", "1"), ("0", "0"), ("1", "1")):
+        env = dict(base, SOP_VOICE="0", PROBE_OUT=out, **({} if given is None else {"SOP_INFER_MODEL": given}))
+        if os.path.exists(out):
+            os.remove(out)
+        r = subprocess.run(["bash", demo], env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+        seen = open(out).read() if os.path.exists(out) else None
+        check(r.returncode == 0 and seen == f"SOP_INFER_MODEL={want}", f"셸 값 {given!r} → 런처 안 {seen} · 코드 {r.returncode}")
+    # 실행기 → 진짜 런처: 1~3 이 런처 기본(2a 켬)에 끌려가지 않는다
+    for pr, want in (("1", "0"), ("2", "0"), ("3", "0"), ("4", "1"), ("5", "1")):
+        r, seen, _ = _runner(_answers(processing=pr), {"SOP_VOICE": "0"}, launcher=_demo_copy())
+        check(seen == [f"SOP_INFER_MODEL={want}"], f"실행기 처리 설정 {pr} → 런처 안 {seen} · {r.stderr[-200:]}")
 
 
 def test_from_run():
@@ -130,6 +162,7 @@ def test_stray_rehearsal_vars():
 
 if __name__ == "__main__":
     test_processing_numbers()
+    test_demo_launcher_default_2a()
     test_from_run()
     test_measure_base_followed()
     test_report_processing_line()

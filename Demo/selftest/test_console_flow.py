@@ -99,6 +99,22 @@ def test_boot():
     win.close()
 
 
+def test_roi_signal_tip_reaches_fsm():
+    """판정 기준 안 B — 카메라 신호의 손끝이 **실제 연결**로 판정기 tip 까지 간다.
+
+    🔴 PyQt 는 인자가 더 많은 신호를 인자가 적은 슬롯(@pyqtSlot(str, int, float))에 붙여도 오류 없이
+       앞 세 값만 넘긴다 — 슬롯 데코레이터를 안 맞추면 손끝이 조용히 버려져 기동 시험(test_boot)이 못 잡는다.
+    """
+    print("\n[안 B] 신호 → 콘솔 → 판정기 손끝")
+    win = make_console()
+    got = []
+    win.fsm.update_vision = lambda roi, now, level=2, tip=None: got.append((roi, now, level, tip))   # 판정기 대역(인자만 본다)
+    win.camera_thread.roi_signal.emit("B2", 2, 50.0, 10.0, 20.0)
+    win.camera_thread.roi_signal.emit("", 0, 50.1, float("nan"), float("nan"))
+    check(got == [("B2", 50.0, 2, (10.0, 20.0)), (None, 50.1, 2, None)], f"판정기가 받은 값 = {got}")
+    win.close()
+
+
 def test_letterbox_geometry():
     """🔴 영상이 가운데 4:3, 좌우가 검정 레터박스인가 (design §1)."""
     print("\n[2] 레터박스")

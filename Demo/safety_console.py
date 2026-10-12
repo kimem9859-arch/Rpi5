@@ -1,3 +1,4 @@
+import math
 import os
 import statistics
 import time
@@ -1009,13 +1010,15 @@ class SafetyConsole(QMainWindow):
     # =========================================================================
     # [판정부 FSM — 인식 입력 / 상태 출력]  통합문서 §8·§9
     # =========================================================================
-    @pyqtSlot(str, int, float)   # 🔴 시그널(str, int, float)과 반드시 일치해야 한다 — 어긋나면 기동 즉시 TypeError
-    def _on_roi(self, roi, level, t):
-        """HOI 결과(손끝이 든 버튼 ROI + 구역 단계)를 FSM 비전 틱으로 전달.
+    @pyqtSlot(str, int, float, float, float)   # 🔴 시그널(str, int, float, float, float)과 반드시 일치해야 한다 —
+    # 슬롯이 더 길면 기동 즉시 TypeError · 더 짧으면 오류 없이 손끝이 버려진다(시험 test_roi_signal_tip_reaches_fsm)
+    def _on_roi(self, roi, level, t, tx=float("nan"), ty=float("nan")):
+        """HOI 결과(손끝이 든 버튼 ROI + 구역 단계 + 손끝)를 FSM 비전 틱으로 전달.
 
         level: 2=박스 안(위험) / 1=링(접근) / 0=밖. 상세 = roi_zones.py
         t: 카메라가 그 프레임을 다 받은 시각(`time.monotonic()`) — 🔴 여기서 `time.time()` 으로 바꾸지
            않는다. GUI 가 신호를 처리한 시각은 GUI 가 멈췄다 풀리면 몰려 체류가 흔들렸다(검토 C16·U18).
+        tx, ty: 손끝 VGA 기준 px — 손 없음 = NaN(판정 기준 안 B 설계 §3 · 판정기가 손끝 속도를 잰다)
         """
         off = self._hand_gate_off(t)
         if off != self._hand_gate_was:
@@ -1029,7 +1032,9 @@ class SafetyConsole(QMainWindow):
                              else "[손 판정] 켬")
         # 🔑 공구를 든 동안은 「손이 버튼 구역에 없다」로 넣는다(D4) — 공구를 보여주다 검지 끝이 버튼과
         #    겹쳐도 경고가 나지 않는다. 판정기(FSM)는 고치지 않는다 — 넣는 값만 바꾼다.
-        self.fsm.update_vision(None if off else (roi or None), t, level or ZONE_INSIDE)
+        #    손끝도 같다 — 끈 동안은 넣지 않는다(속도 판정도 쉰다).
+        tip = None if (off or math.isnan(tx) or math.isnan(ty)) else (tx, ty)
+        self.fsm.update_vision(None if off else (roi or None), t, level or ZONE_INSIDE, tip=tip)
         self._last_frame_t = t
         if self._measure.enabled:
             # 판정기 시점 — 갭메우기 뒤 보고 있는 버튼(도구가 갭메우기를 다시 구현하지 않게 · 측정 도구 정합 §4.3)
@@ -1860,11 +1865,13 @@ class SafetyConsole(QMainWindow):
     #   종전의 _STATE_COLOR 표는 config 의 단일 테마 색을 직접 쓰고 있어 제거했다.
 
     def _on_fsm_state(self, old, new):
+        # 경고로 갈 때만 이유("slow" 느린 손끝 · "dwell" 체류)를 더 적는다(판정 기준 안 B 설계 §3) — 다른 상태는 그대로
+        why = {"reason": getattr(self.fsm, "last_warn_reason", None)} if new == State.WARNING else {}
         self._measure.event("state", old=old.name, new=new.name, expected=self.fsm.correct_roi,
                             frame_t_ms=measure_log.now_ms(self._last_frame_t) if self._last_frame_t else None,
                             dwell_roi=getattr(self.fsm, "_dwell_roi", None),
                             dwell_start_ms=(measure_log.now_ms(self.fsm._dwell_start)
-                                            if getattr(self.fsm, "_dwell_start", None) else None))
+                                            if getattr(self.fsm, "_dwell_start", None) else None), **why)
         self.status_panel.update_view(new.value, self.fsm.expected_step)
         self._append_log(f"[FSM] {old.value} → {new.value}")
 

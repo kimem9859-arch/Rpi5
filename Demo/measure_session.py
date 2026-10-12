@@ -39,7 +39,8 @@ SETTINGS = ("FSM_DWELL_THRESHOLD_SEC", "FSM_GAP_FILL_SEC", "PRESS_CONFIRM_WINDOW
             "TOOL_ENABLED", "TOOL_BACKEND", "TOOL_HEF_PATH", "TOOL_NAMES", "TOOL_MODEL_PATH", "TOOL_WORKER_PYTHON",
             "INTERLOCK_ENABLED", "GPIO_INPUT_ENABLED", "VOICE_ALERTS", "LLM_ENABLED", "DEMO_CAPTURE",
             "ORIENT_ONE_REMAP", "DISPLAY_SCALE_IN_PAINT", "DISPLAY_EVERY",   # 처리 흐름 1단계(설계 2026-10-12 §3)
-            "INFER_MODEL", "PIPELINE2")                                      # 처리 2단계(학교 방문 준비 설계 §3.4)
+            "INFER_MODEL", "PIPELINE2",                                      # 처리 2단계(학교 방문 준비 설계 §3.4)
+            "FSM_SLOW_ENTRY_PX_S_VGA")                                       # 느린 손끝 즉시 경고 문턱(판정 기준 안 B 설계 §3)
 
 
 def session_dir_name(place, kind, now=None):

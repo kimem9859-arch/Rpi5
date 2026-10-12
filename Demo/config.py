@@ -183,6 +183,18 @@ FSM_DWELL_THRESHOLD_SEC = 0.3
 # 없으면 한 프레임만 놓쳐도 체류가 리셋된다. §10.22 실측: 0.3초만 넣어도
 # 선행시간 median 0.38s → 0.55s, 개입 감지 85% → 92%.
 FSM_GAP_FILL_SEC        = 0.3
+# 오입력 직전(안 B) — 틀린 버튼 **안쪽 상자**에서 **이 장에 실제로 본** 손끝(갭메우기로 채운 장 아님)의
+# 속도가 이 값 이하이면 체류를 기다리지 않고 즉시 WARNING. 아니면 위 체류 규칙 그대로.
+# 단위 = VGA 기준 화면 px/s — XGA 700 = 437.5 × `frame_orient.px_scale` 1.6(링 HAND_ROI_RING_PX_VGA 와 같은 방식).
+# 근거 = 오프라인 모의(~/lab/판정처리분석-20261011/judge/rules.py SpeedGate · spec 2026-10-12-판정기준-안B).
+# 🔴 모의 수치는 설계 근거용이다(1인 · 장소1 · 기록을 보고 고른 값) — 판정은 다시 재기로 한다.
+# 🔴 0 이하 = 끔 = 종전 규칙(체류만) — 되돌리기 `SOP_SLOW_ENTRY_PX_S_VGA=0`.
+FSM_SLOW_ENTRY_PX_S_VGA = float(os.environ.get("SOP_SLOW_ENTRY_PX_S_VGA", "437.5"))
+# 속도 = 이 장 손끝과, 직전 N 장(update_vision 이 불린 장 · 구역과 상관없음) 가운데 손끝이 있는
+# 가장 가까운 장(BACK 초 안) 사이 거리 ÷ 시간. 그런 장이 없으면 속도 모름 → 체류 규칙.
+# 🔴 모의 annotate_speed 와 같은 정의 — 바꾸면 모의 근거가 그대로 옮겨오지 않는다.
+FSM_SPEED_BACK_SEC      = 0.25
+FSM_SPEED_BACK_N        = 3
 # 누름 카메라 확인(설계 docs/superpowers/specs/2026-09-30-누름-카메라확인-design.md) — 잠정값.
 # GPIO 로 누른 맞는 버튼을 누른 시각 −WINDOW ~ +GRACE 안에 손이 그 버튼 구역에서 관측됐나.
 # 못 봤으면 단계는 진행하고 **누른 뒤 +GRACE 까지의 프레임이 처리되는 즉시** 안내(NOTICE 초 · 사용자 2026-10-07
