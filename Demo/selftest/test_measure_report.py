@@ -433,6 +433,37 @@ def test_slow_entry_report():
           and "- 경고 이유 — 속도 1 · 체류 0 · 이유 없음(옛 기록) 1" in m_mix, "섞이면 켠 세션 수를 단다 · 이유는 합친다")
 
 
+def test_voice_values():
+    print("\n[V5~V8] guide.csv 의 말 띠(say · said)를 읽어 세고 ②에 적는다 · V7 사람 판정 목록(음성비서 빠른 해결 설계 §2.4)")
+    J = lambda **d: json.dumps(d, ensure_ascii=False)     # noqa: E731
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, "통합.md")
+        _write(p, TABLE)
+        d = make_session(os.path.join(tmp, "v"), script="판,행동,대상,기대,메모\n1,위반,B3,,\n1,질문,지금 몇 단계야?,1단계(클린·가스차단),\n")
+        _csv(os.path.join(d, "guide.csv"), ["t_ms", "kind", "data"],
+             [[950, "cue", J(run=1, script=1, tok=0, key="cue_B1")],
+              [1000, "say", J(run=1, script=1, tok=1, text="지금 몇 단계야?", emergency=False)],
+              [1200, "said", J(run=1, tok=1, why="질문", attempts=1)]])
+        _csv(os.path.join(d, "voice_events.csv"), ["t_ms", "kind", "data"],
+             [[1100, "stt", J(text="가디언 지금 몇 단계야", stt_ms=40, utter_sec=1.0)], [1150, "wake", "{}"],
+              [1300, "answer", J(src="LLM", text="지금 2단계입니다.")], [1350, "play_start", J(key=None)]])
+        S = MR.load_session(d)
+        check([k for _, k, _ in S["says"]] == ["say", "said"], f"말 띠 = say · said 만 · {S['says']}")
+        per = [MC.count_all(S, 15.0)]
+        md = MR.render([S], per, MC.merge(per), MR.load_targets(p))
+        check("V5 호출 인식 — 말 띠 1개" in md and "호출 1(100.0%)" in md, "V5 줄")
+        check("V6 받아쓰기 — 글자 오류율 0.0%" in md, "V6 줄")
+        check("V7 답 지연 — 질문 받아쓰기 → 답 보내기 중앙 0.200초" in md and "LLM 0.200초(1)" in md, "V7 지연 줄")
+        check("틀림 후보 1" in md and "V7 사람 판정 목록" in md and "「지금 2단계입니다.」" in md, "V7 초벌 · 사람 판정 목록")
+        check("V8 비상 중 무반응 — 해당 없음" in md, "V8 — 비상 중 호출 없음")
+        print("  — 음성 기록 · guide.csv 가 없는 세션(알림 끔 · 음성 끔 · 옛 세션)은 죽지 않고 해당 없음")
+        S = MR.load_session(make_session(os.path.join(tmp, "old")))
+        per = [MC.count_all(S, 15.0)]
+        md = MR.render([S], per, MC.merge(per), MR.load_targets(p))
+        check(S["says"] == [] and all(f"{v} — 음성 기록 없음" in md for v in ("V5 호출 인식", "V6 받아쓰기", "V7 답", "V8 비상 중 무반응")),
+              "V5~V8 = 음성 기록 없음")
+
+
 if __name__ == "__main__":
     for _name, _fn in list(globals().items()):
         if _name.startswith("test_") and callable(_fn):

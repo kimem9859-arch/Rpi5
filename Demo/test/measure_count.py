@@ -8,12 +8,14 @@ S(세션 하나) — measure_report.load_session 이 만든다:
     "frames" [{frame, t(=t_recv_ms), seq, t_start, t_done, roi, level, decode_ms…zone_ms}] (t 순)
     "fsm"    [{t(=t_recv_ms), t_gui, roi, level, state, expected}] (t 순)
     "events" · "voice" [(t_ms, kind, data)] (t_ms 순) · "script" [{판, 행동, 대상, 기대, 메모}] 또는 None
+    "says"   guide.csv 의 말 띠 [(t_ms, "say"|"said", data)] (t_ms 순 · 없으면 빈 목록 · 옛 꼴은 키가 없다)
     "emo" EMO 버튼 이름 · "rate" 마이크 표본률
 🔴 판정을 다시 하지 않는다 — 시연 프로그램이 적은 상태·구역·시각을 센다(측정도구 스킬 「재구현하지 않는다」).
 🔴 기준 값을 여기 따로 적지 않는다 — 시연·측정 쪽에서 읽는다(설계 §3-b). 아래 상수는 세기에만 있는 값이다.
 """
 import bisect
 import os
+import re
 import sys
 
 _TEST = os.path.dirname(os.path.abspath(__file__))
@@ -23,14 +25,20 @@ sys.path.insert(0, _TEST)                       # Demo/test/ — hoi_metrics
 import fps            # noqa: E402 — FPS 창·끊김 = 시연 화면과 같은 상수
 import hoi_metrics    # noqa: E402 — 사전 감지·선행시간·구간 판정 규칙 단일 출처
 import measure_script  # noqa: E402 — 대본 행동 · 판 맞춤 단일 출처(진행 도우미 설계 D3)
+import voice_lib      # noqa: E402 — 호출어 떼기 단일 출처(음성비서가 질문에서 떼는 규칙 그대로 · V6)
 
 # ── 세기에만 있는 값(설계 §3-b 마지막 행) ──────────────────────────────────
 EDGE_PAIR_MS = 500.0                    # 누름 ↔ 같은 버튼 GPIO 엣지 짝 — 화면 처리 시각 앞 0.5초 안(디바운스 0.05초보다 넉넉히)
 CURVE_STEPS = tuple(round(0.10 + 0.05 * i, 2) for i in range(19))    # 체류 두 곡선 문턱 0.10~1.00초
 ALERT_WAIT_MS = 3000.0                  # 알림·해제 뒤 재생 시작·멈춤을 기다리는 한도 — 넘으면 「없음」
-ALERT_MATCH_MS = (-100.0, 1000.0)       # 경고·차단 전이 시각 대비 알림 「상태 공개 시각」 짝 범위(앞·뒤)
+ALERT_MATCH_MS = (-100.0, 1000.0)       # 경고·차단 전이 시각 대비 알림 「상태 공개 시각」 짝 범위(앞·뒤) — 뒤는 다음 상태 바뀜에서 자른다
 BYTES_PER_SAMPLE = 2                    # 마이크 업링크 = int16 · 1채널(voice_mic 형식)
 GAP_MAX_SEC = 2.0                       # 28 — 이보다 긴 공백은 손을 떼고 돌아온 것(손 놓침 아님 · 갭메우기 0.3초의 몇 배)
+WAKE_PAD_MS = 1000.0                    # V5 — said 뒤 여유(데몬의 호출 사건이 진행 도우미 said 보다 늦게 적힐 수 있다)
+ANSWER_PLAY_MS = 3000.0                 # V7 — 답 보내기 직전(answer) → 그 답의 재생 시작을 기다리는 한도
+EMERGENCY_PAD_MS = 500.0                # V8 — 차단 해제 뒤에도 비상 구간으로 보는 여유(데몬이 상태를 다시 읽기 전)
+ANSWER_GROUPS = ("LLM", "즉답", "그 밖")  # V7 답 출처 묶음(_src_group) — 보고서 순서
+DONE_WORDS = ("끝", "완료")              # V7 초벌 — 기대 칸의 「끝/완료」는 답에 둘 중 하나
 
 RUN_STATES = ("PROCESS_RUN", "MONITOR", "WARNING")     # 판이 진행 중인 판정기 상태(fsm.State 이름)
 ACTIONS = measure_script.ACTIONS                       # 대본 행동 — 단일 출처(진행 도우미 설계 D3)
@@ -137,11 +145,12 @@ def split_recording(S):
     S = dict(S, first_res_t=res_t[0] if res_t else None)              # 세션 첫 res — 두 쪽 다 이것만 뺀다(v_res)
     inside = lambda t: any(a <= t <= b for a, b, _ in spans)             # noqa: E731
     pick = lambda rows, key, keep: [r for r in rows if inside(key(r)) != keep]   # noqa: E731
-    lists = {"events": lambda e: e[0], "voice": lambda e: e[0], "frames": lambda r: r["t"], "fsm": lambda r: r["t"]}
+    lists = {"events": lambda e: e[0], "voice": lambda e: e[0], "frames": lambda r: r["t"], "fsm": lambda r: r["t"],
+             "says": lambda e: e[0]}                                     # 말 띠(V5~V8)도 같이 — 옛 꼴은 키가 없다
     M = dict(S, rec_spans=spans, breaks=[(a, b) for a, b, _ in spans] + list(S.get("breaks") or []),
-             **{k: pick(S[k], f, True) for k, f in lists.items()})
+             **{k: pick(S.get(k, []), f, True) for k, f in lists.items()})
     R = dict(S, rec_spans=spans, breaks=[(spans[i][1], spans[i + 1][0]) for i in range(len(spans) - 1)],
-             **{k: [r for r in pick(S[k], f, False)
+             **{k: [r for r in pick(S.get(k, []), f, False)
                     if not (k == "events" and r[1] in ("recording_on", "recording_off"))] for k, f in lists.items()})
     return M, R
 
@@ -155,7 +164,8 @@ def split_guide(S, res):
             for r in res["runs"] if r["status"] in ("ng", "extra")]
     keep = [r for r in res["runs"] if r["status"] not in ("ng", "extra")]
     inside = lambda t: any(a <= t <= b for a, b in drop)           # noqa: E731
-    lists = {"events": lambda e: e[0], "voice": lambda e: e[0], "frames": lambda r: r["t"], "fsm": lambda r: r["t"]}
+    lists = {"events": lambda e: e[0], "voice": lambda e: e[0], "frames": lambda r: r["t"], "fsm": lambda r: r["t"],
+             "says": lambda e: e[0]}
     script = S["script"]
     if script is not None:
         by = {}
@@ -165,7 +175,7 @@ def split_guide(S, res):
     # 🔑 full = 판 맞춤 전 — 대본과 무관한 시스템 값(12·13·26·27·30·14·V1·V3·V4·V9)은 뺀 판까지 센다(설계 §3.1 「장비 NG 판도
     #    끊김(13)에는 남는다」 · D10 「V1 = 폐기 세션 알림 전체」 · 최종 리뷰 Important 1) — 고장 때문에 뺀 판에서 그 고장이 사라지지 않게
     return dict(S, script=script, guide=res, full=S, breaks=list(S.get("breaks") or []) + drop,
-                **{k: [x for x in S[k] if not inside(f(x))] for k, f in lists.items()})
+                **{k: [x for x in S.get(k, []) if not inside(f(x))] for k, f in lists.items()})
 
 
 def _crosses(a, b, breaks):
@@ -659,15 +669,20 @@ def v_alert_delay(S):
 
 
 def v_alert_count(S):
-    """V2 알림 정확도 — 경고·차단 전이마다 그 시각 근처(ALERT_MATCH_MS) 알림 수 · 정상 판 안의 알림(헛알림)."""
+    """V2 알림 정확도 — 경고·차단 전이마다 그 시각 근처(ALERT_MATCH_MS) 알림 수 · 정상 판 안의 알림(헛알림).
+    🔑 창의 끝은 다음 상태 바뀜(어느 state 사건이든)에서 자른다 — 경고 0.12~0.32초 뒤 차단이 오면 차단 알림까지 경고 쪽에
+    세어 「여러 번」이 됐다(10/10 위반 3건 · 음성비서 빠른 해결 설계 §2.4). 바뀜이 하나뿐인 전이는 종전과 같다."""
     if not S["voice"]:
         return {"off": 1}
     pubs = [d["t_pub_ms"] for _, k, d in S["voice"] if k == "alert" and d.get("t_pub_ms") is not None]
     lo, hi = ALERT_MATCH_MS
+    st = [t for t, k, _ in S["events"] if k == "state"]
     out = {"trans": 0, "one": 0, "zero": 0, "multi": 0, "normal": 0}
     for t, k, d in S["events"]:
         if k == "state" and d.get("new") in ("WARNING", "BLOCK"):
-            c = sum(1 for a in pubs if lo <= a - t <= hi)
+            i = bisect.bisect_right(st, t)
+            end = st[i] if i < len(st) else float("inf")
+            c = sum(1 for a in pubs if lo <= a - t <= hi and a < end)
             out["trans"] += 1
             out["one" if c == 1 else ("zero" if c == 0 else "multi")] += 1
     runs = split_runs(S["events"])
@@ -760,6 +775,224 @@ def v_uplink(S):
     return {"ratios": out}
 
 
+# ── V5~V8 — 호출 · 받아쓰기 · 답 · 비상 중 무반응(음성비서 빠른 해결 설계 §2.4) ──────────────────
+def _hangul(text):
+    return re.sub(r"[^가-힣]", "", text or "")
+
+
+def _norm(text):
+    """글자 견주기용 — 공백·문장부호를 빼고(글자·숫자만) 영문은 대문자로."""
+    return "".join(c for c in (text or "").upper() if c.isalnum())
+
+
+def edit_distance(a, b):
+    """글자 편집거리(넣기·빼기·바꾸기 각 1)."""
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def _says(S):
+    """진행 도우미 말 띠 → [{t, d(say), t1 = said 시각, why = said 이유, next = 다음 say 시각}] (say 순).
+    said 가 없으면(세션이 그 전에 끝남) t1 = 다음 say 시각 · why = None."""
+    rows = S.get("says") or []
+    said = {(d.get("run"), d.get("tok")): (t, d) for t, k, d in rows if k == "said"}
+    says = [(t, d) for t, k, d in rows if k == "say"]
+    out = []
+    for n, (t, d) in enumerate(says):
+        nxt = says[n + 1][0] if n + 1 < len(says) else float("inf")
+        sd = said.get((d.get("run"), d.get("tok")))
+        out.append({"t": t, "d": d, "t1": sd[0] if sd else nxt, "why": sd[1].get("why") if sd else None, "next": nxt})
+    return out
+
+
+def _wakes(S):
+    """호출 시각 — wake 사건 · 비상 중 무시된 말 가운데 호출어가 든 것(emergency_ignored wake=true · 비상 중엔 wake 를 안 적는다)."""
+    return [t for t, k, d in S["voice"] if k == "wake" or (k == "emergency_ignored" and d.get("wake"))]
+
+
+def v_wake(S):
+    """V5 호출 인식 — 진행 도우미 말 띠(say) 가운데 「넘어감」(질문 전에 다음 누름·판)이 아닌 것마다 창
+    [say, said + WAKE_PAD_MS] 안에 호출(_wakes)이 있었나. calls = 전체 호출 · outside = 어느 말 띠 창(넘어감 포함)에도
+    없는 호출(헛호출 후보) · skip = 넘어감 · open = said 없이 세션이 끝난 띠(시도 전에 멈춤 — 분모에서 뺀다).
+    음성 기록이 없으면 off · 말 띠 기록이 없으면(진행 도우미 3판 전 · 시연) 호출 수만."""
+    if not S["voice"]:
+        return {"off": 1}
+    wakes, says = _wakes(S), _says(S)
+    if not says:
+        return {"say": 0, "calls": len(wakes)}
+    win = [(s["t"], s["t1"] + WAKE_PAD_MS) for s in says]
+    out = {"say": 1, "n": 0, "k": 0, "skip": 0, "open": 0, "calls": len(wakes),
+           "outside": sum(1 for w in wakes if not any(a <= w <= b for a, b in win))}
+    for s, (a, b) in zip(says, win):
+        if s["why"] in ("넘어감", None):
+            out["skip" if s["why"] else "open"] += 1
+            continue
+        out["n"] += 1
+        out["k"] += int(any(a <= w <= b for w in wakes))
+    return out
+
+
+def _chunks(V):
+    """받아쓴 조각(한글이 든 stt — 발화 하나에 하나) → [[시각, 글, 호출 조각인가]]. 데몬은 받아쓴 뒤 판단을 적는다 — 다음 조각
+    전에 wake(보통) 또는 emergency_ignored wake=true(비상 중)가 오면 그 stt 가 호출 조각.
+    🔑 비상 중에도 stt 는 적힌다 — emergency_ignored 를 조각으로 또 넣으면 한 발화를 두 번 잇는다(실측 2026-10-12 세션 1)."""
+    out = []
+    for t, k, d in V:
+        if k == "stt" and _hangul(d.get("text")):
+            out.append([t, d.get("text") or "", False])
+        elif out and (k == "wake" or (k == "emergency_ignored" and d.get("wake"))):
+            out[-1][2] = True
+    return out
+
+
+def v_stt(S):
+    """V6 받아쓰기 글자 오류율 — 질문까지 간 말 띠(said 이유 「질문」 · 비상 포함)마다 띠 문장(say.text) ↔ 받아쓴 질문.
+    받아쓴 질문 = 창 [say, said] 의 마지막 호출 조각 뒤 한글 조각들을 이은 것 — 호출어와 한 조각이면 호출어를 뗀 나머지
+    (voice_lib.strip_wake)부터. 둘 다 공백·부호를 빼고 견준다 · 오류율 = dist(편집거리 합) ÷ ref(참조 글자 수 합).
+    noq = 호출어만 받아씀(질문 못 받음 — 오류율에서 뺀다) · nowake = 창에 호출 조각이 없음 · rows = [띠 문장, 받아쓴 질문, 거리]."""
+    if not S["voice"]:
+        return {"off": 1}
+    says = _says(S)
+    if not says:
+        return {"say": 0}
+    chunks = _chunks(S["voice"])
+    out = {"say": 1, "n": 0, "dist": 0, "ref": 0, "noq": 0, "nowake": 0, "rows": []}
+    for s in says:
+        if s["why"] != "질문":
+            continue
+        mine = [c for c in chunks if s["t"] <= c[0] <= s["t1"]]
+        w = max((i for i, c in enumerate(mine) if c[2]), default=None)
+        if w is None:
+            out["nowake"] += 1
+            continue
+        hyp = _norm(voice_lib.strip_wake(mine[w][1])) + "".join(_norm(c[1]) for c in mine[w + 1:])
+        if not _hangul(hyp):
+            out["noq"] += 1
+            continue
+        ref = _norm(s["d"].get("text"))
+        dist = edit_distance(ref, hyp)
+        out["n"] += 1
+        out["dist"] += dist
+        out["ref"] += len(ref)
+        out["rows"].append([s["d"].get("text"), hyp, dist])
+    return out
+
+
+def _src_group(src):
+    """답 출처 묶음 — 즉답(「즉답-<종류>」 · 설계 §2.1) · LLM · 그 밖(고정-… · 대체-… · 검산 버림)."""
+    s = str(src or "")
+    return "즉답" if s.startswith("즉답") else ("LLM" if s == "LLM" else "그 밖")
+
+
+def core_words(expect):
+    """대본 기대 칸 → 답에 있어야 할 핵심 낱말 묶음 [(낱말, …)](묶음 안 하나면 됨) — 괄호 안 · 「—」 뒤 조건은 뺀다(사람 판정 몫).
+    버튼(B1~B4 · EMO) · N단계 · 공구 이름(measure_script.TOOLS) · 끝/완료(DONE_WORDS)."""
+    x = re.sub(r"\([^)]*\)", "", (expect or "").split("—")[0])
+    out = [(w,) for w in re.findall(r"B[1-4]|EMO", x)] + [(w,) for w in re.findall(r"\d+단계", x)]
+    out += [(w,) for w in measure_script.TOOLS if w in x]
+    if any(w in x for w in DONE_WORDS):
+        out.append(DONE_WORDS)
+    return out
+
+
+def v_answer(S, script=None):
+    """V7 답 지연 · 초벌 정확도 — 질문까지 간 말 띠(비상 아님 · said 이유 「질문」)마다 그 띠 뒤 다음 띠 전의 첫 답(answer).
+    지연 = 그 답의 질문 받아쓰기(answer 직전 한글 stt — 데몬은 발화를 하나씩 처리한다 · stt 시각 = 발화 끝) → answer(보내기
+    직전) · → 그 답의 재생 시작(play_start — 고정 답은 같은 키 · 문장 답은 키 없음 · ANSWER_PLAY_MS 안).
+    초벌(판정 아님) = 대본(script — 판 맞춤 전 원래 판 번호)에서 같은 판 · 같은 문장 질문 줄의 기대 칸 핵심 낱말(core_words)이
+    답 문장에 다 있으면 ok(맞음 후보) · 빠지면 bad(틀림 후보) · 핵심 낱말이 없거나 문장 없는 답 = human · 검산 버림 = drop.
+    bad · human 은 review(사람 판정 목록). 묶음 = _src_group. 띠와 짝짓지 못한 답(같은 띠의 두 번째 답 · 띠 없는 세션) = extra."""
+    if not S["voice"]:
+        return {"off": 1}
+    V = S["voice"]
+    qt = [t for t, k, d in V if k == "stt" and _hangul(d.get("text"))]
+    answers = [(t, d) for t, k, d in V if k == "answer"]
+    plays = [(t, d) for t, k, d in V if k == "play_start"]
+
+    def since_q(t):
+        i = bisect.bisect_left(qt, t) - 1
+        return round((t - qt[i]) / 1000, 3) if i >= 0 else None
+
+    expect = {}
+    for r in script or ():
+        if r.get("행동") == "질문":
+            expect.setdefault((int(r["판"]), r.get("대상")), r.get("기대") or "")
+    says = _says(S)
+    out = {"say": int(bool(says)), "n": 0, "noans": 0, "noplay": 0, "ans": {}, "play": {}, "extra": {}, "judge": {},
+           "review": []}
+    used = set()
+    for s in says:
+        if s["d"].get("emergency") or s["why"] != "질문":
+            continue
+        out["n"] += 1
+        hit = next(((t, d) for t, d in answers if s["t"] < t < s["next"]), None)
+        if hit is None:
+            out["noans"] += 1
+            continue
+        used.add(hit[0])
+        ta, da = hit
+        g = _src_group(da.get("src"))
+        dq = since_q(ta)
+        if dq is not None:
+            out["ans"].setdefault(g, []).append(dq)
+        pl = next((x for x, d in plays if ta <= x <= ta + ANSWER_PLAY_MS and d.get("key") == da.get("key")), None)
+        if pl is None or dq is None:
+            out["noplay"] += 1
+        else:
+            out["play"].setdefault(g, []).append(round(dq + (pl - ta) / 1000, 3))
+        exp = expect.get((s["d"].get("script"), s["d"].get("text")), "")
+        words, text = core_words(exp), da.get("text")
+        if da.get("src") == "고정-검산불일치":
+            v = "drop"
+        elif not words or not text:
+            v = "human"
+        else:
+            got = re.sub(r"\s", "", text).upper()
+            v = "ok" if all(any(w.upper() in got for w in grp) for grp in words) else "bad"
+        out["judge"].setdefault(g, {"ok": 0, "bad": 0, "human": 0, "drop": 0})[v] += 1
+        if v in ("bad", "human"):
+            out["review"].append({"세션": S.get("name"), "판": s["d"].get("script"), "질문": s["d"].get("text"), "기대": exp,
+                                  "답": text or da.get("key"), "src": da.get("src"),
+                                  "판정": "틀림 후보" if v == "bad" else "사람 판정"})
+    for t, d in answers:
+        if t not in used and since_q(t) is not None:
+            out["extra"].setdefault(_src_group(d.get("src")), []).append(since_q(t))
+    return out
+
+
+def v_emergency(S):
+    """V8 비상 중 무반응 — 비상 구간 = EMO 로 든 차단(BLOCK 직전 누름이 EMO · EDGE_PAIR_MS 안) ~ 차단을 벗어난 다음 상태
+    바뀜 + EMERGENCY_PAD_MS. n = 비상 중 호출(emergency_ignored wake=true)이 든 구간 · k = 그 가운데 호출(wake) · 답(answer)
+    · 응답 소리(play_start — 안내 cue_ · 알림 alert_ 는 빼고 · 키 칸이 없는 옛 기록은 알림과 못 갈라 세지 않는다)가 없는 구간.
+    spans = 비상 구간 수."""
+    if not S["voice"]:
+        return {"off": 1}
+    presses = [(t, d) for t, k, d in S["events"] if k == "press"]
+    states = [(t, d) for t, k, d in S["events"] if k == "state"]
+    spans = []
+    for n, (t, d) in enumerate(states):
+        if d.get("new") != "BLOCK":
+            continue
+        prev = [p for p in presses if p[0] <= t]
+        if not prev or prev[-1][1].get("button") != S["emo"] or t - prev[-1][0] > EDGE_PAIR_MS:
+            continue
+        spans.append((t, (states[n + 1][0] if n + 1 < len(states) else float("inf")) + EMERGENCY_PAD_MS))
+    calls = [t for t, k, d in S["voice"] if k == "emergency_ignored" and d.get("wake")]
+    resp = [t for t, k, d in S["voice"] if k in ("wake", "answer")
+            or (k == "play_start" and "key" in d and not str(d.get("key") or "").startswith(("cue_", "alert_")))]
+    out = {"spans": len(spans), "n": 0, "k": 0}
+    for a, b in spans:
+        if any(a <= c <= b for c in calls):
+            out["n"] += 1
+            out["k"] += int(not any(a <= r <= b for r in resp))
+    return out
+
+
 def v_input(S):
     """18 입력 누락(첫 판 = 표본만) — 완주한 정상 판마다 기대 누름(레시피 단계 수) ↔ 기록된 단계 버튼 gpio 누름."""
     runs = split_runs(S["events"])
@@ -784,4 +1017,5 @@ def count_all(S, below=None):
             "12": v_fps(F, below), "26": v_stages(F), "14": v_interlock(F), "30": v_res(F),
             "17a": v_wrong_tool(S), "17b": v_tool_time(S), "18": v_input(S),
             "V1": v_alert_delay(F), "V2": v_alert_count(S), "V3": v_alert_stop(F), "V4": v_alert_len(F),
+            "V5": v_wake(S), "V6": v_stt(S), "V7": v_answer(S, F.get("script")), "V8": v_emergency(S),
             "V9": v_uplink(F), "31": v_cue(S), "reason": v_reason(S)}

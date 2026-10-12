@@ -224,7 +224,35 @@ def test_say_count():
     check(MS.say_mismatch(bad) == [(3, 1, 2)], f"판 3 = 말 1 · 질문 2 · {MS.say_mismatch(bad)}")
 
 
+def test_reduced_voice_script():
+    print("\n[축소 대본] ⑤음성축소 = ⑤음성 판 1~4 그대로 + 판 11 · 12 를 판 5 · 6 으로(내용 · 머리줄 · BOM · 줄끝 그대로)"
+          " — 음성비서 빠른 해결 설계 §4")
+    sd = os.path.join(_DEMO, "measure", "시나리오")
+    src, dst = os.path.join(sd, "장소1_⑤음성.csv"), os.path.join(sd, "장소1_⑤음성축소.csv")
+    if not os.path.exists(dst):
+        check(False, f"축소 대본이 없다 — {dst}")
+        return
+    lines = open(src, "rb").read().splitlines(keepends=True)
+    renum = {b"11": b"5", b"12": b"6"}
+    want = [lines[0]]
+    for ln in lines[1:]:
+        n = ln.split(b",", 1)[0]
+        if n in (b"1", b"2", b"3", b"4"):
+            want.append(ln)
+        elif n in renum:
+            want.append(renum[n] + ln[len(n):])
+    check(open(dst, "rb").read() == b"".join(want), "바이트 그대로(판 번호만 바뀜)")
+    rows = MS.load_script(dst, buttons=B)
+    check(sorted({r["판"] for r in rows}) == [1, 2, 3, 4, 5, 6] and MS.say_mismatch(rows) == [], "판 1~6 · 말 낱말 수 = 질문 줄 수")
+    asks = [r for r in rows if r["행동"] in ("질문", "비상질문")]
+    check((sum(r["행동"] == "질문" for r in asks), sum(r["행동"] == "비상질문" for r in asks)) == (10, 2), "질문 10 · 비상질문 2")
+    import subprocess
+    out = subprocess.run([sys.executable, "measure_session.py", "--list-scripts"], cwd=_DEMO, capture_output=True, text=True).stdout
+    check("장소1_⑤음성축소.csv" in out, "실행기 대본 목록에 보인다")
+
+
 def main():
+    test_reduced_voice_script()
     test_say_count()
     test_parse_tokens()
     test_reset_token()

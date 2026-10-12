@@ -68,7 +68,9 @@ VAD_HOP_SEC = 0.25    # 🔑 새 소리가 이만큼 쌓였을 때만 판정한�
                       #    것이 무음 대기 CPU 의 원인이었다(설계 2026-10-03 §4.1 · Q7 · 10/03 실측)
 STALL_SEC  = 3.0      # 🔴 펌웨어는 접속 중 쉬지 않고 보낸다 — 이만큼 0바이트면 반열림으로 보고 다시 붙는다(P5)
 RETRY_SEC  = 3.0      # 다시 붙기 전 대기
-ALERT_POLL_SEC = 0.1    # 🔑 상태 감시 간격 — 알림 목표 0.3초(설계 2026-10-04 §4.3)의 한 몫
+ALERT_POLL_SEC = 0.02   # 🔑 상태 감시 간격 — 알림 목표 0.3초(설계 2026-10-04 §4.3)의 한 몫 · 0.1 → 0.02(빠른 해결 설계
+                        #    2026-10-12 §2.3 — 감시 주기 몫이 알림 지연의 한 덩어리였다)
+CUE_POLL_SEC = 0.1      # 측정 안내 감시 간격 — 알림을 0.02 로 줄일 때 따로 떼었다(안내는 이번 범위 밖 · 종전 값)
 
 # 🔑 한 대만 돈다 — 명령 채널(8890)은 손님 하나라 둘이 돌면 서로 끊는다(R2 통신 규약 대조표).
 LOCK_FILE = os.environ.get("SOP_VOICE_LOCK", "/tmp/sop_voice_assistant.lock")
@@ -86,6 +88,10 @@ METRICS_PATH = os.environ.get("SOP_VOICE_METRICS")
 #      발화_NNN.wav / .txt  잘라낸 발화 구간과 그 STT 결과 — 🔴 마이크 증폭(config.MIC_GAIN) 뒤 소리다(다시 돌릴 때 또 키우지 않는다)
 #      재생_NNN_<키>.wav    스피커로 내보낸 것(사전 합성된 TTS 원본)
 AUDIO_DIR = os.environ.get("SOP_VOICE_AUDIO")
+
+# 🔑 상태 질문 즉답(빠른 해결 설계 2026-10-12 §2.1) — 몇 단계·버튼·공구·상태·결과 7종은 LLM 없이 상태로 답한다.
+#    끄기 = SOP_VOICE_QUICK=0(종전처럼 LLM). config 가 아니라 여기서 읽는다 — 이 데몬만 쓰는 값이다.
+QUICK_ON = os.environ.get("SOP_VOICE_QUICK", "1") != "0"
 
 
 VLOG = measure_log.NullLog()       # 음성 측정 기록(측정 도구 정합 ⑤) — run() 이 SOP_MEASURE_DIR 를 보고 연다
@@ -557,11 +563,11 @@ class Speaker:
             # 🔴 LLM 답과 같은 이중 방어 — 펌웨어가 본문을 안 읽고 거절하면 남은 바이트가 명령으로 실행된다(1단계 M7)
             log(f"🔴 고정 소리가 펌웨어 한도를 넘는다 → {key} ({n}샘플 · {rate}Hz) — 보내지 않는다")
             return False
-        if alog:
-            alog.played(key, path)
         resp = self.send(body, expect=True, still_valid=still_valid, key=key)
         if resp is DROPPED:
             return False
+        if alog:
+            alog.played(key, path)      # 🔑 보낸 뒤에 — 버린 소리(밀려난 알림)가 「재생」으로 남지 않게
         ok = bool(resp) and any("재생 완료" in r for r in resp)
         self.last_stopped = bool(resp) and any("재생 중단" in r for r in resp)
         if ok:
@@ -609,7 +615,8 @@ class AlertWatcher:
         self.gen = 0
         self.speaking = threading.Event()
         self._prev = None
-        self._want = None                        # 재생을 기다리는 알림 (키, 상태) — 가장 최근 것 하나
+        self._want = None                        # 재생을 기다리는 알림 (키, 상태, gen) — 가장 최근 것 하나
+        self._live = None                        # 지금 원하는 알림 (키, gen) — 풀리면 None · 밀려난 알림을 버리는 기준
         self._cv = threading.Condition()
         self._player_on = False                  # start() 뒤에만 재생을 따로 돌린다(시험은 step() 을 바로 부른다)
 
@@ -626,29 +633,41 @@ class AlertWatcher:
                        state=(cur or {}).get("상태"))
             self.speaking.set()                  # 🔑 gen 보다 먼저 — 메인 루프가 재생 내내 버리게
             self.gen += 1                        # 🔑 멈춤보다 먼저 — 만들던 답이 보내기 잠금 안에서 이것을 본다(I2)
+            self._live = (ev[1], self.gen)       # 🔑 멈춤보다 먼저 — 앞 알림이 보내기 잠금 안에서 이것을 보고 빠진다
             self.spk.stop()                      # 재생 중이면 멈춘다(2단계 펌웨어 전에는 무시된다)
             if self._player_on:
                 with self._cv:
-                    self._want = (ev[1], cur)
+                    self._want = (ev[1], cur, self.gen)
                     self._cv.notify()
             else:
-                self._play(ev[1], cur)
+                self._play(ev[1], cur, self.gen)
         else:
             with self._cv:
                 self._want = None                # 아직 안 나간 알림도 거둔다
+            self._live = None                    # 🔑 보내기를 기다리던 알림도 — 풀린 뒤에 나가지 않게
             self.spk.stop()
             log("알림 상황이 풀렸다 — 재생 멈춤을 보냈다")
             VLOG.event("alert_clear")
         return ev
 
-    def _play(self, key, cur):
+    def _play(self, key, cur, gen):
+        """알림 하나를 낸다 — 🔑 보내기 잠금 안에서 아직 지금 원하는 알림인지 본다(빠른 해결 설계 2026-10-12 §2.3).
+
+        🔴 경고 바로 뒤 차단이면 밀려난 경고 소리를 다 보내느라 차단 알림이 늦었다(10/12 ⑤음성) — 보내기 전에
+           뒤 알림이 왔거나 풀렸으면 보내지 않는다. 이미 나가는 소리는 종전처럼 멈춤(S)이 끊는다.
+        """
+        live = lambda: self._live == (key, gen)              # noqa: E731
         try:
-            ok = self.spk.play(key, self.alog)
+            ok = self.spk.play(key, self.alog, still_valid=live)
+            dropped = not ok and not live()
             lag = getattr(self.spk, "last_play_start", None)
             t_pub = (cur or {}).get("쓴시각")
             lag_txt = f" · 상태 공개→소리 시작 {lag - t_pub:.2f}초" if lag and t_pub and lag >= t_pub else ""
-            VLOG.event("alert_played", key=key, ok=bool(ok))      # 🔑 데몬 로그 줄과 같은 자리(관문 ③)
-            log(f"🔔 알림 → {key} · {'재생됨' if ok else '재생 확인 안 됨'}{lag_txt}")
+            VLOG.event("alert_played", key=key, ok=bool(ok), dropped=dropped)   # 🔑 데몬 로그 줄과 같은 자리(관문 ③)
+            if dropped:
+                log(f"🔕 알림 → {key} · 뒤 알림·해제에 밀려 보내지 않았다")
+            else:
+                log(f"🔔 알림 → {key} · {'재생됨' if ok else '재생 확인 안 됨'}{lag_txt}")
         finally:
             with self._cv:
                 if self._want is None:           # 뒤이은 알림이 없을 때만 「알림 중」을 푼다
@@ -660,10 +679,10 @@ class AlertWatcher:
                 if self._want is None:
                     self._cv.wait(0.2)
                     continue
-                key, cur = self._want
+                key, cur, gen = self._want
                 self._want = None
             try:
-                self._play(key, cur)
+                self._play(key, cur, gen)
             except Exception as e:              # noqa: BLE001 — 재생이 죽으면 알림이 영영 없다
                 log(f"🔴 알림 재생 오류 — 계속한다: {type(e).__name__}: {e}")
 
@@ -691,7 +710,7 @@ class CueWatcher:
     `speaking` = 안내 재생 중 — 메인 루프가 그동안 들어온 소리를 버린다(알림과 같은 G11 원칙).
     """
 
-    def __init__(self, spk, alog=None, d=None, poll_sec=ALERT_POLL_SEC, max_age_ms=3000.0):
+    def __init__(self, spk, alog=None, d=None, poll_sec=CUE_POLL_SEC, max_age_ms=3000.0):
         self.spk, self.alog = spk, alog
         self.d = d or config.CUE_SHM_DIR
         self.poll_sec, self.max_age_ms = poll_sec, max_age_ms
@@ -916,6 +935,14 @@ class Assistant:
             # 🔑 이 시스템은 장비 센서를 보지 않는다 — LLM 에 맡길 이유가 없다(설계 2026-10-04 §4.5-나)
             log(f"장비 센서 질문 — LLM 없이 「확인할 수 없음」으로 답한다: {text}")
             self._say(sensed, "대체-센서질문", facts, tool_q, m)
+            return
+        quick = voice_card.quick_answer(text, state, dets, fresh) if QUICK_ON else None
+        if quick:
+            # 🔑 상태 질문 7종 — LLM 도 「확인 중」도 없이 상태로 한 문장(빠른 해결 설계 2026-10-12 §2.1) · 검산은 _say 가 그대로
+            kind, said = quick
+            m["즉답"] = kind
+            log(f"상태 질문({kind}) — LLM 없이 상태로 답한다: {text}")
+            self._say(said, f"즉답-{kind}", facts, tool_q, m)
             return
         if not self.llm.available():
             m["LLM오류"] = "예열 전" if not self.llm.ready else "건너뜀(연속 실패)"

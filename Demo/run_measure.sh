@@ -62,7 +62,13 @@ fi
 echo "  세션 폴더: $DIR"
 echo "  📣 노트북 SSH 창: bash ~/sop-project/Rpi5/Demo/run_guide.sh  (안내 소리 · N = NG · U = 취소)"
 # 끔 회차는 물려받은 값도 지운다 — 기록이 저절로 켜지지 않게
-if [ "$ON" = "1" ]; then export SOP_MEASURE_DIR="$DIR"; else unset SOP_MEASURE_DIR; fi
+# 🔑 음성 계측(발화마다 한 줄) · 녹음(마이크 전체 16kHz · 발화 조각 · 낸 소리 — 1분 약 2.6MB · 영상 아님)도 측정 기록 켬일 때만
+#    — 음성 데몬이 run_demo.sh → run_voice.sh 를 거쳐 물려받는다(호출 놓침 · 받아쓰기 오류를 소리로 대조 · 음성비서 빠른 해결 설계 §2.5)
+if [ "$ON" = "1" ]; then
+  export SOP_MEASURE_DIR="$DIR" SOP_VOICE_METRICS="$DIR/voice_metrics.jsonl" SOP_VOICE_AUDIO="$DIR/voice_audio"
+else
+  unset SOP_MEASURE_DIR SOP_VOICE_METRICS SOP_VOICE_AUDIO
+fi
 # SOP_DEMO_LAUNCHER = 시험에서만(시연 대신 환경변수를 적는 스크립트) — 평소에는 없다
 bash "${SOP_DEMO_LAUNCHER:-./run_demo.sh}"
 # 시연을 닫으면 세기(보고 도구)가 바로 센다 — 측정 설계 D10 · 기록 끔 회차는 셀 것이 없다

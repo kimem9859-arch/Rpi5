@@ -59,8 +59,10 @@ def is_wake(text):
     return any(w in n for w in WAKE_PREFIXES)
 
 
-# 🔑 접두 + 실제로 들린 뒤 음절(is_wake 시험의 변형들 — 언·건·얀·현·연·안·야·아·원·오) + 뒤따르는 쉼표·공백
-_WAKE_RE = re.compile(r"(?:(?:가디|카디)[언건얀현연안야아원오엄온]?|가지언|아디언)[\s,.!·~]*")
+# 🔑 접두 + 실제로 들린 뒤 음절(is_wake 시험의 변형들 — 언·건·얀·현·연·안·야·아·원·오 · 관 = 2026-10-12 ⑤음성 5번)
+#    + 뒤따르는 쉼표·공백
+_WAKE_RE = re.compile(r"(?:(?:가디|카디)[언건얀현연안야아원오엄온관]?|가지언|아디언)[\s,.!·~]*")
+_HANGUL = re.compile(r"[가-힣]")
 
 
 def strip_wake(text):
@@ -95,14 +97,12 @@ def is_question(text, awake):
 
     ⚠️ 호출어만 있는 발화는 뺀다 — 「가디언」은 띠링으로 답할 일이지 LLM 을
        태울 일이 아니다. 뒤에 말이 더 붙어 있으면 그것은 질문이다.
+    🔴 호출 조각은 strip_wake 규칙으로 **모두** 떼고 남는 한글을 센다 — 접두만 replace 로 지우던 종전에는
+       「가디언가디언」이 「언언」(2자)으로 남아 LLM 에 갔다(2026-10-12 ⑤음성 · 빠른 해결 설계 §2.2).
     """
     if not awake:
         return False
-    n = _norm(text)
-    if is_wake(text):
-        for w in WAKE_PREFIXES:
-            n = n.replace(w, "")
-    return len(n) >= 2
+    return len(_HANGUL.findall(strip_wake(text))) >= 2
 
 
 def amplify(samples, gain):

@@ -24,6 +24,8 @@ _DEMO_DIR = os.path.dirname(os.path.abspath(__file__))
 if _DEMO_DIR not in sys.path:
     sys.path.insert(0, _DEMO_DIR)
 
+from voice_lib import strip_wake  # noqa: E402 — 즉답이 호출 조각을 데몬(LLM 질문)과 같은 규칙으로 뗀다
+
 # 🔴 한글 표시명의 정본은 recipe.json 의 sub.tool_names 다. 여기 표는
 #    레시피가 그 키를 안 줄 때의 폴백이자, **클래스명 목록**이기도 하다.
 #    ⚠️ voice_lib._TOOL_KEYS 를 끌어 쓰지 않는다 — 비공개 이름이라 바뀌면 조용히 깨진다.
@@ -830,6 +832,129 @@ def sensor_answer(question, facts):
     if facts.get("세션") and sensor_question(question):
         return SENSOR_SENTENCE
     return None
+
+
+# =============================================================================
+# 상태 질문 즉답 — 설계 2026-10-12 빠른 해결 §2.1
+# 🔑 콘솔 상태로 답할 수 있는 7종은 LLM 을 부르지 않고 코드가 한 문장을 만든다 — 질문 → 답 시간의 대부분이
+#    LLM 이었고(추정) 10/12 ⑤음성 질문이 모두 이 7종이었다.
+# 🔑 정밀도 우선 — 둘 이상의 종류에 걸리거나 그 종류가 쓰지 않는 화제 낱말이 섞이면 None(→ 지금처럼 LLM).
+#    규칙은 대본 질문 7종 + 일반 낱말에서 만든다(10/12 받아쓴 글은 점검용 · 판정은 다시 재기).
+# 🔴 사실은 build_card 와 같은 출처 · 누르라는 말은 「지금 할 일」(next_action)에서만 — 서브 작업 중 다음 버튼은
+#    「대기가 끝나면」을 붙이고 누르라는 동사를 쓰지 않는다(그물 「다른버튼」과 같은 기준 · _say 는 그물을 다시 안 거친다).
+# =============================================================================
+QUICK_KINDS = ("단계", "다음버튼", "지금버튼", "필요공구", "보이는공구", "상태", "결과")
+QUICK_MAX_CHARS = 20      # 띄어쓰기·부호를 지운 질문 길이 — 대본 질문은 12자 이하 · 길면 다른 뜻이 섞인다
+_Q_TOPIC = {"단계": ("단계",), "버튼": ("눌러", "누르", "누를", "버튼"), "공구": ("공구", "도구", *TOOL_KO.values()),
+            "보임": ("보이", "보여", "보인", "보임"), "상태": ("상태", "상황"), "결과": ("결과",), "다음": ("다음",)}
+_Q_WHAT = ("뭐", "뭘", "무슨", "무엇", "어떤", "어느", "머")
+_Q_NOW = ("지금", "이번", "현재")
+# 다른 뜻 — 끝났냐(질문한 일) · 쥐었냐(공구 확인) · 왜 · 하지 말라 · 숫자·영문(특정 단계·버튼) · 보여 달라
+_Q_OTHER = re.compile(r"끝|완료|마쳤|됐|쥐|잡|확인|인식|왜|안돼|안되|말아|하지마|보여주|보여줘|[0-9A-Za-z]")
+
+
+def _has(q, words):
+    return any(w in q for w in words)
+
+
+# 종류 → (그 종류로 보는 조건(질문, 화제들), 함께 나와도 되는 화제)
+_Q_RULES = {
+    "단계": (lambda q, t: bool(re.search(r"몇(?:번째)?단계|어느단계|무슨단계|단계가(?:뭐|어디)", q)), {"단계"}),
+    "다음버튼": (lambda q, t: "다음" in t and "버튼" in t and (_has(q, _Q_WHAT) or "버튼" in q), {"다음", "버튼"}),
+    "지금버튼": (lambda q, t: "버튼" in t and "다음" not in t and _has(q, _Q_NOW) and (_has(q, _Q_WHAT) or "버튼" in q),
+                 {"버튼", "단계"}),
+    "필요공구": (lambda q, t: "공구" in t and bool(re.search(r"필요|써야|쓰는|사용|챙겨|(?:이번|이|지금|현재)단계", q)),
+                 {"공구", "단계"}),
+    "보이는공구": (lambda q, t: "보임" in t and ("공구" in t or "앞에" in q or _has(q, _Q_WHAT)), {"보임", "공구"}),
+    "상태": (lambda q, t: "상태" in t, {"상태"}),
+    "결과": (lambda q, t: "결과" in t, {"결과"}),
+}
+
+
+def quick_kind(text):
+    """상태 질문의 종류(QUICK_KINDS 가운데 하나) · 애매하면 None — 호출 조각을 떼고 띄어쓰기·부호를 지운 뒤 본다."""
+    q = "".join(c for c in strip_wake(text or "") if not c.isspace() and c not in ",.?!·~")
+    if not q or len(q) > QUICK_MAX_CHARS or _Q_OTHER.search(q) or risky_question(q) or sensor_question(q):
+        return None
+    topics = {k for k, ws in _Q_TOPIC.items() if _has(q, ws)}
+    hit = [k for k, (cond, _) in _Q_RULES.items() if cond(q, topics)]
+    if len(hit) != 1 or topics - _Q_RULES[hit[0]][1]:
+        return None
+    return hit[0]
+
+
+def _tag(btn, name):
+    """「B2 「펌프/퍼지」」 — 이름이 없으면 버튼만."""
+    return f"{btn} 「{name}」" if name else f"{btn}"
+
+
+def _seen_sentence(dets, fresh):
+    """보이는 공구 — 카드의 「카메라에 지금 보이는 공구」 줄과 같다(🔑 낡았으면 부재를 단정하지 않는다)."""
+    if not fresh:
+        return "지금은 공구를 확인하는 단계가 아닙니다."
+    seen = _seen_tools(dets, fresh)
+    if not seen:
+        return "지금 카메라에 보이는 공구가 없습니다."
+    return f"앞에 {'·'.join(seen)}{_josa(seen[-1], '이', '가')} 보입니다."
+
+
+def quick_answer(text, state, dets, fresh, now=None):
+    """상태 질문이면 LLM 없이 말할 `(종류, 한 문장)` · 아니면 None(못 잡은 질문 · 작업 전 · 비상 상황 → 지금 경로).
+
+    🔑 작업 전은 고정 답(notready)이 먼저고, 비상 상황(해제 전까지)은 반응하지 않는다(§4.7) — 여기서도 답을 만들지 않는다.
+    """
+    kind = quick_kind(text)
+    st = state or {}
+    if kind is None or not st.get("세션") or in_emergency(state):
+        return None
+    if kind == "보이는공구":
+        return kind, _seen_sentence(dets, fresh)
+    act = next_action(state, dets, fresh, now)
+    if act["종류"] == "완료":
+        # 🔑 완료 뒤 현재단계는 1로 돌아가 있다(fsm) — 단계 값을 쓰지 않는다
+        res = st["결과"]
+        say = {"결과": (f"작업이 완료됐고 총 {res.get('total_sec', 0):.0f}초에 순서 위반 "
+                        f"{len(res.get('violations') or [])}회, 차단 {len(res.get('interlocks') or [])}회입니다."),
+               "다음버튼": "작업이 완료돼 더 누를 버튼이 없습니다.", "지금버튼": "작업이 완료돼 더 누를 버튼이 없습니다.",
+               "필요공구": "작업이 완료돼 필요한 공구가 없습니다."}
+        return kind, say.get(kind, act["말"])
+    cur, total = st.get("현재단계"), st.get("전체단계")
+    if not cur or act["종류"] not in ("누름", "대기", "공구"):
+        return None
+    if kind == "단계":
+        name = st.get("현재단계명")
+        return kind, f"지금은 {f'전체 {total}단계 중 ' if total else ''}{cur}단계{f' 「{name}」' if name else ''}입니다."
+    if kind == "결과":
+        return kind, "아직 작업 중이라 결과가 없습니다."
+    if kind == "필요공구":
+        sub = st.get("서브작업") or {}
+        tool = sub.get("tool")
+        if tool:
+            return kind, f"{cur}단계에 필요한 공구는 {sub.get('tool_name') or TOOL_KO.get(tool, tool)}입니다."
+        return kind, f"{cur}단계에는 필요한 공구가 없습니다."
+    here = _tag(st.get("현재버튼"), st.get("현재단계명"))
+    if act["종류"] == "누름":
+        if kind == "상태":
+            return kind, f"순서는 정상이고 지금은 {cur}단계 {here} 차례입니다."
+        return kind, f"지금 누를 버튼은 {here}입니다."          # 다음버튼 · 지금버튼 — 다음에 누를 것이 지금 버튼이다
+    # 🔴 서브 작업 중(대기 · 공구) — 지금 누를 버튼이 없다(할 일의 허용 = ())
+    p = sub_progress(state, now)
+    tp = tool_phase(state, dets, fresh, now) if act["종류"] == "공구" else None
+    if kind == "지금버튼":
+        if tp:
+            return kind, f"지금은 누를 버튼이 없고, {act['말']}"
+        return kind, f"지금은 「{p['라벨']}」 중이라 누를 버튼이 없습니다."
+    if kind == "다음버튼":
+        wait = (f"{tp['요구']}{_josa(tp['요구'], '을', '를')} 쥐고 대기가 끝나면" if tp
+                else "지금은 기다리고, 대기가 끝나면")
+        if not st.get("다음단계"):
+            return kind, f"{wait} 더 누를 버튼이 없습니다."
+        return kind, f"{wait} 다음 버튼은 {_tag(st.get('다음버튼'), st.get('다음단계명'))}입니다."
+    if tp:
+        return kind, f"순서는 정상이고, {act['말']}"
+    left = p["남은초"] or 0
+    tail = f"약 {left}초 남았습니다" if left > 0 else "곧 다음 단계로 넘어갑니다"
+    return kind, f"순서는 정상이고 지금은 「{p['라벨']}」 중이며 {tail}."
 
 
 def _past_only(text, facts):

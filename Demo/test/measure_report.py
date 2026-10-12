@@ -96,6 +96,12 @@ def load_marks(path):
     return [(t, k, d.get("why")) for t, k, d in measure_check.load_events(path) if k in ("ng", "undo")]
 
 
+def load_says(path):
+    """guide.csv 의 말 띠 → [(t_ms, "say"|"said", 데이터)](시각 순) — V5~V8 이 「무엇을 언제 말하라고 했나」를 안다
+    (진행 도우미 설계 D24) · 없으면 빈 목록."""
+    return sorted(((t, k, d) for t, k, d in measure_check.load_events(path) if k in ("say", "said")), key=lambda e: e[0])
+
+
 def guide_lines(S):
     """「⓪ 대본과 다르게 흘러간 판」(진행 도우미 설계 §3.1) — 뺀 판(자동 · 수동 사람 · 수동 장비 · 대본 밖) · 남긴 판(미완 · 못 한 대본 판)."""
     res = S.get("guide")
@@ -156,6 +162,7 @@ def load_session(d):
          "settings": info.get("설정") or {}, "frames": frames, "fsm": fsm,
          "events": sorted(measure_check.load_events(os.path.join(d, "events.csv")), key=lambda e: e[0]),
          "voice": sorted(measure_check.load_events(os.path.join(d, "voice_events.csv")), key=lambda e: e[0]),
+         "says": load_says(os.path.join(d, "guide.csv")),
          "script": script, "emo": emo_button(), "rate": rate, "steps": steps}
     # 🔑 녹화 구간(켬~끔)은 여기 한 곳에서 나눈다 — 모든 값은 나머지로 세고, 녹화 쪽은 「⑤ 녹화 비교」에만(측정 녹화 설계 R5)
     M, R = MC.split_recording(S)
@@ -469,9 +476,15 @@ def render(sessions, per, M, targets, curve=None):
           f"- V3 알림 끊기 — 중앙값 {_f(_med(g('V3').get('delays', [])), 3, '초')}(멈춤 없음 {g('V3').get('missing', 0)})",
           f"- V4 알림 길이 — 중앙값 {_f(_med(g('V4').get('lens', [])), 2, '초')}(알림 {len(g('V4').get('lens', []))}"
           f" · 중단된 재생 {g('V4').get('cut', 0)}은 뺌)",
+          *_voice_lines(g),
           f"- V9 마이크 손실 — 받은/기대 바이트 중앙값 {_f(_med(g('V9').get('ratios', [])), 3)}"
           f" · 최저 {_f(_min(g('V9').get('ratios', [])), 3)}(10초 칸 {len(g('V9').get('ratios', []))})"
           + (" · 표본률을 못 읽은 세션 있음" if g("V9").get("norate") else "")]
+    rv = g("V7").get("review", [])
+    if rv:
+        L += ["", "### V7 사람 판정 목록(초벌이 가르지 못한 답 — 기대 칸과 대조해 사람이 판정)", ""]
+        L += [f"- {r['세션']} 판 {r['판']} · 「{r['질문']}」 → 「{r['답']}」({r['src']}) · 기대 「{r['기대'] or '—'}」 · {r['판정']}"
+              for r in rv]
     pd_, pdur = s23.get("press_dwell", []), s23.get("pass_dur", [])
     cv = MC.curve(pd_, pdur)
     L += ["", "## ③ 체류 두 곡선(발표 「판정 기준 근거」 · 23)", "",
@@ -501,6 +514,50 @@ def render(sessions, per, M, targets, curve=None):
                  f" · {_processing(s)}"
                  f" · 코드 {(S['info'].get('코드') or {}).get('Rpi5')}")
     return "\n".join(L) + "\n"
+
+
+def _voice_lines(g):
+    """② 의 V5~V8 줄(음성비서 빠른 해결 설계 §2.4 · 목표 없음) — 음성 기록 없음 · 말 띠 기록 없음 · 비상 중 호출 없음은 해당 없음으로."""
+    v5, v6, v7, v8 = g("V5"), g("V6"), g("V7"), g("V8")
+    if v5.get("say"):
+        n, k = v5.get("n", 0), v5.get("k", 0)
+        l5 = (f"- V5 호출 인식 — 말 띠 {n}개(넘어감 {v5.get('skip', 0)} · 세션이 먼저 끝남 {v5.get('open', 0)} 뺌) 가운데 호출 {k}"
+              f"({_f(100 * k / n if n else None, 1, '%')})"
+              f" · 전체 호출 {v5.get('calls', 0)} · 말 띠 창 밖 호출 {v5.get('outside', 0)}(헛호출 후보)")
+    elif "calls" in v5:
+        l5 = f"- V5 호출 인식 — 해당 없음(말 띠 기록 없음 — 진행 도우미 3판 전 · 시연) · 전체 호출 {v5.get('calls', 0)}"
+    else:
+        l5 = "- V5 호출 인식 — 음성 기록 없음"
+    if v6.get("say"):
+        d, r = v6.get("dist", 0), v6.get("ref", 0)
+        l6 = (f"- V6 받아쓰기 — 글자 오류율 {_f(100 * d / r if r else None, 1, '%')}(편집 {d} / 띠 문장 {r}자 · 질문 {v6.get('n', 0)})"
+              f" · 호출어만 받아씀(질문 못 받음) {v6.get('noq', 0)} · 창에 호출 조각 없음 {v6.get('nowake', 0)}")
+    else:
+        l6 = "- V6 받아쓰기 — " + ("음성 기록 없음" if v6.get("off") else "해당 없음(말 띠 기록 없음)")
+    ans, play, extra = v7.get("ans", {}), v7.get("play", {}), v7.get("extra", {})
+    if not (v7.get("n") or extra):
+        l7 = ["- V7 답 — " + ("음성 기록 없음" if v7.get("off") else "해당 없음(질문까지 간 말 띠 · 답 없음)")]
+    else:
+        flat = lambda m: [x for v in m.values() for x in v]     # noqa: E731
+        l7 = [f"- V7 답 지연 — 질문 받아쓰기 → 답 보내기 중앙 {_f(_med(flat(ans)), 3, '초')} · → 답 재생 시작 중앙"
+              f" {_f(_med(flat(play)), 3, '초')}(대본 질문 {v7.get('n', 0)} · 답 없음 {v7.get('noans', 0)}"
+              f" · 재생 못 찾음 {v7.get('noplay', 0)}) · 묶음별 보내기 "
+              + (" · ".join(f"{k} {_f(_med(ans[k]), 3, '초')}({len(ans[k])})" for k in MC.ANSWER_GROUPS if k in ans) or "—")
+              + f" · 대본 밖 답 {len(flat(extra))}건 중앙 {_f(_med(flat(extra)), 3, '초')}"]
+        J = v7.get("judge", {})
+        tot = {x: sum(J[k].get(x, 0) for k in J) for x in ("ok", "bad", "human", "drop")}
+        parts = [f"맞음 후보 {tot['ok']} · 틀림 후보 {tot['bad']} · 사람 판정 {tot['human']} · 검산 버림 {tot['drop']}"]
+        parts += [f"{k} 맞음 후보 {J[k].get('ok', 0)}/{sum(J[k].values())}" for k in MC.ANSWER_GROUPS if k in J]
+        l7.append("- V7 답 정확도(초벌 · 기대 칸 핵심 낱말 — 판정 아님) — "
+                  + (" · ".join(parts) if v7.get("say") else "해당 없음(말 띠 기록 없음 — 대본 질문과 짝짓지 못한다)"))
+    if v8.get("n"):
+        l8 = (f"- V8 비상 중 무반응 — {_pct(v8.get('k', 0), v8.get('n', 0))} 구간"
+              f"(비상 중 호출이 든 비상정지 구간 · 비상정지 구간 {v8.get('spans', 0)})")
+    elif "spans" in v8:
+        l8 = f"- V8 비상 중 무반응 — 해당 없음(비상 중 호출 없음 · 비상정지 구간 {v8.get('spans', 0)})"
+    else:
+        l8 = "- V8 비상 중 무반응 — 음성 기록 없음"
+    return [l5, l6, *l7, l8]
 
 
 def _processing(s):

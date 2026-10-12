@@ -305,6 +305,44 @@ def test_play_stopped_is_not_failure():
         va.WAV_DIR, va.log = old_dir, old_log
 
 
+def test_play_still_valid_under_tx():
+    """빠른 해결 설계 2026-10-12 §2.3 — 밀려난 알림은 보내지 않는다. still_valid 는 보내기 잠금(_tx) 안에서 본다
+    (잠금을 기다리는 사이 다음 알림이 오면 그때 버린다) · 버린 소리는 오디오 기록에 「재생」으로 남기지 않는다."""
+    print("\n[알림] still_valid — 보내기 잠금 안에서 본다")
+    old_dir = va.WAV_DIR
+    va.WAV_DIR = _one_wav()
+    try:
+        class _Alog:
+            def __init__(self):
+                self.keys = []
+
+            def played(self, key, src):
+                self.keys.append(key)
+
+        spk, b = _speaker_pair()
+        b.settimeout(0.3)
+        valid = [True]
+        alog = _Alog()
+        spk._tx.acquire()                         # 🔑 앞 소리(멈춤 S · 다른 전송)가 잠금을 쥐고 있다
+        box = {}
+        th = threading.Thread(target=lambda: box.setdefault("r", spk.play("k", alog, still_valid=lambda: valid[0])),
+                              daemon=True)
+        th.start()
+        time.sleep(0.1)
+        valid[0] = False                          # 잠금을 기다리는 사이 다음 알림이 왔다
+        spk._tx.release()
+        th.join(3)
+        try:
+            got = b.recv(100)
+        except socket.timeout:
+            got = b""
+        check(box.get("r") is False and got == b"", f"보내지 않았다 — {box.get('r')} · {got[:20]}")
+        check(alog.keys == [], f"버린 소리는 재생 기록에 안 남는다 — {alog.keys}")
+        b.close()
+    finally:
+        va.WAV_DIR = old_dir
+
+
 def test_m7_fixed_wav_checked_against_firmware_limits():
     """1단계 최종 리뷰 M7 — 고정 wav 도 펌웨어 한도를 넘으면 보내지 않는다(LLM 답과 같은 이중 방어)."""
     print("\n[한도] 고정 wav")

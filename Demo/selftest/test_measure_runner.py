@@ -160,7 +160,49 @@ def test_stray_rehearsal_vars():
         check(r.returncode != 0 and var in r.stdout and "장소" not in r.stdout, f"{var} → 코드 {r.returncode} · {r.stdout[:90]!r}")
 
 
+def test_voice_record_env():
+    print("\n[실행기] 측정 기록 켬일 때만 음성 계측 · 녹음 폴더를 준다 — 끔이면 셸에 남은 값도 지운다(음성비서 빠른 해결 설계 §2.5)")
+    d = tempfile.mkdtemp()
+    probe = os.path.join(d, "voice_probe.sh")
+    with open(probe, "w") as f:
+        f.write('#!/bin/bash\nenv | grep -E "^SOP_VOICE_(METRICS|AUDIO)=" | sort > "$PROBE_OUT"\n')
+    stale = {"SOP_VOICE_METRICS": "/tmp/남은값.jsonl", "SOP_VOICE_AUDIO": "/tmp/남은값"}
+    for on in ("1", "0"):
+        a = _answers()
+        a[10] = on
+        r, seen, sessions = _runner(a, stale, launcher=probe)
+        want = ([f"SOP_VOICE_AUDIO={sessions[0]}/voice_audio", f"SOP_VOICE_METRICS={sessions[0]}/voice_metrics.jsonl"]
+                if on == "1" and sessions else [])
+        check(len(sessions) == 1 and seen == want, f"측정 기록 {on} → {seen} · {r.stdout[-200:]}")
+
+
+def test_voice_env_reaches_daemon():
+    print("\n[실행기 → 시연 런처 → 음성 감시 → 음성 데몬] 두 환경변수가 데몬까지 물려간다(진짜 run_demo.sh · run_voice.sh)")
+    import shutil
+    d = tempfile.mkdtemp()
+    for n in ("run_demo.sh", "run_voice.sh"):
+        shutil.copy(os.path.join(_DEMO_DIR, n), d)
+    out = os.path.join(d, "voice_env.txt")
+    fake = os.path.join(d, "fake_voice_py.sh")       # SOP_VOICE_PY = 음성 데몬 대신 환경만 적고 「이미 돈다」(3)로 끝난다
+    with open(fake, "w") as f:
+        f.write('#!/bin/bash\nenv | grep -E "^SOP_VOICE_(METRICS|AUDIO)=" | sort > "$VOICE_OUT.tmp" && mv "$VOICE_OUT.tmp" "$VOICE_OUT"\n'
+                "exit 3\n")
+    os.chmod(fake, 0o755)
+    with open(os.path.join(d, "main.py"), "w", encoding="utf-8") as f:     # 가짜 시연 — 데몬이 적을 때까지 기다린다(최대 10초)
+        f.write('import os, time\nfor _ in range(100):\n    if os.path.exists(os.environ["VOICE_OUT"]):\n        break\n'
+                '    time.sleep(0.1)\n')
+    a = _answers()
+    a[10] = "1"
+    r, _seen, sessions = _runner(a, {"SOP_VOICE": "1", "SOP_VOICE_PY": fake, "VOICE_OUT": out},
+                                 launcher=os.path.join(d, "run_demo.sh"))
+    seen = open(out).read().split() if os.path.exists(out) else None
+    want = [f"SOP_VOICE_AUDIO={sessions[0]}/voice_audio", f"SOP_VOICE_METRICS={sessions[0]}/voice_metrics.jsonl"] if sessions else None
+    check(seen is not None and seen == want, f"데몬이 본 환경 = {seen} · {r.stdout[-200:]}")
+
+
 if __name__ == "__main__":
+    test_voice_record_env()
+    test_voice_env_reaches_daemon()
     test_processing_numbers()
     test_demo_launcher_default_2a()
     test_from_run()

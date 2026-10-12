@@ -38,11 +38,12 @@ def E(t, k, **d):
     return (float(t), k, d)
 
 
-def S_(events=(), frames=(), fsm=(), voice=(), script=None, kind="위반", settings=None, voice_on=True, rate=16000):
+def S_(events=(), frames=(), fsm=(), voice=(), script=None, kind="위반", settings=None, voice_on=True, rate=16000, says=()):
     return {"name": "t", "kind": kind, "info": {"음성": voice_on, "측정기록": True}, "steps": ["B1", "B2", "B3", "B4"],
             "settings": settings or {"FSM_GAP_FILL_SEC": 0.3, "PRESS_CONFIRM_GRACE_SEC": 0.5},
             "frames": list(frames), "fsm": list(fsm),
             "events": sorted(events, key=lambda e: e[0]), "voice": sorted(voice, key=lambda e: e[0]),
+            "says": sorted(says, key=lambda e: e[0]),
             "script": script, "emo": "EMO", "rate": rate}
 
 
@@ -345,6 +346,147 @@ def test_voice():
     check(MC.v_alert_delay(s6) == {"delays": [], "missing": 0, "off": 1}, f"V1 끔 = {MC.v_alert_delay(s6)}")
 
 
+def test_alert_count_cut():
+    print("\n[V2] 짝 창의 끝 = 다음 상태 바뀜(음성비서 빠른 해결 설계 §2.4) — 경고 0.2초 뒤 차단 = 경고 한 번 · 차단 한 번")
+    ev = [E(1000, "state", new="WARNING"), E(1200, "state", new="BLOCK"), E(5000, "state", new="IDLE")]
+    voice = [E(1003, "alert", key="alert_warn_B2", t_pub_ms=1002.0), E(1203, "alert", key="alert_block_B2", t_pub_ms=1202.0)]
+    v = MC.v_alert_count(S_(ev, voice=voice))
+    check(v == {"trans": 2, "one": 2, "zero": 0, "multi": 0, "normal": 0}, f"경고 → 0.2초 뒤 차단 = {v}")
+    print("  — 경고가 46ms 만에 차단으로 바뀌어 경고 제 알림이 없으면 경고는 「없음」(차단 알림을 경고 쪽에 세지 않는다)")
+    v = MC.v_alert_count(S_([E(1000, "state", new="WARNING"), E(1046, "state", new="BLOCK")],
+                            voice=[E(1050, "alert", key="alert_block_B2", t_pub_ms=1049.0)]))
+    check(v == {"trans": 2, "one": 1, "zero": 1, "multi": 0, "normal": 0}, f"{v}")
+    print("  — 바뀜이 하나뿐이면 지금과 같다(창 끝 +1.0초 그대로)")
+    v = MC.v_alert_count(S_([E(1000, "state", new="WARNING")], voice=[E(2001, "alert", key="alert_warn_B2", t_pub_ms=2000.0)]))
+    check(v == {"trans": 1, "one": 1, "zero": 0, "multi": 0, "normal": 0}, f"{v}")
+
+
+def SAY(t, run, tok, text, emergency=False, script=None):
+    return E(t, "say", run=run, script=run if script is None else script, tok=tok, text=text, emergency=emergency)
+
+
+def SAID(t, run, tok, why="질문", attempts=1):
+    return E(t, "said", run=run, tok=tok, why=why, attempts=attempts)
+
+
+def STT(t, text):
+    return E(t, "stt", text=text, stt_ms=500, utter_sec=1.0)
+
+
+def test_wake():
+    print("\n[V5] 호출 인식 — 말 띠(say) 가운데 「넘어감」 아닌 것마다 창 [say, said + 1초] 안에 호출(wake · 비상 중 호출)")
+    says = [SAY(10000, 1, 1, "지금 몇 단계야?"), SAID(20000, 1, 1),
+            SAY(30000, 1, 4, "작업 결과 어때?"), SAID(31000, 1, 4, why="넘어감", attempts=0),
+            SAY(40000, 1, 5, "지금 상태 어때?"), SAID(70000, 1, 5, why="시간", attempts=2),
+            SAY(80000, 2, 1, "왜 멈췄어?", emergency=True), SAID(90000, 2, 1),
+            SAY(95000, 3, 1, "작업 결과 어때?")]                                # said 없이 세션이 끝남 — 분모에서 뺀다(open)
+    voice = [STT(19000, "가디언 지금 몇 단계야"), E(20500, "wake"),          # said 뒤 0.5초 — 창 안(+1초)
+             E(25000, "wake"),                                             # 어느 창에도 없다 — 헛호출 후보
+             STT(45000, "아"), STT(50000, "어디야"),                       # 호출 못 함
+             E(85000, "emergency_ignored", text="가디야.", wake=True), E(88000, "emergency_ignored", text="왜멈췄어", wake=False)]
+    v = MC.v_wake(S_(voice=voice, says=says))
+    check(v == {"say": 1, "n": 3, "k": 2, "skip": 1, "open": 1, "calls": 3, "outside": 1}, f"V5 = {v}")
+    check(MC.v_wake(S_(says=says)) == {"off": 1}, "음성 기록이 없으면 끔")
+    check(MC.v_wake(S_(voice=voice)) == {"say": 0, "calls": 3}, f"말 띠 기록이 없으면 대본 값 없음 · 호출 수만 = {MC.v_wake(S_(voice=voice))}")
+
+
+def test_stt_error():
+    print("\n[V6] 받아쓰기 글자 오류율 — 호출 뒤 첫 한글 조각부터 said 까지 ↔ 띠 문장(공백·부호 빼고) · 호출어만이면 「질문 못 받음」")
+    says = [SAY(10000, 1, 1, "지금 몇 단계야?"), SAID(18000, 1, 1),
+            SAY(30000, 1, 4, "지금 눌러야 하는 버튼이 뭐야?"), SAID(33000, 1, 4),
+            SAY(40000, 1, 5, "작업 결과 어때?"), SAID(42000, 1, 5),
+            SAY(50000, 1, 7, "다음에 뭐 눌러야 돼?"), SAID(51000, 1, 7, why="넘어감", attempts=0),
+            SAY(80000, 2, 1, "왜 멈췄어?", emergency=True), SAID(90000, 2, 1)]
+    voice = [STT(12000, "응"), STT(15000, "가디언"), E(15800, "wake"), STT(17000, "지금몇단게야."),   # 호출 앞 조각은 빼고 · 1자 틀림
+             STT(32000, "가디언 지금 눌러야 하는 버튼이 뭐야?"), E(32800, "wake"),               # 호출어와 한 조각 = 호출어를 뗀다
+             STT(41000, "가디언가디언"), E(41800, "wake"),                                     # 호출어만 = 질문 못 받음
+             # 비상 중에도 데몬은 받아쓴 조각을 stt 로 적고 판단에서 emergency_ignored 를 또 적는다 — 한 발화를 두 번 잇지 않는다
+             STT(84000, "가디야."), E(85000, "emergency_ignored", text="가디야.", wake=True),
+             STT(87000, "왜멈췄어"), E(88000, "emergency_ignored", text="왜멈췄어", wake=False)]
+    v = MC.v_stt(S_(voice=voice, says=says))
+    check((v["say"], v["n"], v["dist"], v["ref"], v["noq"]) == (1, 3, 1, 22, 1), f"V6 = {v}")
+    check(["지금몇단게야" in r[1] for r in v["rows"]] == [True, False, False], f"조각 = {v['rows']}")
+    check(MC.v_stt(S_(says=says)) == {"off": 1} and MC.v_stt(S_(voice=voice)) == {"say": 0}, "음성 기록 · 말 띠가 없으면 해당 없음")
+    check(MC.edit_distance("가나다", "가다라") == 2 and MC.edit_distance("", "가나") == 2, "편집거리")
+
+
+def test_answer():
+    print("\n[V7] 답 지연(질문 받아쓰기 → answer · → 답 재생) · 초벌 정확도(기대 칸 핵심 낱말) — src 별(LLM · 즉답 · 그 밖)")
+    script = [{"판": 1, "행동": "질문", "대상": "지금 몇 단계야?", "기대": "1단계(클린·가스차단)"},
+              {"판": 1, "행동": "질문", "대상": "다음에 뭐 눌러야 돼?", "기대": "B2(펌프/퍼지) — 대기가 끝난 뒤"},
+              {"판": 1, "행동": "질문", "대상": "앞에 보이는 공구가 뭐야?", "기대": "렌치"},
+              {"판": 1, "행동": "질문", "대상": "작업 결과 어때?", "기대": "완료 · 위반 없음"},
+              {"판": 1, "행동": "질문", "대상": "지금 상태 어때?", "기대": ""}]
+    says = [SAY(10000, 1, 1, "지금 몇 단계야?"), SAID(12000, 1, 1),
+            SAY(30000, 1, 2, "다음에 뭐 눌러야 돼?"), SAID(32000, 1, 2),
+            SAY(50000, 1, 3, "앞에 보이는 공구가 뭐야?"), SAID(52000, 1, 3),
+            SAY(70000, 1, 4, "작업 결과 어때?"), SAID(72000, 1, 4),
+            SAY(90000, 1, 5, "지금 상태 어때?"), SAID(92000, 1, 5),
+            SAY(100000, 1, 6, "작업 결과 어때?"), SAID(101000, 1, 6, why="넘어감", attempts=0)]
+    voice = [STT(11000, "지금몇단계야"), E(13000, "answer", src="즉답-단계", text="지금 1단계 클린·가스차단입니다."),
+             E(13300, "play_start", key=None),
+             STT(31000, "다음뭐눌러야돼"), E(32000, "play_start", key="checking"), E(40000, "answer", src="LLM", text="지금은 B3 버튼을 누르세요."),
+             E(40500, "play_start", key=None),
+             STT(51000, "앞에보이는공구가뭐야"), E(60000, "answer", src="고정-검산불일치", key="changed"),
+             E(60100, "play_start", key="cue_B3"), E(60200, "play_start", key="changed"),
+             STT(71000, "작업결과어때"), E(75000, "answer", src="LLM", text="작업이 끝났습니다."), E(75400, "play_start", key=None),
+             STT(78000, "다시 말해줘"), E(85000, "answer", src="LLM", text="확인할 수 없습니다."),     # 같은 띠의 두 번째 답 = 대본 밖
+             STT(91000, "지금상태어때")]                                                            # 답 없음
+    v = MC.v_answer(S_(voice=voice, says=says), script)
+    check(v["ans"] == {"즉답": [2.0], "LLM": [9.0, 4.0], "그 밖": [9.0]}, f"질문 → answer = {v['ans']}")
+    check(v["play"] == {"즉답": [2.3], "LLM": [9.5, 4.4], "그 밖": [9.2]}, f"질문 → 답 재생 = {v['play']}")
+    check(v["extra"] == {"LLM": [7.0]} and v["n"] == 5 and v["noans"] == 1, f"대본 밖 답 · 짝 수 · 답 없음 = {v['extra']} {v['n']} {v['noans']}")
+    check(v["judge"] == {"즉답": {"ok": 1, "bad": 0, "human": 0, "drop": 0}, "LLM": {"ok": 1, "bad": 1, "human": 0, "drop": 0},
+                         "그 밖": {"ok": 0, "bad": 0, "human": 0, "drop": 1}}, f"초벌 = {v['judge']}")
+    check([(r["질문"], r["판정"]) for r in v["review"]] == [("다음에 뭐 눌러야 돼?", "틀림 후보")], f"사람 판정 목록 = {v['review']}")
+    check(MC.core_words("B2(펌프/퍼지) — 대기가 끝난 뒤") == [("B2",)] and MC.core_words("완료 · 위반 없음") == [("끝", "완료")]
+          and MC.core_words("4단계(챔버 벤트) 차례") == [("4단계",)] and MC.core_words("") == [], "핵심 낱말 — 괄호 · 「—」 뒤 조건은 뺀다")
+    check(MC.v_answer(S_(says=says), script) == {"off": 1}, "음성 기록이 없으면 끔")
+    w = MC.v_answer(S_(voice=voice), None)
+    check(w["n"] == 0 and w["extra"] == {"즉답": [2.0], "LLM": [9.0, 4.0, 7.0], "그 밖": [9.0]}, f"말 띠가 없으면 모든 답이 대본 밖 = {w['extra']}")
+
+
+def test_emergency_silence():
+    print("\n[V8] 비상 중 무반응 — 구간 = EMO 차단 ~ 해제 + 0.5초 · 분모 = 비상 중 호출이 든 구간 · 분자 = 그 구간에 호출·답·응답 소리 없음")
+    ev = [P(1000, "EMO", expected="B1", state="MONITOR"), E(1001, "state", old="MONITOR", new="BLOCK"),
+          E(5000, "state", old="BLOCK", new="IDLE"),
+          P(10000, "EMO", expected="B1", state="MONITOR"), E(10001, "state", old="MONITOR", new="BLOCK"),
+          E(15000, "state", old="BLOCK", new="IDLE"),
+          P(20000, "EMO", expected="B1", state="MONITOR"), E(20001, "state", old="MONITOR", new="BLOCK"),
+          E(25000, "state", old="BLOCK", new="IDLE"),
+          P(30000, "B3", expected="B2", state="MONITOR"), E(30001, "state", old="MONITOR", new="BLOCK"),
+          E(35000, "state", old="BLOCK", new="IDLE"),
+          P(40000, "EMO", expected="B1", state="MONITOR"), E(40001, "state", old="MONITOR", new="BLOCK"),
+          E(45000, "state", old="BLOCK", new="IDLE")]
+    voice = [E(2000, "emergency_ignored", text="가디야.", wake=True),
+             E(11000, "emergency_ignored", text="가디언", wake=True), E(15300, "answer", src="LLM", text="네"),   # 해제 + 0.3초 = 구간 안
+             E(31000, "emergency_ignored", text="가디언", wake=True),                                            # 위반 차단 — EMO 아님
+             E(40100, "play_start", key="alert_emo"), E(41000, "emergency_ignored", text="가디언", wake=True),
+             E(42000, "play_start", key="cue_B1")]                                                                # 알림 · 안내는 응답 아님
+    v = MC.v_emergency(S_(ev, voice=voice))
+    check(v == {"spans": 4, "n": 3, "k": 2}, f"V8 = {v}")
+    check(MC.v_emergency(S_(ev)) == {"off": 1}, "음성 기록이 없으면 끔")
+
+
+def test_voice_absent():
+    print("\n[V5~V8] 음성 기록 · 말 띠가 없는 세션(알림 끔 · 음성 끔 · 옛 세션)에서 죽지 않고 해당 없음")
+    S = S_([E(0, "run_start"), E(100, "run_end", ok=True)])
+    S.pop("says")                                   # 옛 세션 꼴 — 말 띠 키가 아예 없다
+    c = MC.count_all(S)
+    check(all(c[k] == {"off": 1} for k in ("V5", "V6", "V7", "V8")), f"{[c[k] for k in ('V5', 'V6', 'V7', 'V8')]}")
+
+
+def test_says_follow_splits():
+    print("\n[말 띠] 녹화 구간 · 뺀 판의 말 띠도 다른 기록과 같이 뺀다")
+    S = S_([E(0, "recording_on", mode="x"), E(500, "recording_off")], says=[SAY(100, 1, 1, "가"), SAY(900, 1, 2, "나")])
+    M, R = MC.split_recording(S)
+    check([t for t, _, _ in M["says"]] == [900.0] and [t for t, _, _ in R["says"]] == [100.0], f"{M['says']} {R['says']}")
+    old = S_()
+    old.pop("says")
+    M, _R = MC.split_recording(old)
+    check(M.get("says", []) == [], "말 띠 키 없는 옛 꼴도 돈다")
+
+
 def test_uplink():
     print("\n[V9] 10초 칸 받은/기대 바이트 — 데몬이 다시 떠 누적이 줄면 그 칸은 버린다")
     voice = [E(0, "uplink", bytes=0, connected=True), E(10000, "uplink", bytes=320000, connected=True),
@@ -357,7 +499,7 @@ def test_count_all_keys():
     print("\n[모두] 한 세션의 값 키")
     keys = set(MC.count_all(S_()).keys())
     check(keys == {"1", "4", "16", "3", "25", "5", "23", "28", "21", "12", "26", "14", "30", "17a", "17b", "18",
-                   "V1", "V2", "V3", "V4", "V9", "31", "reason"}, f"{sorted(keys)}")
+                   "V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "31", "reason"}, f"{sorted(keys)}")
 
 
 def test_fps_short_session():

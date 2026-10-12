@@ -559,7 +559,130 @@ def test_final_review_net():
     check("공구단정" in check_safety("렌치를 쥐셨으니 곧 넘어갑니다.", fp), "요구 공구를 쥐었다고 하면 그대로 건다")
 
 
+SCRIPT_Q = [("지금 몇 단계야?", "단계"), ("다음에 뭐 눌러야 돼?", "다음버튼"),
+            ("지금 눌러야 하는 버튼이 뭐야?", "지금버튼"), ("이번 단계에 무슨 공구 필요해?", "필요공구"),
+            ("앞에 보이는 공구가 뭐야?", "보이는공구"), ("지금 상태 어때?", "상태"), ("작업 결과 어때?", "결과")]
+
+
+def test_quick_kind():
+    """상태 질문 즉답 — 질문 종류(빠른 해결 설계 2026-10-12 §2.1 · 정밀도 우선 · 애매하면 None → LLM)."""
+    print("── 즉답 종류(quick_kind)")
+    try:
+        from voice_card import quick_kind
+    except ImportError:
+        check(False, "quick_kind 가 없다")
+        return
+    for q, kind in SCRIPT_Q:
+        check(quick_kind(q) == kind, f"대본 「{q}」 → {quick_kind(q)}(기대 {kind})")
+        for wake in ("가디언 ", "가디관? "):
+            check(quick_kind(wake + q) == kind, f"호출 조각을 떼고 본다 — 「{wake + q}」 → {quick_kind(wake + q)}")
+    for q in ("지금몇단계야", "다음뭐눌러야돼.", "지금눌러야하는버튼이뭐야?"):
+        check(quick_kind(q) is not None, f"띄어쓰기 · 부호가 없어도 — 「{q}」")
+    for q, kind in [("지금 무슨 단계야?", "단계"), ("현재 어느 단계야", "단계"), ("이번 단계 버튼 뭐야?", "지금버튼"),
+                    ("다음 버튼은?", "다음버튼"), ("무슨 공구 써야 돼?", "필요공구"), ("렌치 보여?", "보이는공구"),
+                    ("지금 상황 어때?", "상태")]:
+        check(quick_kind(q) == kind, f"일반 낱말 「{q}」 → {quick_kind(q)}(기대 {kind})")
+    for q, why in [("지금 몇 단계고 뭐 눌러야 돼?", "단계 + 지금버튼"),
+                   ("이번 단계에 보이는 공구가 뭐야?", "필요공구 + 보이는공구"),
+                   ("앞에 보이는 공구랑 지금 상태 알려줘", "보이는공구 + 상태"),
+                   ("다음 단계 버튼 뭐야?", "다음 단계의 버튼 — 지금 할 일과 갈린다"),
+                   ("뭐 눌러야 돼?", "지금인지 다음인지 없음"),
+                   ("다음에 뭐 해야 돼?", "누르는 말이 없음"),
+                   ("B3 눌러도 돼?", "허가 질문(관문이 먼저)"), ("가스 상태 어때?", "장비 센서"),
+                   ("렌치 확인 끝났어?", "끝났냐(질문한 일)"), ("2단계 끝났어?", "끝났냐"),
+                   ("왜 멈췄어?", "왜"), ("공구 상태 어때?", "공구 + 상태"),
+                   ("가디언가디언", "호출만"), ("", "빈 말"),
+                   ("지금 몇 단계인지 그리고 남은 시간이 얼마인지 알려줄래", "긴 질문")]:
+        check(quick_kind(q) is None, f"애매하면 None(→ LLM) — 「{q}」 {why} → {quick_kind(q)}")
+
+
+def test_quick_answer():
+    """상태별 즉답 문장 — 🔴 누르라는 말은 「지금 할 일」에서만(build_card 의 holdout 교훈 · Review Focus 1)."""
+    print("── 즉답 문장(quick_answer)")
+    try:
+        from voice_card import quick_answer
+    except ImportError:
+        check(False, "quick_answer 가 없다")
+        return
+    t0 = LIVE["쓴시각"]
+    wait1 = dict(LIVE, 현재단계=1, 현재단계명="클린·가스차단", 현재버튼="B1", 다음단계=2, 다음단계명="펌프/퍼지",
+                 다음버튼="B2", 서브작업={"label": "플라즈마 클린 진행", "sec": 10, "tool": None, "tool_name": None},
+                 서브진행={"상태": "진행 중", "남은초": 6.0, "공구충족": False, "공구오답": None})
+    run2 = dict(LIVE, 서브진행={"상태": "진행 중", "남은초": 6.0, "공구충족": False, "공구오답": None})
+    step3 = dict(LIVE, 현재단계=3, 현재단계명="전극 냉각", 현재버튼="B3", 다음단계=4, 다음단계명="챔버 벤트",
+                 다음버튼="B4", 서브작업={"label": "전극 온도 하강", "sec": 10, "tool": None, "tool_name": None})
+    step4 = dict(LIVE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 다음단계명=None,
+                 다음버튼=None, 서브작업=None)
+    W = [("wrench", 0.62, 0, 0, 9, 9)]
+    cases = [
+        # (이름, 질문, 상태, 검출, 신선, 종류, 문장)
+        ("대기 중 몇 단계", "지금 몇 단계야?", wait1, [], False, "단계", "지금은 전체 4단계 중 1단계 「클린·가스차단」입니다."),
+        ("🔴 대기 중 다음 버튼 = 조건", "다음에 뭐 눌러야 돼?", wait1, [], False, "다음버튼",
+         "지금은 기다리고, 대기가 끝나면 다음 버튼은 B2 「펌프/퍼지」입니다."),
+        ("누름 차례 다음 버튼 = 지금 버튼", "다음에 뭐 눌러야 돼?", LIVE, [], False, "다음버튼",
+         "지금 누를 버튼은 B2 「펌프/퍼지」입니다."),
+        ("공구 단계 다음 버튼", "다음에 뭐 눌러야 돼?", run2, [], False, "다음버튼",
+         "렌치를 쥐고 대기가 끝나면 다음 버튼은 B3 「전극 냉각」입니다."),
+        ("지금 버튼", "지금 눌러야 하는 버튼이 뭐야?", step3, [], False, "지금버튼", "지금 누를 버튼은 B3 「전극 냉각」입니다."),
+        ("🔴 대기 중 지금 버튼 = 없음", "지금 눌러야 하는 버튼이 뭐야?", wait1, [], False, "지금버튼",
+         "지금은 「플라즈마 클린 진행」 중이라 누를 버튼이 없습니다."),
+        ("🔴 공구 단계 지금 버튼 = 없음 · 공구", "지금 눌러야 하는 버튼이 뭐야?", run2, [], False, "지금버튼",
+         "지금은 누를 버튼이 없고, 렌치를 찾아 손으로 쥐세요."),
+        ("필요 공구", "이번 단계에 무슨 공구 필요해?", run2, [], False, "필요공구", "2단계에 필요한 공구는 렌치입니다."),
+        ("누르기 전에도 필요 공구", "이번 단계에 무슨 공구 필요해?", LIVE, [], False, "필요공구", "2단계에 필요한 공구는 렌치입니다."),
+        ("공구 없는 단계", "이번 단계에 무슨 공구 필요해?", wait1, [], False, "필요공구", "1단계에는 필요한 공구가 없습니다."),
+        ("보이는 공구", "앞에 보이는 공구가 뭐야?", step3, W, True, "보이는공구", "앞에 렌치가 보입니다."),
+        ("보이는 공구 둘(점수 순)", "앞에 보이는 공구가 뭐야?", step3,
+         [("pliers", 0.71, 0, 0, 9, 9), ("wrench", 0.55, 0, 0, 9, 9)], True, "보이는공구", "앞에 플라이어·렌치가 보입니다."),
+        ("보고 있는데 없음", "앞에 보이는 공구가 뭐야?", step3, [], True, "보이는공구", "지금 카메라에 보이는 공구가 없습니다."),
+        ("🔑 낡음 = 부재 단정 안 함", "앞에 보이는 공구가 뭐야?", step3, W, False, "보이는공구",
+         "지금은 공구를 확인하는 단계가 아닙니다."),
+        ("상태 · 누름", "지금 상태 어때?", step4, [], False, "상태", "순서는 정상이고 지금은 4단계 B4 「챔버 벤트」 차례입니다."),
+        ("상태 · 대기", "지금 상태 어때?", wait1, [], False, "상태", "순서는 정상이고 지금은 「플라즈마 클린 진행」 중이며 약 6초 남았습니다."),
+        ("상태 · 공구", "지금 상태 어때?", run2, [], False, "상태", "순서는 정상이고, 렌치를 찾아 손으로 쥐세요."),
+        ("결과 · 완료 뒤", "작업 결과 어때?", DONE, [], False, "결과", "작업이 완료됐고 총 95초에 순서 위반 0회, 차단 0회입니다."),
+        ("결과 · 진행 중", "작업 결과 어때?", LIVE, [], False, "결과", "아직 작업 중이라 결과가 없습니다."),
+        ("완료 뒤 다음 버튼", "다음에 뭐 눌러야 돼?", DONE, [], False, "다음버튼", "작업이 완료돼 더 누를 버튼이 없습니다."),
+        ("완료 뒤 지금 버튼", "지금 눌러야 하는 버튼이 뭐야?", DONE, [], False, "지금버튼", "작업이 완료돼 더 누를 버튼이 없습니다."),
+        ("완료 뒤 몇 단계", "지금 몇 단계야?", DONE, [], False, "단계", "작업은 이미 완료됐습니다."),
+        ("완료 뒤 필요 공구", "이번 단계에 무슨 공구 필요해?", DONE, [], False, "필요공구", "작업이 완료돼 필요한 공구가 없습니다."),
+    ]
+    for name, q, st, dets, fresh, kind, say in cases:
+        got = quick_answer(q, st, dets, fresh, now=t0)
+        check(got == (kind, say), f"{name} → {got}")
+    # 🔴 작업 전 · 비상 상황(비상정지·차단·경고 — 해제 전까지 · 완료 뒤 비상정지 포함)은 즉답하지 않는다
+    #    (작업 전 = 기존 notready · 비상 = 무반응 §4.7 — 누르라는 말이 나갈 틈을 만들지 않는다)
+    off = [("작업 전(None)", None), ("작업 전", {"세션": False}), ("비상정지", dict(LIVE, 상태="BLOCK", 비상정지=True)),
+           ("차단", dict(LIVE, 상태="BLOCK")), ("경고", dict(LIVE, 상태="WARNING")),
+           ("완료 뒤 비상정지", dict(DONE, 상태="BLOCK", 비상정지=True))]
+    for name, st in off:
+        got = [quick_answer(q, st, W, True, now=t0) for q, _ in SCRIPT_Q]
+        check(got == [None] * len(SCRIPT_Q), f"{name} — 즉답 없음 · {got}")
+    check(quick_answer("왜 멈췄어?", LIVE, [], False) is None, "종류를 못 잡으면 None")
+    # 🔑 안전 그물 — 즉답 문장은 _say 가 그물을 다시 거치지 않으므로 그물을 통과하는 문장만 만든다
+    run_seen = dict(run2, 서브진행=dict(run2["서브진행"], 공구충족=False))
+    held = dict(run2, 서브진행=dict(run2["서브진행"], 공구충족=True))
+    wrong = dict(run2, 서브진행=dict(run2["서브진행"], 공구오답="플라이어"))
+    zero = dict(run2, 서브진행=dict(run2["서브진행"], 남은초=0.0))
+    for name, st, dets, fresh in [("누름", LIVE, [], False), ("대기", wait1, [], False), ("공구 찾는 중", run2, [], False),
+                                  ("공구 보임", run_seen, W, True), ("공구 쥠", held, W, True),
+                                  ("다른 공구", wrong, [("pliers", 0.7, 0, 0, 9, 9)], True), ("공구 시간 끝", zero, [], False),
+                                  ("3단계", step3, W, True), ("4단계", step4, [], False), ("완료", DONE, [], False)]:
+        facts = card_facts(st, dets, fresh, now=t0)
+        for q, _ in SCRIPT_Q:
+            got = quick_answer(q, st, dets, fresh, now=t0)
+            if got is None:
+                check(False, f"{name} · 「{q}」 — 진행 중 상태 질문인데 즉답이 없다")
+                continue
+            say = got[1]
+            check(check_safety(say, facts, q) == [] and is_one_sentence(say) and len(say) <= ANSWER_MAX_CHARS
+                  and verify_answer(say, facts, facts)[0],
+                  f"{name} · {got[0]} — 그물 통과 · 한 문장 · {len(say)}자 · 「{say}」 {check_safety(say, facts, q)}")
+
+
 def main():
+    test_quick_kind()
+    test_quick_answer()
     test_v2_emo_block_card()
     test_shorten()
     test_check_safety()

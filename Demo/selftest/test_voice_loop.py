@@ -21,6 +21,10 @@ config.LLM_ENABLED = True
 import voice_assistant as va  # noqa: E402
 from fake_glass import FakeGlass  # noqa: E402
 
+# 🔑 기존 갈래 시험은 LLM 경로를 본다 — 「지금 몇 단계야」가 즉답으로 빠지지 않게 끈다.
+#    즉답 시험(test_quick_*)만 켜고 끝나면 되돌린다(빠른 해결 설계 2026-10-12 §2.1).
+va.QUICK_ON = False
+
 _fails = []
 
 
@@ -486,6 +490,147 @@ def test_asked_progress_in_answer():
     check(b.llm.asked and "질문한 일: 2단계 「펌프/퍼지」(N2 퍼지) — 이미 끝남" in b.llm.asked[0][0], "LLM 카드에 질문한 일")
     check(b.tts.said == ["네, 2단계 「펌프/퍼지」는 이미 끝났습니다."] and m["답변출처"] == "대체-안전규칙",
           f"{b.tts.said} · {m.get('답변출처')}")
+
+
+# ── 상태 질문 즉답(빠른 해결 설계 2026-10-12 §2.1) ──────────────────────────
+class _EvLog:
+    enabled = True
+
+    def __init__(self):
+        self.ev = []
+
+    def event(self, kind, t=None, **d):
+        self.ev.append((kind, d))
+
+
+def _quick(on=True):
+    """즉답을 켜고(또는 끄고) 음성 기록을 가로챈다 → 되돌리는 함수 · 기록."""
+    old = va.QUICK_ON, va.VLOG
+    va.QUICK_ON, va.VLOG = on, _EvLog()
+    vlog = va.VLOG
+
+    def undo():
+        va.QUICK_ON, va.VLOG = old
+    return undo, vlog
+
+
+WAIT1 = dict(STATE, 현재단계=1, 현재단계명="클린·가스차단", 현재버튼="B1", 다음단계=2, 다음단계명="펌프/퍼지", 다음버튼="B2",
+             서브작업={"label": "플라즈마 클린 진행", "sec": 10, "tool": None, "tool_name": None},
+             서브진행={"상태": "진행 중", "남은초": 6.0, "공구충족": False, "공구오답": None})
+
+
+def test_quick_answer_skips_llm():
+    print("\n[즉답] 상태 질문 → LLM · 「확인 중」 없이 상태로 한 문장")
+    undo, vlog = _quick(True)
+    try:
+        b = bot(llm=FakeLlm("지어낸 답입니다."))
+        ok, m = ask(b, "가디언 지금 몇 단계야")
+        check(b.llm.asked == [] and b.spk.keys() == [] and len(b.spk.pcms()) == 1,
+              f"LLM · 확인 중 없음 · 답 1회 · {b.spk.calls}")
+        want = "지금은 전체 4단계 중 2단계 「펌프/퍼지」입니다."
+        check(b.tts.said == [want] and m.get("답변출처") == "즉답-단계", f"{b.tts.said} · {m.get('답변출처')}")
+        ans = [d for k, d in vlog.ev if k == "answer"]
+        check(ans == [{"src": "즉답-단계", "text": want}], f"answer 사건 src = 즉답-단계 · {ans}")
+        b = bot(state=WAIT1, tools=([], False))
+        ok, m = ask(b, "다음에 뭐 눌러야 돼")
+        check(b.tts.said == ["지금은 기다리고, 대기가 끝나면 다음 버튼은 B2 「펌프/퍼지」입니다."]
+              and m.get("답변출처") == "즉답-다음버튼", f"🔴 대기 중 다음 버튼은 조건을 붙인다 — {b.tts.said}")
+        b = bot(llm=FakeLlm(ready=False))
+        ok, m = ask(b, "지금 상태 어때")
+        check(m.get("답변출처") == "즉답-상태" and b.spk.keys() == [], f"LLM 예열 전에도 즉답 · {m.get('답변출처')}")
+    finally:
+        undo()
+
+
+def test_quick_falls_to_llm():
+    print("\n[즉답] 못 잡으면 · 꺼 두면 지금처럼 LLM")
+    undo, vlog = _quick(True)
+    try:
+        b = bot()
+        ok, m = ask(b, "뭐 눌러야 돼")              # 지금인지 다음인지 없다 → 애매
+        check(b.llm.asked and b.spk.keys() == ["checking"] and m.get("답변출처") == "LLM", f"애매 → LLM · {b.spk.calls}")
+        b = bot(llm=FakeLlm("네, 눌러도 됩니다."))
+        ok, m = ask(b, "지금 B2 눌러도 돼?")
+        check(m.get("답변출처") == "대체-위험질문", f"허가 질문은 관문이 먼저 · {m.get('답변출처')}")
+        va.QUICK_ON = False
+        b = bot()
+        ok, m = ask(b, "지금 몇 단계야")
+        check(b.llm.asked and b.spk.keys() == ["checking"] and m.get("답변출처") == "LLM",
+              f"SOP_VOICE_QUICK=0 → 지금 동작(LLM) · {b.spk.calls} · {m.get('답변출처')}")
+    finally:
+        undo()
+    import subprocess
+    for raw, want in [(None, "True"), ("1", "True"), ("0", "False")]:
+        env = {k: v for k, v in os.environ.items() if k != "SOP_VOICE_QUICK"}
+        if raw is not None:
+            env["SOP_VOICE_QUICK"] = raw
+        out = subprocess.run([sys.executable, "-c", "import voice_assistant as v; print('QUICK', v.QUICK_ON)"],
+                             cwd=_DEMO_DIR, env=env, capture_output=True, text=True, timeout=60).stdout
+        check(f"QUICK {want}" in out, f"SOP_VOICE_QUICK={raw!r} → {out.strip()[-20:]}(기대 {want})")
+
+
+def test_quick_verify_kept():
+    print("\n[즉답] 검산은 그대로 — 합성하는 사이 단계가 바뀌면 버린다")
+    undo, vlog = _quick(True)
+    try:
+        moved = dict(STATE, 현재단계=3, 현재단계명="전극 냉각", 현재버튼="B3")
+        b = bot(states=[STATE, STATE, moved])
+        ok, m = ask(b, "지금 몇 단계야")
+        check(b.spk.keys() == ["changed"] and m.get("답변출처") == "고정-검산불일치", f"{b.spk.calls} · {m.get('답변출처')}")
+    finally:
+        undo()
+
+
+# ── 알림 감시(빠른 해결 설계 2026-10-12 §2.3) ───────────────────────────────
+class _GateSpk(FakeSpk):
+    """앞 소리가 명령 채널을 쥐고 있는 것처럼 — 문이 열릴 때까지 기다린 뒤 보낸다(still_valid 는 그때 본다)."""
+
+    def __init__(self):
+        super().__init__()
+        self.gate, self.entered = threading.Event(), []
+
+    def play(self, key, alog=None, still_valid=None):
+        self.entered.append(key)
+        self.gate.wait(5)
+        return super().play(key, alog, still_valid)
+
+
+def _until(cond, sec=3.0):
+    end = time.time() + sec
+    while time.time() < end and not cond():
+        time.sleep(0.01)
+    return cond()
+
+
+def test_alert_poll_fast():
+    print("\n[알림] 감시 주기 0.02초 · 안내 감시는 그대로")
+    check(va.ALERT_POLL_SEC == 0.02 and va.AlertWatcher(FakeSpk()).poll_sec == 0.02, f"알림 감시 {va.ALERT_POLL_SEC}")
+    check(va.CueWatcher(FakeSpk()).poll_sec == 0.1, "측정 안내 감시는 0.1초 그대로(이번 범위 밖)")
+
+
+def test_superseded_alert_not_sent():
+    print("\n[알림] 밀려난 알림 · 풀린 뒤의 알림은 보내지 않는다")
+    warn, blk = dict(STATE, 상태="WARNING"), dict(STATE, 상태="BLOCK")
+    for name, after, want in [("경고 → 차단", blk, [("play", "alert_block_B2")]), ("경고 → 해제", STATE, [])]:
+        cur = [STATE]
+        spk = _GateSpk()
+        w = va.AlertWatcher(spk, read_state=lambda: cur[0], poll_sec=0.01)
+        stop = threading.Event()
+        w.start(stop)
+        try:
+            time.sleep(0.05)
+            cur[0] = warn
+            check(_until(lambda: spk.entered == ["alert_warn_B2"]), f"{name} — 경고를 보내려고 기다린다")
+            cur[0] = after
+            _until(lambda: spk.calls.count(("stop",)) >= 2)
+            spk.gate.set()
+            _until(lambda: len([c for c in spk.calls if c[0] in ("play", "dropped")]) >= 1 + len(want), 2.0)
+            time.sleep(0.1)
+        finally:
+            stop.set()
+        sent = [c for c in spk.calls if c[0] in ("play", "dropped")]
+        check(sent == [("dropped",)] + want, f"{name} — 경고는 버리고 {want or '아무것도 안 보냄'} · {spk.calls}")
+        check(_until(lambda: not w.speaking.is_set(), 1.0), f"{name} — 「알림 중」이 풀린다")
 
 
 # ── 메인 루프(Task 9) ─────────────────────────────────────────────────────
