@@ -374,8 +374,15 @@ def items_R5(out, twice):
             build["errors"].append(f"빌드 실패 {opt} · {r.stdout[-200:]} {r.stderr[-200:]}")
         else:
             md5[" ".join(opt) or "지금"] = m.group(1)
-    if len(set(md5.values())) != len(md5):
-        build["errors"].append(f"md5 가 겹친다 — 옵션이 안 먹었다 {md5}")
+    # 🔑 md5 차이는 근거가 아니다 — 같은 펌웨어도 빌드할 때마다 md5 가 바뀐다(빌드 시각이 들어간다).
+    #    옵션이 먹었는지는 스케치 오브젝트 컴파일 명령에 -D 가 붙었는지로 본다(arduino-cli -v).
+    cli = os.path.expanduser("~/bin/arduino-cli")
+    v = subprocess.run([cli, "compile", "--fqbn", "esp32:esp32:XIAO_ESP32S3:PSRAM=opi", "--clean", "--build-property",
+                        "compiler.cpp.extra_flags=-DGLASS_JPEG_QUALITY=20 -DGLASS_FB_COUNT=3", "-v",
+                        os.path.join(os.path.dirname(flash), "glass_voice")], capture_output=True, text=True, timeout=1200)
+    obj = [ln for ln in v.stdout.splitlines() if "sketch/glass_voice.ino.cpp.o" in ln and " -E " not in ln]
+    if v.returncode != 0 or not any("-DGLASS_JPEG_QUALITY=20 -DGLASS_FB_COUNT=3" in ln for ln in obj):
+        build["errors"].append("스케치 컴파일 명령에 빌드 옵션(-DGLASS_*)이 안 붙었다")
     build["home"] += " · " + " · ".join(f"{k} {v[:8]}" for k, v in md5.items())
     probe = _base("R5-압축", "재압축 검출 비교(파이 JPEG · 방향만)", "임시", "파이 JPEG 품질 ≠ 카메라 칩 품질 — 학교 필수")
     r = subprocess.run([sys.executable, os.path.join(TEST, "jpeg_quality_probe.py"), SRC_STILL, "--limit", "80",
