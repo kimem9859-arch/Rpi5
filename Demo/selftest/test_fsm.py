@@ -649,6 +649,24 @@ def test_b_slow_entry_warns_immediately():
     assert fsm.last_warn_reason is None
 
 
+def test_b_reason_clears_when_leaving_warning():
+    """안 B — 경고에서 해제 버튼이 아닌 길(정답 누름 P6 · 오답 누름 → 차단)로 빠져도 이유를 지운다(최종 리뷰 M-4)."""
+    fsm, _ = make_slow_fsm()
+    fsm.update_vision(None, 0.0, tip=(100, 100))
+    fsm.update_vision("B3", 0.07, tip=(110, 100))          # 느림 → 경고
+    assert fsm.state == State.WARNING and fsm.last_warn_reason == "slow"
+    fsm.press_button("B1")                                 # 경고 중 정답 → 경고 해제 + 단계 완료(P6)
+    assert fsm.state != State.WARNING
+    assert fsm.last_warn_reason is None, "경고를 벗어나면 이유가 남지 않는다"
+    fsm2, _ = make_slow_fsm()
+    fsm2.update_vision(None, 0.0, tip=(100, 100))
+    fsm2.update_vision("B3", 0.07, tip=(110, 100))
+    assert fsm2.state == State.WARNING
+    fsm2.press_button("B3")                                # 경고 중 오답 누름 → 차단
+    assert fsm2.state == State.BLOCK
+    assert fsm2.last_warn_reason is None
+
+
 def test_b_fast_entry_falls_back_to_dwell():
     """안 B ② — 빠르면(0.07초 · 200px ≈ 2,857px/s) 즉시 경고 없음 → 안쪽 체류 0.3초에 경고 · 이유 dwell."""
     fsm, log = make_slow_fsm()
@@ -790,6 +808,21 @@ def test_b_forget_and_reset_clear_previous_tips():
     fsm.update_vision("B3", 0.14, tip=(102, 100))          # 직전 손끝이 지워져 속도 모름
     assert fsm.state == State.MONITOR
     assert fsm.last_warn_reason is None
+
+
+def test_b_config_bad_env_does_not_crash():
+    """안 B — 문턱 환경변수가 비었거나 오타여도 기동이 죽지 않고 기본 437.5 로(최종 리뷰 M-7)."""
+    import subprocess
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for bad in ("", "abc"):
+        r = subprocess.run([sys.executable, "-c", "import config; print(config.FSM_SLOW_ENTRY_PX_S_VGA)"],
+                           cwd=here, capture_output=True, text=True, timeout=60,
+                           env=dict(os.environ, SOP_SLOW_ENTRY_PX_S_VGA=bad))
+        assert r.returncode == 0 and r.stdout.strip().splitlines()[-1] == "437.5", f"{bad!r} → {r.returncode} {r.stdout[-80:]} {r.stderr[-200:]}"
+    r = subprocess.run([sys.executable, "-c", "import config; print(config.FSM_SLOW_ENTRY_PX_S_VGA)"],
+                       cwd=here, capture_output=True, text=True, timeout=60,
+                       env=dict(os.environ, SOP_SLOW_ENTRY_PX_S_VGA="0"))
+    assert r.stdout.strip().splitlines()[-1] == "0.0", "0 = 끔(되돌리기)은 그대로"
 
 
 if __name__ == "__main__":

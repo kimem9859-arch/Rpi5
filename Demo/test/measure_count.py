@@ -195,7 +195,9 @@ def v_prevent(S):
     진단(성공으로 세지 않는다 · 진행 도우미 설계 D13①) — 경고가 없던 눌림을 누르는 순간(GPIO 엣지)까지의 판정기 줄로 가른다:
     none = 그 버튼 구역에 손 없음 · ring = 링에만(박스 안 줄 없음) · late = 박스 안에서 체류 문턱을 넘긴 줄을 누르기 전에
     받았는데 판정기가 누름보다 늦게 처리 · other = 그 줄을 누름 전에 처리했는데도 경고 없음(판정 규칙 예외 — 방금 완료한 버튼 등
-    · 최종 리뷰 Minor 8) · short = 체류 미달(문턱을 못 채움 — 문턱이 기록에 없으면 이쪽)."""
+    · 최종 리뷰 Minor 8) · short = 체류 미달(문턱을 못 채움 — 문턱이 기록에 없으면 이쪽).
+    🔑 안 B(느린 손끝 즉시 경고 · 설정 FSM_SLOW_ENTRY_PX_S_VGA > 0)가 켜진 세션의 short = 체류도 못 채웠고 손끝이 속도 문턱
+    위(빠른 손)였거나 속도를 몰랐던 눌림 — 속도는 기록에 없어 가르지 않는다(세는 법 같음 · 보고서가 단서만 단다 · 최종 리뷰 Minor M-1)."""
     thr = (S.get("settings") or {}).get("FSM_DWELL_THRESHOLD_SEC")
     F = S["fsm"]
     ft = [r["t"] for r in F]
@@ -232,6 +234,17 @@ def v_lead(S):
         if prev:
             leads.append(round((p["t_at"] - prev[-1]) / 1000, 3))
     return {"leads": leads}
+
+
+def v_reason(S):
+    """경고 이유(판정 기준 안 B · 목표 없음 · 최종 리뷰 Minor M-2) — 경고 상태 사건의 reason: slow = 속도 경고(느린 손끝 즉시)
+    · dwell = 체류 경고 · none = 칸 없음·None(안 B 이전 옛 기록)."""
+    out = {"slow": 0, "dwell": 0, "none": 0}
+    for _, k, d in S["events"]:
+        if k == "state" and d.get("new") == "WARNING":
+            r = d.get("reason")
+            out[r if r in ("slow", "dwell") else "none"] += 1
+    return out
 
 
 def v_normal(S):
@@ -763,7 +776,7 @@ def v_input(S):
 
 
 def count_all(S, below=None):
-    """세션 하나의 값 전부 — 키 = 측정 설계 §2 번호(17ⓐ = 17a). below = NFR-1 FPS 목표(통합문서 §4.1).
+    """세션 하나의 값 전부 — 키 = 측정 설계 §2 번호(17ⓐ = 17a · reason = 경고 이유 — 번호 없음). below = NFR-1 FPS 목표(통합문서 §4.1).
     🔑 시스템 값은 판 맞춤 전 기록(S["full"] — 없으면 S)으로 · 대본을 따라 세는 값은 NG·대본 밖을 뺀 S 로(split_guide)."""
     F = S.get("full") or S
     return {"1": v_prevent(S), "4": v_lead(S), "16": v_normal(S), "3": v_precision(S), "25": v_effect(S),
@@ -771,4 +784,4 @@ def count_all(S, below=None):
             "12": v_fps(F, below), "26": v_stages(F), "14": v_interlock(F), "30": v_res(F),
             "17a": v_wrong_tool(S), "17b": v_tool_time(S), "18": v_input(S),
             "V1": v_alert_delay(F), "V2": v_alert_count(S), "V3": v_alert_stop(F), "V4": v_alert_len(F),
-            "V9": v_uplink(F), "31": v_cue(S)}
+            "V9": v_uplink(F), "31": v_cue(S), "reason": v_reason(S)}

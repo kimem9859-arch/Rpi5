@@ -100,6 +100,21 @@ def test_warning_state_reason():
           f"기존 키 유지 {warn[:1]}")
 
 
+def test_slow_warning_frame_time():
+    print("\n[화면 기록] 첫 장 속도 경고의 frame_t_ms = 그 경고를 낸 장의 시각(최종 리뷰 I-1 · 세기 23 스침 구간 판정)")
+    d = tempfile.mkdtemp()
+    win = make(d)
+    win._on_cta()
+    t0 = time.monotonic()
+    win._on_roi("", 0, t0, 100.0, 100.0)            # 직전 장 — 손끝은 구역 밖
+    win._on_roi("B4", 2, t0 + 0.07, 102.0, 101.0)   # 1단계 차례에 오답 B4 안쪽으로 느리게 → 이 장에서 즉시 경고
+    win.close()
+    warn = [x for _t, k, x in events(d) if k == "state" and x["new"] == "WARNING"]
+    want = round((t0 + 0.07) * 1000, 3)
+    check(warn and warn[0].get("reason") == "slow" and warn[0].get("frame_t_ms") is not None
+          and abs(warn[0]["frame_t_ms"] - want) < 1.0, f"경고 장 시각 {warn[:1]} · 기대 {want}")
+
+
 def test_off_is_null():
     print("\n[화면 기록] 측정을 켜지 않으면 화면·카메라 모두 NullLog")
     win = make(None)
@@ -274,6 +289,7 @@ if __name__ == "__main__":
     test_prompt_bar()
     test_events_flow()
     test_warning_state_reason()
+    test_slow_warning_frame_time()
     test_off_is_null()
     test_gpio_edge_time()
     test_gpio_edge_bad_clock()

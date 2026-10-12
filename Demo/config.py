@@ -189,7 +189,17 @@ FSM_GAP_FILL_SEC        = 0.3
 # 근거 = 오프라인 모의(~/lab/판정처리분석-20261011/judge/rules.py SpeedGate · spec 2026-10-12-판정기준-안B).
 # 🔴 모의 수치는 설계 근거용이다(1인 · 장소1 · 기록을 보고 고른 값) — 판정은 다시 재기로 한다.
 # 🔴 0 이하 = 끔 = 종전 규칙(체류만) — 되돌리기 `SOP_SLOW_ENTRY_PX_S_VGA=0`.
-FSM_SLOW_ENTRY_PX_S_VGA = float(os.environ.get("SOP_SLOW_ENTRY_PX_S_VGA", "437.5"))
+def _env_float(name, default):
+    """환경변수 실수 — 비었거나 오타면 기본값(기동이 import 단계에서 죽지 않게 · 최종 리뷰 M-7)."""
+    raw = os.environ.get(name, "").strip()
+    try:
+        return float(raw) if raw else default
+    except ValueError:
+        print(f"[config] ⚠️ {name}={raw!r} 를 숫자로 읽지 못해 기본값 {default} 를 쓴다", file=sys.stderr)
+        return default
+
+
+FSM_SLOW_ENTRY_PX_S_VGA = _env_float("SOP_SLOW_ENTRY_PX_S_VGA", 437.5)
 # 속도 = 이 장 손끝과, 직전 N 장(update_vision 이 불린 장 · 구역과 상관없음) 가운데 손끝이 있는
 # 가장 가까운 장(BACK 초 안) 사이 거리 ÷ 시간. 그런 장이 없으면 속도 모름 → 체류 규칙.
 # 🔴 모의 annotate_speed 와 같은 정의 — 바꾸면 모의 근거가 그대로 옮겨오지 않는다.

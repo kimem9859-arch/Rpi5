@@ -1034,8 +1034,11 @@ class SafetyConsole(QMainWindow):
         #    겹쳐도 경고가 나지 않는다. 판정기(FSM)는 고치지 않는다 — 넣는 값만 바꾼다.
         #    손끝도 같다 — 끈 동안은 넣지 않는다(속도 판정도 쉰다).
         tip = None if (off or math.isnan(tx) or math.isnan(ty)) else (tx, ty)
-        self.fsm.update_vision(None if off else (roi or None), t, level or ZONE_INSIDE, tip=tip)
+        # 🔑 판정기 호출 **앞**에 이 장 시각을 둔다 — 판정기가 이 장에서 경고로 가면 상태 사건(frame_t_ms)이
+        #    그 장 시각을 적어야 한다. 뒤에 두면 직전 장 시각이 찍혀, 첫 장 속도 경고(안 B)가 세기 23 스침
+        #    구간 밖으로 밀렸다(최종 리뷰 I-1).
         self._last_frame_t = t
+        self.fsm.update_vision(None if off else (roi or None), t, level or ZONE_INSIDE, tip=tip)
         if self._measure.enabled:
             # 판정기 시점 — 갭메우기 뒤 보고 있는 버튼(도구가 갭메우기를 다시 구현하지 않게 · 측정 도구 정합 §4.3)
             self._measure.row("fsm", [measure_log.now_ms(t), measure_log.now_ms(), self.fsm.last_roi or "",

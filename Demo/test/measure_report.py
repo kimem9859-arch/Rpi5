@@ -26,6 +26,7 @@ sys.path.insert(0, _TEST)
 
 import config               # noqa: E402 — EMO 폴백(fsm.py 와 같다)
 import fps                  # noqa: E402
+import frame_orient         # noqa: E402 — 픽셀 배율 단일 출처(px_scale · 속도 문턱 XGA 환산)
 import measure_check        # noqa: E402 — 사건 읽기(잘린 마지막 줄 건너뜀) 재사용
 import measure_count as MC  # noqa: E402
 import measure_script       # noqa: E402 — 대본 읽기 · 판 맞춤 단일 출처(진행 도우미 설계 D3)
@@ -263,14 +264,32 @@ def fps_floor(targets):
     return t["value"] if t and not t.get("unreadable") else None
 
 
-def target_value(mid, M, t=None):
+def slow_on(s):
+    """안 B(느린 손끝 즉시 경고)가 켜진 세션인가 — 설정 FSM_SLOW_ENTRY_PX_S_VGA > 0 · 없으면(안 B 이전) · 0 이하(끔) = 아니다."""
+    v = s.get("FSM_SLOW_ENTRY_PX_S_VGA")
+    return v is not None and v > 0
+
+
+def _slow_text(s):
+    """④ 조건의 속도 문턱 — VGA 기준 값(XGA 환산 = frame_orient.px_scale) · 0 이하 = 끔 · 없으면 옛 규칙(체류만)."""
+    v = s.get("FSM_SLOW_ENTRY_PX_S_VGA")
+    if v is None:
+        return "속도 경고 없음(옛 규칙)"
+    if v <= 0:
+        return "속도 경고 끔"
+    return f"속도 문턱 VGA {v:g}(XGA {round(v * frame_orient.px_scale(1024, 768), 1):g})px/s"
+
+
+def target_value(mid, M, t=None, slow=False):
     """목표 측정 # → {raw(값 또는 목록), n(표본), note(덧붙임), why(값이 없는 까닭 — 있으면 판정 대신)}.
-    놓친 것(ACK 없는 명령 · 재생 없는 알림)은 ∞ 로 넣는다 — 빼면 판정이 좋은 쪽으로 치우친다."""
+    놓친 것(ACK 없는 명령 · 재생 없는 알림)은 ∞ 로 넣는다 — 빼면 판정이 좋은 쪽으로 치우친다.
+    slow = 안 B 가 켜진 세션이 있다 — 1 의 체류 미달에 빠른 손 · 속도 모름이 섞인다는 단서를 단다(최종 리뷰 Minor M-1)."""
     g = lambda k: M.get(k, {})                      # noqa: E731
     if mid == "1":
         n, k = g("1").get("n", 0), g("1").get("k", 0)
         return {"raw": 100 * k / n if n else None, "n": n, "why": "",
-                "note": f"체류 미달 {g('1').get('short', 0)} · 처리 늦음 {g('1').get('late', 0)}"
+                "note": f"체류 미달 {g('1').get('short', 0)}{'(속도 문턱 위 = 빠른 손 · 속도 모름 포함)' if slow else ''}"
+                        f" · 처리 늦음 {g('1').get('late', 0)}"
                         f" · 링에만 {g('1').get('ring', 0)} · 손 없음 {g('1').get('none', 0)}"
                         f" · 기타(규칙 예외) {g('1').get('other', 0)}"}
     if mid == "4":
@@ -374,6 +393,7 @@ def render(sessions, per, M, targets, curve=None):
             L.append(f"> ⚠️ {S['name']} — {w}")
     for S in sessions:
         L += guide_lines(S)
+    slow_n = sum(1 for S in sessions if slow_on(S["settings"]))      # 안 B 가 켜진 세션 수(최종 리뷰 Minor M-1·M-3)
     L += ["", "## ① 목표(통합문서 §4.1)", ""]
     if not targets:
         L.append("❌ **목표 읽기 실패 — 판정 없음**(통합문서 §4.1 목표 표를 찾지 못했다)")
@@ -387,7 +407,7 @@ def render(sessions, per, M, targets, curve=None):
             if t.get("unreadable"):
                 L.append(f"| {mid} | {t['name']} | {t['text']} | — | — | 목표값 못 읽음 |  |")
                 continue
-            tv = target_value(mid, Mt, t)
+            tv = target_value(mid, Mt, t, slow=slow_n > 0)
             v, how = apply_stat(t, tv["raw"])
             verdict = tv["why"] or ("판정 안 함 — 시험 세션" if trial else judge(t, v, tv["n"]))
             val = _ft(v, t["unit"]) + (f" ({how})" if how else "")
@@ -428,6 +448,8 @@ def render(sessions, per, M, targets, curve=None):
           f" {_f(_med(g('21').get('before', [])), 0, 'ms')} · 경로 {g('21').get('why', {})} · 가짜 미확인 {g('21').get('fake', 0)}",
           f"- 23 스침 통과율 — {_pct(s23.get('pass_k', 0), s23.get('pass_n', 0))} · 대본 머묾 가운데 경고 {_pct(s23.get('stay_warned', 0), s23.get('stay_n', 0))}",
           f"- 25 경고 효과 — {_pct(g('25').get('k', 0), g('25').get('n', 0))}(경고 뒤 누름 없음 {g('25').get('none', 0)})",
+          f"- 경고 이유 — 속도 {g('reason').get('slow', 0)} · 체류 {g('reason').get('dwell', 0)}"
+          f" · 이유 없음(옛 기록) {g('reason').get('none', 0)}",
           "- 26 단계별 시간(ms 중앙값/95%) — " + " · ".join(
               f"{s[:-3]} {_f(_med(st.get(s, [])), 1)}/{_f(_pq(st.get(s, []), 0.95), 1)}" for s in MC.STAGES + ("total_ms",)),
           f"- 27 받기↔처리 — 받은 {st.get('recv_n', 0)} · 처리 {st.get('proc_n', 0)}({_pct(st.get('proc_n', 0), st.get('recv_n', 0))})"
@@ -457,6 +479,9 @@ def render(sessions, per, M, targets, curve=None):
           "| 문턱(초) | 누르려던 손을 잡은 비율 | 스친 손을 거른 비율 |", "|---|---|---|"]
     L += [f"| {t:.2f} | {_f(a * 100 if a is not None else None, 1, '%')} | {_f(b * 100 if b is not None else None, 1, '%')} |"
           for t, a, b in cv]
+    if slow_n:                                       # 곡선은 체류만 본 모형(최종 리뷰 Minor M-3)
+        L.append("\n⚠️ 안 B(느린 손 즉시 경고)가 켜진 세션" + (f" {slow_n}/{len(sessions)}" if len(sessions) > 1 else "")
+                 + " — 짧게 지나가도 느리면 경고가 나므로 「스친 손을 거른 비율」은 실제로 걸러지는 비율이 아니다(체류만 본 모형)")
     if curve:
         rng = MC.fit_range(cv, curve[0], curve[1])
         L.append(f"\n참고 기준 잡음 ≥ {curve[0]:.0%} · 거름 ≥ {curve[1]:.0%} → "
@@ -468,7 +493,8 @@ def render(sessions, per, M, targets, curve=None):
         i, s = S["info"].get("입력") or {}, S["settings"]
         L.append(f"- {S['name']} — 장소 {i.get('장소')} · {i.get('세션')} · {i.get('손')} · 사람 {i.get('사람')}"
                  f" · 조명 {i.get('조명') or '—'} · 대본 {i.get('대본') or '없음'} · 체류 {s.get('FSM_DWELL_THRESHOLD_SEC')}초"
-                 f" · 갭메우기 {s.get('FSM_GAP_FILL_SEC')}초 · 버튼 모델 {os.path.basename(str(s.get('HEF_MODEL_PATH') or '—'))}"
+                 f" · 갭메우기 {s.get('FSM_GAP_FILL_SEC')}초 · {_slow_text(s)}"
+                 f" · 버튼 모델 {os.path.basename(str(s.get('HEF_MODEL_PATH') or '—'))}"
                  f" · 공구 {s.get('TOOL_BACKEND')} {os.path.basename(str(s.get('TOOL_HEF_PATH') or ''))}"
                  f" · 쥠 연속 {s.get('TOOL_GRASP_CONFIRM_SCANS') or '—'}번 · 안경 {i.get('안경전원') or '—'}"
                  f" · 음성 {'켬' if S['info'].get('음성', True) else '끔'} · EMO {S['emo']}"

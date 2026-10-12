@@ -54,7 +54,8 @@ def _csv(path, header, rows):
         w.writerows(rows)
 
 
-def make_session(d, script="판,행동,대상,기대,메모\n1,위반,B3,,\n", truncate=False):
+def make_session(d, script="판,행동,대상,기대,메모\n1,위반,B3,,\n", truncate=False, slow=None, reason=None):
+    """slow = 설정 FSM_SLOW_ENTRY_PX_S_VGA · reason = 경고 상태 사건의 reason — 둘 다 None 이면 칸이 없다(안 B 이전 옛 세션)."""
     os.makedirs(d, exist_ok=True)
     info = {"입력": {"장소": 1, "세션": "위반", "손": "맨손", "사람": 1, "조명": "", "대본": "대본.csv" if script else "",
                      "펌웨어": "glass_voice"},
@@ -62,6 +63,11 @@ def make_session(d, script="판,행동,대상,기대,메모\n1,위반,B3,,\n", t
                      "HEF_MODEL_PATH": "/x/B.hef", "ORIENT_ONE_REMAP": False, "DISPLAY_SCALE_IN_PAINT": True,
                      "DISPLAY_EVERY": 2},
             "측정기록": True, "음성": True, "코드": {"Rpi5": "abc1234"}}
+    if slow is not None:
+        info["설정"]["FSM_SLOW_ENTRY_PX_S_VGA"] = slow
+    warn = {"old": "PROCESS_RUN", "new": "WARNING", "expected": "B2", "dwell_roi": "B3"}
+    if reason is not None:
+        warn["reason"] = reason
     _write(os.path.join(d, "session.json"), json.dumps(info, ensure_ascii=False))
     _csv(os.path.join(d, "frames.csv"), ["frame", "t_recv_ms", "recv_seq", "t_start_ms", "t_done_ms", "decode_ms", "orient_ms",
                                          "detect_ms", "track_ms", "hand_ms", "tool_ms", "zone_ms", "tip_x", "tip_y", "tip_score",
@@ -70,7 +76,7 @@ def make_session(d, script="판,행동,대상,기대,메모\n1,위반,B3,,\n", t
           for i, (r, l) in enumerate([("", ""), ("B3", 2), ("B3", 2)])])
     _csv(os.path.join(d, "fsm.csv"), ["t_recv_ms", "t_gui_ms", "fsm_roi", "fsm_level", "state", "expected"],
          [[1000 + 100 * i, 1030 + 100 * i, r, l, "PROCESS_RUN", "B2"] for i, (r, l) in enumerate([("", ""), ("B3", 2), ("B3", 2)])])
-    ev = [[900, "run_start", "{}"], [1250, "state", json.dumps({"old": "PROCESS_RUN", "new": "WARNING", "expected": "B2", "dwell_roi": "B3"})],
+    ev = [[900, "run_start", "{}"], [1250, "state", json.dumps(warn)],
           [1300, "press", json.dumps({"button": "B3", "source": "gpio", "expected": "B2", "state": "WARNING"})],
           [1400, "run_reset", json.dumps({"why": "작업 초기화"})], [1500, "measure_end", json.dumps({"dropped": 0, "failed": False})]]
     _csv(os.path.join(d, "events.csv"), ["t_ms", "kind", "data"], ev)
@@ -384,6 +390,47 @@ def test_guide_session():
         S = MR.load_session(make_session(os.path.join(tmp, "part"), script="판,행동,대상,기대,메모,누름\n1,위반,B3,,,B3@B2 B2\n"))
         L = "\n".join(MR.guide_lines(S))
         check("미완 1(1번째 판 · 못 한 누름 1)" in L and "머묾 낱말 없는 판의 경고 1번" in L, L)
+
+
+def test_slow_entry_report():
+    print("\n[안 B] ② 경고 이유별 수 · ④ 속도 문턱 · ① 체류 미달 단서 · ③ 곡선 단서 — 옛 세션은 그대로(최종 리뷰 Minor M-1·M-2·M-3)")
+    QUAL = "(속도 문턱 위 = 빠른 손 · 속도 모름 포함)"
+    NOTE3 = "⚠️ 안 B(느린 손 즉시 경고)가 켜진 세션"
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, "통합.md")
+        _write(p, TABLE)
+        t = MR.load_targets(p)
+
+        def md_of(*dirs):
+            Ss = [MR.load_session(d) for d in dirs]
+            per = [MC.count_all(S, 15.0) for S in Ss]
+            return MR.render(Ss, per, MC.merge(per), t)
+        old = make_session(os.path.join(tmp, "old"))
+        on = make_session(os.path.join(tmp, "on"), slow=437.5, reason="slow")
+        off = make_session(os.path.join(tmp, "off"), slow=0, reason="dwell")
+        m_old, m_on, m_off, m_mix = md_of(old), md_of(on), md_of(off), md_of(old, on)
+    row1 = lambda md: next(l for l in md.splitlines() if l.startswith("| 1 |"))              # noqa: E731
+    cond = lambda md, n: next(l for l in md.splitlines() if l.startswith(f"- {n} — 장소"))   # noqa: E731
+    print("  — 옛 세션(이유 · 문턱 칸 없음)")
+    check("- 경고 이유 — 속도 0 · 체류 0 · 이유 없음(옛 기록) 1" in m_old, "② 이유 없는 경고 = 옛 기록으로 센다")
+    check("· 갭메우기 0.3초 · 속도 경고 없음(옛 규칙) · 버튼 모델" in cond(m_old, "old"), cond(m_old, "old"))
+    check(row1(m_old).endswith("| 체류 미달 0 · 처리 늦음 0 · 링에만 0 · 손 없음 0 · 기타(규칙 예외) 0 |"), f"① 덧붙임 그대로 {row1(m_old)}")
+    check(QUAL not in m_old and NOTE3 not in m_old, "옛 세션에는 ①·③ 단서가 없다")
+    print("  — 안 B 켬(문턱 437.5)")
+    check("- 경고 이유 — 속도 1 · 체류 0 · 이유 없음(옛 기록) 0" in m_on, "② 속도 경고 1")
+    check("· 갭메우기 0.3초 · 속도 문턱 VGA 437.5(XGA 700)px/s · 버튼 모델" in cond(m_on, "on"), cond(m_on, "on"))
+    check(f"체류 미달 0{QUAL} · 처리 늦음 0" in row1(m_on), f"① 체류 미달 단서 {row1(m_on)}")
+    L = m_on.splitlines()
+    i3 = next((i for i, l in enumerate(L) if l.startswith(NOTE3)), None)
+    check(i3 is not None and "실제로 걸러지는 비율이 아니다" in L[i3]
+          and next(i for i, l in enumerate(L) if l.startswith("| 1.00 |")) < i3
+          < next(i for i, l in enumerate(L) if l.startswith("🔴 이 곡선으로")),
+          f"③ 곡선 표 바로 아래 단서 {L[i3] if i3 is not None else None}")
+    print("  — 안 B 끔(문턱 0) · 섞인 통합값")
+    check("· 속도 경고 끔 ·" in cond(m_off, "off") and "- 경고 이유 — 속도 0 · 체류 1 · 이유 없음(옛 기록) 0" in m_off
+          and QUAL not in m_off and NOTE3 not in m_off, f"끔 = 종전 규칙 {cond(m_off, 'off')}")
+    check(f"체류 미달 0{QUAL}" in row1(m_mix) and f"{NOTE3} 1/2 —" in m_mix
+          and "- 경고 이유 — 속도 1 · 체류 0 · 이유 없음(옛 기록) 1" in m_mix, "섞이면 켠 세션 수를 단다 · 이유는 합친다")
 
 
 if __name__ == "__main__":

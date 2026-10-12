@@ -128,6 +128,9 @@ class SafetyFSM:
         if new_state == self.state:
             return
         old, self.state = self.state, new_state
+        if old == State.WARNING:
+            # 경고를 벗어나면(해제 · 정답 누름 P6 · 오답 누름 → 차단 · EMO) 이유를 지운다 — 다음 경고는 새로 세운다(최종 리뷰 M-4)
+            self.last_warn_reason = None
         # 인터록·피드백 부수효과
         if new_state == State.BLOCK:
             self._cb_interlock(True)

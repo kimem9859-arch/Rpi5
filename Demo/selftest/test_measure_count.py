@@ -121,6 +121,17 @@ def test_prevent_and_lead():
     check(MC.v_prevent(S3)["other"] == 1 and MC.v_prevent(S3)["late"] == 0,
           f"1 = {MC.v_prevent(S3)} — 체류는 찼고 누름 전에 처리됐는데 경고 없음 = 기타(판정 규칙 예외 · 최종 리뷰 Minor 8)")
     check(MC.v_lead(S) == {"leads": [0.08]}, f"4 = {MC.v_lead(S)}")
+    S4 = dict(S2, settings={"FSM_GAP_FILL_SEC": 0.3, "FSM_DWELL_THRESHOLD_SEC": 0.3, "FSM_SLOW_ENTRY_PX_S_VGA": 437.5})
+    check(MC.v_prevent(S4) == MC.v_prevent(S2), "속도 문턱(안 B)이 켜져도 세는 법은 같다(진단 문구만 다르다 · 최종 리뷰 Minor M-1)")
+
+
+def test_warn_reason():
+    print("\n[경고 이유] 경고 상태 사건의 reason — 속도(slow) · 체류(dwell) · 이유 없음(옛 기록 · 판정 기준 안 B · 최종 리뷰 Minor M-2)")
+    ev = [E(0, "run_start"), E(100, "state", new="WARNING", reason="slow"), E(200, "state", new="PROCESS_RUN"),
+          E(300, "state", new="WARNING", reason="dwell"), E(400, "state", new="BLOCK"), E(500, "state", new="WARNING"),
+          E(600, "state", new="WARNING", reason=None), E(700, "run_end", ok=False)]
+    check(MC.v_reason(S_(ev)) == {"slow": 1, "dwell": 1, "none": 2}, f"{MC.v_reason(S_(ev))} — 경고 상태 사건만 · 칸 없음·None = 이유 없음")
+    check(MC.v_reason(S_()) == {"slow": 0, "dwell": 0, "none": 0}, "경고 없음 = 모두 0")
 
 
 def test_normal():
@@ -346,7 +357,7 @@ def test_count_all_keys():
     print("\n[모두] 한 세션의 값 키")
     keys = set(MC.count_all(S_()).keys())
     check(keys == {"1", "4", "16", "3", "25", "5", "23", "28", "21", "12", "26", "14", "30", "17a", "17b", "18",
-                   "V1", "V2", "V3", "V4", "V9", "31"}, f"{sorted(keys)}")
+                   "V1", "V2", "V3", "V4", "V9", "31", "reason"}, f"{sorted(keys)}")
 
 
 def test_fps_short_session():
