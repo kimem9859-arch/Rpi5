@@ -546,7 +546,11 @@ class Speaker:
         return self.send(b"C\n", still_valid=still_valid)
 
     def play(self, key, alog=None, still_valid=None):
-        """고정 wav 를 낸다 → 끝까지 나갔거나 도중에 멈췄으면 True(멈춤은 `last_stopped`) · 못 냈으면 False."""
+        """고정 wav 를 낸다 → 끝까지 나갔거나 도중에 멈췄으면 True(멈춤은 `last_stopped`) · 못 냈으면 False ·
+        `still_valid` 가 거짓이라 보내지 않았으면 `DROPPED`(참으로 읽히니 `is DROPPED` 를 먼저 본다).
+
+        🔑 버림을 실패와 가른다 — 알림이 「밀려 안 보냄」과 「재생 확인 안 됨」을 갈라 적는다(최종 리뷰 M-3).
+        """
         self.last_stopped = False
         path = os.path.join(WAV_DIR, f"{key}.wav")
         try:
@@ -565,7 +569,7 @@ class Speaker:
             return False
         resp = self.send(body, expect=True, still_valid=still_valid, key=key)
         if resp is DROPPED:
-            return False
+            return DROPPED
         if alog:
             alog.played(key, path)      # 🔑 보낸 뒤에 — 버린 소리(밀려난 알림)가 「재생」으로 남지 않게
         ok = bool(resp) and any("재생 완료" in r for r in resp)
@@ -658,16 +662,16 @@ class AlertWatcher:
         """
         live = lambda: self._live == (key, gen)              # noqa: E731
         try:
-            ok = self.spk.play(key, self.alog, still_valid=live)
-            dropped = not ok and not live()
+            r = self.spk.play(key, self.alog, still_valid=live)
+            dropped = r is DROPPED                   # 🔑 보내기 잠금 안에서 버렸을 때만 — 보낸 뒤 실패는 실패다(M-3)
+            ok = bool(r) and not dropped
             lag = getattr(self.spk, "last_play_start", None)
             t_pub = (cur or {}).get("쓴시각")
             lag_txt = f" · 상태 공개→소리 시작 {lag - t_pub:.2f}초" if lag and t_pub and lag >= t_pub else ""
-            VLOG.event("alert_played", key=key, ok=bool(ok), dropped=dropped)   # 🔑 데몬 로그 줄과 같은 자리(관문 ③)
-            if dropped:
-                log(f"🔕 알림 → {key} · 뒤 알림·해제에 밀려 보내지 않았다")
-            else:
-                log(f"🔔 알림 → {key} · {'재생됨' if ok else '재생 확인 안 됨'}{lag_txt}")
+            VLOG.event("alert_played", key=key, ok=ok, dropped=dropped)   # 🔑 데몬 로그 줄과 같은 자리(관문 ③)
+            # 🔴 로그 줄은 「🔔 알림 →」 하나로 — 측정 점검(measure_check ③)이 alert_played 수와 이 줄 수를 대조한다
+            what = "뒤 알림·해제에 밀려 보내지 않았다" if dropped else ("재생됨" if ok else "재생 확인 안 됨")
+            log(f"🔔 알림 → {key} · {what}{'' if dropped else lag_txt}")
         finally:
             with self._cv:
                 if self._want is None:           # 뒤이은 알림이 없을 때만 「알림 중」을 푼다
@@ -1047,6 +1051,10 @@ class Assistant:
         VLOG.event("answer", src=src, key=key)       # 고정 답 소리 — 보내기 직전
         t_p = time.time()
         ok = self.spk.play(key, self.alog, still_valid=lambda: not self._stale())
+        if ok is DROPPED:
+            m["답변출처"] = "알림으로버림"                 # _say 와 같다 — 보내기 직전에 알림·비상 상황(M-3)
+            log("보내기 직전에 알림·비상 상황 — 고정 답을 버린다")
+            return
         m.update({"답변출처": src, "답변": key, "재생성공": ok,
                   "재생중단": bool(getattr(self.spk, "last_stopped", False)),
                   "재생_ms": round((time.time() - t_p) * 1000), **extra})
@@ -1087,6 +1095,9 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     """데몬 본체. `stt`·`tts`·`llm`·`read_*`·`stop` 은 시험이 넣는다(없으면 실제 모델·파일)."""
     global VLOG
     VLOG = measure_log.open_from_env(["voice_events"], event_file="voice_events", log=log)
+    # 🔑 즉답 켬/끔을 남긴다 — 측정 세션에서 「즉답 0건」과 「즉답 끔」을 가른다(최종 리뷰 M-4)
+    log(f"상태 질문 즉답 {'켬' if QUICK_ON else '끔(SOP_VOICE_QUICK=0)'}")
+    VLOG.event("voice_config", quick=bool(QUICK_ON))
     if stt is None:
         log("STT 적재 중...")
         rec = build_stt()

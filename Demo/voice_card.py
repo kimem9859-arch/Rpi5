@@ -850,7 +850,39 @@ _Q_TOPIC = {"단계": ("단계",), "버튼": ("눌러", "누르", "누를", "버
 _Q_WHAT = ("뭐", "뭘", "무슨", "무엇", "어떤", "어느", "머")
 _Q_NOW = ("지금", "이번", "현재")
 # 다른 뜻 — 끝났냐(질문한 일) · 쥐었냐(공구 확인) · 왜 · 하지 말라 · 숫자·영문(특정 단계·버튼) · 보여 달라
-_Q_OTHER = re.compile(r"끝|완료|마쳤|됐|쥐|잡|확인|인식|왜|안돼|안되|말아|하지마|보여주|보여줘|[0-9A-Za-z]")
+#    · 과거(눌렀어 · 했어 · 였어 · 아까 — 지금 할 일로 답하면 물은 것과 다르다 · 최종 리뷰 M-2)
+_Q_OTHER = re.compile(r"끝|완료|마쳤|됐|쥐|잡|확인|인식|왜|안돼|안되|말아|하지마|보여주|보여줘|[0-9A-Za-z]"
+                      r"|눌렀|했|였|었|았|아까|방금|전에")
+# 🔴 질문은 종류 낱말 · 허용 낱말(지금/이번/현재 · 작업 · 순서 · 의문사 · 동사 꼴)과 그 뒤 조사·어미 하나로 **다 덮여야**
+#    한다 — 남는 말은 다른 대상(장비 · 챔버 · 화면)이다. 「장비 상태 어때?」를 「순서는 정상」으로 답하면 장비 안전으로
+#    들린다(build_card §4.1-4 함정 · 최종 리뷰 I-1). 대상 낱말을 목록으로 쫓지 않는다 — 허용 쪽만 적는다.
+_Q_WORDS = sorted({
+    "단계", "몇", "번째", "버튼", "눌러", "눌러야", "누르", "누를", "누르는", "다음",                 # 종류 낱말
+    "공구", "도구", *TOOL_KO.values(), "필요", "필요해", "필요한", "써야", "쓰는", "사용", "챙겨",
+    "보이", "보이는", "보여", "보인", "보임", "앞", "앞에", "상태", "상황", "결과",
+    "지금", "현재", "이번", "작업", "순서",                                                          # 때 · 범위
+    "뭐", "뭘", "뭔", "머", "무슨", "무엇", "어떤", "어느", "어때", "어떄", "어떻게", "어떤지",         # 의문사
+    "하는", "해야", "해", "돼", "되", "돼요", "줘", "알려", "알려줘", "말해", "말해줘", "괜찮", "괜찮아",  # 동사 꼴
+    "있어", "있니", "있나"}, key=len, reverse=True)
+_Q_TAILS = sorted({"은", "는", "이", "가", "을", "를", "에", "의", "도", "좀", "야", "요", "지", "어", "아", "니", "냐",
+                   "나", "고", "게", "거", "건", "데", "죠", "까", "이야", "예요", "에요", "이에요", "거야", "인가", "인지"},
+                  key=len, reverse=True)
+
+
+def _q_covered(q):
+    """q 가 [허용 낱말 (조사·어미 하나)?] 의 이어짐으로 다 덮이나 — 조사는 낱말 뒤에만(맨 앞 · 조사 뒤 조사는 안 된다)."""
+    seen, todo = set(), [(0, False)]                      # (위치, 바로 앞이 낱말인가)
+    while todo:
+        i, after_word = todo.pop()
+        if i == len(q):
+            return True
+        if (i, after_word) in seen:
+            continue
+        seen.add((i, after_word))
+        todo += [(i + len(w), True) for w in _Q_WORDS if q.startswith(w, i)]
+        if after_word:
+            todo += [(i + len(t), False) for t in _Q_TAILS if q.startswith(t, i)]
+    return False
 
 
 def _has(q, words):
@@ -874,7 +906,8 @@ _Q_RULES = {
 def quick_kind(text):
     """상태 질문의 종류(QUICK_KINDS 가운데 하나) · 애매하면 None — 호출 조각을 떼고 띄어쓰기·부호를 지운 뒤 본다."""
     q = "".join(c for c in strip_wake(text or "") if not c.isspace() and c not in ",.?!·~")
-    if not q or len(q) > QUICK_MAX_CHARS or _Q_OTHER.search(q) or risky_question(q) or sensor_question(q):
+    if (not q or len(q) > QUICK_MAX_CHARS or _Q_OTHER.search(q) or risky_question(q) or sensor_question(q)
+            or not _q_covered(q)):
         return None
     topics = {k for k, ws in _Q_TOPIC.items() if _has(q, ws)}
     hit = [k for k, (cond, _) in _Q_RULES.items() if cond(q, topics)]

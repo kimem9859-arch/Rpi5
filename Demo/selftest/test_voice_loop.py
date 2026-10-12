@@ -65,7 +65,7 @@ class FakeSpk:
     def play(self, key, alog=None, still_valid=None):
         if still_valid is not None and not still_valid():
             self.calls.append(("dropped",))
-            return False
+            return va.DROPPED                                  # 진짜 Speaker.play 처럼 버림은 실패와 가른다(M-3)
         self.calls.append(("play", key))
         return True
 
@@ -631,6 +631,89 @@ def test_superseded_alert_not_sent():
         sent = [c for c in spk.calls if c[0] in ("play", "dropped")]
         check(sent == [("dropped",)] + want, f"{name} — 경고는 버리고 {want or '아무것도 안 보냄'} · {spk.calls}")
         check(_until(lambda: not w.speaking.is_set(), 1.0), f"{name} — 「알림 중」이 풀린다")
+
+
+def test_alert_dropped_vs_failed():
+    """최종 리뷰 M-3 — 버림(still_valid)과 진짜 실패(재생 확인 안 됨)를 가른다 · 로그 줄 「🔔 알림 →」은 alert_played 와
+    1:1(측정 점검 measure_check ③ 이 그 수를 대조한다)."""
+    print("\n[알림] 밀려 안 보냄 ↔ 재생 확인 안 됨")
+    warn = dict(STATE, 상태="WARNING")
+    for name, released, dropped in [("보내기 전에 풀림", True, True), ("보낸 뒤 확인 시간 초과 중에 풀림", False, False)]:
+        undo, vlog = _quick(False)
+        logs, unlog = _capture_log()
+        seq = [STATE, warn]
+        box = {}
+
+        class Spk(FakeSpk):
+            def play(self, key, alog=None, still_valid=None):
+                if released:
+                    box["w"]._live = None                  # 감시가 보내기 전에 해제를 봤다
+                    return super().play(key, alog, still_valid)
+                ok = still_valid()                         # 보내기 잠금 안 확인은 통과 — 보냈다
+                box["w"]._live = None                      # 재생 확인을 기다리는 사이 해제
+                return False if ok else va.DROPPED         # 확인 시간 초과(진짜 실패)
+        try:
+            w = va.AlertWatcher(Spk(), read_state=lambda: seq.pop(0) if len(seq) > 1 else seq[0])
+            box["w"] = w
+            w.step()
+            w.step()
+        finally:
+            unlog()
+            undo()
+        played = [d for k, d in vlog.ev if k == "alert_played"]
+        check(len(played) == 1 and played[0].get("dropped") is dropped and played[0].get("ok") is False,
+              f"{name} — dropped={dropped} · {played}")
+        bells = [m for m in logs if "🔔 알림 →" in m]
+        check(len(bells) == len(played) and (("밀려" in bells[0]) == dropped) and (("확인 안 됨" in bells[0]) != dropped),
+              f"{name} — 로그 「🔔 알림 →」 한 줄 · {bells}")
+
+
+def test_fixed_answer_dropped_at_send():
+    """최종 리뷰 M-3 — 고정 답 소리가 보내기 직전에 버려지면 성공·실패가 아니라 「알림으로버림」."""
+    print("\n[알림] 고정 답 보내기 직전 알림 → 알림으로버림")
+    g = [0]
+
+    class Spk(FakeSpk):
+        def play(self, key, alog=None, still_valid=None):
+            g[0] = 1                                       # 보내기 잠금을 기다리는 사이 알림이 나갔다
+            return super().play(key, alog, still_valid)
+    b = bot(spk=Spk(), tts=None, alert_gen=lambda: g[0])
+    ok, m = ask(b, "지금 몇 단계야")
+    check(m.get("답변출처") == "알림으로버림" and m.get("재생성공") is not True and b.spk.keys() == [],
+          f"{m.get('답변출처')} · 재생성공={m.get('재생성공')!r} · {b.spk.calls}")
+
+
+def test_quick_mode_logged():
+    """최종 리뷰 M-4 — 즉답 켬/끔을 데몬 로그와 측정 기록에 남긴다(측정 세션에서 「즉답 0건」과 「즉답 끔」을 가른다)."""
+    print("\n[즉답] 켬/끔 기록")
+    import csv
+    import json as _json
+    va.WAV_DIR = _wavdir()
+    for on in (True, False):
+        d = tempfile.mkdtemp(prefix="sop_quick_")
+        old_env, old_q = os.environ.get("SOP_MEASURE_DIR"), va.QUICK_ON
+        os.environ["SOP_MEASURE_DIR"], va.QUICK_ON = d, on
+        logs, unlog = _capture_log()
+        try:
+            fg = FakeGlass([tone(0.5)], mic_port=0, cmd_port=0, lead_sec=0.5, tail_sec=1.0,
+                           play_speed=0.05, quiet=True).start()
+            _run_once(fg, lambda s: "")
+        finally:
+            unlog()
+            va.QUICK_ON = old_q
+            if old_env is None:
+                os.environ.pop("SOP_MEASURE_DIR", None)
+            else:
+                os.environ["SOP_MEASURE_DIR"] = old_env
+        rows = []
+        p = os.path.join(d, "voice_events.csv")
+        if os.path.exists(p):
+            with open(p, encoding="utf-8", newline="") as f:
+                rows = [_json.loads(r["data"]) for r in csv.DictReader(f) if r["kind"] == "voice_config"]
+        check(rows == [{"quick": on}], f"즉답 {'켬' if on else '끔'} — voice_config 사건 · {rows}")
+        word = "켬" if on else "끔"
+        check(any("상태 질문 즉답" in m and word in m for m in logs),
+              f"즉답 {word} — 데몬 로그 한 줄 · {[m for m in logs if '즉답' in m]}")
 
 
 # ── 메인 루프(Task 9) ─────────────────────────────────────────────────────

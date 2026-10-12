@@ -81,6 +81,36 @@ def test_review_sheet_prefers_unfiltered_risky_answers():
     check(not any(i.startswith("f") for i in ids), "대체 문장으로 칸을 쓰지 않는다")
 
 
+def test_quick_branch_like_daemon():
+    """최종 리뷰 (c) — 데몬과 같은 순서(관문 → 센서 → 즉답 → LLM) · 즉답 문항은 LLM 을 부르지 않는다."""
+    print("\n[순서] 관문 → 센서 → 즉답 → LLM")
+    state = {"세션": True, "공정명": "PECVD 정비(PM) 시퀀스", "전체단계": 4, "현재단계": 2, "현재단계명": "펌프/퍼지",
+             "현재버튼": "B2", "다음단계": 3, "다음단계명": "전극 냉각", "다음버튼": "B3", "상태": "PROCESS RUN",
+             "비상정지": False, "서브작업": None, "서브진행": None, "결과": None}
+
+    def item(i, q):
+        return {"id": f"x{i}", "상태키": "S", "상태": state, "공구": ([], False), "유형": "범위", "질문": q, "분할": "dev"}
+
+    class Tts:
+        def synth(self, text):
+            return b"\x00\x00" * 2205, 22050, 0.1
+
+    asked = []
+    old = ev.voice_llm.ask
+    ev.voice_llm.ask = lambda card, q: (asked.append(q), ("지금은 2단계입니다.", {"LLM_ms": 1}))[1]
+    try:
+        with open(os.devnull, "w") as f:
+            rows = ev.run_items([item(1, "지금 몇 단계야?"), item(2, "지금 B2 눌러도 돼?"), item(3, "가스 상태 어때?"),
+                                 item(4, "왜 멈췄어?")], f, Tts())
+    finally:
+        ev.voice_llm.ask = old
+    paths = [r.get("경로") for r in rows]
+    check(paths == ["즉답-단계", "대체-위험질문", "대체-센서질문", "LLM"], f"경로 — {paths}")
+    check(rows[0].get("문장") == "지금은 전체 4단계 중 2단계 「펌프/퍼지」입니다.", f"즉답 문장 — {rows[0].get('문장')}")
+    check(asked == ["왜 멈췄어?"], f"LLM 은 즉답 못 한 질문만 — {asked}")
+    check(ev.summarize(rows).get("즉답_건") == 1, f"요약에 즉답 수 — {ev.summarize(rows).get('즉답_건')}")
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

@@ -54,6 +54,7 @@ def check_events_vs_log(events, log_lines):
 
 
 def check_voice_vs_log(voice_events, daemon_lines):
+    """🔑 밀린 알림(alert_played dropped=true · 2026-10-12)도 데몬 로그는 「🔔 알림 → … 밀려 보내지 않았다」 한 줄 — 1:1 그대로."""
     bad = []
     for kind, needle in (("alert_played", "🔔 알림 →"), ("alert_clear", "알림 상황이 풀렸다")):
         a = sum(1 for _t, k, _d in voice_events if k == kind)

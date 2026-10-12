@@ -353,8 +353,9 @@ def _hangul(text):
 
 def say_progress(voice, t0):
     """띄운 뒤 음성 기록 → (단계 "call"|"ask", 받아쓰기 조각 수, 끝났나)(3판 D23).
-    🔑 질문인지 = 음성비서 규칙 그대로(voice_lib.is_question — 호출어 앞 두 글자를 뺀 나머지가 두 글자 이상) —
-       「가디관」 같은 변형은 호출만 · 「응」 은 무시 · 「가디언 지금 몇 단계야」 한 문장은 끝. 비상 중은 emergency_ignored 도 본다."""
+    🔑 질문인지 = 음성비서 규칙 그대로(voice_lib.is_question — 호출 조각(strip_wake 규칙 · 접두와 들린 뒤 음절)을
+       모두 뗀 나머지에 한글이 두 글자 이상) — 「가디관」 · 「가디언가디언」 같은 호출만의 말은 호출만 · 「응」 은 무시 ·
+       「가디언 지금 몇 단계야」 한 문장은 끝. 비상 중은 emergency_ignored 도 본다."""
     stage, att, t_wake = "call", 0, None
     for t, k, d in voice or ():
         if t < t0:

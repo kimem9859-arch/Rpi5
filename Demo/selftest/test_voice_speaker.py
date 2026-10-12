@@ -336,7 +336,8 @@ def test_play_still_valid_under_tx():
             got = b.recv(100)
         except socket.timeout:
             got = b""
-        check(box.get("r") is False and got == b"", f"보내지 않았다 — {box.get('r')} · {got[:20]}")
+        # 🔑 버림은 실패(False)와 갈라 DROPPED 로 돌려준다 — 알림이 「밀려 안 보냄」과 「재생 확인 안 됨」을 가른다(최종 리뷰 M-3)
+        check(box.get("r") is va.DROPPED and got == b"", f"보내지 않았다 · DROPPED — {box.get('r')} · {got[:20]}")
         check(alog.keys == [], f"버린 소리는 재생 기록에 안 남는다 — {alog.keys}")
         b.close()
     finally:

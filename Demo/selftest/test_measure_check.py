@@ -51,6 +51,11 @@ def test_voice_match():
     dlog = ["[12:00:01.000] 🔔 알림 → alert_emo · 재생됨", "[12:00:02.000] 알림 상황이 풀렸다 — 재생 멈춤을 보냈다"]
     check(MC.check_voice_vs_log(vev, dlog) == [], f"{MC.check_voice_vs_log(vev, dlog)}")
     check(MC.check_voice_vs_log(vev[:2] + vev[3:], dlog) != [], "재생 마침이 빠지면 잡는다")
+    print("  — 밀린 알림(alert_played dropped=true)도 데몬 로그는 「🔔 알림 → … 밀려 보내지 않았다」 한 줄 — 1:1 그대로(최종 리뷰 M-1)")
+    vd = vev + [(2.5, "alert", {"key": "alert_warn_B3"}), (2.6, "alert_played", {"key": "alert_warn_B3", "ok": False, "dropped": True})]
+    dd = dlog + ["[12:00:02.600] 🔔 알림 → alert_warn_B3 · 뒤 알림·해제에 밀려 보내지 않았다"]
+    check(MC.check_voice_vs_log(vd, dd) == [], f"밀림 섞인 기록 2 ↔ 🔔 2 = {MC.check_voice_vs_log(vd, dd)}")
+    check(MC.check_voice_vs_log(vd, dlog) != [], "밀린 알림의 🔔 줄이 빠지면 잡는다")
 
 
 def test_fps_gate():

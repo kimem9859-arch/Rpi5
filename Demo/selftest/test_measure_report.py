@@ -455,13 +455,26 @@ def test_voice_values():
         check("V6 받아쓰기 — 글자 오류율 0.0%" in md, "V6 줄")
         check("V7 답 지연 — 질문 받아쓰기 → 답 보내기 중앙 0.200초" in md and "LLM 0.200초(1)" in md, "V7 지연 줄")
         check("틀림 후보 1" in md and "V7 사람 판정 목록" in md and "「지금 2단계입니다.」" in md, "V7 초벌 · 사람 판정 목록")
-        check("V8 비상 중 무반응 — 해당 없음" in md, "V8 — 비상 중 호출 없음")
+        check("V8 비상 중 무반응 — 해당 없음" in md, "V8 — 비상질문 띠 없음")
+        check("V6 도메인 낱말 — 해당 없음" in md, "V6 도메인 낱말 — 띠 문장에 없음")
         print("  — 음성 기록 · guide.csv 가 없는 세션(알림 끔 · 음성 끔 · 옛 세션)은 죽지 않고 해당 없음")
         S = MR.load_session(make_session(os.path.join(tmp, "old")))
         per = [MC.count_all(S, 15.0)]
         md = MR.render([S], per, MC.merge(per), MR.load_targets(p))
         check(S["says"] == [] and all(f"{v} — 음성 기록 없음" in md for v in ("V5 호출 인식", "V6 받아쓰기", "V7 답", "V8 비상 중 무반응")),
               "V5~V8 = 음성 기록 없음")
+
+
+def test_alert_drop_lines():
+    print("\n[V1 · V2] 밀린 알림은 V1 덧붙임 · V2 「밀림」으로 따로 · 알림 끈 세션의 V2 = 해당 없음(최종 리뷰 I-2 · b)")
+    tv = MR.target_value("V1", {"V1": {"delays": [0.1], "missing": 1, "dropped": 2}})
+    check(tv["n"] == 2 and "밀림 2" in tv["note"], f"V1 = {tv}")
+    line = MR._v2_line({"trans": 3, "one": 1, "zero": 1, "multi": 0, "dropped": 1, "normal": 0})
+    check("전이 3 가운데 알림 한 번 1 · 없음 1 · 여러 번 0 · 밀림 1" in line, line)
+    check("해당 없음(알림 끈 세션" in MR._v2_line({"alerts_off": 1}) and "음성 기록 없음" in MR._v2_line({"off": 1}),
+          f"{MR._v2_line({'alerts_off': 1})} · {MR._v2_line({'off': 1})}")
+    line = MR._v2_line({"trans": 2, "one": 2, "zero": 0, "multi": 0, "dropped": 0, "normal": 0, "alerts_off": 1})
+    check("알림 끈 세션 1 뺌" in line, line)
 
 
 if __name__ == "__main__":

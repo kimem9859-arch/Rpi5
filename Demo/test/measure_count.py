@@ -26,6 +26,7 @@ import fps            # noqa: E402 — FPS 창·끊김 = 시연 화면과 같은
 import hoi_metrics    # noqa: E402 — 사전 감지·선행시간·구간 판정 규칙 단일 출처
 import measure_script  # noqa: E402 — 대본 행동 · 판 맞춤 단일 출처(진행 도우미 설계 D3)
 import voice_lib      # noqa: E402 — 호출어 떼기 단일 출처(음성비서가 질문에서 떼는 규칙 그대로 · V6)
+import voice_tts      # noqa: E402 — 버튼 이름 한글 읽기(B1 = 비원 …) 단일 출처(V6 도메인 낱말)
 
 # ── 세기에만 있는 값(설계 §3-b 마지막 행) ──────────────────────────────────
 EDGE_PAIR_MS = 500.0                    # 누름 ↔ 같은 버튼 GPIO 엣지 짝 — 화면 처리 시각 앞 0.5초 안(디바운스 0.05초보다 넉넉히)
@@ -650,41 +651,94 @@ def _first_play(plays, t, t_next, key):
                  and (dd.get("key") == key if dd.get("key") is not None else x < t_next)), None)
 
 
+def _alert_fates(S):
+    """알림마다 (시각, 데이터, 운명, 제 재생 시작 시각 또는 None) — 운명 = played(ALERT_WAIT_MS 안에 제 재생) · dropped(밀림)
+    · missing(재생 없음 — 누락).
+    밀림 = alert_played 의 dropped=true(새 기록) 또는 다음 알림·풀림(alert_clear)이 제 재생 시작보다(재생이 없으면 ALERT_WAIT_MS
+    안에) 먼저 옴 — 우선순위상 뒤 알림·해제가 앞 알림을 밀어내는 것은 설계대로다(누락 아님 · 최종 리뷰 I-2). 옛 기록(10/10)은 밀린
+    경고가 「[재생]」 뒤 같은 ms 에 중단됐다(0샘플 — 소리가 사실상 안 났다 · 새 코드는 아예 보내지 않는다) — 같은 규칙으로 밀림.
+    제 재생 = 새 기록은 같은 키의 재생(키 칸이 있고 None 인 재생은 LLM 답 — 알림 아님) · 키 칸 없는 옛 기록은 그 알림의
+    alert_played 직전 재생(재생은 하나씩 나간다 — 밀린 경고의 0샘플 재생을 뒤 알림 몫으로 잡지 않게) · alert_played 도 없으면 다음 알림
+    전의 첫 재생. 같은 키의 다음 알림 전까지만 찾는다(앞 알림이 뒤 알림의 재생을 가져가지 않게)."""
+    V = S["voice"]
+    plays = [(t, d) for t, k, d in _alert_plays(S) if k == "play_start"]
+    al = [(t, d) for t, k, d in V if k == "alert"]
+    sup = [t for t, k, _ in V if k in ("alert", "alert_clear")]
+    aps = [(t, d) for t, k, d in V if k == "alert_played"]
+    inf = float("inf")
+    out = []
+    for n, (t, d) in enumerate(al):
+        key = d.get("key")
+        t_next = al[n + 1][0] if n + 1 < len(al) else inf
+        t_same = next((x for x, dd in al[n + 1:] if dd.get("key") == key), inf)
+        ap = next(((x, dd) for x, dd in aps if t <= x < t_same and dd.get("key") == key), None)
+        cand = [(x, dd) for x, dd in plays if t <= x < t_same]
+        own = [x for x, dd in cand if "key" in dd and dd.get("key") == key]
+        old = [x for x, dd in cand if "key" not in dd]
+        if own:
+            p = own[0]
+        elif ap is not None:
+            p = max((x for x in old if x <= ap[0]), default=None)
+        else:
+            p = next((x for x in old if x < t_next), None)
+        t_sup = next((x for x in sup if x > t), inf)
+        if (ap is not None and ap[1].get("dropped")) or t_sup < (p if p is not None else t + ALERT_WAIT_MS):
+            fate = "dropped"
+        elif p is not None and p - t <= ALERT_WAIT_MS:
+            fate = "played"
+        else:
+            fate = "missing"
+        out.append((t, d, fate, p))
+    return out
+
+
 def v_alert_delay(S):
-    """V1 알림 지연 — alert 의 상태 공개 시각(t_pub_ms) → 그 알림의 재생 시작(ALERT_WAIT_MS 안 · 초).
+    """V1 알림 지연 — alert 의 상태 공개 시각(t_pub_ms) → 그 알림의 재생 시작(_alert_fates · 초) · missing = 재생 없음
+    · dropped = 밀림(뒤 알림·해제가 밀어냄 — 누락이 아니라 따로 · 최종 리뷰 I-2).
     알림 끈 세션(VOICE_ALERTS False)은 세지 않는다(진행 도우미 설계 D10)."""
     if (S.get("settings") or {}).get("VOICE_ALERTS") is False:
         return {"delays": [], "missing": 0, "off": 1}
-    plays = _alert_plays(S)
-    out = {"delays": [], "missing": 0}
-    for t, d, t_next in _alert_windows(S):
+    out = {"delays": [], "missing": 0, "dropped": 0}
+    for _t, d, fate, p in _alert_fates(S):
         if d.get("t_pub_ms") is None:
             continue
-        hit = _first_play(plays, t, t_next, d.get("key"))
-        if hit is None or hit[0] - t > ALERT_WAIT_MS:
-            out["missing"] += 1
+        if fate == "played":
+            out["delays"].append(round((p - d["t_pub_ms"]) / 1000, 3))
         else:
-            out["delays"].append(round((hit[0] - d["t_pub_ms"]) / 1000, 3))
+            out[fate] += 1
     return out
 
 
 def v_alert_count(S):
-    """V2 알림 정확도 — 경고·차단 전이마다 그 시각 근처(ALERT_MATCH_MS) 알림 수 · 정상 판 안의 알림(헛알림).
+    """V2 알림 정확도 — 경고·차단 전이마다 그 시각 근처(ALERT_MATCH_MS) 알림 가운데 실제로 재생된 수(_alert_fates played)
+    · 정상 판 안의 알림(헛알림 — 공개된 알림 수).
     🔑 창의 끝은 다음 상태 바뀜(어느 state 사건이든)에서 자른다 — 경고 0.12~0.32초 뒤 차단이 오면 차단 알림까지 경고 쪽에
-    세어 「여러 번」이 됐다(10/10 위반 3건 · 음성비서 빠른 해결 설계 §2.4). 바뀜이 하나뿐인 전이는 종전과 같다."""
+    세어 「여러 번」이 됐다(10/10 위반 3건 · 음성비서 빠른 해결 설계 §2.4). 바뀜이 하나뿐인 전이는 종전과 같다.
+    🔑 재생된 알림이 없을 때 — 짝 알림이 밀렸거나, 알림이 하나도 없는데 창이 다음 바뀜에 잘렸으면(데몬이 그 상태를 보기 전에
+    바뀌었다 · 46ms 경고) dropped(밀림 — 누락 아님 · 최종 리뷰 I-2) · 그 밖(재생 없는 알림 · 1초 넘게 머문 상태에 알림 없음) = zero.
+    알림 끈 세션(VOICE_ALERTS False)은 세지 않는다(V1 과 같다 · 최종 리뷰 b)."""
+    if (S.get("settings") or {}).get("VOICE_ALERTS") is False:
+        return {"alerts_off": 1}
     if not S["voice"]:
         return {"off": 1}
-    pubs = [d["t_pub_ms"] for _, k, d in S["voice"] if k == "alert" and d.get("t_pub_ms") is not None]
+    fates = [(d["t_pub_ms"], f) for _t, d, f, _p in _alert_fates(S) if d.get("t_pub_ms") is not None]
+    pubs = [a for a, _f in fates]
     lo, hi = ALERT_MATCH_MS
     st = [t for t, k, _ in S["events"] if k == "state"]
-    out = {"trans": 0, "one": 0, "zero": 0, "multi": 0, "normal": 0}
+    out = {"trans": 0, "one": 0, "zero": 0, "multi": 0, "dropped": 0, "normal": 0}
     for t, k, d in S["events"]:
         if k == "state" and d.get("new") in ("WARNING", "BLOCK"):
             i = bisect.bisect_right(st, t)
             end = st[i] if i < len(st) else float("inf")
-            c = sum(1 for a in pubs if lo <= a - t <= hi and a < end)
+            mine = [f for a, f in fates if lo <= a - t <= hi and a < end]
+            c = mine.count("played")
             out["trans"] += 1
-            out["one" if c == 1 else ("zero" if c == 0 else "multi")] += 1
+            if c:
+                out["one" if c == 1 else "multi"] += 1
+            elif "dropped" in mine or (not mine and end < t + hi):
+                out["dropped"] += 1
+            else:
+                out["zero"] += 1
     runs = split_runs(S["events"])
     ids = normal_run_ids(S, runs)
     for r in runs:
@@ -854,14 +908,16 @@ def v_stt(S):
     """V6 받아쓰기 글자 오류율 — 질문까지 간 말 띠(said 이유 「질문」 · 비상 포함)마다 띠 문장(say.text) ↔ 받아쓴 질문.
     받아쓴 질문 = 창 [say, said] 의 마지막 호출 조각 뒤 한글 조각들을 이은 것 — 호출어와 한 조각이면 호출어를 뗀 나머지
     (voice_lib.strip_wake)부터. 둘 다 공백·부호를 빼고 견준다 · 오류율 = dist(편집거리 합) ÷ ref(참조 글자 수 합).
-    noq = 호출어만 받아씀(질문 못 받음 — 오류율에서 뺀다) · nowake = 창에 호출 조각이 없음 · rows = [띠 문장, 받아쓴 질문, 거리]."""
+    noq = 호출어만 받아씀(질문 못 받음 — 오류율에서 뺀다) · nowake = 창에 호출 조각이 없음 · rows = [띠 문장, 받아쓴 질문, 거리].
+    도메인 낱말(측정 설계 V6 「따로」 · 최종 리뷰 M-5) — 견준 질문의 띠 문장에 든 B1~B4 · EMO · 공구 이름(measure_script.TOOLS)
+    dom 개 가운데 받아쓴 글에 없는 dom_miss 개 · 한글 읽기(voice_tts.read_out — B1 = 비원)로 받아써도 있음."""
     if not S["voice"]:
         return {"off": 1}
     says = _says(S)
     if not says:
         return {"say": 0}
     chunks = _chunks(S["voice"])
-    out = {"say": 1, "n": 0, "dist": 0, "ref": 0, "noq": 0, "nowake": 0, "rows": []}
+    out = {"say": 1, "n": 0, "dist": 0, "ref": 0, "noq": 0, "nowake": 0, "dom": 0, "dom_miss": 0, "rows": []}
     for s in says:
         if s["why"] != "질문":
             continue
@@ -880,7 +936,16 @@ def v_stt(S):
         out["dist"] += dist
         out["ref"] += len(ref)
         out["rows"].append([s["d"].get("text"), hyp, dist])
+        for w in _domain_words(s["d"].get("text")):
+            out["dom"] += 1
+            out["dom_miss"] += int(_norm(w) not in hyp and _norm(voice_tts.read_out(w)) not in hyp)
     return out
+
+
+def _domain_words(text):
+    """V6 도메인 낱말 — 버튼(B1~B4 · EMO) · 공구 이름(measure_script.TOOLS) · 나온 차례대로(겹치면 겹친 만큼)."""
+    t = (text or "").upper()
+    return re.findall(r"B[1-4]|EMO", t) + [w for w in measure_script.TOOLS for _ in range(t.count(w))]
 
 
 def _src_group(src):
@@ -965,31 +1030,47 @@ def v_answer(S, script=None):
     return out
 
 
-def v_emergency(S):
-    """V8 비상 중 무반응 — 비상 구간 = EMO 로 든 차단(BLOCK 직전 누름이 EMO · EDGE_PAIR_MS 안) ~ 차단을 벗어난 다음 상태
-    바뀜 + EMERGENCY_PAD_MS. n = 비상 중 호출(emergency_ignored wake=true)이 든 구간 · k = 그 가운데 호출(wake) · 답(answer)
-    · 응답 소리(play_start — 안내 cue_ · 알림 alert_ 는 빼고 · 키 칸이 없는 옛 기록은 알림과 못 갈라 세지 않는다)가 없는 구간.
-    spans = 비상 구간 수."""
-    if not S["voice"]:
-        return {"off": 1}
-    presses = [(t, d) for t, k, d in S["events"] if k == "press"]
+def _emergency_spans(S):
+    """비상 구간 [(EMO 누름 시각, 차단을 벗어난 다음 상태 바뀜 + EMERGENCY_PAD_MS)] — 누를 때 이미 차단이었거나(위반 차단 중에 누른
+    EMO — 새 BLOCK 사건이 없다 · 최종 리뷰 M-5) 누른 뒤 EDGE_PAIR_MS 안에 BLOCK 이 된 EMO 누름만 · 같은 비상 안의 다시 누름은 하나로."""
     states = [(t, d) for t, k, d in S["events"] if k == "state"]
     spans = []
-    for n, (t, d) in enumerate(states):
-        if d.get("new") != "BLOCK":
+    for t, k, d in S["events"]:
+        if k != "press" or d.get("button") != S["emo"] or (spans and spans[-1][0] <= t <= spans[-1][1]):
             continue
-        prev = [p for p in presses if p[0] <= t]
-        if not prev or prev[-1][1].get("button") != S["emo"] or t - prev[-1][0] > EDGE_PAIR_MS:
+        if d.get("state") != "BLOCK" and not any(t <= ts <= t + EDGE_PAIR_MS and ds.get("new") == "BLOCK" for ts, ds in states):
             continue
-        spans.append((t, (states[n + 1][0] if n + 1 < len(states) else float("inf")) + EMERGENCY_PAD_MS))
-    calls = [t for t, k, d in S["voice"] if k == "emergency_ignored" and d.get("wake")]
+        end = next((ts for ts, ds in states if ts > t and ds.get("old") == "BLOCK"), float("inf"))
+        spans.append((t, end + EMERGENCY_PAD_MS))
+    return spans
+
+
+def v_emergency(S):
+    """V8 비상 중 무반응 — 질문 단위(측정 설계 V8 「비상정지·해제 전 질문 가운데 무반응이었던 비율」 · 최종 리뷰 M-5).
+    n = 비상 구간(_emergency_spans) 안에서 띄운 비상질문 띠(say emergency=true) 가운데 질문까지 간 것(said 이유 「질문」)
+    · k = 그 가운데 띠부터 구간 끝(해제 + 0.5초)까지 호출(wake) · 답(answer) · 응답 소리(play_start — 안내 cue_ · 알림 alert_ 는
+    빼고 · 키 칸이 없는 옛 기록은 알림과 못 갈라 세지 않는다)가 없었던 것.
+    skip = 질문까지 못 간 비상질문 띠 · outside = 비상 구간 밖에서 띄운 비상질문 띠 · spans = 비상 구간 수.
+    음성 기록이 없으면 off · 말 띠 기록이 없으면 구간 수만(해당 없음)."""
+    if not S["voice"]:
+        return {"off": 1}
+    spans = _emergency_spans(S)
+    says = [s for s in _says(S) if s["d"].get("emergency")]
+    if not says:
+        return {"say": 0, "spans": len(spans)}
     resp = [t for t, k, d in S["voice"] if k in ("wake", "answer")
             or (k == "play_start" and "key" in d and not str(d.get("key") or "").startswith(("cue_", "alert_")))]
-    out = {"spans": len(spans), "n": 0, "k": 0}
-    for a, b in spans:
-        if any(a <= c <= b for c in calls):
-            out["n"] += 1
-            out["k"] += int(not any(a <= r <= b for r in resp))
+    out = {"say": 1, "spans": len(spans), "n": 0, "k": 0, "skip": 0, "outside": 0}
+    for s in says:
+        if s["why"] != "질문":
+            out["skip"] += 1
+            continue
+        sp = next(((a, b) for a, b in spans if a <= s["t"] <= b), None)
+        if sp is None:
+            out["outside"] += 1
+            continue
+        out["n"] += 1
+        out["k"] += int(not any(s["t"] <= r <= sp[1] for r in resp))
     return out
 
 

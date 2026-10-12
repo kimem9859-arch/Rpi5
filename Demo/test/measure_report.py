@@ -325,7 +325,8 @@ def target_value(mid, M, t=None, slow=False):
         v, miss = g("V1").get("delays", []), g("V1").get("missing", 0)
         if not v and not miss and g("V1").get("off"):
             return {"raw": None, "n": 0, "note": "", "why": "알림 끈 세션 — 세지 않음(V1 = 폐기 세션 알림 · 설계 D10)"}
-        return {"raw": v + [float("inf")] * miss, "n": len(v) + miss, "note": f"재생 없음 {miss}(∞ 로 넣음)", "why": ""}
+        return {"raw": v + [float("inf")] * miss, "n": len(v) + miss, "why": "",
+                "note": f"재생 없음 {miss}(∞ 로 넣음) · 밀림 {g('V1').get('dropped', 0)}(뺌 — 뒤 알림·해제가 밀어냄 · 누락 아님)"}
     if mid == "9":
         return {"raw": None, "n": 0, "note": "", "why": "세기 밖 — 모델 채점(비전 모델 재정립 ③)"}
     return {"raw": None, "n": 0, "note": "", "why": "세는 법 없음"}
@@ -470,9 +471,7 @@ def render(sessions, per, M, targets, curve=None):
           f"(위반 {_f(_med(g('31').get('viol', [])), 3, '초')} · 맞는 누름 {_f(_med(g('31').get('ok', [])), 3, '초')})"
           f" · 안내 → 구역 {_f(_med(g('31').get('reach', [])), 3, '초')} · 구역 → 누름(머묾) {_f(_med(g('31').get('stay', [])), 3, '초')}"
           f" · 누름 {len(g('31').get('total', []))} · 안내 뒤 누름 없음 {g('31').get('nopress', 0)}",
-          ("- V2 알림 정확도 — 음성 기록 없음" if v2.get("off") and not v2.get("trans") else
-           f"- V2 알림 정확도 — 경고·차단 전이 {v2.get('trans', 0)} 가운데 알림 한 번 {v2.get('one', 0)} · 없음 {v2.get('zero', 0)}"
-           f" · 여러 번 {v2.get('multi', 0)} · 정상 판 헛알림 {v2.get('normal', 0)}"),
+          _v2_line(v2),
           f"- V3 알림 끊기 — 중앙값 {_f(_med(g('V3').get('delays', [])), 3, '초')}(멈춤 없음 {g('V3').get('missing', 0)})",
           f"- V4 알림 길이 — 중앙값 {_f(_med(g('V4').get('lens', [])), 2, '초')}(알림 {len(g('V4').get('lens', []))}"
           f" · 중단된 재생 {g('V4').get('cut', 0)}은 뺌)",
@@ -516,6 +515,17 @@ def render(sessions, per, M, targets, curve=None):
     return "\n".join(L) + "\n"
 
 
+def _v2_line(v2):
+    """② 의 V2 줄 — 한 번 = 실제로 재생 · 밀림 = 뒤 알림·해제가 밀어냄(누락 아님) · 알림 끈 세션은 세지 않는다(최종 리뷰 I-2 · b)."""
+    if "trans" in v2:
+        return (f"- V2 알림 정확도 — 경고·차단 전이 {v2.get('trans', 0)} 가운데 알림 한 번 {v2.get('one', 0)} · 없음 {v2.get('zero', 0)}"
+                f" · 여러 번 {v2.get('multi', 0)} · 밀림 {v2.get('dropped', 0)}(뒤 알림·해제가 밀어냄 · 누락 아님)"
+                f" · 정상 판 헛알림 {v2.get('normal', 0)}" + (f" · 알림 끈 세션 {v2['alerts_off']} 뺌" if v2.get("alerts_off") else ""))
+    if v2.get("alerts_off"):
+        return "- V2 알림 정확도 — 해당 없음(알림 끈 세션 — 세지 않음 · V1 과 같다)"
+    return "- V2 알림 정확도 — 음성 기록 없음"
+
+
 def _voice_lines(g):
     """② 의 V5~V8 줄(음성비서 빠른 해결 설계 §2.4 · 목표 없음) — 음성 기록 없음 · 말 띠 기록 없음 · 비상 중 호출 없음은 해당 없음으로."""
     v5, v6, v7, v8 = g("V5"), g("V6"), g("V7"), g("V8")
@@ -530,10 +540,14 @@ def _voice_lines(g):
         l5 = "- V5 호출 인식 — 음성 기록 없음"
     if v6.get("say"):
         d, r = v6.get("dist", 0), v6.get("ref", 0)
-        l6 = (f"- V6 받아쓰기 — 글자 오류율 {_f(100 * d / r if r else None, 1, '%')}(편집 {d} / 띠 문장 {r}자 · 질문 {v6.get('n', 0)})"
-              f" · 호출어만 받아씀(질문 못 받음) {v6.get('noq', 0)} · 창에 호출 조각 없음 {v6.get('nowake', 0)}")
+        l6 = [f"- V6 받아쓰기 — 글자 오류율 {_f(100 * d / r if r else None, 1, '%')}(편집 {d} / 띠 문장 {r}자 · 질문 {v6.get('n', 0)})"
+              f" · 호출어만 받아씀(질문 못 받음) {v6.get('noq', 0)} · 창에 호출 조각 없음 {v6.get('nowake', 0)}"]
+        dn, dm = v6.get("dom", 0), v6.get("dom_miss", 0)
+        l6.append("- V6 도메인 낱말 — " + (f"띠 문장의 B1~B4 · EMO · 공구 이름 {dn}개 가운데 받아쓴 글에 없음 {dm}"
+                                         f"({_f(100 * dm / dn, 1, '%')}) · 한글 읽기(비원 …)로 받아써도 있음" if dn else
+                                         "해당 없음(견준 띠 문장에 도메인 낱말 없음)"))
     else:
-        l6 = "- V6 받아쓰기 — " + ("음성 기록 없음" if v6.get("off") else "해당 없음(말 띠 기록 없음)")
+        l6 = ["- V6 받아쓰기 — " + ("음성 기록 없음" if v6.get("off") else "해당 없음(말 띠 기록 없음)")]
     ans, play, extra = v7.get("ans", {}), v7.get("play", {}), v7.get("extra", {})
     if not (v7.get("n") or extra):
         l7 = ["- V7 답 — " + ("음성 기록 없음" if v7.get("off") else "해당 없음(질문까지 간 말 띠 · 답 없음)")]
@@ -551,13 +565,14 @@ def _voice_lines(g):
         l7.append("- V7 답 정확도(초벌 · 기대 칸 핵심 낱말 — 판정 아님) — "
                   + (" · ".join(parts) if v7.get("say") else "해당 없음(말 띠 기록 없음 — 대본 질문과 짝짓지 못한다)"))
     if v8.get("n"):
-        l8 = (f"- V8 비상 중 무반응 — {_pct(v8.get('k', 0), v8.get('n', 0))} 구간"
-              f"(비상 중 호출이 든 비상정지 구간 · 비상정지 구간 {v8.get('spans', 0)})")
+        l8 = (f"- V8 비상 중 무반응 — 비상질문 {_pct(v8.get('k', 0), v8.get('n', 0))}(질문 단위 — 띠부터 해제 + 0.5초까지"
+              f" 호출·답·응답 소리 없음 · 비상정지 구간 {v8.get('spans', 0)} · 질문 못 함 {v8.get('skip', 0)}"
+              f" · 구간 밖 띠 {v8.get('outside', 0)})")
     elif "spans" in v8:
-        l8 = f"- V8 비상 중 무반응 — 해당 없음(비상 중 호출 없음 · 비상정지 구간 {v8.get('spans', 0)})"
+        l8 = (f"- V8 비상 중 무반응 — 해당 없음(비상정지 중 질문한 비상질문 띠 없음 · 비상정지 구간 {v8.get('spans', 0)})")
     else:
         l8 = "- V8 비상 중 무반응 — 음성 기록 없음"
-    return [l5, l6, *l7, l8]
+    return [l5, *l6, *l7, l8]
 
 
 def _processing(s):

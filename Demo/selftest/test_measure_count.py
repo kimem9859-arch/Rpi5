@@ -327,8 +327,10 @@ def test_voice():
     ev = [E(985, "state", new="WARNING"), E(4985, "state", new="BLOCK"), E(7000, "state", new="WARNING"),
           E(9150, "release", what="warning", ok=True), E(9500, "release", what="block", ok=True)]
     s = S_(ev, voice=voice)
-    check(MC.v_alert_delay(s) == {"delays": [0.21], "missing": 1}, f"V1 = {MC.v_alert_delay(s)}")
-    check(MC.v_alert_count(s) == {"trans": 3, "one": 2, "zero": 1, "multi": 0, "normal": 0}, f"V2 = {MC.v_alert_count(s)}")
+    check(MC.v_alert_delay(s) == {"delays": [0.21], "missing": 1, "dropped": 0}, f"V1 = {MC.v_alert_delay(s)}")
+    # 🔑 V2 「한 번」 = 그 알림이 실제로 재생됐다(3초 안) — 4초 뒤에야 재생된 차단 알림은 V1 처럼 「없음」(최종 리뷰 I-2)
+    check(MC.v_alert_count(s) == {"trans": 3, "one": 1, "zero": 2, "multi": 0, "dropped": 0, "normal": 0},
+          f"V2 = {MC.v_alert_count(s)}")
     check(MC.v_alert_stop(s) == {"delays": [0.05], "missing": 0}, f"V3 = {MC.v_alert_stop(s)}")
     check(MC.v_alert_len(s) == {"lens": [1.5], "cut": 0}, f"V4 = {MC.v_alert_len(s)} — 3초 넘어 시작한 재생은 짝짓지 않는다")
     s4 = S_(voice=[E(100, "alert", key="경고", t_pub_ms=90.0), E(200, "play_start"), E(400, "play_end", what="중단")])
@@ -340,25 +342,66 @@ def test_voice():
           E(1900, "play_start", key="alert_block_B2"), E(3900, "play_end", what="완료", key="alert_block_B2"),
           E(5000, "play_start", key="cue_B1"), E(5400, "play_end", what="완료", key="cue_B1")]
     s5 = S_(voice=v2)
-    check(MC.v_alert_delay(s5) == {"delays": [0.16, 0.81], "missing": 0}, f"V1 = {MC.v_alert_delay(s5)}")
+    # 경고 제 재생(1150)보다 차단 알림(1100)이 먼저 왔다 = 밀림(뺀다) — 10ms 만에 끊긴 소리
+    check(MC.v_alert_delay(s5) == {"delays": [0.81], "missing": 0, "dropped": 1}, f"V1 = {MC.v_alert_delay(s5)}")
     check(MC.v_alert_len(s5) == {"lens": [2.0], "cut": 1}, f"V4 = {MC.v_alert_len(s5)}")
     s6 = S_(voice=[], settings={"FSM_GAP_FILL_SEC": 0.3, "VOICE_ALERTS": False})
     check(MC.v_alert_delay(s6) == {"delays": [], "missing": 0, "off": 1}, f"V1 끔 = {MC.v_alert_delay(s6)}")
+    s7 = S_(ev, voice=voice, settings={"FSM_GAP_FILL_SEC": 0.3, "VOICE_ALERTS": False})
+    check(MC.v_alert_count(s7) == {"alerts_off": 1}, f"V2 알림 끈 세션 = 해당 없음(V1 과 같다 · 최종 리뷰 b) = {MC.v_alert_count(s7)}")
 
 
 def test_alert_count_cut():
     print("\n[V2] 짝 창의 끝 = 다음 상태 바뀜(음성비서 빠른 해결 설계 §2.4) — 경고 0.2초 뒤 차단 = 경고 한 번 · 차단 한 번")
     ev = [E(1000, "state", new="WARNING"), E(1200, "state", new="BLOCK"), E(5000, "state", new="IDLE")]
-    voice = [E(1003, "alert", key="alert_warn_B2", t_pub_ms=1002.0), E(1203, "alert", key="alert_block_B2", t_pub_ms=1202.0)]
+    voice = [E(1003, "alert", key="alert_warn_B2", t_pub_ms=1002.0), E(1100, "play_start", key="alert_warn_B2"),
+             E(1203, "alert", key="alert_block_B2", t_pub_ms=1202.0), E(1400, "play_start", key="alert_block_B2")]
     v = MC.v_alert_count(S_(ev, voice=voice))
-    check(v == {"trans": 2, "one": 2, "zero": 0, "multi": 0, "normal": 0}, f"경고 → 0.2초 뒤 차단 = {v}")
-    print("  — 경고가 46ms 만에 차단으로 바뀌어 경고 제 알림이 없으면 경고는 「없음」(차단 알림을 경고 쪽에 세지 않는다)")
+    check(v == {"trans": 2, "one": 2, "zero": 0, "multi": 0, "dropped": 0, "normal": 0}, f"경고 → 0.2초 뒤 차단 = {v}")
+    print("  — 경고가 46ms 만에 차단으로 바뀌어 경고 제 알림이 없으면 경고는 「밀림」(알림이 나갈 틈 없이 바뀜 · 최종 리뷰 I-2)")
     v = MC.v_alert_count(S_([E(1000, "state", new="WARNING"), E(1046, "state", new="BLOCK")],
-                            voice=[E(1050, "alert", key="alert_block_B2", t_pub_ms=1049.0)]))
-    check(v == {"trans": 2, "one": 1, "zero": 1, "multi": 0, "normal": 0}, f"{v}")
-    print("  — 바뀜이 하나뿐이면 지금과 같다(창 끝 +1.0초 그대로)")
-    v = MC.v_alert_count(S_([E(1000, "state", new="WARNING")], voice=[E(2001, "alert", key="alert_warn_B2", t_pub_ms=2000.0)]))
-    check(v == {"trans": 1, "one": 1, "zero": 0, "multi": 0, "normal": 0}, f"{v}")
+                            voice=[E(1050, "alert", key="alert_block_B2", t_pub_ms=1049.0),
+                                   E(1250, "play_start", key="alert_block_B2")]))
+    check(v == {"trans": 2, "one": 1, "zero": 0, "multi": 0, "dropped": 1, "normal": 0}, f"{v}")
+    print("  — 바뀜이 하나뿐이면 지금과 같다(창 끝 +1.0초 그대로) · 알림 없이 1초 넘게 머문 상태 = 없음(누락)")
+    v = MC.v_alert_count(S_([E(1000, "state", new="WARNING")], voice=[E(2001, "alert", key="alert_warn_B2", t_pub_ms=2000.0),
+                                                                     E(2100, "play_start", key="alert_warn_B2")]))
+    check(v == {"trans": 1, "one": 1, "zero": 0, "multi": 0, "dropped": 0, "normal": 0}, f"{v}")
+    v = MC.v_alert_count(S_([E(1000, "state", new="WARNING"), E(3000, "state", new="MONITOR")], voice=[E(500, "uplink")]))
+    check(v == {"trans": 1, "one": 0, "zero": 1, "multi": 0, "dropped": 0, "normal": 0}, f"{v}")
+
+
+def test_alert_dropped():
+    print("\n[V1 · V2] 밀린 알림(뒤 알림·풀림이 제 재생보다 먼저 · dropped=true)은 누락이 아니라 「밀림」으로 따로(최종 리뷰 I-2)")
+    voice = [E(1000, "alert", key="alert_warn_B2", t_pub_ms=990.0), E(1100, "alert", key="alert_block_B2", t_pub_ms=1090.0),
+             E(1105, "alert_played", key="alert_warn_B2", ok=False, dropped=True),
+             E(1300, "play_start", key="alert_block_B2"), E(3300, "play_end", what="완료", key="alert_block_B2"),
+             E(3301, "alert_played", key="alert_block_B2", ok=True, dropped=False),
+             E(5000, "alert", key="alert_warn_B3", t_pub_ms=4990.0), E(5050, "alert_clear"),
+             E(5060, "alert_played", key="alert_warn_B3", ok=False, dropped=True),
+             E(8000, "alert", key="alert_warn_B1", t_pub_ms=7990.0),                         # 재생도 밀어낸 것도 없음 = 누락
+             E(12000, "alert", key="alert_block_B4", t_pub_ms=11990.0),                      # _want 를 덮어써 alert_played 도 없음
+             E(12050, "alert", key="alert_emo", t_pub_ms=12040.0), E(12300, "play_start", key="alert_emo"),
+             E(15000, "play_end", what="완료", key="alert_emo"), E(15001, "alert_played", key="alert_emo", ok=True, dropped=False)]
+    ev = [E(985, "state", new="WARNING"), E(1085, "state", new="BLOCK"), E(4000, "state", new="IDLE"),
+          E(4985, "state", new="WARNING"), E(5045, "state", new="MONITOR"),
+          E(7985, "state", new="WARNING"), E(9500, "state", new="MONITOR"),
+          E(11985, "state", new="BLOCK"), E(16000, "state", new="IDLE")]
+    s = S_(ev, voice=voice)
+    check(MC.v_alert_delay(s) == {"delays": [0.21, 0.26], "missing": 1, "dropped": 3}, f"V1 = {MC.v_alert_delay(s)}")
+    check(MC.v_alert_count(s) == {"trans": 5, "one": 2, "zero": 1, "multi": 0, "dropped": 2, "normal": 0},
+          f"V2 = {MC.v_alert_count(s)}")
+    print("  — 옛 기록(재생 키 · dropped 없음 · 10/10 꼴): 경고 재생이 차단 알림 뒤 「[재생]」 즉시 중단(0샘플) = 밀림 ·"
+          " 차단 알림의 재생은 제 alert_played 직전 재생")
+    old = [E(87, "alert", key="alert_warn_B1", t_pub_ms=2.0), E(87, "stop_sent"),
+           E(187, "alert", key="alert_block_B1", t_pub_ms=125.0), E(402, "stop_sent"),
+           E(657, "play_start"), E(657, "play_end", what="중단"), E(657, "alert_played", key="alert_warn_B1", ok=True),
+           E(1344, "play_start"), E(2610, "stop_sent"), E(2611, "alert_clear"), E(2631, "play_end", what="중단"),
+           E(2631, "alert_played", key="alert_block_B1", ok=True)]
+    s = S_([E(0, "state", new="WARNING"), E(123, "state", new="BLOCK"), E(2610, "state", new="IDLE")], voice=old)
+    check(MC.v_alert_delay(s) == {"delays": [1.219], "missing": 0, "dropped": 1}, f"V1 = {MC.v_alert_delay(s)}")
+    check(MC.v_alert_count(s) == {"trans": 2, "one": 1, "zero": 0, "multi": 0, "dropped": 1, "normal": 0},
+          f"V2 = {MC.v_alert_count(s)}")
 
 
 def SAY(t, run, tok, text, emergency=False, script=None):
@@ -447,25 +490,46 @@ def test_answer():
 
 
 def test_emergency_silence():
-    print("\n[V8] 비상 중 무반응 — 구간 = EMO 차단 ~ 해제 + 0.5초 · 분모 = 비상 중 호출이 든 구간 · 분자 = 그 구간에 호출·답·응답 소리 없음")
+    print("\n[V8] 비상 중 무반응 — 질문 단위(측정 설계 V8 · 최종 리뷰 M-5): 비상 구간 안의 비상질문 띠(질문까지 감)마다"
+          " 띠부터 해제 + 0.5초까지 호출·답·응답 소리가 없었나 · 비상 구간 = EMO 누름(위반 차단 중에 누른 EMO 도) ~ 차단을 벗어난 바뀜")
     ev = [P(1000, "EMO", expected="B1", state="MONITOR"), E(1001, "state", old="MONITOR", new="BLOCK"),
-          E(5000, "state", old="BLOCK", new="IDLE"),
-          P(10000, "EMO", expected="B1", state="MONITOR"), E(10001, "state", old="MONITOR", new="BLOCK"),
-          E(15000, "state", old="BLOCK", new="IDLE"),
+          E(9000, "state", old="BLOCK", new="IDLE"),
           P(20000, "EMO", expected="B1", state="MONITOR"), E(20001, "state", old="MONITOR", new="BLOCK"),
-          E(25000, "state", old="BLOCK", new="IDLE"),
-          P(30000, "B3", expected="B2", state="MONITOR"), E(30001, "state", old="MONITOR", new="BLOCK"),
-          E(35000, "state", old="BLOCK", new="IDLE"),
-          P(40000, "EMO", expected="B1", state="MONITOR"), E(40001, "state", old="MONITOR", new="BLOCK"),
-          E(45000, "state", old="BLOCK", new="IDLE")]
-    voice = [E(2000, "emergency_ignored", text="가디야.", wake=True),
-             E(11000, "emergency_ignored", text="가디언", wake=True), E(15300, "answer", src="LLM", text="네"),   # 해제 + 0.3초 = 구간 안
-             E(31000, "emergency_ignored", text="가디언", wake=True),                                            # 위반 차단 — EMO 아님
-             E(40100, "play_start", key="alert_emo"), E(41000, "emergency_ignored", text="가디언", wake=True),
-             E(42000, "play_start", key="cue_B1")]                                                                # 알림 · 안내는 응답 아님
-    v = MC.v_emergency(S_(ev, voice=voice))
-    check(v == {"spans": 4, "n": 3, "k": 2}, f"V8 = {v}")
-    check(MC.v_emergency(S_(ev)) == {"off": 1}, "음성 기록이 없으면 끔")
+          E(29000, "state", old="BLOCK", new="IDLE"),
+          P(40000, "B3", expected="B2", state="MONITOR"), E(40001, "state", old="MONITOR", new="BLOCK"),   # 위반 차단
+          P(42000, "EMO", expected="B2", state="BLOCK"),                                                    # 차단 중 EMO — 새 BLOCK 없음
+          E(50000, "state", old="BLOCK", new="IDLE"),
+          P(59000, "EMO", expected="B1", state="MONITOR"), E(59001, "state", old="MONITOR", new="BLOCK"),
+          E(65000, "state", old="BLOCK", new="IDLE"),
+          P(70000, "EMO", expected="B1", state="IDLE")]                                                      # 차단이 안 됨 = 비상 아님
+    says = [SAY(2000, 1, 1, "지금 B1 눌러도 돼?", emergency=True), SAID(3000, 1, 1),
+            SAY(21000, 2, 1, "다음에 뭐 해야 돼?", emergency=True), SAID(22000, 2, 1),
+            SAY(43000, 3, 1, "지금 상태 어때?", emergency=True), SAID(44000, 3, 1),
+            SAY(60000, 4, 1, "작업 계속해도 돼?", emergency=True), SAID(64000, 4, 1, why="시간", attempts=0),
+            SAY(70500, 5, 1, "왜 멈췄어?", emergency=True), SAID(71000, 5, 1),
+            SAY(80000, 6, 1, "지금 몇 단계야?"), SAID(81000, 6, 1)]                                       # 비상 아닌 띠는 V8 밖
+    voice = [E(2500, "emergency_ignored", text="가디야.", wake=True),
+             E(21500, "emergency_ignored", text="가디언", wake=True), E(29300, "answer", src="LLM", text="네"),   # 해제 + 0.3초 = 창 안
+             E(42100, "play_start", key="alert_emo"), E(43500, "emergency_ignored", text="가디언", wake=True),
+             E(43600, "play_start", key="cue_B1"),                                                                 # 알림 · 안내는 응답 아님
+             E(80500, "wake")]
+    v = MC.v_emergency(S_(ev, voice=voice, says=says))
+    check(v == {"say": 1, "spans": 4, "n": 3, "k": 2, "skip": 1, "outside": 1}, f"V8 = {v}")
+    check(MC.v_emergency(S_(ev, says=says)) == {"off": 1}, "음성 기록이 없으면 끔")
+    check(MC.v_emergency(S_(ev, voice=voice)) == {"say": 0, "spans": 4}, f"말 띠가 없으면 해당 없음 = {MC.v_emergency(S_(ev, voice=voice))}")
+
+
+def test_stt_domain():
+    print("\n[V6] 도메인 낱말(B1~B4 · EMO · 공구 이름 — 측정 설계 V6 「따로」 · 최종 리뷰 M-5) — 띠 문장의 낱말이 받아쓴 글에 있나"
+          " · 「비원」 같은 한글 읽기(voice_tts.read_out)도 맞음")
+    says = [SAY(10000, 1, 1, "지금 B1 눌러도 돼?"), SAID(12000, 1, 1),
+            SAY(20000, 1, 2, "렌치 보여?"), SAID(22000, 1, 2),
+            SAY(30000, 1, 3, "B2 다음에 B3 눌러?"), SAID(32000, 1, 3)]
+    voice = [STT(11000, "가디언 지금 비원 눌러도 돼"), E(11500, "wake"),
+             STT(21000, "가디언 랜치 보여"), E(21500, "wake"),
+             STT(31000, "가디언 B2 다음에 비상 눌러"), E(31500, "wake")]
+    v = MC.v_stt(S_(voice=voice, says=says))
+    check((v["dom"], v["dom_miss"]) == (4, 2), f"도메인 낱말 4 · 빠짐 2(렌치 · B3) = {v.get('dom')} · {v.get('dom_miss')}")
 
 
 def test_voice_absent():

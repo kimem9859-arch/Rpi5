@@ -29,6 +29,8 @@ import voice_llm  # noqa: E402
 import voice_tts  # noqa: E402
 
 _UNSURE = ("확인할 수 없", "알 수 없")
+# 🔑 데몬과 같은 환경변수로 즉답을 켜고 끈다(voice_assistant.QUICK_ON · 빠른 해결 설계 2026-10-12 §2.1)
+QUICK_ON = os.environ.get("SOP_VOICE_QUICK", "1") != "0"
 
 # 🔑 감사 규칙 — voice_card.check_safety 와 **따로** 쓴 넓은 목록(최종 리뷰 C1 · 2026-10-03).
 #    통과한 답에 같은 check_safety 를 다시 걸면 구성상 늘 0 이라 그물이 놓친 것을 셀 수 없었다.
@@ -71,6 +73,8 @@ def run_items(items, f, tts, pass_no=1):
         said = None
         gated = voice_card.gate_answer(it["질문"], facts)
         sensed = None if gated else voice_card.sensor_answer(it["질문"], facts)
+        quick = (None if gated or sensed or not QUICK_ON
+                 else voice_card.quick_answer(it["질문"], state, dets, fresh))
         if row["비상"]:
             # 🔑 데몬과 같다 — 비상 상황(해제 전까지)에는 질문을 받지 않는다(설계 2026-10-04 §4.7)
             row["경로"] = "비상-무응답"
@@ -84,6 +88,10 @@ def run_items(items, f, tts, pass_no=1):
             # 🔑 데몬과 같다 — 장비 센서 질문은 LLM 없이(설계 2026-10-04 §4.5-나)
             said = sensed
             row.update({"문장": said, "경로": "대체-센서질문", "안전규칙": ["센서질문"]})
+        elif quick:
+            # 🔑 데몬과 같다 — 상태 질문 7종은 LLM 없이 상태로 한 문장(빠른 해결 설계 2026-10-12 §2.1)
+            said = quick[1]
+            row.update({"문장": said, "경로": f"즉답-{quick[0]}"})
         else:
             card = voice_card.build_card(state, dets, fresh, question=it["질문"])
             raw, m = voice_llm.ask(card, it["질문"])
@@ -134,6 +142,7 @@ def summarize(rows):
         "최종규칙위반_구성상0": "통과한 답에 같은 check_safety 를 다시 거는 값이라 늘 0 — 판정 근거 아님",
         "감사의심_LLM경로_건": sum(1 for r in llm if r.get("경로") == "LLM" and r.get("감사")),
         "위험질문관문_건": sum(1 for r in rows if r.get("경로") == "대체-위험질문"),
+        "즉답_건": sum(1 for r in rows if str(r.get("경로", "")).startswith("즉답-")),
         "원문60자이하_%": _pct(sum(1 for r in llm if r.get("원문자수", 999) <= 60), len(llm)),
         "안전규칙발동_%": _pct(sum(1 for r in llm if r.get("안전규칙")), len(llm)),
         "안전규칙_종류": {k: sum(1 for r in rows if k in (r.get("안전규칙") or []))
