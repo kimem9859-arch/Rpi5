@@ -309,7 +309,7 @@ def test_say_end_cases():
 
 
 def test_busy_unprompted():
-    print("\n[대화 중] 띠 없이 스스로 「가디언」을 불러도 답이 끝날 때까지 버튼 소리를 미룬다 · 답이 없으면 21초 뒤 다시")
+    print("\n[대화 중] 띠 없이 스스로 「가디언」을 불러도 답이 끝날 때까지 버튼 소리를 미룬다 · 답이 없으면 대화창 + 1초 뒤 다시")
     out = []
     g = G.Guide(rows((1, "B1 B2")), "EMO", cue_sink=lambda k, t: out.append(k))
     ev = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B1")]
@@ -318,16 +318,17 @@ def test_busy_unprompted():
     v2 = v + [V(5000, "answer", src="LLM"), V(5200, "play_start", key=None), V(7000, "play_end", key=None)]
     check(g.step(ev, 8100.0, voice=v2) == ("cue", "cue_B1"), "답이 끝나고 1초 뒤 = 안내")
     g = G.Guide(rows((1, "B1 B2")), "EMO", cue_sink=lambda k, t: None)
-    check(g.step(ev, 22400.0, voice=v) is None and g.step(ev, 22600.0, voice=v) == ("cue", "cue_B1"),
-          "답이 없으면(호출만) 호출 + 21초(대화창) + 1초 뒤 다시 안내")
+    w = G.BUSY_LISTEN_MS                           # 대화창 + 1초(config.VOICE_LISTEN_SEC · 2026-10-13 20 → 5)
+    check(g.step(ev, 500 + w + 900, voice=v) is None and g.step(ev, 500 + w + 1100, voice=v) == ("cue", "cue_B1"),
+          "답이 없으면(호출만) 호출 + 대화창 + 1초 + 1초 뒤 다시 안내")
 
 
 def test_busy_slow_answer():
     print("\n[대화 중 · 늦은 답] 질문을 받았으면 LLM 한도까지 기다린다 · 답 재생 끝은 그 답의 소리만 센다(최종 리뷰 I1)")
     ev = [E(0, "run_start"), ST(10, "PROCESS_RUN", "B1")]
-    v = [V(500, "stt", text="가디야."), V(500, "wake"), V(8500, "stt", text="지금몇단계야?")]
-    check(G.assistant_busy(v, 25000.0)[0], "호출 + 8초 질문 → 호출 + 24.5초에도 아직 대화 중(답을 기다린다)")
-    check(G.assistant_busy(v + [V(33500, "answer", src="LLM")], 33600.0)[0], "질문 + 25초 답 → 답 재생 중")
+    v = [V(500, "stt", text="가디야."), V(500, "wake"), V(4500, "stt", text="지금몇단계야?")]
+    check(G.assistant_busy(v, 21000.0)[0], "호출 + 4초 질문 → 호출 + 20.5초에도 아직 대화 중(답을 기다린다)")
+    check(G.assistant_busy(v + [V(33500, "answer", src="LLM")], 33600.0)[0], "질문 + 29초 답 → 답 재생 중")
     v2 = v + [V(33500, "answer", src="LLM"), V(33600, "play_start", key="cue_B1"), V(33900, "play_end", key="cue_B1")]
     check(G.assistant_busy(v2, 34000.0)[0], "안내 소리 재생 끝은 답 끝으로 세지 않는다")
     v3 = v2 + [V(34000, "play_start", key=None), V(36000, "play_end", key=None)]
@@ -400,8 +401,9 @@ def test_say_minor_fixes():
           E(2000, "press", button="B1", expected="B1", state="MONITOR", source="gpio"), E(2000, "sub", what="start", button="B1")]
     g.step(ev, 1100.0)
     g.step(ev, 3000.0)
-    v = [V(4000, "stt", text="가디야."), V(4000, "wake"), V(25000, "stt", text="지금몇단계야?")]
-    check(g.step(ev, 25100.0, voice=v) is None, "호출 + 21초 받아쓰기 = 대화창이 닫혀 음성비서도 무시 → 말은 끝나지 않는다")
+    v = [V(4000, "stt", text="가디야."), V(4000, "wake"), V(4000 + G.LISTEN_MS + 1000, "stt", text="지금몇단계야?")]
+    check(g.step(ev, 4000 + G.LISTEN_MS + 1100, voice=v) is None,
+          "호출 + 대화창 + 1초 받아쓰기 = 대화창이 닫혀 음성비서도 무시 → 말은 끝나지 않는다")
     check("지금 말하세요" in (out[-1][1] or ""), f"대화창이 닫히면 띠는 다시 「지금 말하세요」 · {out[-1]}")
 
 

@@ -1060,6 +1060,18 @@ class Assistant:
                   "재생_ms": round((time.time() - t_p) * 1000), **extra})
 
 
+SPEAK_TAIL_SEC = 0.3
+
+
+def speaking_now(buf):
+    """마지막 SPEAK_TAIL_SEC 의 소리가 말 시작 기준(find_utterance 와 같다 · 잡음 바닥 × 3.5 · 최소 400)을 넘나."""
+    n = int(RATE * SPEAK_TAIL_SEC)
+    if len(buf) < n:
+        return False
+    x = buf[-n:].astype(np.float64)                 # 🔴 vl_rms 는 목록용 — int16 배열이면 합이 넘친다
+    return float(np.sqrt(((x - x.mean()) ** 2).mean())) >= max(400.0, noise_floor(buf, RATE) * 3.5)
+
+
 def handle_utterance(bot, stt, alog, seg):
     """잘라낸 발화 하나 — STT · 계측 · 판단. 질문에 답했으면 True."""
     samples = seg.tolist()
@@ -1170,6 +1182,10 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                     bot.awake_until = 0.0
                     time.sleep(0.02)
                     continue
+                if bot.awake_until > 0.0 and speaking_now(buf):
+                    # 🔑 대화창은 무음 기준 — 말소리가 들리는 동안은 늘린다(2026-10-13). 판정(find_utterance)은 소리가
+                    #    0.8초 쌓여야 돌아 창 끝 직전에 시작한 말을 못 보고 닫았다(닫힘음 메아리 버림에 질문 앞이 잘림).
+                    bot.awake_until = max(bot.awake_until, bot._clock() + LISTEN_SEC)
                 if not in_speech:
                     bot.tick()                 # 질문 없이 창 시간이 끝났으면 닫힘음 — 말하는 중이면 끝날 때까지 미룬다
                 if bot.chime_muted():
@@ -1195,6 +1211,9 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
                 since = 0
                 seg = find_utterance(buf, RATE)
                 in_speech = seg is not None
+                if in_speech and bot.awake_until > 0.0:
+                    # 🔑 발화가 끝날 때까지도 늘린다 — 긴 말은 잡음 바닥이 올라 speaking_now 가 꺼진다(말끝 판정 0.7초 포함)
+                    bot.awake_until = max(bot.awake_until, bot._clock() + LISTEN_SEC)
                 if seg is None:
                     if len(buf) > RATE * WINDOW_SEC:       # 무음만 길게 쌓이면 앞을 잘라 둔다
                         buf = buf[len(buf) - int(RATE * 1.0):]

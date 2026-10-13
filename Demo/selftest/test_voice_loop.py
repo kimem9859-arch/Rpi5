@@ -869,6 +869,26 @@ def test_loop_close_chime_on_timeout():
           f"띠링 1 · 닫힘음 1 · {fg.count('chime')} · {fg.count('close_chime')}")
 
 
+def test_loop_window_extends_while_speaking():
+    """대화창 = 무음 기준(2026-10-13 사용자 「호출 후 무음 5초면 닫기」) — 창 끝 전에 시작한 질문이 창 끝을 넘겨 끝나도
+    받는다(말하는 동안은 창을 늘린다). 종전(호출 순간부터 고정)이면 받아쓰기 시점에 창이 닫혀 질문을 버렸다."""
+    print("\n[루프] 대화창 — 말하는 동안은 닫지 않는다")
+    va.WAV_DIR = _wavdir()
+    old = va.LISTEN_SEC
+    va.LISTEN_SEC = 1.5
+    try:
+        # 호출 0.8초 → (띠링 ≈ 0.75초 뒤) → 질문은 띠링 약 1초 뒤 시작해 2.2초 — 창(1.5초) 끝을 넘겨 끝난다
+        fg = FakeGlass([tone(0.8), tone(2.2)], mic_port=0, cmd_port=0, lead_sec=1.0, gap_sec=1.8, tail_sec=3.0,
+                       play_speed=0.05, quiet=True).start()
+        llm = FakeLlm()
+        _run_once(fg, lambda s: "가디언" if len(s) / 16000 < 1.5 else "지금 몇 단계야", llm)
+    finally:
+        va.LISTEN_SEC = old
+    asked = [q for _, q in llm.asked]
+    check(fg.count("chime") == 1 and asked[:1] and "몇 단계" in asked[0],
+          f"창 끝을 넘긴 질문도 답한다 · 띠링 {fg.count('chime')} · 물음 {asked}")
+
+
 def test_loop_halfopen_reattaches_speaker():
     """P5 · Q3 — 반열림이면 다시 붙고, 붙은 뒤 명령 채널도 미리 다시 붙인다(첫 띠링 유실 방지)."""
     print("\n[루프] 반열림 → 재접속 + 명령 채널 미리 붙임")
