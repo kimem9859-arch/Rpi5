@@ -316,6 +316,24 @@ def test_banner_mode_change_during_entrance_enters_once():
         host.close()
 
 
+
+def test_pulse_on_value_does_not_restyle():
+    """Task 5b — on_value 를 주면 틱마다 알파 값만 넘기고 QSS 를 다시 걸지 않는다(차단 GUI CPU 약 24% 의 원인 · 10/14 측정)."""
+    print("\n[맥박] on_value — 스타일 그대로")
+    from PyQt6.QtTest import QTest
+    old = config.UI_ANIMATION
+    config.UI_ANIMATION = True
+    try:
+        w = QWidget(); w.setStyleSheet("X")
+        got = []
+        p = anim.Pulse(w, lambda: "", "#ff0000", on_value=got.append)
+        p.start(); QTest.qWait(200)
+        check(w.styleSheet() == "X", f"스타일 그대로 ({w.styleSheet()[:20]!r})")
+        check(len(got) >= 1 and all(0.3 <= a <= 1.0 for a in got), f"알파 {got[:3]}")
+        p.stop()
+    finally:
+        config.UI_ANIMATION = old
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

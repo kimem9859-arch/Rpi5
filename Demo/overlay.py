@@ -585,9 +585,13 @@ class AlertBanner(_Panel):
         self._notice_tag = None         # 안내의 종류(show_notice tag) — mode 가 "notice" 일 때만 뜻이 있다
 
         # 차단 맥박 — 🔴 mode 를 벗어나거나 숨길 때 반드시 stop() 한다.
+        # 🔴 맥박은 알파 값만 바꾸고 테두리는 paintEvent 가 그린다(Task 5b) — 틱마다 QSS 를 다시 걸면 상자와 자식 라벨
+        #    전부의 스타일을 다시 계산해 차단 화면 GUI CPU 가 약 24%(코어 1개)였다(10/14 카메라 없음 측정).
+        self._border_token = "warn"
+        self._border_alpha = 1.0
         self._pulse = anim.Pulse(
-            self, lambda: theme.panel_qss("sheet", padding="0"),
-            lambda: theme.C("danger"), selector=_ALERT_SEL)   # 색도 그때그때(U14 ③)
+            self, lambda: theme.panel_qss("alert", padding="0"),
+            lambda: theme.C("danger"), selector=_ALERT_SEL, on_value=self._set_alpha)
         self._shown_mode = None         # 화면에 그려져 있는 mode (등장 트리거 비교용)
         self._last_paint = None         # 마지막 _paint 인자 — 테마를 다시 칠할 때 쓴다(G8)
         self._needs_entrance = False    # 다음 relayout 에서 미끄러져 들어올 것
@@ -734,7 +738,9 @@ class AlertBanner(_Panel):
         # 🔴 선택자로 **박스에만** 건다 — 선택자 없이 걸면 padding 이 안쪽 글자 칸마다 번져
         #    줄 사이가 벌어졌다(제목 칸 25 → 54px). 여백은 레이아웃이 맡는다.
         self.setStyleSheet(f"{_ALERT_SEL} {{ {theme.panel_qss('alert', padding='0')}"
-                           f"border-color: {c}; }}")
+                           f"border: none; }}")
+        self._border_token, self._border_alpha = token, 1.0     # 테두리는 paintEvent(Task 5b)
+        self.update()
         for lbl in (self._icon, self._title, self._line1, self._line2):
             _glow(lbl)
         self.raise_()
@@ -776,6 +782,30 @@ class AlertBanner(_Panel):
                 self._pulse.stop()
                 self._pulse.start()
         self.release_button.apply_theme()
+
+    def _set_alpha(self, a):
+        """맥박 틱 — 눈에 띄게 바뀔 때만 다시 그린다(0.05 미만 변화는 건너뜀 · 초당 그리기 횟수를 줄인다)."""
+        if abs(a - self._border_alpha) >= 0.05:
+            self._border_alpha = a
+            self.update()
+
+    def border_alpha(self):
+        return self._border_alpha
+
+    def border_color(self):
+        from PyQt6.QtGui import QColor
+        return QColor(theme.C(self._border_token))
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._mode is None:
+            return
+        from PyQt6.QtGui import QPainter, QPen, QColor
+        c = QColor(theme.C(self._border_token)); c.setAlphaF(self._border_alpha)
+        p = QPainter(self)
+        p.setPen(QPen(c, 2))
+        p.drawRect(self.rect().adjusted(1, 1, -1, -1))
+        p.end()
 
     def raise_(self):
         """🔴 동그란 해제 버튼도 함께 올린다 — 콘솔 `_dim_others` 가 배너만 스크림 위로 올린다."""

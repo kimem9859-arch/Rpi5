@@ -109,7 +109,10 @@ class Pulse:
     color_hex: 색(#RRGGBB) 또는 그때그때 색을 주는 함수 — 시작할 때 읽는다(테마 전환 대응 · 리뷰 U14 ③).
     """
 
-    def __init__(self, widget, base_qss_fn, color_hex, selector=None):
+    def __init__(self, widget, base_qss_fn, color_hex, selector=None, on_value=None):
+        """on_value — 주면 틱마다 알파(0.30~1.00)만 넘기고 QSS 를 다시 걸지 않는다(호출부가 직접 그린다).
+        🔴 차단 배너가 이 갈래를 쓴다 — 틱마다 setStyleSheet 는 GUI CPU 약 24%(코어 1개 · 10/14 측정)였다."""
+        self._on_value = on_value
         self._w = widget
         self._base = base_qss_fn
         self._c = color_hex
@@ -124,6 +127,9 @@ class Pulse:
 
         def step(t):
             a = 0.30 + 0.70 * float(t)
+            if self._on_value is not None:
+                self._on_value(a)
+                return
             qss = base + f"border: 1px solid rgba({c.red()},{c.green()},{c.blue()},{a:.2f});"
             self._w.setStyleSheet(f"{self._sel} {{ {qss} }}" if self._sel else qss)
 

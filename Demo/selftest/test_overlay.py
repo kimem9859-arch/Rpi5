@@ -683,13 +683,23 @@ def test_u14_block_pulse_follows_theme():
         theme.set_theme("light")
         b.apply_theme()
         QTest.qWait(150)                                  # 맥박이 몇 번 칠할 시간
-        c = QColor(theme.C("danger"))
-        check(f"rgba({c.red()},{c.green()},{c.blue()}," in b.styleSheet(),
-              "맥박 테두리가 화이트 테마 빨강")
+        check(b.border_color().name() == theme.C("danger").lower(),
+              f"맥박 테두리가 화이트 테마 빨강({b.border_color().name()})")
         b.hide_all()
     finally:
         config.UI_ANIMATION = False
         theme.set_theme("dark")
+
+
+def test_block_border_painted():
+    """Task 5b — 차단 테두리 = 직접 그리기(스타일 다시 걸기 아님) · 알파가 0.3~1.0 · 실제로 빨강이 그려진다."""
+    print("\n[차단] 테두리 직접 그리기")
+    host = QWidget(); host.resize(1920, 1280); b = AlertBanner(host)
+    b.apply_theme(); b.show_block("x"); b.relayout(QRect(107, 0, 1707, 1280))
+    check(0.3 <= b.border_alpha() <= 1.0, f"알파 {b.border_alpha()}")
+    img = b.grab().toImage(); c = img.pixelColor(1, b.height() // 2)
+    check(c.red() > 150 and c.green() < 140, f"왼쪽 테두리 빨강 {c.name()}")
+    check("border-color" not in b.styleSheet(), "테두리는 QSS 가 아니라 그리기")
 
 
 def test_u14_glow_follows_theme():
