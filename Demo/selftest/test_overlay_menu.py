@@ -320,6 +320,18 @@ def test_check_rows_state_and_place():
     check(c.width() == 760 and abs(c.geometry().center().x() - 960) <= 1, f"{c.geometry()}")
 
 
+def test_confirm_panel_default_cancel():
+    """4.6 확인 상자 — 기본 = 취소 · 「초기화」 = accepted · 「취소」 = closed."""
+    print("\n[4.6] 확인 상자")
+    from overlay_menu import ConfirmPanel
+    host = QWidget(); c = ConfirmPanel("작업을 초기화할까요?", "본문", "초기화", "취소", host)
+    acc, clo = [], []
+    c.accepted.connect(lambda: acc.append(1)); c.closed.connect(lambda: clo.append(1))
+    check(c.cancel_button.isDefault() and not c.ok_button.isDefault(), "기본 = 취소")
+    c.cancel_button.click(); check(clo == [1] and acc == [], "취소 = closed")
+    c.ok_button.click(); check(acc == [1], "초기화 = accepted")
+
+
 def test_record_panel():
     """녹화 패널 — 모드 2종, 중지 버튼 전환."""
     print("\n[17] 녹화 패널")

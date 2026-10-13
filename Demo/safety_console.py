@@ -42,7 +42,7 @@ from raw_recorder import RawRecorder
 from tool_state import ToolState, held_tool
 from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, PromptBar, place, vplace, _STATE_LABEL
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
-                          NotifyButton, CheckPanel, RecordPanel, _seg_button, _seg_qss)
+                          NotifyButton, CheckPanel, RecordPanel, ConfirmPanel, _seg_button, _seg_qss)
 import log_view
 from overlay_result import ResultPanel
 import precheck
@@ -405,6 +405,14 @@ class SafetyConsole(QMainWindow):
         # 공구 선택지는 **레시피가 준다** — 목록을 코드에 박지 않는다(design §4.4).
         self._wire_tool_settings()
 
+        # 작업 초기화 확인 — 앱 안 상자(시연 UI 개선 §4.6) · 시트 목록에 있어 ESC = 취소 · 한 번에 하나만
+        self.confirm_panel = ConfirmPanel(
+            "작업을 초기화할까요?",
+            "지금까지의 진행을 버리고 「작업 시작」 전 상태로 되돌립니다. 녹화 · 로그는 그대로 남습니다.",
+            "초기화", "취소", central)
+        self.confirm_panel.accepted.connect(self._on_reset_confirmed)
+        self.confirm_panel.closed.connect(self._on_reset_cancelled)
+
         self.result_panel = ResultPanel(central)
         self.result_panel.closed.connect(self._close_result)
         self._stats = SessionStats()
@@ -491,6 +499,7 @@ class SafetyConsole(QMainWindow):
         self.check_panel.relayout(vr)
         self.record_panel.relayout(r)
         self.result_panel.relayout(r)
+        self.confirm_panel.relayout(vr)
         # 🔴 상태바만 **영상 사각형** 기준이다 — 창 기준이면 오른쪽 검정
         #    레터박스에 앉는다(2026-08-04).
         self.conn_bar.relayout(self.camera_label.geometry())
@@ -518,7 +527,7 @@ class SafetyConsole(QMainWindow):
 
         for w in (self.glow, self.alert, self.menu_panel, self.notify_panel,
                   self.settings_panel, self.check_panel, self.record_panel,
-                  self.result_panel, self.log_browser, self.btn_menu, self.btn_notify):
+                  self.result_panel, self.confirm_panel, self.log_browser, self.btn_menu, self.btn_notify):
             w.raise_()
         if getattr(self, "_prompt_bar", None) is not None:      # 측정 화면 띠 — 결과창보다 위(3판 D20)
             self._prompt_bar.relayout(r)
@@ -541,7 +550,7 @@ class SafetyConsole(QMainWindow):
         for w in (self.status_panel, self.gauge_panel, self.alert, self.glow,
                   self.menu_panel, self.notify_panel, self.settings_panel,
                   self.check_panel, self.record_panel, self.result_panel,
-                  self.conn_bar):
+                  self.conn_bar, self.confirm_panel):
             w.apply_theme()
         btn_qss = (f"QPushButton {{ {theme.panel_qss('panel', padding='8px 14px')} }}"
                    f"QPushButton:hover {{ color: {theme.C('info')}; }}")
@@ -720,7 +729,7 @@ class SafetyConsole(QMainWindow):
 
     def _sheets(self):
         return (self.menu_panel, self.notify_panel, self.settings_panel,
-                self.check_panel, self.record_panel, self.result_panel)
+                self.check_panel, self.record_panel, self.result_panel, self.confirm_panel)
 
     def _close_sheets(self, except_=None):
         """한 번에 하나만 열리게 한다 — 겹치면 뒤엣것을 못 읽는다."""
@@ -1853,7 +1862,7 @@ class SafetyConsole(QMainWindow):
     # [작업 초기화] — 「작업 시작」을 누르기 직전 상태로 되돌린다
     # =========================================================================
     def _on_reset_clicked(self):
-        """≡ 메뉴 → 「↺ 작업 초기화」.
+        """≡ 메뉴 → 「↺ 작업 초기화」 — 앱 안 확인 상자를 띄운다(시연 UI 개선 §4.6 · 종전 운영체제 확인창).
 
         🔴 EMO 가 물리적으로 복귀되지 않았으면 거부한다 — 「차단 해제」와 같은 규칙이다.
            여기를 열어두면 비상정지가 눌린 채로 인터락이 풀려(reset → IDLE 전이가
@@ -1862,27 +1871,24 @@ class SafetyConsole(QMainWindow):
         """
         if self._refuse_reset_if_emo():
             return
+        self._toggle_menu(False)
+        self._toggle_sheet(self.confirm_panel, True)
 
-        # 진행 중이던 작업이 사라지는 비가역 동작 — 한 번 더 확인한다.
-        reply = QMessageBox.question(
-            self,
-            "작업 초기화 확인",
-            "지금까지의 진행을 버리고 「작업 시작」 전 상태로 되돌립니다.\n"
-            "(녹화·로그는 그대로 유지됩니다)\n\n"
-            "초기화할까요?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,   # 기본 선택 = 아니오 (오동작 방지)
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            self._append_log("[FSM] 작업 초기화 취소됨")
-            return
-        # 🔴 확인창이 떠 있는 동안 EMO 가 눌렸을 수 있다 — 모달 루프도 GPIO 신호를 처리해
-        #    판정기는 이미 차단인데, 여기서 다시 보지 않으면 「예」 한 번이 EMO 를 누른 채
-        #    인터락을 풀었다(종합 리뷰 중요 1 · A-I1·B-I1 재현).
+    def _on_reset_confirmed(self):
+        """확인 상자 「초기화」.
+
+        🔴 상자가 떠 있는 동안 EMO 가 눌렸을 수 있다 — 다시 보지 않으면 「초기화」 한 번이 EMO 를 누른 채
+           인터락을 풀었다(종합 리뷰 중요 1 · A-I1·B-I1 — 종전 모달 확인창과 같은 이유).
+        """
+        self._toggle_sheet(self.confirm_panel, False)
         if self._refuse_reset_if_emo():
             return
-
         self._reset_work()
+
+    def _on_reset_cancelled(self):
+        """확인 상자 「취소」 · ESC."""
+        self._toggle_sheet(self.confirm_panel, False)
+        self._append_log("[FSM] 작업 초기화 취소됨")
 
     def _refuse_reset_if_emo(self):
         """EMO 가 물리적으로 복귀되지 않았으면 초기화를 거부하고 True."""

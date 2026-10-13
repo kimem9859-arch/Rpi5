@@ -869,6 +869,62 @@ class CheckPanel(_Sheet):
         self.setGeometry(QRect(vr.left() + (vr.width() - w) // 2, vr.top() + (vr.height() - h) // 2, w, h))
 
 
+class ConfirmPanel(_Sheet):
+    """앱 안 확인 상자(설계 2026-10-13 §4.6) — 운영체제 창(QMessageBox) 대신.
+
+    🔴 기본 = 취소(오동작 방지 · 종전 확인창과 같다). ESC 는 콘솔이 시트로 닫는다(= 취소).
+    """
+
+    CUT = 28
+    accepted = pyqtSignal()
+    closed = pyqtSignal()
+
+    def __init__(self, title, body, ok_text, cancel_text, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(40, 36, 40, 32)
+        lay.setSpacing(16)
+        self._title = QLabel(title)
+        self._title.setFont(config.font("sheet_title", 800))
+        self._title.setWordWrap(True)
+        self._body = QLabel(body)
+        self._body.setFont(config.font("sub", 500))
+        self._body.setWordWrap(True)
+        lay.addWidget(self._title)
+        lay.addWidget(self._body)
+        row = QHBoxLayout()
+        row.setSpacing(16)
+        self.cancel_button = QPushButton(cancel_text)
+        self.ok_button = QPushButton(ok_text)
+        for b in (self.cancel_button, self.ok_button):
+            b.setFont(config.font("item", 800))
+            b.setMinimumHeight(72)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)     # ESC 가 창으로 가게
+            row.addWidget(b, 1)
+        self.cancel_button.setDefault(True)
+        self.cancel_button.clicked.connect(self.closed.emit)
+        self.ok_button.clicked.connect(self.accepted.emit)
+        lay.addLayout(row)
+
+    def apply_theme(self):
+        super().apply_theme()
+        self._title.setStyleSheet(theme.text_qss("text", 800))
+        self._body.setStyleSheet(theme.text_qss("label", 500))
+        self.cancel_button.setStyleSheet(
+            f"QPushButton {{ background: {theme.C('current')}; color: #111111; border: none; }}")
+        self.ok_button.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {theme.C('warn_text')};"
+            f" border: 2px solid {theme.C('warn')}; }}")
+
+    def relayout(self, vr):
+        """영상 가운데 · 폭 760(시안)."""
+        w = vpx(vr, 760)
+        self.setFixedWidth(w)
+        h = self.sizeHint().height()
+        self.setGeometry(QRect(vr.left() + (vr.width() - w) // 2, vr.top() + (vr.height() - h) // 2, w, h))
+
+
 class RecordPanel(_Sheet):
     """녹화 — 필요할 때만 켠다 (design §8 갱신, 2026-08-04).
 

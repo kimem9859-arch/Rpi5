@@ -1898,17 +1898,11 @@ def test_review_i1_emo_during_reset_confirm_is_refused():
     pressed = [False]
     win.gpio_input.emo_active = lambda: pressed[0]   # 실제 버튼 레벨 흉내(GPIO 는 꺼 두었다)
 
-    def _question(*_a, **_k):                        # 확인창이 떠 있는 동안 EMO 가 눌리고 「예」
-        pressed[0] = True
-        win.gpio_button_signal.emit(win._emo_button())
-        return QMessageBox.StandardButton.Yes
-
-    old = safety_console.QMessageBox.question
-    safety_console.QMessageBox.question = _question
-    try:
-        win._on_reset_clicked()
-    finally:
-        safety_console.QMessageBox.question = old
+    win._on_reset_clicked()                          # 앱 안 확인 상자(시연 UI 개선 §4.6)
+    check(not win.confirm_panel.isHidden(), "확인 상자가 뜬다")
+    pressed[0] = True                                # 상자가 떠 있는 동안 EMO 가 눌리고
+    win.gpio_button_signal.emit(win._emo_button())
+    win.confirm_panel.ok_button.click()              # 「초기화」
     check(win.fsm.state == State.BLOCK, f"차단 유지 — 인터락이 풀리지 않는다 (실제 {win.fsm.state.value})")
     check(win.fsm.emo_active, "EMO 차단 그대로")
     check("reset_refused" in win._popups, "「초기화 거부」 창")
@@ -2040,12 +2034,8 @@ def test_review_am8_refusal_popups_close_when_block_ends():
     win.gpio_input.emo_active = lambda: True
     win._on_reset_clicked()
     win.gpio_input.emo_active = lambda: False
-    old = safety_console.QMessageBox.question
-    safety_console.QMessageBox.question = lambda *a, **k: QMessageBox.StandardButton.Yes
-    try:
-        win._on_reset_clicked()
-    finally:
-        safety_console.QMessageBox.question = old
+    win._on_reset_clicked()
+    win.confirm_panel.ok_button.click()              # 앱 안 확인 상자 「초기화」(시연 UI 개선 §4.6)
     check(win.fsm.state == State.IDLE, f"초기화 → 대기({win.fsm.state.value})")
     check(shown(win) == [], f"초기화 뒤 남은 창 = {shown(win)}")
     win.close()
@@ -2775,6 +2765,27 @@ def test_log_filter_buttons():
     check(any("[버튼] B2 눌림" in l for l in win.log_browser.toPlainText().splitlines()), "전체로 돌아옴")
     win._set_log_visible(False)
     check(win._log_filter_buttons["alert"].isHidden(), "로그 창을 닫으면 함께 숨는다")
+    win.close()
+
+
+def test_reset_confirm_in_app_box():
+    """4.6 작업 초기화 확인 = 앱 안 상자 — 기본 취소 · 「취소」는 그대로 · ESC 는 상자만 닫고 창은 그대로."""
+    print("\n[4.6] 초기화 확인 상자")
+    win = make_console()
+    win._on_cta()
+    key(win, "1")
+    win._on_reset_clicked()
+    check(not win.confirm_panel.isHidden(), "상자가 뜬다")
+    check(win.confirm_panel.cancel_button.isDefault(), "기본 = 취소")
+    win.confirm_panel.cancel_button.click()
+    check(win.confirm_panel.isHidden() and win.fsm.state != State.IDLE, "취소 → 작업 그대로")
+    win._on_reset_clicked()
+    from PyQt6.QtGui import QKeyEvent
+    win.keyPressEvent(QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier))
+    check(win.confirm_panel.isHidden() and win.fsm.state != State.IDLE, "ESC → 상자만 닫힘")
+    win._on_reset_clicked()
+    win.confirm_panel.ok_button.click()
+    check(win.fsm.state == State.IDLE and win.confirm_panel.isHidden(), "초기화 → 작업 시작 전")
     win.close()
 
 if __name__ == "__main__":
