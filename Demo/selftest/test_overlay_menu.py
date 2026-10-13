@@ -332,6 +332,25 @@ def test_confirm_panel_default_cancel():
     c.ok_button.click(); check(acc == [1], "초기화 = accepted")
 
 
+def test_start_button_look_and_place():
+    """작업 시작 버튼 시안 A(사용자 10/14) — 각진 판 · 노란 ▶ 타일 · START · 부제 · 영상 가운데 폭 640."""
+    print("\n[작업 시작] 시안 A")
+    from overlay_menu import StartButton
+    host = QWidget(); host.resize(1920, 1280); b = StartButton(host)
+    b.set_subtitle("PECVD 정비 · 4단계 · 1단계 공정 정지부터")
+    b.apply_theme(); b.relayout(QRect(107, 0, 1707, 1280))
+    check(b.width() == 640 and abs(b.geometry().center().x() - 960) <= 1
+          and abs(b.geometry().center().y() - 640) <= 1, f"가운데 폭 640 {b.geometry()}")
+    check(b.text().endswith("작업 시작"), b.text())
+    check(b.subtitle() == "PECVD 정비 · 4단계 · 1단계 공정 정지부터", b.subtitle())
+    host.show(); _app.processEvents()
+    img = b.grab().toImage()
+    c = img.pixelColor(30 + 20, b.height() // 2)             # ▶ 타일 안(왼쪽 여백 30 뒤)
+    check(c.red() > 200 and c.green() > 180 and c.blue() < 140, f"노란 타일 {c.name()}")
+    corner = img.pixelColor(2, 2)
+    check(corner.alpha() < 50, f"왼쪽 위 모서리는 잘림(투명) {corner.alpha()}")
+
+
 def test_record_panel():
     """녹화 패널 — 모드 2종, 중지 버튼 전환."""
     print("\n[17] 녹화 패널")

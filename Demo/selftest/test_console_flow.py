@@ -2835,6 +2835,15 @@ def test_final_notify_new_cleared_when_closed_by_other_sheet():
     check(win.notify_panel.isHidden() and win.notify_panel.new_count == 0, f"NEW {win.notify_panel.new_count}")
     win.close()
 
+
+def test_start_button_subtitle_from_recipe():
+    """작업 시작 시안 A — 부제는 레시피에서(공정 이름 · 단계 수 · 1단계 이름) · 코드에 박지 않는다."""
+    print("\n[작업 시작] 부제")
+    win = make_console()
+    sub = win.btn_cta.subtitle()
+    check("PECVD 정비" in sub and "4단계" in sub and "1단계 공정 정지부터" in sub, sub)
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

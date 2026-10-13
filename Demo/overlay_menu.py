@@ -12,7 +12,8 @@
 """
 
 from PyQt6.QtCore import Qt, QRect, pyqtSignal
-from PyQt6.QtGui import QPainter, QPen, QPixmap
+from PyQt6.QtCore import QPointF
+from PyQt6.QtGui import QPainter, QPen, QPixmap, QPolygonF, QColor, QFont
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
     QScrollArea, QRadioButton, QButtonGroup, QFrame, QSizePolicy,
@@ -181,6 +182,78 @@ class NotifyButton(QPushButton):
         super().resizeEvent(event)
         if self._count:
             self._place_badge()
+
+
+class StartButton(QPushButton):
+    """「작업 시작」 — 게임 메뉴 각진 버튼(시안 A · 사용자 10/14).
+
+    노란 ▶ 타일 · 「START」 · 큰 「작업 시작」 · 부제(공정 · 단계 수 · 1단계 · 콘솔이 레시피에서 넣는다) · ›.
+    🔑 전부 paintEvent 가 한 번에 그린다 — 대기 중에만 보이고 마우스를 올리거나 누를 때만 다시 그린다.
+    `text()` 는 버튼 글(「▶  작업 시작」)을 그대로 쓴다 — ▶ 는 타일이 그리므로 글에서 뺀다.
+    """
+
+    W, H = 640, 148           # 시안 px
+    CUT = 24
+    TILE = 96
+
+    def __init__(self, parent=None):
+        super().__init__("▶  작업 시작", parent)
+        self._sub = ""
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)    # ESC·1~4 키가 창으로 가게
+        self._f_tag = config.font("item_sub", 700)
+        self._f_tag.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 6)
+        self._f_title = config.font("start_title", 800)
+        self._f_sub = config.font("sub", 500)
+
+    def set_subtitle(self, text):
+        self._sub = text or ""
+        self.update()
+
+    def subtitle(self):
+        return self._sub
+
+    def apply_theme(self):
+        self.setStyleSheet("QPushButton { background: transparent; border: none; }")
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        down = self.isDown() or self.underMouse()
+        path = cut_corner_path(QRect(1, 1, self.width() - 2, self.height() - 2), self.CUT)
+        p.fillPath(path, _qcolor(theme.C("sheet_bg")))
+        p.setPen(QPen(QColor(theme.C("current")), 3 if down else 2))
+        p.drawPath(path)
+        pad = 30
+        t = self.TILE
+        top = (self.height() - t) // 2
+        p.fillRect(QRect(pad, top, t, t), QColor(theme.C("current")))
+        cx, cy, r = pad + t / 2 + 3, self.height() / 2, t * 0.22
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#111111"))
+        p.drawPolygon(QPolygonF([QPointF(cx - r * 0.8, cy - r), QPointF(cx - r * 0.8, cy + r),
+                                 QPointF(cx + r, cy)]))
+        x = pad + t + 26
+        p.setFont(self._f_tag)
+        p.setPen(QColor(theme.C("current_text")))
+        p.drawText(x, top + 16, "START")
+        p.setFont(self._f_title)
+        p.setPen(QColor(theme.C("text")))
+        title = self.text().replace("▶", "").strip()
+        p.drawText(x, top + 16 + p.fontMetrics().ascent() + 2, title)
+        p.setFont(self._f_sub)
+        p.setPen(QColor(theme.C("label")))
+        p.drawText(x, top + t - 4, self._sub)
+        p.setFont(self._f_title)
+        p.setPen(QColor(theme.C("current_text")))
+        p.drawText(self.width() - pad - p.fontMetrics().horizontalAdvance("›"), top + t - 4, "›")
+        p.end()
+
+    def relayout(self, vr):
+        """영상 가운데."""
+        w, h = vpx(vr, self.W), vpx(vr, self.H)
+        self.setGeometry(QRect(vr.left() + (vr.width() - w) // 2, vr.top() + (vr.height() - h) // 2, w, h))
 
 
 class _MenuItem(QPushButton):

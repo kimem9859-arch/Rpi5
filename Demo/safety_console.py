@@ -42,7 +42,8 @@ from raw_recorder import RawRecorder
 from tool_state import ToolState, held_tool
 from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, PromptBar, place, vplace, _STATE_LABEL
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
-                          NotifyButton, CheckPanel, RecordPanel, ConfirmPanel, _seg_button, _seg_qss)
+                          NotifyButton, CheckPanel, RecordPanel, ConfirmPanel, StartButton,
+                          _seg_button, _seg_qss)
 import log_view
 from overlay_result import ResultPanel
 import precheck
@@ -358,9 +359,8 @@ class SafetyConsole(QMainWindow):
 
         # 「작업 시작」 전용 — 화면 정중앙(design §4.1·§4.3).
         # 「다음 단계 진행」은 2026-08-19 자동 진행으로 제거됐다(통합문서 §6.1.1).
-        self.btn_cta = QPushButton("▶  작업 시작", central)
-        self.btn_cta.setFont(config.font("cta", 800))
-        self.btn_cta.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_cta = StartButton(central)       # 시안 A — 게임 메뉴 각진 버튼(사용자 10/14)
+        self.btn_cta.set_subtitle(self._start_subtitle())
         self.btn_cta.clicked.connect(lambda: self._on_cta())
 
         # 🔴 버튼이 포커스를 가져가면 keyPressEvent(ESC·1~4·E)가 안 온다.
@@ -510,7 +510,7 @@ class SafetyConsole(QMainWindow):
 
         vplace(self.btn_menu, vr, 1618, 32, 56, 52)     # 영상 칸 안쪽 32px(시연 UI 개선 §2.1)
         vplace(self.btn_notify, vr, 32, 1204, 56, 44)
-        place(self.btn_cta, r)            # 정중앙
+        self.btn_cta.relayout(vr)         # 영상 가운데
         self.log_browser.setGeometry(int(pw * 0.14), int(ph * 0.10),
                                      int(pw * 0.50), int(ph * 0.80))
         r_log = self.log_browser.geometry()
@@ -558,10 +558,7 @@ class SafetyConsole(QMainWindow):
         self._btn_qss = btn_qss
         self._style_menu_button(not self.menu_panel.isHidden())
         self.btn_notify.setStyleSheet(btn_qss)
-        self.btn_cta.setStyleSheet(
-            f"QPushButton {{ background-color: {theme.C('cta_bg')};"
-            f" color: {theme.C('cta_text')}; border: 1px solid {theme.C('cta_border')};"
-            f" border-radius: 12px; padding: 18px 42px; }}")
+        self.btn_cta.apply_theme()
         self.log_browser.setStyleSheet(
             theme.panel_qss("sheet", padding="76px 16px 12px 16px")     # 위 = 거르기 버튼 줄
             + f"color: {theme.C('text')};")
@@ -673,6 +670,14 @@ class SafetyConsole(QMainWindow):
         self._style_menu_button(want)
         self._refresh_dim()
         self._sync_cta_visibility()
+
+    def _start_subtitle(self):
+        """작업 시작 버튼 부제 — 레시피에서(공정 이름 · 단계 수 · 1단계 이름) · 코드에 박지 않는다."""
+        rec = self._recipe or {}
+        name = (rec.get("process_name") or "작업").split("(")[0].strip()
+        steps = rec.get("steps") or []
+        first = steps[0].get("name", "") if steps else ""
+        return f"{name} · {len(steps) or self.fsm.step_count}단계" + (f" · 1단계 {first}부터" if first else "")
 
     def _style_menu_button(self, open_):
         """☰ 는 메뉴가 열린 동안 노란 ✕ 로(시안 4.1) — 같은 버튼으로 닫는다는 것을 보인다."""

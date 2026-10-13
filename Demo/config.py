@@ -27,6 +27,7 @@ UI_FONT_SIZES = {
     "alert_title": 34, "alert_body": 22, "alert_hint": 20,
     "sheet_title": 33, "item": 21, "item_sub": 13,
     "gauge_time": 22, "tool": 17, "log": 13,
+    "start_title": 40,          # 작업 시작 버튼 시안 A(54px · 사용자 10/14)
 }
 
 # 굵기: 400 본문 / 600 강조 / 700 제목 / 800 현재 단계
