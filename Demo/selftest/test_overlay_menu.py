@@ -108,6 +108,22 @@ def test_notify_newest_at_top():
     check(n.first_title() == "항목 4", n.first_title())
 
 
+def test_notify_matches_comp():
+    """4.3 시안 대조(10/14) — ALERTS · 「최근 N건 · 새 알림 M건」 · 닫기 · 각진 아이콘 칸 · 왼쪽 위 (139, 448) · 폭 640."""
+    print("\n[5-c] 알림 시안")
+    host = QWidget(); host.resize(1920, 1280); n = NotifyPanel(host)
+    got = []; n.closed.connect(lambda: got.append(1))
+    n.push("work", "작업 시작", "PECVD 정비 · 4단계"); n.push("danger", "버튼 입력 차단됨", "B3")
+    n.apply_theme(); n.relayout(QRect(107, 0, 1707, 1280))
+    check(n._sub.text() == "최근 2건 · 새 알림 2건", n._sub.text())
+    check((n.x(), n.y(), n.width()) == (139, 448, 640), f"{n.geometry()}")
+    btns = [b for b in n.findChildren(QPushButton) if b.text() == "✕"]
+    check(len(btns) == 1, "닫기 있음")
+    if btns:
+        btns[0].click(); check(got == [1], "닫기 → closed")
+    n.mark_all_read(); check(n._sub.text() == "최근 2건 · 새 알림 0건", n._sub.text())
+
+
 def test_notify_new_and_height():
     """Review Focus 5 — NEW 표시가 붙고 다 읽으면 지워진다 · 100건이 넘어도 🔔(y 1204) 위에서 끝나고 화면 위로 넘치지 않는다."""
     print("\n[5-b] NEW · 높이")
@@ -259,7 +275,7 @@ def test_panels_no_close_button():
     """
     print("\n[13] ✕ 버튼 없음 (메뉴·알림 창)")
     host = QWidget()
-    for name, p in (("MenuPanel", MenuPanel(host)), ("NotifyPanel", NotifyPanel(host))):
+    for name, p in (("MenuPanel", MenuPanel(host)),):     # 시안(10/14) — 알림 창에는 닫기가 있다
         texts = [b.text() for b in p.findChildren(QPushButton)]
         check("✕" not in texts, f"{name} 에 ✕ 없음 (버튼: {texts or '없음'})")
 
@@ -451,7 +467,7 @@ def test_item_sheets_have_close_button():
 def test_notify_icons_are_marks():
     """4.3 알림 아이콘 = 종류별 색 원 + 기호(설계 2026-10-13 §4.3) — 🔴 이모지는 굵은 글꼴에서 안 그려지던 함정이 있었다."""
     print("\n[20] 알림 아이콘")
-    want = {"check": "✓", "work": "●", "warn": "!", "danger": "✕"}
+    want = {"check": "check_big", "work": "play", "warn": "alert", "danger": "x"}   # 시안 선 아이콘 이름
     check(set(NOTIFY_KINDS) == set(want), f"종류 4가지 유지: {sorted(NOTIFY_KINDS)}")
     for k, icon in want.items():
         check(NOTIFY_KINDS[k][0] == icon, f"{k} → {NOTIFY_KINDS[k][0]}")
@@ -462,10 +478,9 @@ def test_notify_icons_are_marks():
 
 
 def test_notify_icon_aligned_with_title():
-    """🔴 아이콘은 **제목 줄**과 세로 중앙이 맞아야 한다 (2026-08-04).
+    """아이콘 칸(48)은 **제목+설명 두 줄 전체**의 세로 가운데 — 시안(10/14 대조 · align-items: center).
 
-    종전에는 AlignTop 이라 행 좌상단 꼭짓점에 붙어 제목과 어긋나 보였다.
-    ⚠️ 행 전체의 중앙에 맞추면 2줄짜리 알림에서 제목과 설명 사이에 뜬다.
+    종전(2026-08-04)은 작은 아이콘을 제목 줄에 맞췄다 — 시안의 큰 각진 칸은 줄 전체에 맞춘다.
     """
     print("\n[21] 알림 아이콘 정렬")
     from PyQt6.QtWidgets import QLabel
@@ -485,9 +500,10 @@ def test_notify_icon_aligned_with_title():
     row.layout().activate()
     _app.processEvents()
     lbls = row.findChildren(QLabel)
-    icon, title = lbls[0], lbls[1]
-    ic, tc = icon.geometry().center().y(), title.geometry().center().y()
-    check(abs(ic - tc) <= 4, f"아이콘 중심 {ic} ≈ 제목 중심 {tc} (차이 {abs(ic - tc)}px)")
+    icon, title, sub = lbls[0], lbls[1], [l for l in lbls if l.text() == "부가 설명 한 줄"][0]
+    ic = icon.geometry().center().y()
+    tc = (title.mapTo(row, title.rect().topLeft()).y() + sub.mapTo(row, sub.rect().bottomLeft()).y()) / 2
+    check(abs(ic - tc) <= 4, f"아이콘 중심 {ic} ≈ 두 줄 중심 {tc:.0f} (차이 {abs(ic - tc):.0f}px)")
     pnl.hide()
 
 
@@ -580,7 +596,7 @@ def test_u14_notify_rows_follow_theme():
         theme.set_theme("light")
         n.apply_theme()
         title = [lb for lb in n._rows[-1].findChildren(QLabel) if lb.text() == "옛 알림"][0]   # _rows = 넣은 순서
-        check(theme.C("text") in title.styleSheet(), "제목 글자가 화이트 테마 색")
+        check(theme.C("done_text") in title.styleSheet(), "제목 글자가 화이트 테마 색(작업 = 초록 · 시안)")
     finally:
         theme.set_theme("dark")
 
