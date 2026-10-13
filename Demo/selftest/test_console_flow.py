@@ -2758,6 +2758,25 @@ def test_settings_scores_and_hand_reach_camera():
     check(win.camera_thread.draw_flags()[1] is False, "손 끔 전달")
     win.close()
 
+
+def test_log_filter_buttons():
+    """4.5 로그 거르기 — 「경고·차단」을 고르면 그 줄만 · 「전체」로 돌아오면 다 · 파일 기록은 그대로."""
+    print("\n[4.5] 로그 거르기")
+    win = make_console()
+    win._append_log("[FSM] MONITOR → WARNING")
+    win._append_log("[버튼] B2 눌림")
+    win._show_log()
+    check(not win._log_filter_buttons["alert"].isHidden(), "거르기 버튼이 로그 창과 함께 보인다")
+    win._log_filter_buttons["alert"].click()
+    lines = win.log_browser.toPlainText().splitlines()
+    check(lines and all(("WARNING" in l or "경고" in l or "차단" in l or "BLOCK" in l or "EMO" in l
+                         or "비상정지" in l or "폴트" in l) for l in lines), f"경고·차단만 {lines[-2:]}")
+    win._log_filter_buttons["all"].click()
+    check(any("[버튼] B2 눌림" in l for l in win.log_browser.toPlainText().splitlines()), "전체로 돌아옴")
+    win._set_log_visible(False)
+    check(win._log_filter_buttons["alert"].isHidden(), "로그 창을 닫으면 함께 숨는다")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

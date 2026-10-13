@@ -1,3 +1,4 @@
+import collections
 import math
 import os
 import statistics
@@ -11,7 +12,7 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QTextBrowser, QPushButton, QSizePolicy,
-    QApplication, QMessageBox,
+    QApplication, QMessageBox, QButtonGroup,
 )
 from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtSlot, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
@@ -41,7 +42,8 @@ from raw_recorder import RawRecorder
 from tool_state import ToolState, held_tool
 from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, PromptBar, place, vplace, _STATE_LABEL
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
-                          NotifyButton, CheckPanel, RecordPanel)
+                          NotifyButton, CheckPanel, RecordPanel, _seg_button, _seg_qss)
+import log_view
 from overlay_result import ResultPanel
 import precheck
 from fps import FPS_WINDOW, fps_from_intervals, fps_stale
@@ -96,6 +98,7 @@ class SafetyConsole(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self._log_lines = collections.deque(maxlen=log_view.KEEP_LINES)   # 로그 거르기용 최근 줄(시연 UI 개선 §4.5)
         self.setWindowTitle("Vision AI 안전 콘솔")
         # 창 크기: 기본은 설계값(1280×720)이나 **고정하지 않는다**.
         # 시나리오 촬영 때 모니터를 꽉 채워야 화면 녹화에 GUI가 크게 담긴다.
@@ -419,7 +422,7 @@ class SafetyConsole(QMainWindow):
 
         # 로그는 메뉴 안으로 — 평소엔 숨는다(design §4.7)
         self.log_browser = QTextBrowser(central)
-        self.log_browser.setFont(config.font("small"))
+        self.log_browser.setFont(config.font("log"))           # 18px(시안)
         self.log_browser.hide()
         # 로그는 _Sheet 가 아니라 QTextBrowser 다 — ✕ 를 따로 얹는다.
         # 🔴 부모를 log_browser 로 두면 **뷰포트가 그 위를 덮어 보이지 않는다**
@@ -433,6 +436,21 @@ class SafetyConsole(QMainWindow):
         self._log_close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._log_close.clicked.connect(lambda: self._set_log_visible(False))
         self._log_close.hide()
+
+        # 로그 거르기(시연 UI 개선 §4.5) — 전체 · 경고·차단 · 단계. 🔑 화면 표시만 — 파일 기록은 그대로.
+        self._log_filter = "all"
+        self._log_filter_buttons = {}
+        group = QButtonGroup(self)
+        group.setExclusive(True)
+        for key, text in log_view.FILTERS:
+            b = _seg_button(text)
+            b.setParent(central)
+            b.setChecked(key == "all")
+            b.toggled.connect(lambda on, k=key: on and self._set_log_filter(k))
+            group.addButton(b)
+            b.hide()
+            self._log_filter_buttons[key] = b
+        self._log_filter_group = group
 
         # 연결 상태바는 1초마다 갱신한다 — 색만 바꾸는 갱신이라 부하가 없다.
         self._conn_timer = QTimer(self)
@@ -490,6 +508,12 @@ class SafetyConsole(QMainWindow):
         # 스크롤바(8px)와 겹치지 않게 안쪽으로 — 44 면 겹쳤다(2026-08-04).
         self._log_close.move(r_log.right() - 58, r_log.top() + 8)
         self._log_close.raise_()
+        bx = r_log.left() + 16
+        for key, _ in log_view.FILTERS:
+            b = self._log_filter_buttons[key]
+            b.adjustSize()
+            b.move(bx, r_log.top() + 12)
+            bx += b.width() + 8
         self.scrim.setGeometry(r)
 
         for w in (self.glow, self.alert, self.menu_panel, self.notify_panel,
@@ -529,8 +553,10 @@ class SafetyConsole(QMainWindow):
             f" color: {theme.C('cta_text')}; border: 1px solid {theme.C('cta_border')};"
             f" border-radius: 12px; padding: 18px 42px; }}")
         self.log_browser.setStyleSheet(
-            theme.panel_qss("sheet", padding="10px 12px")
+            theme.panel_qss("sheet", padding="76px 16px 12px 16px")     # 위 = 거르기 버튼 줄
             + f"color: {theme.C('text')};")
+        for b in self._log_filter_buttons.values():
+            b.setStyleSheet(_seg_qss())
         self._log_close.setStyleSheet(
             f"QPushButton {{ color: {theme.C('text')}; background: transparent;"
             f" border: none; }}"
@@ -876,9 +902,20 @@ class SafetyConsole(QMainWindow):
         (뷰포트에 가리지 않으려고 central 의 자식이다) 따로 두면 어긋난다."""
         self.log_browser.setVisible(on)
         self._log_close.setVisible(on)
+        for b in self._log_filter_buttons.values():
+            b.setVisible(on)
         if on:
             self.log_browser.raise_()
             self._log_close.raise_()
+            for b in self._log_filter_buttons.values():
+                b.raise_()
+
+    def _set_log_filter(self, filt):
+        """로그 거르기 — 최근 줄을 골라 다시 그린다(이후 줄은 _append_log 가 거른다)."""
+        self._log_filter = filt
+        self.log_browser.setHtml("<br>".join(
+            log_view.to_html(l) for l in self._log_lines if log_view.keep(l, filt)))
+        self.log_browser.verticalScrollBar().setValue(self.log_browser.verticalScrollBar().maximum())
 
     def _show_log(self):
         self._toggle_menu(False)
@@ -952,6 +989,7 @@ class SafetyConsole(QMainWindow):
         theme.set_theme(name)
         self._apply_theme()
         self._relayout()
+        self._set_log_filter(self._log_filter)     # 쌓인 줄도 새 색으로
         self._append_log(f"[설정] 화면 테마 → {'다크' if name == 'dark' else '화이트'}")
 
     def _on_panel_bg_changed(self, on):
@@ -1001,7 +1039,9 @@ class SafetyConsole(QMainWindow):
     def _append_log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]   # ms — 측정 도구 정합 D15
         line = f"[{timestamp}] {message}"
-        self.log_browser.append(line)
+        self._log_lines.append(line)
+        if log_view.keep(line, getattr(self, "_log_filter", "all")):
+            self.log_browser.append(log_view.to_html(line))     # 시각 회색 · 분류 색(시연 UI 개선 §4.5)
         self.log_browser.verticalScrollBar().setValue(
             self.log_browser.verticalScrollBar().maximum()
         )
