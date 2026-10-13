@@ -88,23 +88,11 @@ class _Sheet(QWidget):
         super().paintEvent(event)
 
     def _make_close_button(self):
-        """우상단 ✕. 🔴 네 패널이 같은 모양·같은 자리여야 하므로 여기서만 만든다.
+        """우상단 닫기 — 시안 56×52 각진 칸 · ✕ 선 아이콘. 🔴 항목 패널이 같은 모양 · 같은 자리여야 하므로 여기서만 만든다.
 
-        메뉴·알림 **창 자체**에는 달지 않는다 — 자기 버튼(☰/🔔)이 보이므로
-        재클릭으로 닫는다. ✕ 가 필요한 것은 자기 버튼이 없는 **항목 패널**이다.
+        메뉴·알림 **창 자체**에는 달지 않는다 — 자기 버튼(☰/🔔)이 보이므로 재클릭으로 닫는다.
         """
-        # ⚠️ ✕ 글리프는 같은 pt 의 한글보다 훨씬 작게 그려진다 — body(12pt) 로는
-        #    8px 남짓이라 누를 자리가 잘 안 보였다(2026-08-04 확인). banner(16pt)로.
-        b = QPushButton("✕")
-        b.setFont(config.font("banner", 700))
-        b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setFlat(True)
-        b.setFixedSize(32, 32)
-        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)     # ESC·1~4 키가 창으로 가게
-        b.setStyleSheet(
-            f"QPushButton {{ color: {theme.C('text')}; background: transparent;"
-            f" border: none; }}"
-            f"QPushButton:hover {{ color: {theme.C('info')}; }}")
+        b = _CloseButton()
         b.clicked.connect(lambda: self.closed.emit())
         return b
 
@@ -625,37 +613,141 @@ class NotifyPanel(_Sheet):
         self.setGeometry(QRect(vr.left() + vpx(vr, 32), bottom - h, w, h))
 
 
-def _seg_button(text):
+class _CloseButton(QPushButton):
+    """닫기 — 각진 56×52 · 바탕 7% · 테두리 20% · ✕ 선 아이콘(시안). 글은 「✕」(시험 · 접근성)."""
+
+    def __init__(self, parent=None):
+        super().__init__("✕", parent)
+        self.setFixedSize(56, 52)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)     # ESC·1~4 키가 창으로 가게
+
+    def paintEvent(self, _event):
+        import ui_icons
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = cut_corner_path(QRect(0, 0, self.width() - 1, self.height() - 1), 10)
+        p.fillPath(path, _qcolor(theme.rgba("text", 0.12 if self.underMouse() else 0.07)))
+        p.setPen(QPen(_qcolor(theme.rgba("text", 0.2)), 1))
+        p.drawPath(path)
+        p.drawPixmap((self.width() - 22) // 2, (self.height() - 22) // 2, ui_icons.pixmap("x", theme.C("text"), 22))
+        p.end()
+
+
+class _CutButton(QPushButton):
+    """나눠 고르는 칸 — 각진 칸 · 고르면 노란 채움 · 검은 굵은 글(시안 설정 · 로그 거르기)."""
+
+    def __init__(self, text, height=64, pt=16, parent=None):
+        super().__init__(text, parent)
+        self.setCheckable(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setMinimumHeight(height)
+        f = config.font("sub", 700)
+        f.setPointSize(pt)
+        self.setFont(f)
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = cut_corner_path(QRect(1, 1, self.width() - 2, self.height() - 2), 10)
+        on = self.isChecked()
+        if on:
+            p.fillPath(path, _qcolor(theme.C("current")))
+            p.setPen(QPen(_qcolor(theme.C("current")), 2))
+        else:
+            p.fillPath(path, _qcolor(theme.rgba("text", 0.06)))
+            p.setPen(QPen(_qcolor(theme.rgba("text", 0.18)), 1))
+        p.drawPath(path)
+        f = QFont(self.font())
+        f.setWeight(QFont.Weight.ExtraBold if on else QFont.Weight.DemiBold)
+        p.setFont(f)
+        p.setPen(QColor("#111111") if on else _qcolor(theme.C("todo" if not self.isEnabled() else "text")))
+        p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
+        p.end()
+
+
+def _seg_button(text, height=64, pt=16):
     """나눠 고르는 버튼 한 칸(설정 공구 · 테마 · 로그 거르기) — 눌린 채로 남는다."""
-    b = QPushButton(text)
-    b.setCheckable(True)
-    b.setFont(config.font("sub", 700))
-    b.setCursor(Qt.CursorShape.PointingHandCursor)
-    b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-    b.setMinimumHeight(52)
-    return b
+    return _CutButton(text, height, pt)
 
 
 def _seg_qss():
-    return (f"QPushButton {{ background: transparent; color: {theme.C('text')};"
-            f" border: 1px solid {theme.C('sheet_border')}; padding: 10px 18px; }}"
-            f"QPushButton:checked {{ background: {theme.rgba('current', 0.16)}; color: {theme.C('current_text')};"
-            f" border: 2px solid {theme.C('current')}; }}"
-            f"QPushButton:disabled {{ color: {theme.C('todo')}; }}")
+    """칸은 직접 그린다(_CutButton) — 스타일시트는 비운다(호출부 호환)."""
+    return ""
 
 
-def _switch_qss():
-    return (f"QPushButton {{ background: {theme.C('panel_border')}; color: {theme.C('label')};"
-            f" border: 1px solid {theme.C('sheet_border')}; border-radius: 20px; padding: 6px 18px; }}"
-            f"QPushButton:checked {{ background: {theme.C('done')}; color: #111111; border: none; }}"
-            f"QPushButton:disabled {{ background: transparent; color: {theme.C('todo')}; }}")
+class _Toggle(QPushButton):
+    """켬/끔 스위치 — 각진 112×46 · 켬 = 노란 바탕 · 「켬」 · 오른쪽 검은 손잡이 / 끔 = 12% 바탕 · 왼쪽 회색 손잡이 · 「끔」(시안)."""
+
+    def __init__(self, on, parent=None):
+        super().__init__("켬" if on else "끔", parent)
+        self.setCheckable(True)
+        self.setChecked(bool(on))
+        self.setFixedSize(112, 46)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        f = config.font("sub", 800)
+        f.setPointSize(13)                              # 17px
+        self.setFont(f)
+        self.toggled.connect(lambda v: self.setText("켬" if v else "끔"))
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.isEnabled():
+            p.setOpacity(0.4)
+        on = self.isChecked()
+        p.fillPath(cut_corner_path(QRect(0, 0, self.width() - 1, self.height() - 1), 8),
+                   _qcolor(theme.C("current") if on else theme.rgba("text", 0.12)))
+        k = 34
+        kx = self.width() - 6 - k if on else 6
+        knob = cut_corner_path(QRect(kx, (self.height() - k) // 2, k, k), 6)
+        p.fillPath(knob, QColor("#111111") if on else _qcolor(theme.C("label")))
+        p.setFont(self.font())
+        p.setPen(QColor("#111111") if on else _qcolor(theme.C("label")))
+        tr = QRect(6, 0, kx - 6, self.height()) if on else QRect(kx + k, 0, self.width() - kx - k - 6, self.height())
+        p.drawText(tr, Qt.AlignmentFlag.AlignCenter, self.text())
+        p.end()
+
+
+class _CutRow(QWidget):
+    """설정 「화면 표시」 한 줄 판 — 각진 12 · 바탕 4% · 테두리 10%(시안)."""
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = cut_corner_path(QRect(0, 0, self.width() - 1, self.height() - 1), 12)
+        p.fillPath(path, _qcolor(theme.rgba("text", 0.04)))
+        p.setPen(QPen(_qcolor(theme.rgba("text", 0.1)), 1))
+        p.drawPath(path)
+        p.end()
+
+
+def _section(tag, title):
+    """「TOOL  2단계 지정 공구」 같은 절 머리 — 노란 영문 표지 14 + 제목 22(시안)."""
+    row = QHBoxLayout()
+    row.setSpacing(14)
+    t = QLabel(tag)
+    f = config.font("item_sub", 700)
+    f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 4)
+    f.setPointSize(11)
+    t.setFont(f)
+    h = QLabel(title)
+    f2 = config.font("sub", 800)
+    f2.setPointSize(16)
+    h.setFont(f2)
+    row.addWidget(t)
+    row.addWidget(h)
+    row.addStretch()
+    return row, t, h
 
 
 class SettingsPanel(_Sheet):
-    """가운데 설정 — 게임 메뉴 느낌(설계 2026-10-13 §4.2).
+    """설정 — 시안(Claude Design 2026-10-13 · 4.2) 그대로.
 
-    지정 공구 · 테마 = 나눠 고르는 버튼 / 화면 표시 = 켬·끔 스위치 4개(단계 패널 배경 · 객체 인식 상자 ·
-    인식 점수 숫자(상자가 켜졌을 때만) · 손 인식 오버레이).
+    머리 SETTINGS · 「설정」 40 · 「바꾸면 바로 적용됩니다」 · 닫기 / 절(TOOL · THEME · DISPLAY) / 고르는 칸 64 /
+    화면 표시 줄 = 이름 23 + 설명 16 + 켬·끔 스위치. 폭 856 · 위 96.
     🔴 바꾼 값은 저장하지 않는다 — 이 세션에만. 레시피가 정답 순서의 단일 출처라 UI 가 파일을 고치면 정본이 흐려진다.
     """
 
@@ -671,32 +763,42 @@ class SettingsPanel(_Sheet):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._tool_buttons = {}
+        self._tags, self._heads = [], []
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(36, 30, 36, 30)
-        lay.setSpacing(10)
+        lay.setContentsMargins(36, 32, 36, 32)
+        lay.setSpacing(14)
 
         head = QHBoxLayout()
         col = QVBoxLayout()
-        col.setSpacing(2)
+        col.setSpacing(4)
         self._tag = QLabel("SETTINGS")
         self._tag.setFont(config.font("item_sub", 700))
         self._title = QLabel("설정")
-        self._title.setFont(config.font("sheet_title", 800))
-        col.addWidget(self._tag)
-        col.addWidget(self._title)
+        f = config.font("sheet_title", 800)
+        f.setPointSize(30)                              # 40px
+        self._title.setFont(f)
+        self._sub = QLabel("바꾸면 바로 적용됩니다")
+        self._sub.setFont(config.font("sub", 500))
+        for w in (self._tag, self._title, self._sub):
+            col.addWidget(w)
         head.addLayout(col)
         head.addStretch()
-        head.addWidget(self._make_close_button())
+        head.addWidget(self._make_close_button(), 0, Qt.AlignmentFlag.AlignTop)
         lay.addLayout(head)
+        self._head_line = QFrame()
+        self._head_line.setFrameShape(QFrame.Shape.HLine)
+        self._head_line.setFixedHeight(1)
+        lay.addSpacing(4)
+        lay.addWidget(self._head_line)
 
-        self._tool_caption = QLabel("지정 공구")      # 단계 번호는 set_tools 가 레시피에서 붙인다(G6)
-        self._tool_caption.setFont(config.font("sub", 700))
-        lay.addWidget(self._tool_caption)
+        row, t, self._tool_caption = _section("TOOL", "지정 공구")   # 단계 번호는 set_tools 가 레시피에서 붙인다(G6)
+        self._tags.append(t); self._heads.append(self._tool_caption)
+        lay.addLayout(row)
         self._tool_group = QButtonGroup(self)
         self._tool_group.setExclusive(True)
         self._tool_box = QHBoxLayout()
-        self._tool_box.setSpacing(0)
+        self._tool_box.setSpacing(10)
         lay.addLayout(self._tool_box)
         self._tool_note = QLabel("")
         self._tool_note.setFont(config.font("item_sub"))
@@ -704,68 +806,80 @@ class SettingsPanel(_Sheet):
         lay.addWidget(self._tool_note)
         self._tool_note.hide()
 
-        self._theme_caption = QLabel("화면 테마")
-        self._theme_caption.setFont(config.font("sub", 700))
-        lay.addWidget(self._theme_caption)
+        row, t, self._theme_caption = _section("THEME", "화면 테마")
+        self._tags.append(t); self._heads.append(self._theme_caption)
+        lay.addLayout(row)
         self._theme_group = QButtonGroup(self)
         self._theme_group.setExclusive(True)
         self._theme_buttons = {}
-        row = QHBoxLayout()
-        row.setSpacing(0)
-        for key, text in (("dark", "어두운"), ("light", "밝은")):
+        trow = QHBoxLayout()
+        trow.setSpacing(10)
+        for key, text in (("dark", "다크 (기본)"), ("light", "화이트")):
             b = _seg_button(text)
             b.setChecked(key == theme.current())
             b.toggled.connect(lambda on, k=key: on and self.theme_changed.emit(k))
             self._theme_group.addButton(b)
             self._theme_buttons[key] = b
-            row.addWidget(b, 1)
-        lay.addLayout(row)
+            trow.addWidget(b, 1)
+        lay.addLayout(trow)
 
-        self._show_caption = QLabel("화면 표시")
-        self._show_caption.setFont(config.font("sub", 700))
-        lay.addWidget(self._show_caption)
-        self._switches = {}
-        self._switch_names = []
-        for name, label, on, sig in (
-                ("bg", "단계 패널 배경", getattr(theme, "PANEL_BACKGROUND", True), self.panel_bg_changed),
-                ("boxes", "객체 인식 상자", config.SHOW_DETECT_BOXES, self.boxes_changed),
-                ("scores", "인식 점수 숫자", config.SHOW_DETECT_SCORES, self.scores_changed),
-                ("hand", "손 인식 오버레이", config.HAND_DRAW, self.hand_changed)):
-            line = QHBoxLayout()
+        row, t, self._show_caption = _section("DISPLAY", "화면 표시")
+        self._tags.append(t); self._heads.append(self._show_caption)
+        lay.addLayout(row)
+        self._switches, self._switch_desc, self._switch_names = {}, {}, []
+        for name, label, desc, on, sig in (
+                ("bg", "공정 단계 패널 배경", "글자 뒤에 반투명 카드를 깝니다",
+                 getattr(theme, "PANEL_BACKGROUND", True), self.panel_bg_changed),
+                ("boxes", "객체 인식 상자", "버튼 · 공구에 모서리 상자와 이름표",
+                 config.SHOW_DETECT_BOXES, self.boxes_changed),
+                ("scores", "인식 점수 숫자", "이름표 옆에 신뢰도(예: 0.96) · 인식 상자가 켜졌을 때만",
+                 config.SHOW_DETECT_SCORES, self.scores_changed),
+                ("hand", "손 인식 오버레이", "손끝 점과 손가락 선", config.HAND_DRAW, self.hand_changed)):
+            box = _CutRow()
+            bl = QHBoxLayout(box)
+            bl.setContentsMargins(18, 14, 18, 14)
+            bl.setSpacing(20)
+            tc = QVBoxLayout()
+            tc.setSpacing(4)
             n = QLabel(label)
-            n.setFont(config.font("sub", 600))
-            sw = QPushButton("켬" if on else "끔")
-            sw.setCheckable(True)
-            sw.setChecked(bool(on))
-            sw.setFont(config.font("sub", 700))
-            sw.setCursor(Qt.CursorShape.PointingHandCursor)
-            sw.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            sw.setMinimumWidth(96)
-            sw.toggled.connect(lambda v, b=sw, sg=sig: (b.setText("켬" if v else "끔"), sg.emit(bool(v))))
-            line.addWidget(n, 1)
-            line.addWidget(sw)
-            lay.addLayout(line)
+            fn = config.font("item", 700)
+            fn.setPointSize(17)                         # 23px
+            n.setFont(fn)
+            d = QLabel(desc)
+            fd = config.font("item_sub", 500)
+            fd.setPointSize(12)                         # 16px
+            d.setFont(fd)
+            tc.addWidget(n)
+            tc.addWidget(d)
+            sw = _Toggle(on)
+            sw.toggled.connect(lambda v, sg=sig: sg.emit(bool(v)))
+            bl.addLayout(tc, 1)
+            bl.addWidget(sw)
+            lay.addWidget(box)
             self._switches[name] = sw
+            self._switch_desc[name] = d
             self._switch_names.append(n)
         self._switches["boxes"].toggled.connect(self._switches["scores"].setEnabled)
         self._switches["scores"].setEnabled(self._switches["boxes"].isChecked())
 
         # 🔴 이 문장을 빼면 "상자를 끄면 감시도 꺼지나?"를 반드시 묻게 된다(설계 §4.2).
-        self._box_note = QLabel("ⓘ 화면 표시만 끕니다 — 감지·차단은 그대로")
-        self._box_note.setFont(config.font("item_sub"))
+        note = QHBoxLayout()
+        note.setSpacing(10)
+        self._note_icon = QLabel("")
+        self._note_icon.setFixedSize(20, 20)
+        self._box_note = QLabel("화면 표시만 끕니다 — 순서 위반 감지 · 차단은 그대로 작동합니다")
+        self._box_note.setFont(fd)
         self._box_note.setWordWrap(True)
-        lay.addWidget(self._box_note)
-        lay.addStretch()
+        note.addWidget(self._note_icon)
+        note.addWidget(self._box_note, 1)
+        lay.addLayout(note)
 
     def switch(self, name):
         """켬/끔 스위치 — "bg" | "boxes" | "scores" | "hand"."""
         return self._switches[name]
 
     def set_tools(self, tools, current_tool, tool_names=None, step_order=None):
-        """레시피가 준 선택지로 버튼을 만든다 — 목록을 코드에 박지 않는다.
-
-        step_order = 공구를 쓰는 단계 번호 — 제목에 쓴다(G6).
-        """
+        """레시피가 준 선택지로 칸을 만든다 — 목록을 코드에 박지 않는다(G6 · 제목에 단계 번호)."""
         names = tool_names or {}
         self._tool_caption.setText(f"{step_order}단계 지정 공구" if step_order else "지정 공구")
         for b in list(self._tool_buttons.values()):
@@ -779,7 +893,6 @@ class SettingsPanel(_Sheet):
             self._tool_group.addButton(b)
             self._tool_box.addWidget(b, 1)
             self._tool_buttons[key] = b
-        self.apply_theme()
 
     def set_tool_editable(self, editable):
         """🔴 작업 중에는 공구를 바꿀 수 없다 — 진행 중에 바뀌면 판정이 흔들린다."""
@@ -791,27 +904,31 @@ class SettingsPanel(_Sheet):
         self._tool_note.setVisible(not editable)
 
     def apply_theme(self):
+        import ui_icons
         super().apply_theme()
         self._tag.setStyleSheet(theme.text_qss("current_text", 700) + "letter-spacing: 6px;")
         self._title.setStyleSheet(theme.text_qss("text", 800))
-        for cap in (self._tool_caption, self._theme_caption, self._show_caption):
-            cap.setStyleSheet(theme.text_qss("label", 700))
+        self._sub.setStyleSheet(theme.text_qss("label", 500))
+        self._head_line.setStyleSheet(f"background-color: {theme.C('sheet_border')}; border: none;")
+        for t in self._tags:
+            t.setStyleSheet(theme.text_qss("current_text", 700))
+        for h in self._heads:
+            h.setStyleSheet(theme.text_qss("text", 800))
         for n in self._switch_names:
-            n.setStyleSheet(theme.text_qss("text", 600))
-        self._box_note.setStyleSheet(theme.text_qss("label", 600))
-        seg = _seg_qss()
-        for b in list(self._tool_buttons.values()) + list(self._theme_buttons.values()):
-            b.setStyleSheet(seg)
-        sw = _switch_qss()
-        for b in self._switches.values():
-            b.setStyleSheet(sw)
+            n.setStyleSheet(theme.text_qss("text", 700))
+        for d in self._switch_desc.values():
+            d.setStyleSheet(theme.text_qss("label", 500))
+        self._box_note.setStyleSheet(theme.text_qss("label", 500))
+        self._note_icon.setPixmap(ui_icons.pixmap("info", theme.C("label"), 20))
+        for b in list(self._tool_buttons.values()) + list(self._theme_buttons.values()) + list(self._switches.values()):
+            b.update()
 
     def relayout(self, vr):
-        """영상 가운데 · 폭 760(시안)."""
-        w = vpx(vr, 760)
+        """폭 856 · 위 96 · 가로 가운데(시안)."""
+        w = vpx(vr, 856)
         self.setFixedWidth(w)
         h = self.sizeHint().height()
-        self.setGeometry(QRect(vr.left() + (vr.width() - w) // 2, vr.top() + (vr.height() - h) // 2, w, h))
+        self.setGeometry(QRect(vr.left() + (vr.width() - w) // 2, vr.top() + vpx(vr, 96), w, h))
 
 
 _CHECK_ICON = {"camera": "◉", "stream": "◉", "interlock": "⏚", "interlock_ack": "⏚", "gpio": "▣",

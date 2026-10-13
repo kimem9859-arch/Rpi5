@@ -211,7 +211,7 @@ def test_settings_switches():
     check(("boxes_changed", False) in got and not s.switch("scores").isEnabled(), "상자 끄면 점수 스위치 잠김")
     s.switch("hand").click()
     check(("hand_changed", False) in got, "손 끔 신호")
-    check("감지·차단은 그대로" in s._box_note.text(), s._box_note.text())
+    check("감지 · 차단은 그대로" in s._box_note.text(), s._box_note.text())
 
 
 def test_all_relayout_inside_screen():
@@ -526,6 +526,26 @@ def test_record_folder_row():
     p.open_folder_requested.connect(lambda: got.append(1))
     p._folder.click()
     check(got == [1], f"누르면 신호: {got}")
+
+
+def test_settings_matches_comp():
+    """4.2 시안 대조(10/14) — 폭 856 · 위 96 · 「다크 (기본) / 화이트」 · 줄마다 설명 · 노란 스위치 · 고른 칸 노란 채움."""
+    print("\n[24-b] 설정 시안")
+    from PyQt6.QtCore import QRect as _R
+    host = QWidget(); host.resize(1920, 1280); s = SettingsPanel(host)
+    s.set_tools(["driver", "wrench"], "wrench", {"driver": "드라이버", "wrench": "렌치"}, step_order=2)
+    s.apply_theme(); s.layout().activate(); s.relayout(_R(107, 0, 1707, 1280))
+    check(s.width() == 856 and s.y() == 96 and abs(s.geometry().center().x() - 960) <= 1, f"{s.geometry()}")
+    check(s._theme_buttons["dark"].text() == "다크 (기본)" and s._theme_buttons["light"].text() == "화이트", "테마 이름")
+    check(s._switch_desc["scores"].text().startswith("이름표 옆에 신뢰도"), s._switch_desc["scores"].text())
+    host.show(); _app.processEvents()
+    on = s.switch("bg").grab().toImage(); off = s.switch("scores").grab().toImage()
+    c_on, c_off = on.pixelColor(12, on.height() // 2), off.pixelColor(off.width() - 12, off.height() // 2)
+    check(c_on.red() > 200 and c_on.green() > 180 and c_on.blue() < 140, f"켬 = 노랑 {c_on.name()}")
+    check(not (c_off.red() > 200 and c_off.blue() < 140), f"끔 ≠ 노랑 {c_off.name()}")
+    sel = s._tool_buttons["wrench"].grab().toImage().pixelColor(20, 32)
+    check(sel.red() > 200 and sel.blue() < 140, f"고른 공구 = 노란 채움 {sel.name()}")
+    check(s._sub.text() == "바꾸면 바로 적용됩니다", s._sub.text())
 
 
 def test_settings_buttons_uniform():
