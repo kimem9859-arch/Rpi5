@@ -105,10 +105,24 @@ def test_gauge_place_and_text():
     sub = SubTask(WAIT, now=0.0); sub.tick(now=4.0)
     g.update_view(sub); g.relayout(vr)
     check((g.x(), g.y(), g.width()) == (1248, 32, 461), f"{g.geometry()}")
-    check(g._time.text() == "4 / 30초", g._time.text())
+    check(g._time.text() == "4" and g._time_total.text() == " / 30초", f"{g._time.text()!r}{g._time_total.text()!r}")
     check(g._track.height() == 12, f"막대 {g._track.height()}")
     g.update_view(SubTask(TOOL, now=0.0)); g.relayout(vr)
     check(g.width() == 461, f"공구 단계 폭 그대로 {g.width()}")
+
+
+def test_tool_box_matches_comp():
+    """⑤ 시안 대조(10/14) — 공구 줄 = 상태 색 상자(대기 · 확인 중 파랑 · 쥠 초록 · 다른 공구 주황) · 렌치 선 아이콘 · 「쥐고 약 2초 뒤 확인됩니다」."""
+    print("\n[⑤] 공구 줄 시안")
+    host = QWidget(); g = GaugePanel(host)
+    sub = SubTask(TOOL, now=0.0); g.update_view(sub)
+    check(not g._tool_icon.pixmap().isNull(), "렌치 아이콘 그림")
+    check(theme.rgba("info", 0.5) in g._tool_box.styleSheet(), "대기 = 파란 상자")
+    check(g._tool_state.text() == "쥐고 약 2초 뒤 확인됩니다", g._tool_state.text())
+    sub.set_tool("driver"); g.update_view(sub)
+    check(theme.rgba("warn", 0.5) in g._tool_box.styleSheet(), "다른 공구 = 주황 상자")
+    sub.set_tool("spanner"); g.update_view(sub)
+    check(theme.rgba("done", 0.5) in g._tool_box.styleSheet(), "쥠 = 초록 상자")
 
 
 def test_tool_icon_compact_and_plate_once():
@@ -117,7 +131,7 @@ def test_tool_icon_compact_and_plate_once():
     host = QWidget(); host.resize(1920, 1280); g = GaugePanel(host)
     g.update_view(SubTask(TOOL, now=0.0)); g.relayout(QRect(107, 0, 1707, 1280))
     host.show(); _app.processEvents()
-    check(g._tool_icon.width() <= 44, f"아이콘 칸 {g._tool_icon.width()}px")
+    check(g._tool_icon.width() <= 40, f"아이콘 칸 {g._tool_icon.width()}px")
     check(g._tool_box.styleSheet().startswith("QWidget#toolBox"), f"판 QSS 는 공구 칸에만: {g._tool_box.styleSheet()[:30]}")
 
 
@@ -444,8 +458,8 @@ def test_tool_plate_does_not_clip_text():
                 + p._tool_state.sizeHint().height() + 16)   # 위아래 여백 8+8
         got = p._tool_box.sizeHint().height()
         check(got >= need, f"{name}: 공구 칸 높이 {got} ≥ 글자+여백 {need}")
-        check("rgba(0, 0, 0, 0.50)" in p._tool_box.styleSheet(),
-              f"{name}: 판 알파 0.50")
+        check(theme.rgba("info", 0.14) in p._tool_box.styleSheet(),
+              f"{name}: 판 = 상태 색 14%(시안 · 종전 검정 50%)")
     theme.set_theme("dark")
 
 

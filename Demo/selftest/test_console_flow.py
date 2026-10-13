@@ -303,7 +303,7 @@ def test_grip_check_break_hides_notice():
     win.camera_thread.tool_signal.emit([], tip)      # 2번 연속
     check(win._tool_state.phase == "search", f"search 로 ({win._tool_state.phase})")
     check(win.alert.mode is None, f"상자가 사라진다 ({win.alert.mode})")
-    check("손에 쥐면" in win.gauge_panel._tool_state.text(), "게이지도 처음 문구로")
+    check("쥐고 약" in win.gauge_panel._tool_state.text(), "게이지도 처음 문구로(시안 「쥐고 약 2초 뒤 확인됩니다」)")
     win.close()
 
 

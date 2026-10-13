@@ -364,9 +364,15 @@ class GaugePanel(_Panel):
         self._label.setFont(config.font("sub", 600))
         self._time = QLabel("")
         self._time.setFont(config.font("gauge_time", 800))
+        self._time_total = QLabel("")                 # 「 / 10초」 — 시안: 숫자는 크게(30) · 나머지는 작게 회색(20)
+        f_tot = config.font("gauge_time", 600)
+        f_tot.setPointSize(15)
+        self._time_total.setFont(f_tot)
+        self._box_token = None
         self._time.setAlignment(Qt.AlignmentFlag.AlignRight)
         head.addWidget(self._label)
         head.addWidget(self._time)
+        head.addWidget(self._time_total)
         lay.addLayout(head)
 
         self._track = QWidget()
@@ -382,11 +388,10 @@ class GaugePanel(_Panel):
         tb = QHBoxLayout(self._tool_box)
         # 🔴 여백을 QSS padding 으로 주지 않는다 — sizeHint 와 어긋나 글자가 잘린다
         #    (목업에서 실제로 잘렸다, 설계 §6.2).
-        tb.setContentsMargins(10, 8, 10, 8)
+        tb.setContentsMargins(14, 12, 14, 12)          # 시안 padding 12 14 · 간격 14
         tb.setSpacing(8)
-        self._tool_icon = QLabel("🔧")
-        self._tool_icon.setFont(config.font("banner"))
-        self._tool_icon.setFixedWidth(40)            # 🔴 폭을 정하지 않으면 남는 폭을 차지해 158px 로 늘어났다(10/14 캡처)
+        self._tool_icon = QLabel("")                 # 렌치 선 아이콘(시안 34px · ui_icons)
+        self._tool_icon.setFixedSize(34, 34)         # 🔴 폭을 정하지 않으면 남는 폭을 차지해 158px 로 늘어났다(10/14 캡처)
         self._tool_icon.setStyleSheet("background: transparent; border: none;")
         self._tool_text = QLabel("")
         self._tool_text.setFont(config.font("tool", 800))
@@ -396,7 +401,7 @@ class GaugePanel(_Panel):
         #    _sub_timer 가 200ms 마다 update_view 를 부르므로, 비교 없이 걸면
         #    초당 5번 재시작돼 끝나지 않는 애니메이션이 된다.
         self._pulse_text = anim.TextPulse(
-            self._tool_text, lambda: theme.C("tool_plate_text"), weight=800)
+            self._tool_text, lambda: theme.C("text"), weight=800)     # 시안 — 공구 상자 위 글은 본문색
         self._pulse_state = anim.TextPulse(
             self._tool_state, lambda: theme.C("current"), weight=700)
         self._pulsing = False
@@ -433,14 +438,16 @@ class GaugePanel(_Panel):
         if sub.paused:
             # 경고로 멈춘 동안 — 시간이 흐르지 않는다는 것을 글자로 알린다(설계 D5 · G1)
             remain_token = "warn"
-            self._time.setText(f"일시정지 {int(sub.elapsed_sec)} / {int(sub.total_sec)}초")
+            self._time.setText(f"일시정지 {int(sub.elapsed_sec)}")
         else:
             remain_token = "done" if sub.time_done else "current"
-            self._time.setText("완료" if sub.time_done
-                               else f"{int(sub.elapsed_sec)} / {int(sub.total_sec)}초")
-        self._time.setStyleSheet(theme.text_qss(remain_token, 700))
+            self._time.setText("완료" if sub.time_done else f"{int(sub.elapsed_sec)}")
+        self._time_total.setText("" if (sub.time_done and not sub.paused) else f" / {int(sub.total_sec)}초")
+        self._time.setStyleSheet(theme.text_qss(_TEXT_TOKEN.get(remain_token, remain_token), 800))
+        self._time_total.setStyleSheet(theme.text_qss("label", 600))
 
-        self._track.setStyleSheet(theme.gauge_qss())
+        # 시안 — 트랙은 글자색 14% · 둥근 6
+        self._track.setStyleSheet(f"background-color: {theme.rgba('text', 0.14)}; border: none; border-radius: 6px;")
         # 목표만 갱신하고, 그리는 것은 보간에 맡긴다. 같은 목표면 아무 일도 하지 않는다.
         if abs(sub.progress - self._target_progress) > 1e-6:
             start = self._shown_progress
@@ -459,7 +466,7 @@ class GaugePanel(_Panel):
         else:
             self._fill.setGeometry(
                 0, 0, int(self._track.width() * self._shown_progress), _TRACK_H)
-        fill_color = theme.C("done") if sub.time_done else theme.C("gauge_to")
+        fill_color = theme.C("done") if sub.time_done else theme.C("current")
         self._fill.setStyleSheet(
             f"background-color: {fill_color}; border-radius: 6px;")
 
@@ -468,19 +475,27 @@ class GaugePanel(_Panel):
             # 🔑 완료 기준은 「손으로 쥠」이다(2026-08-16, 통합문서 §10.44-(8)).
             #    grasped ⟺ tool_ok 라 phase 를 따로 받지 않아도 구분된다.
             # 공구 문구 판 — 밝은 배경(노란 책상) 위에서 글자가 묻히는 것을 막는다.
-            self._tool_box.setStyleSheet(
-                f"QWidget#toolBox {{ background-color: {theme.C('tool_plate')}; border-radius: 6px; }}")
             self._tool_box.show()
             self._tool_text.setText(f"{sub.want_tool_name}{_eul(sub.want_tool_name)} 손에 쥐어 주세요")
+            wait = max(1, round((config.TOOL_GRASP_CONFIRM_SCANS - 1) * config.TOOL_SCAN_INTERVAL_SEC))
             if sub.tool_ok:
-                state, token = f"✓ {sub.want_tool_name}를 쥐었습니다", "done"
+                state, token = f"{sub.want_tool_name}{_eul(sub.want_tool_name)} 쥐었습니다", "done"
             elif sub.wrong_tool:
-                state, token = "⚠ 다른 공구를 쥐고 있습니다", "warn"
+                state, token = "다른 공구를 쥐고 있습니다", "warn"
             elif checking:
-                state, token = f"◐ 확인 중 {checking[0]}/{checking[1]} — 그대로 쥐고 계세요", "info"
+                state, token = f"확인 중 {checking[0]}/{checking[1]} — 그대로 쥐고 계세요", "info"
             else:
-                state, token = "○ 손에 쥐면 확인됩니다", "todo"
+                state, token = f"쥐고 약 {wait}초 뒤 확인됩니다", "todo"
             self._tool_state.setText(state)
+            # 상자 색 = 상태(시안: 대기 · 확인 중 파랑 · 쥠 초록 · 다른 공구 주황) — 바뀔 때만 스타일을 다시 건다
+            box = {"done": "done", "warn": "warn"}.get(token, "info")
+            if box != self._box_token:
+                self._box_token = box
+                self._tool_box.setStyleSheet(
+                    f"QWidget#toolBox {{ background-color: {theme.rgba(box, 0.14)};"
+                    f" border: 1px solid {theme.rgba(box, 0.5)}; border-radius: 12px; }}")
+                import ui_icons
+                self._tool_icon.setPixmap(ui_icons.pixmap("wrench", theme.C(box), 34))
 
             # 「중」 강도 — 상태줄 + 요구 문구가 함께 맥박한다(🔧 아이콘은 제외).
             # 조건을 채웠거나(쥠) 오답 경고 중이거나 확인 중이면 멈춘다.
@@ -497,10 +512,8 @@ class GaugePanel(_Panel):
             # 🔴 맥박이 도는 동안은 그 두 줄의 setStyleSheet 를 건너뛴다 —
             #    매번 덮어쓰면 깜빡임이 죽는다.
             if not want_pulse:
-                self._tool_text.setStyleSheet(
-                    f"color: {theme.C('tool_plate_text')}; font-weight: 800;"
-                    f" border: none; background: transparent;")
-                self._tool_state.setStyleSheet(theme.text_qss(token, 600))
+                self._tool_text.setStyleSheet(theme.text_qss("text", 800))
+                self._tool_state.setStyleSheet(theme.text_qss(_TEXT_TOKEN.get(token, token), 500))
 
             # 바뀐 순간에만 번진다 — 200ms 주기 반복 호출에서 매번 번지면 안 된다.
             now_tool = (sub.tool_ok, sub.wrong_tool, checking)
@@ -529,6 +542,10 @@ class GaugePanel(_Panel):
         if self._gauge_anim is not None and not sip.isdeleted(self._gauge_anim):
             self._gauge_anim.stop()
         self._gauge_anim = None
+
+    def apply_theme(self):
+        super().apply_theme()
+        self._box_token = None           # 테마가 바뀌면 공구 상자 색 · 아이콘을 다시 칠한다
 
     def _stop_pulse(self):
         """🔴 서브 작업이 끝나는 **모든 경로**에서 부른다 — 안 멈추면 CPU 를 먹는다."""
