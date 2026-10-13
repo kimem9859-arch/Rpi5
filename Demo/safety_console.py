@@ -396,6 +396,8 @@ class SafetyConsole(QMainWindow):
         self.settings_panel.theme_changed.connect(self._on_theme_changed)
         self.settings_panel.panel_bg_changed.connect(self._on_panel_bg_changed)
         self.settings_panel.boxes_changed.connect(self._on_boxes_changed)
+        self.settings_panel.scores_changed.connect(self._on_scores_changed)
+        self.settings_panel.hand_changed.connect(self._on_hand_changed)
         self.settings_panel.closed.connect(lambda: self._toggle_settings(False))
         # 공구 선택지는 **레시피가 준다** — 목록을 코드에 박지 않는다(design §4.4).
         self._wire_tool_settings()
@@ -467,7 +469,7 @@ class SafetyConsole(QMainWindow):
         self.alert.relayout(vr)
         self.menu_panel.relayout(vr)
         self.notify_panel.relayout(r)
-        self.settings_panel.relayout(r)
+        self.settings_panel.relayout(vr)
         self.check_panel.relayout(r)
         self.record_panel.relayout(r)
         self.result_panel.relayout(r)
@@ -959,6 +961,16 @@ class SafetyConsole(QMainWindow):
         """탐지 박스 표시 on/off."""
         self.camera_thread.set_draw_boxes(on)
         self._append_log(f"[설정] 탐지 박스 표시 → {'있음' if on else '없음'}")
+
+    def _on_scores_changed(self, on):
+        """인식 점수 숫자 표시 on/off(표시만 · 시연 UI 개선 §4.2)."""
+        self.camera_thread.set_draw_scores(on)
+        self._append_log(f"[설정] 인식 점수 숫자 → {'켬' if on else '끔'}")
+
+    def _on_hand_changed(self, on):
+        """손 인식 오버레이 on/off(표시만 — 손끝 검출 · 판정은 그대로)."""
+        self.camera_thread.set_draw_hand(on)
+        self._append_log(f"[설정] 손 인식 오버레이 → {'켬' if on else '끔'}")
 
     def _tool_display_name(self, key):
         for s in (self._recipe or {}).get("steps", []):

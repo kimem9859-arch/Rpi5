@@ -982,7 +982,7 @@ def test_detect_box_toggle():
     win = make_console()
     check(win.camera_thread.draw_boxes() is True, "기본은 켜짐")
 
-    win.settings_panel._box_buttons[False].setChecked(True)
+    win.settings_panel.switch("boxes").setChecked(False)
     check(win.camera_thread.draw_boxes() is False, "끄면 ESP32 스레드에 전달")
 
     # 끈 상태에서도 판정은 살아 있다
@@ -993,7 +993,7 @@ def test_detect_box_toggle():
           "박스를 꺼도 서브 작업이 시작된다 — 판정은 표시와 무관하다")
     check(win.fsm.expected_step == before, "기대단계 유지")
 
-    win.settings_panel._box_buttons[True].setChecked(True)
+    win.settings_panel.switch("boxes").setChecked(True)
     check(win.camera_thread.draw_boxes() is True, "다시 켜진다")
     win.close()
 
@@ -2745,6 +2745,17 @@ def test_menu_button_toggles_and_system_summary():
     check("1단계" in win.menu_panel._ctx.text(), win.menu_panel._ctx.text())
     win._toggle_menu(False)
     check(win.btn_menu.text() == "☰", f"닫힘 → {win.btn_menu.text()}")
+    win.close()
+
+
+def test_settings_scores_and_hand_reach_camera():
+    """4.2 — 점수 숫자 · 손 오버레이 스위치가 카메라 스레드에 전달된다(표시만)."""
+    print("\n[4.2] 점수 · 손 스위치 전달")
+    win = make_console()
+    win.settings_panel.switch("scores").setChecked(True)
+    win.settings_panel.switch("hand").setChecked(False)
+    check(win.camera_thread._draw_scores is True, "점수 켬 전달")
+    check(win.camera_thread.draw_flags()[1] is False, "손 끔 전달")
     win.close()
 
 if __name__ == "__main__":

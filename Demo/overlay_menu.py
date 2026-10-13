@@ -492,18 +492,47 @@ class NotifyPanel(_Sheet):
               width=p["width"], height=h)
 
 
-class SettingsPanel(_Sheet):
-    """중앙 설정 패널 — design §4.4.
+def _seg_button(text):
+    """나눠 고르는 버튼 한 칸(설정 공구 · 테마 · 로그 거르기) — 눌린 채로 남는다."""
+    b = QPushButton(text)
+    b.setCheckable(True)
+    b.setFont(config.font("sub", 700))
+    b.setCursor(Qt.CursorShape.PointingHandCursor)
+    b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    b.setMinimumHeight(52)
+    return b
 
-    메뉴 폭(13%)에는 라디오 항목이 안 들어가 중앙에 띄운다.
-    🔴 바꾼 값은 저장하지 않는다 — 이 세션에만. 레시피가 정답 순서의 단일 출처라
-       UI 가 파일을 고치기 시작하면 정본이 흐려진다.
+
+def _seg_qss():
+    return (f"QPushButton {{ background: transparent; color: {theme.C('text')};"
+            f" border: 1px solid {theme.C('sheet_border')}; padding: 10px 18px; }}"
+            f"QPushButton:checked {{ background: {theme.rgba('current', 0.16)}; color: {theme.C('current_text')};"
+            f" border: 2px solid {theme.C('current')}; }}"
+            f"QPushButton:disabled {{ color: {theme.C('todo')}; }}")
+
+
+def _switch_qss():
+    return (f"QPushButton {{ background: {theme.C('panel_border')}; color: {theme.C('label')};"
+            f" border: 1px solid {theme.C('sheet_border')}; border-radius: 20px; padding: 6px 18px; }}"
+            f"QPushButton:checked {{ background: {theme.C('done')}; color: #111111; border: none; }}"
+            f"QPushButton:disabled {{ background: transparent; color: {theme.C('todo')}; }}")
+
+
+class SettingsPanel(_Sheet):
+    """가운데 설정 — 게임 메뉴 느낌(설계 2026-10-13 §4.2).
+
+    지정 공구 · 테마 = 나눠 고르는 버튼 / 화면 표시 = 켬·끔 스위치 4개(단계 패널 배경 · 객체 인식 상자 ·
+    인식 점수 숫자(상자가 켜졌을 때만) · 손 인식 오버레이).
+    🔴 바꾼 값은 저장하지 않는다 — 이 세션에만. 레시피가 정답 순서의 단일 출처라 UI 가 파일을 고치면 정본이 흐려진다.
     """
 
+    CUT = 28
     tool_changed = pyqtSignal(str)
     theme_changed = pyqtSignal(str)
     panel_bg_changed = pyqtSignal(bool)
     boxes_changed = pyqtSignal(bool)
+    scores_changed = pyqtSignal(bool)
+    hand_changed = pyqtSignal(bool)
     closed = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -511,87 +540,98 @@ class SettingsPanel(_Sheet):
         self._tool_buttons = {}
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        lay.setContentsMargins(36, 30, 36, 30)
+        lay.setSpacing(10)
 
         head = QHBoxLayout()
-        self._title = QLabel("⚙  설정")
-        self._title.setFont(config.font("title", 800))
-        head.addWidget(self._title)
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        self._tag = QLabel("SETTINGS")
+        self._tag.setFont(config.font("item_sub", 700))
+        self._title = QLabel("설정")
+        self._title.setFont(config.font("sheet_title", 800))
+        col.addWidget(self._tag)
+        col.addWidget(self._title)
+        head.addLayout(col)
         head.addStretch()
         head.addWidget(self._make_close_button())
         lay.addLayout(head)
 
         self._tool_caption = QLabel("지정 공구")      # 단계 번호는 set_tools 가 레시피에서 붙인다(G6)
-        self._tool_caption.setFont(config.font("small", 700))
+        self._tool_caption.setFont(config.font("sub", 700))
         lay.addWidget(self._tool_caption)
-
         self._tool_group = QButtonGroup(self)
-        self._tool_box = QVBoxLayout()
-        self._tool_box.setSpacing(2)
+        self._tool_group.setExclusive(True)
+        self._tool_box = QHBoxLayout()
+        self._tool_box.setSpacing(0)
         lay.addLayout(self._tool_box)
-
         self._tool_note = QLabel("")
-        self._tool_note.setFont(config.font("small"))
+        self._tool_note.setFont(config.font("item_sub"))
         self._tool_note.setWordWrap(True)
         lay.addWidget(self._tool_note)
+        self._tool_note.hide()
 
         self._theme_caption = QLabel("화면 테마")
-        self._theme_caption.setFont(config.font("small", 700))
+        self._theme_caption.setFont(config.font("sub", 700))
         lay.addWidget(self._theme_caption)
-
         self._theme_group = QButtonGroup(self)
-        for key, text in (("dark", "다크  (기본)"), ("light", "화이트")):
-            rb = QRadioButton(text)
-            rb.setFont(config.font("body", 600))
-            rb.setCursor(Qt.CursorShape.PointingHandCursor)
-            rb.setChecked(key == theme.current())
-            rb.toggled.connect(lambda on, k=key: on and self.theme_changed.emit(k))
-            self._theme_group.addButton(rb)
-            lay.addWidget(rb)
+        self._theme_group.setExclusive(True)
+        self._theme_buttons = {}
+        row = QHBoxLayout()
+        row.setSpacing(0)
+        for key, text in (("dark", "어두운"), ("light", "밝은")):
+            b = _seg_button(text)
+            b.setChecked(key == theme.current())
+            b.toggled.connect(lambda on, k=key: on and self.theme_changed.emit(k))
+            self._theme_group.addButton(b)
+            self._theme_buttons[key] = b
+            row.addWidget(b, 1)
+        lay.addLayout(row)
 
-        self._bg_caption = QLabel("공정 단계 패널 배경")
-        self._bg_caption.setFont(config.font("small", 700))
-        lay.addWidget(self._bg_caption)
+        self._show_caption = QLabel("화면 표시")
+        self._show_caption.setFont(config.font("sub", 700))
+        lay.addWidget(self._show_caption)
+        self._switches = {}
+        self._switch_names = []
+        for name, label, on, sig in (
+                ("bg", "단계 패널 배경", getattr(theme, "PANEL_BACKGROUND", True), self.panel_bg_changed),
+                ("boxes", "객체 인식 상자", config.SHOW_DETECT_BOXES, self.boxes_changed),
+                ("scores", "인식 점수 숫자", config.SHOW_DETECT_SCORES, self.scores_changed),
+                ("hand", "손 인식 오버레이", config.HAND_DRAW, self.hand_changed)):
+            line = QHBoxLayout()
+            n = QLabel(label)
+            n.setFont(config.font("sub", 600))
+            sw = QPushButton("켬" if on else "끔")
+            sw.setCheckable(True)
+            sw.setChecked(bool(on))
+            sw.setFont(config.font("sub", 700))
+            sw.setCursor(Qt.CursorShape.PointingHandCursor)
+            sw.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            sw.setMinimumWidth(96)
+            sw.toggled.connect(lambda v, b=sw, sg=sig: (b.setText("켬" if v else "끔"), sg.emit(bool(v))))
+            line.addWidget(n, 1)
+            line.addWidget(sw)
+            lay.addLayout(line)
+            self._switches[name] = sw
+            self._switch_names.append(n)
+        self._switches["boxes"].toggled.connect(self._switches["scores"].setEnabled)
+        self._switches["scores"].setEnabled(self._switches["boxes"].isChecked())
 
-        self._bg_group = QButtonGroup(self)
-        for on, text in ((False, "없음  (글자만 — AR 글라스 느낌)"), (True, "있음")):
-            rb = QRadioButton(text)
-            rb.setFont(config.font("body", 600))
-            rb.setCursor(Qt.CursorShape.PointingHandCursor)
-            rb.setChecked(on == getattr(theme, "PANEL_BACKGROUND", True))
-            rb.toggled.connect(lambda chk, v=on: chk and self.panel_bg_changed.emit(v))
-            self._bg_group.addButton(rb)
-            lay.addWidget(rb)
-
-        self._box_caption = QLabel("탐지 박스 표시")
-        self._box_caption.setFont(config.font("small", 700))
-        lay.addWidget(self._box_caption)
-
-        self._box_group = QButtonGroup(self)
-        self._box_buttons = {}
-        for on, text in ((True, "있음  (기본)"), (False, "없음  (영상만)")):
-            rb = QRadioButton(text)
-            rb.setFont(config.font("body", 600))
-            rb.setCursor(Qt.CursorShape.PointingHandCursor)
-            rb.setChecked(on == config.SHOW_DETECT_BOXES)
-            rb.toggled.connect(lambda chk, v=on: chk and self.boxes_changed.emit(v))
-            self._box_group.addButton(rb)
-            self._box_buttons[on] = rb
-            lay.addWidget(rb)
-
-        # 🔴 이 문장을 빼면 "박스를 끄면 감시도 꺼지나?"를 반드시 묻게 된다(설계 §4.2).
-        self._box_note = QLabel("ⓘ 표시만 끕니다 — 순서 위반 감지는 그대로 작동합니다")
-        self._box_note.setFont(config.font("small"))
+        # 🔴 이 문장을 빼면 "상자를 끄면 감시도 꺼지나?"를 반드시 묻게 된다(설계 §4.2).
+        self._box_note = QLabel("ⓘ 화면 표시만 끕니다 — 감지·차단은 그대로")
+        self._box_note.setFont(config.font("item_sub"))
         self._box_note.setWordWrap(True)
         lay.addWidget(self._box_note)
-
         lay.addStretch()
 
-    def set_tools(self, tools, current_tool, tool_names=None, step_order=None):
-        """레시피가 준 선택지로 라디오를 만든다 — 목록을 코드에 박지 않는다.
+    def switch(self, name):
+        """켬/끔 스위치 — "bg" | "boxes" | "scores" | "hand"."""
+        return self._switches[name]
 
-        step_order = 공구를 쓰는 단계 번호 — 제목에 쓴다(G6 · 종전엔 「4단계」가 박혀 있었다).
+    def set_tools(self, tools, current_tool, tool_names=None, step_order=None):
+        """레시피가 준 선택지로 버튼을 만든다 — 목록을 코드에 박지 않는다.
+
+        step_order = 공구를 쓰는 단계 번호 — 제목에 쓴다(G6).
         """
         names = tool_names or {}
         self._tool_caption.setText(f"{step_order}단계 지정 공구" if step_order else "지정 공구")
@@ -599,53 +639,46 @@ class SettingsPanel(_Sheet):
             self._tool_group.removeButton(b)
             b.setParent(None)
         self._tool_buttons.clear()
-
         for key in tools:
-            rb = QRadioButton(names.get(key, key))
-            rb.setFont(config.font("body", 600))
-            rb.setCursor(Qt.CursorShape.PointingHandCursor)
-            rb.setChecked(key == current_tool)
-            rb.toggled.connect(lambda on, k=key: on and self.tool_changed.emit(k))
-            self._tool_group.addButton(rb)
-            self._tool_box.addWidget(rb)
-            self._tool_buttons[key] = rb
+            b = _seg_button(names.get(key, key))
+            b.setChecked(key == current_tool)
+            b.toggled.connect(lambda on, k=key: on and self.tool_changed.emit(k))
+            self._tool_group.addButton(b)
+            self._tool_box.addWidget(b, 1)
+            self._tool_buttons[key] = b
+        self.apply_theme()
 
     def set_tool_editable(self, editable):
         """🔴 작업 중에는 공구를 바꿀 수 없다 — 진행 중에 바뀌면 판정이 흔들린다."""
         for b in self._tool_buttons.values():
             b.setEnabled(editable)
-        self._tool_note.setText(
-            "" if editable else "ⓘ 작업 중에는 변경할 수 없습니다")
-        self._tool_note.setStyleSheet(theme.text_qss("warn", 600))
-        # 🔴 빈 문자열이어도 라벨은 높이를 차지한다(실측 37px) — 공구와 테마 사이가
-        #    빈칸으로 벌어졌다. 숨기면 공간까지 사라진다(2026-08-04).
+        self._tool_note.setText("" if editable else "ⓘ 작업 중에는 변경할 수 없습니다")
+        self._tool_note.setStyleSheet(theme.text_qss("warn_text", 600))
+        # 🔴 빈 문자열이어도 라벨은 높이를 차지한다(실측 37px) — 숨기면 공간까지 사라진다(2026-08-04).
         self._tool_note.setVisible(not editable)
 
     def apply_theme(self):
         super().apply_theme()
+        self._tag.setStyleSheet(theme.text_qss("current_text", 700) + "letter-spacing: 6px;")
         self._title.setStyleSheet(theme.text_qss("text", 800))
-        for cap in (self._tool_caption, self._theme_caption, self._bg_caption, self._box_caption):
+        for cap in (self._tool_caption, self._theme_caption, self._show_caption):
             cap.setStyleSheet(theme.text_qss("label", 700))
+        for n in self._switch_names:
+            n.setStyleSheet(theme.text_qss("text", 600))
         self._box_note.setStyleSheet(theme.text_qss("label", 600))
-        # 🔴 인디케이터(동그라미)를 명시한다 — Qt 기본 렌더는 **선택 안 된 것을
-        #    거의 안 그려서**, 선택된 줄과 아닌 줄의 글자 시작점이 어긋나 보였다
-        #    (2026-08-04. 「없음」과 「있음」의 위치가 다르다는 피드백의 원인).
-        #    spacing 은 동그라미와 글자 사이 — 값이 없으면 항목마다 달라질 수 있다.
-        radio_qss = (
-            f"QRadioButton {{ color: {theme.C('text')}; background: transparent;"
-            f" padding: 3px 2px; spacing: 8px; }}"
-            f"QRadioButton::indicator {{ width: 12px; height: 12px;"
-            f" border-radius: 8px; border: 2px solid {theme.C('todo')};"
-            f" background: transparent; }}"
-            f"QRadioButton::indicator:checked {{ border-color: {theme.C('info')};"
-            f" background-color: {theme.C('info')}; }}"
-            f"QRadioButton:disabled {{ color: {theme.C('todo')}; }}")
-        for b in (list(self._tool_buttons.values()) + list(self._theme_group.buttons())
-                  + list(self._bg_group.buttons()) + list(self._box_group.buttons())):
-            b.setStyleSheet(radio_qss)
+        seg = _seg_qss()
+        for b in list(self._tool_buttons.values()) + list(self._theme_buttons.values()):
+            b.setStyleSheet(seg)
+        sw = _switch_qss()
+        for b in self._switches.values():
+            b.setStyleSheet(sw)
 
-    def relayout(self, parent_rect):
-        place(self, parent_rect, width=_SETTINGS_W)   # 가로·세로 중앙
+    def relayout(self, vr):
+        """영상 가운데 · 폭 760(시안)."""
+        w = vpx(vr, 760)
+        self.setFixedWidth(w)
+        h = self.sizeHint().height()
+        self.setGeometry(QRect(vr.left() + (vr.width() - w) // 2, vr.top() + (vr.height() - h) // 2, w, h))
 
 
 class CheckPanel(_Sheet):

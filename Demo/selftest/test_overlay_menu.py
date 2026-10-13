@@ -156,16 +156,35 @@ def test_settings_tool_locked_while_running():
 
 
 def test_settings_theme_switch():
-    """테마 라디오가 신호를 낸다."""
+    """4.2 테마 = 나눠 고르는 버튼 · 같은 것을 다시 눌러도 신호 한 번."""
     print("\n[10] 테마 전환")
     host = QWidget()
     s = SettingsPanel(host)
     got = []
     s.theme_changed.connect(got.append)
-    for b in s._theme_group.buttons():
-        if "화이트" in b.text():
-            b.setChecked(True)
+    s._theme_buttons["light"].click()
     check(got == ["light"], f"신호 {got}")
+    s._theme_buttons["light"].click()
+    check(got == ["light"], "같은 것을 다시 눌러도 한 번")
+
+
+def test_settings_switches():
+    """4.2 화면 표시 켬/끔 4개(설계 2026-10-13 §4.2) — 점수는 상자가 켜졌을 때만 · 「감지·차단은 그대로」."""
+    print("\n[10-b] 켬/끔 스위치")
+    host = QWidget(); s = SettingsPanel(host)
+    got = []
+    for sig in ("panel_bg_changed", "boxes_changed", "scores_changed", "hand_changed"):
+        getattr(s, sig).connect(lambda v, n=sig: got.append((n, v)))
+    check(s.switch("bg").isChecked() and s.switch("boxes").isChecked() and s.switch("hand").isChecked(),
+          "배경 · 상자 · 손 기본 켬")
+    check(s.switch("scores").isChecked() is False, "점수 기본 끔")
+    s.switch("scores").click()
+    check(("scores_changed", True) in got and s.switch("scores").text() == "켬", "점수 켬 신호 · 글 「켬」")
+    s.switch("boxes").click()
+    check(("boxes_changed", False) in got and not s.switch("scores").isEnabled(), "상자 끄면 점수 스위치 잠김")
+    s.switch("hand").click()
+    check(("hand_changed", False) in got, "손 끔 신호")
+    check("감지·차단은 그대로" in s._box_note.text(), s._box_note.text())
 
 
 def test_all_relayout_inside_screen():
@@ -441,23 +460,17 @@ def test_record_folder_row():
     check(got == [1], f"누르면 신호: {got}")
 
 
-def test_settings_radios_uniform():
-    """🔴 라디오 4개(테마 2 + 배경 2)의 글자 크기·시작점이 같아야 한다 (2026-08-04)."""
-    print("\n[24] 설정 라디오 통일")
+def test_settings_buttons_uniform():
+    """🔴 나눠 고르는 버튼(공구 · 테마)의 글자 크기 · 스타일이 하나로(종전 라디오 통일 2026-08-04 규칙을 이어감)."""
+    print("\n[24] 설정 버튼 통일")
     host = QWidget()
     s = SettingsPanel(host)
     s.set_tools(["spanner", "driver"], "spanner")
     s.apply_theme()
-
-    radios = (list(s._tool_buttons.values()) + list(s._theme_group.buttons())
-              + list(s._bg_group.buttons()))
-    sizes = {b.font().pointSize() for b in radios}
-    check(len(sizes) == 1, f"글자 크기 하나로: {sizes}")
-
-    qss = {b.styleSheet() for b in radios}
-    check(len(qss) == 1, f"스타일 하나로: {len(qss)}가지")
-    check(all("padding" in q for q in qss), "여백이 명시돼 있다")
-    check(all("spacing" in q for q in qss), "동그라미-글자 간격이 명시돼 있다")
+    btns = list(s._tool_buttons.values()) + list(s._theme_buttons.values())
+    check(len({b.font().pointSize() for b in btns}) == 1, "글자 크기 하나로")
+    check(len({b.styleSheet() for b in btns}) == 1, "스타일 하나로")
+    check(all(b.isCheckable() for b in btns), "고르면 눌린 채로 남는다")
 
 
 def test_settings_tool_caption_from_step():
