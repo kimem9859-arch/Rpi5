@@ -750,11 +750,11 @@ def test_theme_switch():
     win = make_console()
     win._on_theme_changed("light")
     check(theme.current() == "light", "화이트로 전환")
-    # ⚠️ 패널 배경은 theme.PANEL_BACKGROUND 로 껐다 켠다(기본 False — AR 글라스 느낌).
+    # ⚠️ 패널 배경은 theme.PANEL_BACKGROUND 로 껐다 켠다(기본 True — 시연 UI 개선 10/13 반투명 카드).
     #    배경을 켰을 때만 테마 색이 스타일시트에 나타난다.
     win._on_panel_bg_changed(True)
     ss = win.status_panel.styleSheet()
-    check("255, 255, 255" in ss or "255,255,255" in ss, f"배경 켜면 흰 계열: {ss[:40]}")
+    check("242, 239, 232" in ss, f"배경 켜면 아이보리(시연 UI 개선 10/13): {ss[:40]}")
     win._on_panel_bg_changed(False)
     check("transparent" in win.status_panel.styleSheet(), "배경 끄면 투명")
     win._on_theme_changed("dark")
@@ -1810,7 +1810,7 @@ def test_u14_console_theme_repaints_glow():
         win._on_cta()
         key(win, "3")                                    # 위반 BLOCK → 발광
         win._on_theme_changed("light")
-        check(theme.C("danger") in win.glow.styleSheet(), "발광 테두리가 화이트 테마 빨강")
+        check(theme.rgba("danger", 1.0) in win.glow.styleSheet(), "발광 테두리가 화이트 테마 빨강")
     finally:
         theme.GLOW_BORDER = old
         theme.set_theme("dark")

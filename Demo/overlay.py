@@ -31,7 +31,6 @@ import theme
 
 # design §1 「오버레이 배치」 표의 사본 — (left, top, width) 비율. None = 계산으로 정함
 _POS = {
-    "status":  {"left": 0.14, "top": 0.05, "width": 0.24},
     "gauge":   {"left": 0.41, "top": 0.05, "width": 0.17},   # wait_tool 이면 0.24 로 넓어진다
     "gauge_w_tool": 0.24,
     "menu_btn":  {"right": 0.14, "top": 0.05},
@@ -159,8 +158,17 @@ _ROW_PAD_V, _ROW_PAD_H = 12, 14
 _ROW_BAR = 3                                    # 현재 단계의 왼쪽 막대 두께
 
 
+_MARK = {"done": "✓", "current": "●", "warn": "!", "danger": "✕"}
+_MARK_D = 30          # 단계 동그라미 지름(시안 px · 글꼴처럼 고정)
+_TEXT_TOKEN = {"done": "done_text", "current": "current_text", "warn": "warn_text"}
+
+
 class StatusPanel(_Panel):
-    """좌상단 — FSM 상태 + 공정 단계 목록. 기존 StepFlowWidget 을 대체한다."""
+    """좌상단 단계 카드 — 상태 제목 · 「공정 단계 · 4단계 중 N단계」 · 행 = 동그라미 + 「N단계 이름」(설계 2026-10-13 §3 ①).
+
+    🔴 B 표기 · 배지를 쓰지 않는다(사용자 10/13). 동그라미 = 끝남 ✓ / 진행 중 ● / 경고 ! / 차단 ✕ / 남은 단계 빈칸.
+    지금 줄은 강조 띠(바탕 14% + 왼쪽 막대). 종전 「막대 자라기」 보간은 뺐다 — 띠가 대신하고 단계마다 QSS 를 다시 거는 비용이 없다.
+    """
 
     def __init__(self, steps, parent=None):
         super().__init__(parent)
@@ -169,103 +177,93 @@ class StatusPanel(_Panel):
         self._last_view = None          # 마지막 update_view 인자 — 테마 전환 때 다시 그린다(U14)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(4)
-
-        self._state = QLabel(f"● {_STATE_LABEL['IDLE']}")
-        self._state.setFont(config.font("state", 800))
+        lay.setContentsMargins(24, 22, 24, 18)          # 시안 padding 22 24 18
+        lay.setSpacing(6)
+        self._state = QLabel("")
+        self._state.setFont(config.font("card_state", 800))
+        self._caption = QLabel("")
+        self._caption.setFont(config.font("sub", 500))
         lay.addWidget(self._state)
-
-        self._caption = QLabel("공정 단계")
-        self._caption.setFont(config.font("small"))
         lay.addWidget(self._caption)
 
-        self._rows = []
+        self._rows, self._dots, self._lines = [], [], []
         for _ in self._steps:
-            row = QLabel()
-            row.setFont(config.font("body"))
+            line = QWidget()
+            line.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            hl = QHBoxLayout(line)
+            hl.setContentsMargins(_ROW_PAD_H, 8, _ROW_PAD_H, 8)
+            hl.setSpacing(14)
+            dot = QLabel("")
+            dot.setFixedSize(_MARK_D, _MARK_D)
+            dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            dot.setFont(config.font("sub", 800))
+            row = QLabel("")
             row.setWordWrap(True)
-            lay.addWidget(row)
+            hl.addWidget(dot)
+            hl.addWidget(row, 1)
+            lay.addWidget(line)
             self._rows.append(row)
+            self._dots.append(dot)
+            self._lines.append(line)
 
-        # 🔴 기동 직후도 **실제 FSM 상태(IDLE)** 로 그린다 — 종전의 "STANDBY"
-        #    하드코딩은 이름만 어긋난 게 아니라, 아래 started 판정을 통과해
-        #    **1단계를 ▶ 로 강조**시켰다(작업 시작 전인데도).
+        # 🔴 기동 직후도 **실제 FSM 상태(IDLE)** 로 그린다 — 종전 "STANDBY" 하드코딩은 1단계를 강조시켰다.
         self.update_view("IDLE", 1)
 
+    def marks(self):
+        """행 앞 동그라미 글자(시험용)."""
+        return [d.text() for d in self._dots]
+
     def update_view(self, state_value, expected_step, sub_running=False):
-        """state_value = FSM State.value 문자열. sub_running 이면 현재 단계를 '진행 중'으로."""
+        """state_value = FSM State.value 문자열."""
         self._last_view = (state_value, expected_step, sub_running)
         started = state_value != "IDLE"
-        if state_value == "WARNING":
-            cur_token, mark = "warn", "⚠"
-        elif state_value == "BLOCK":
-            cur_token, mark = "danger", "⛔"
-        else:
-            cur_token, mark = "current", "▶"
+        cur = "warn" if state_value == "WARNING" else "danger" if state_value == "BLOCK" else "current"
+        head = "warn" if state_value == "WARNING" else "danger" if state_value == "BLOCK" else "done"
 
-        # 상태·캡션도 행과 **같은 좌우 여백**을 준다 — 글자 시작점이 세로로
-        # 한 줄이 되게. 상하 여백은 주지 않는다(행만큼 벌어지면 머리가 커진다).
-        side = f"padding-left: {_ROW_PAD_H}px; padding-right: {_ROW_PAD_H}px;"
         self._state.setText(f"● {_STATE_LABEL.get(state_value, state_value)}")
-        self._state.setStyleSheet(theme.text_qss(
-            "warn" if state_value == "WARNING" else
-            "danger" if state_value == "BLOCK" else "done", 800) + side)
-        self._caption.setStyleSheet(theme.text_qss("label", 600) + side)
+        self._state.setStyleSheet(theme.text_qss(_TEXT_TOKEN.get(head, head), 800))
+        self._caption.setText(f"공정 단계 · {len(self._steps)}단계 중 {expected_step}단계")
+        self._caption.setStyleSheet(theme.text_qss("label", 500))
 
-        for i, (s, row) in enumerate(zip(self._steps, self._rows)):
+        for i, (s, row, dot, line) in enumerate(zip(self._steps, self._rows, self._dots, self._lines)):
             order = i + 1
-            text = f"{s['button']} {s.get('name', '')}"
-            pad = f"padding: {_ROW_PAD_V}px {_ROW_PAD_H}px;"
-            # 현재 단계는 왼쪽 막대가 붙으므로 그만큼 덜 띄워 **글자 시작점을 맞춘다**
-            pad_cur = (f"padding: {_ROW_PAD_V}px {_ROW_PAD_H}px"
-                       f" {_ROW_PAD_V}px {_ROW_PAD_H - _ROW_BAR}px;")
-            if not started:
-                row.setText(f"○ {text}")
-                row.setStyleSheet(theme.text_qss("todo", 600) + pad)
-            elif order < expected_step:
-                row.setText(f"✓ {text}")
-                row.setStyleSheet(theme.text_qss("done", 600) + pad)
-            elif order == expected_step:
-                row.setText(f"{mark} {text}")
-                row.setStyleSheet(theme.text_qss(cur_token, 800)
-                                  + f"border-left: {_ROW_BAR}px solid {theme.C(cur_token)};"
-                                  + pad_cur)
+            row.setText(f"{order}단계 {s.get('name', '')}")
+            if started and order < expected_step:
+                kind = "done"
+            elif started and order == expected_step:
+                kind = cur
             else:
-                row.setText(f"○ {text}")
-                row.setStyleSheet(theme.text_qss("todo", 600) + pad)
+                kind = "todo"
+            is_cur = kind in ("current", "warn", "danger")
+            row.setFont(config.font("step_cur" if is_cur else "step", 800 if is_cur else 600))
+            row.setStyleSheet(theme.text_qss(_TEXT_TOKEN.get(kind, kind), 800 if is_cur else 600))
+            dot.setText(_MARK.get(kind, ""))
+            if kind == "todo":
+                dot.setStyleSheet(f"border: 2px solid {theme.C('todo')}; border-radius: {_MARK_D // 2}px;"
+                                  f" background: transparent; color: {theme.C('todo')};")
+            else:
+                dot.setStyleSheet(f"border: none; border-radius: {_MARK_D // 2}px;"
+                                  f" background: {theme.C(kind)}; color: #111111;")
+            line.setStyleSheet(
+                f"background: {theme.rgba(cur, 0.14)}; border: none;"
+                f" border-left: {_ROW_BAR}px solid {theme.C(cur)};"
+                if is_cur else "background: transparent; border: none;")
 
-        # 단계가 바뀐 순간에만 — 끝난 줄이 완료색으로 반짝하고,
-        # 새 현재 줄의 왼쪽 막대가 자라며 자리 잡는다.
+        # 단계가 바뀐 순간에만 — 끝난 줄이 완료색으로 반짝한다.
         if started and self._prev_step is not None and expected_step != self._prev_step:
             old = self._prev_step - 1
             if 0 <= old < len(self._rows):
                 anim.flash(self._rows[old], theme.C("done"))
-            idx = expected_step - 1
-            if 0 <= idx < len(self._rows):
-                row = self._rows[idx]
-                base = row.styleSheet()
-                color = theme.C(cur_token)
-                anim.tween(
-                    row, anim.D_BAR,
-                    lambda t, r=row, b=base, c=color: r.setStyleSheet(
-                        b + f"border-left: {max(1, int(_ROW_BAR * float(t)))}px solid {c};"),
-                    on_done=lambda r=row, b=base: r.setStyleSheet(b))
         self._prev_step = expected_step
 
     def apply_theme(self):
-        """판과 함께 **마지막으로 그린 상태를 새 색으로** 다시 그린다(리뷰 U14 ①).
-
-        색은 update_view 가 칠하므로, 판만 다시 칠하면 다음 FSM 전이까지(IDLE 이면 작업 시작
-        전까지) 공정 단계 행이 옛 색으로 남았다. 같은 단계로 다시 그리므로 애니메이션은 없다.
-        """
+        """판과 함께 **마지막으로 그린 상태를 새 색으로** 다시 그린다(리뷰 U14 ①)."""
         super().apply_theme()
         if self._last_view is not None:
             self.update_view(*self._last_view)
 
-    def relayout(self, parent_rect):
-        p = _POS["status"]
-        place(self, parent_rect, left=p["left"], top=p["top"], width=p["width"])
+    def relayout(self, vr):
+        vplace(self, vr, 32, 32, 461)
 
 
 class GaugePanel(_Panel):

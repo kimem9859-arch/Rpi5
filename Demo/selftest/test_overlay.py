@@ -664,7 +664,7 @@ def test_u14_glow_follows_theme():
         except AttributeError as e:
             check(False, f"발광이 테마를 받지 못한다 — {e}")
             return
-        check(theme.C("danger") in g.styleSheet(), "테두리가 화이트 테마 빨강")
+        check(theme.rgba("danger", 1.0) in g.styleSheet(), "테두리가 화이트 테마 빨강")
     finally:
         theme.GLOW_BORDER = old
         theme.set_theme("dark")

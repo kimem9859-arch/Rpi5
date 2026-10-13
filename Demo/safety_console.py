@@ -462,7 +462,7 @@ class SafetyConsole(QMainWindow):
         self.camera_label.setGeometry((pw - vw) // 2, (ph - vh) // 2, vw, vh)
         vr = self.camera_label.geometry()     # 🔑 영상 사각형 — 시연 UI 개선 부품은 이것을 기준으로 앉는다(설계 2026-10-13 §2.1)
 
-        self.status_panel.relayout(r)
+        self.status_panel.relayout(vr)
         self.gauge_panel.relayout(r)
         self.glow.relayout(vr)
         self.alert.relayout(r)
