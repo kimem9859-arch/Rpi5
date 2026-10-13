@@ -26,14 +26,15 @@ from overlay import place, _glow, vpx, vplace, cut_corner_path, _qcolor
 
 
 # 알림 종류 — design §4.8. (아이콘, 색 토큰)
-# 🔴 컬러 이모지를 쓴다 — 종전 흑백 기호(✓ ▶ ⚠)는 본문 글자와 구별되지 않아
-#    목록이 글자 덩어리로 읽혔다(2026-08-04 실기동 피드백).
+# 종전 흑백 기호(✓ ▶ ⚠)는 본문 글자와 구별되지 않아 목록이 글자 덩어리로 읽혔다(2026-08-04) → 색 원 안에 넣는다.
 NOTIFY_KINDS = {
-    "check":  ("✅", "done"),     # 점검
-    "work":   ("▶️", "info"),     # 이벤트 — 작업
-    "warn":   ("⚠️", "warn"),     # 이벤트 — 경고
-    "danger": ("⛔", "danger"),   # 이벤트 — 위험
+    "check":  ("✓", "done"),      # 점검
+    "work":   ("●", "info"),      # 이벤트 — 작업
+    "warn":   ("!", "warn"),      # 이벤트 — 경고
+    "danger": ("✕", "danger"),    # 이벤트 — 위험
 }
+# 🔴 시연 UI 개선(10/13) — 컬러 이모지 대신 **종류 색 원 + 기호**. 색이 테마를 따르고, 이모지가 굵은 글꼴에서
+#    안 그려지던 함정(2026-08-04)이 없다.
 
 # 🔴 패널이 **자기 버튼을 덮지 않게** 한다 (2026-08-04 실기동 피드백).
 #    버튼이 보여야 "같은 버튼을 다시 눌러 닫기"가 성립한다.
@@ -365,99 +366,110 @@ class MenuPanel(_Sheet):
         vplace(self, vr, 1094, 100, 580, 1148)
 
 
-class NotifyPanel(_Sheet):
-    """좌하단 알림 목록 — design §4.8.
+_ICON_D = 32          # 알림 아이콘 원 지름
 
-    🔴 메신저 방식 — 최신이 맨 아래, 열면 최신이 보이는 위치에서 시작,
-       과거는 위로 스크롤.
+
+class NotifyPanel(_Sheet):
+    """좌하단 알림 목록 — 🔔 위로 열린다(설계 2026-10-13 §4.3).
+
+    🔴 최신이 맨 위 · 종류별 색 원 · 시각 · 새 알림 「NEW」(닫으면 지운다) · 높이는 내용에 맞추되 🔔 를 덮지 않는다.
     🔴 프로그램을 종료하면 초기화 — 메모리에만 둔다(파일 저장 없음).
-       파일 기록은 통합문서 §13 확장의 「작업 로그 기록」과 겹쳐 보류.
+    `_rows` 는 **넣은 순서**(오래된 것 먼저) — 화면 순서만 거꾸로다.
     """
 
+    CUT = 28
     closed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setContentsMargins(26, 22, 26, 22)
+        lay.setSpacing(12)
 
         head = QHBoxLayout()
-        self._title = QLabel("🔔  알림")
-        self._title.setFont(config.font("small", 700))
-        # 🔴 ✕ 버튼을 두지 않는다 — 같은 버튼(☰/🔔)을 다시 눌러 닫는다.
+        self._title = QLabel("알림")
+        self._title.setFont(config.font("item", 800))
+        self._new_lbl = QLabel("")
+        self._new_lbl.setFont(config.font("item_sub", 700))
+        # 🔴 ✕ 버튼을 두지 않는다 — 같은 버튼(🔔)을 다시 눌러 닫는다.
         head.addWidget(self._title)
         head.addStretch()
+        head.addWidget(self._new_lbl)
         lay.addLayout(head)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }"
+                                   " QScrollArea > QWidget > QWidget { background: transparent; }")
         self._body = QWidget()
         self._list = QVBoxLayout(self._body)
-        self._list.setContentsMargins(0, 4, 4, 0)
-        self._list.setSpacing(6)
-        self._list.addStretch()          # 위쪽에 여백 → 항목이 아래부터 쌓인다
+        self._list.setContentsMargins(0, 0, 4, 0)
+        self._list.setSpacing(10)
+        self._list.addStretch()          # 맨 끝 여백 → 항목이 위부터 쌓인다
         self._scroll.setWidget(self._body)
         lay.addWidget(self._scroll)
 
         self._rows = []
+        self._new_tags = []
         self._painted = []                # (라벨, 색 토큰, 굵기, 덧붙인 QSS) — 테마 전환 때 다시 칠한다(U14)
+        self._icons = []                  # (아이콘 라벨, 색 토큰)
 
     def push(self, kind, title, sub=""):
-        """알림 하나 추가. 최신이 맨 아래로 간다."""
+        """알림 하나 추가 — 최신이 맨 위 · NEW 표시."""
+        from datetime import datetime
         mark, token = NOTIFY_KINDS.get(kind, NOTIFY_KINDS["work"])
         row = QWidget()
         rl = QHBoxLayout(row)
-        # 아이콘이 행 왼쪽 가장자리에 붙어 치우쳐 보였다 — 좌우 여백을 준다
-        # (2026-08-04). 값은 공정 단계 행과 같은 계열로 맞춘다.
-        rl.setContentsMargins(_NOTIFY_ROW_PAD, 0, _NOTIFY_ROW_PAD, 0)
-        rl.setSpacing(8)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(14)
 
         icon = QLabel(mark)
-        # ⚠️ weight 800 으로 두면 **이모지가 아예 안 그려진다** — Pretendard 에는
-        #    이모지 글리프가 없어 폴백해야 하는데, ExtraBold 에서는 폴백이 깨진다
-        #    (2026-08-04 확인. 메뉴 항목의 🔧📜🎯 는 600 이라 멀쩡했다).
-        icon.setFont(config.font("body", 600))
-        # 🔴 padding: 0 을 반드시 명시한다 — 시트의 padding(10px 12px)이 자식에
-        #    상속되는데, 아이콘은 폭이 26px 로 고정이라 좌우 24px 에 눌려
-        #    **글리프가 아예 안 그려졌다**(2026-08-04 확인).
-        self._paint(icon, token, 600, "padding: 0;")
-        icon.setFixedWidth(26)          # 이모지는 종전 기호보다 넓다(20 → 26)
-
+        icon.setFont(config.font("sub", 800))
+        icon.setFixedSize(_ICON_D, _ICON_D)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._icons.append((icon, token))
+        self._paint_icon(icon, token)
 
         t = QLabel(title)
-        t.setFont(config.font("body", 600))
-        self._paint(t, "text", 600)
+        t.setFont(config.font("sub", 700))
+        self._paint(t, "text", 700)
         t.setWordWrap(True)
+        new = QLabel("NEW")
+        new.setFont(config.font("item_sub", 800))
+        self._paint(new, "current", 800, "")
+        new.setStyleSheet(f"background: {theme.C('current')}; color: #111111; border: none;"
+                          f" border-radius: 4px; padding: 1px 6px;")
+        self._new_tags.append(new)
+        tm = QLabel(datetime.now().strftime("%H:%M:%S"))
+        tm.setFont(config.font("item_sub", 500))
+        self._paint(tm, "label", 500)
 
-        # 🔴 아이콘과 제목을 **같은 줄**에 넣는다 — 레이아웃이 세로 중앙을 맞춰 준다.
-        #    높이를 계산해 맞추려 했더니(setFixedHeight + sizeHint) 창 크기에 따라
-        #    제목 라벨이 늘어나 글자가 그 중앙으로 내려가면서 어긋났다
-        #    (1280 에선 맞고 1920 에선 10px 어긋남, 2026-08-04). 구조로 푼다.
+        # 🔴 아이콘과 제목을 **같은 줄**에 넣는다 — 레이아웃이 세로 중앙을 맞춰 준다(2026-08-04).
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
-        head.setSpacing(8)
+        head.setSpacing(10)
         head.addWidget(icon)
         head.addWidget(t, 1)
+        head.addWidget(new)
+        head.addWidget(tm)
 
         col = QVBoxLayout()
-        col.setSpacing(1)
+        col.setSpacing(2)
         col.addLayout(head)
         if sub:
-            s = QLabel(sub)
-            s.setFont(config.font("small"))
-            self._paint(s, "label", 500)
-            s.setWordWrap(True)
-            # 설명은 아이콘 폭만큼 들여쓴다 — 제목 글자와 왼쪽을 맞춘다.
-            s.setContentsMargins(26 + 8, 0, 0, 0)   # 아이콘 폭 + 간격
-            col.addWidget(s)
+            sl = QLabel(sub)
+            sl.setFont(config.font("item_sub", 500))
+            self._paint(sl, "label", 500)
+            sl.setWordWrap(True)
+            sl.setContentsMargins(_ICON_D + 10, 0, 0, 0)   # 제목 글자와 왼쪽을 맞춘다
+            col.addWidget(sl)
 
         rl.addLayout(col, 1)
-        self._list.addWidget(row)         # addStretch 뒤에 넣어 아래로 쌓인다
+        self._list.insertWidget(0, row)  # 최신이 맨 위
         self._rows.append(row)
+        self._update_new_label()
         self._scroll_to_latest()
 
     def _paint(self, lbl, token, weight, extra=""):
@@ -465,13 +477,38 @@ class NotifyPanel(_Sheet):
         lbl.setStyleSheet(theme.text_qss(token, weight) + extra)
         self._painted.append((lbl, token, weight, extra))
 
+    @staticmethod
+    def _paint_icon(icon, token):
+        icon.setStyleSheet(f"background: {theme.C(token)}; color: #111111; border: none;"
+                           f" border-radius: {_ICON_D // 2}px; padding: 0;")
+
+    def mark_all_read(self):
+        """패널을 닫을 때 — NEW 표시를 지운다."""
+        for tag in self._new_tags:
+            tag.hide()
+        self._new_tags = []
+        self._update_new_label()
+
+    @property
+    def new_count(self):
+        return len(self._new_tags)
+
+    def first_title(self):
+        """화면 맨 위(최신) 알림의 제목(시험용)."""
+        if not self._rows:
+            return ""
+        return self._rows[-1].findChildren(QLabel)[1].text()
+
+    def _update_new_label(self):
+        n = len(self._new_tags)
+        self._new_lbl.setText(f"새 알림 {n}" if n else "")
+
     def _scroll_to_latest(self):
-        bar = self._scroll.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        self._scroll.verticalScrollBar().setValue(0)
 
     def showEvent(self, event):
         super().showEvent(event)
-        self._scroll_to_latest()          # 열면 최신이 보이는 위치에서 시작
+        self._scroll_to_latest()          # 열면 최신(맨 위)이 보이는 위치에서 시작
 
     @property
     def count(self):
@@ -479,17 +516,31 @@ class NotifyPanel(_Sheet):
 
     def apply_theme(self):
         super().apply_theme()
-        self._title.setStyleSheet(theme.text_qss("label", 700))
-        # 🔴 이미 쌓인 알림도 새 색으로 — 다크 글자(#e6e8ea)가 화이트 시트 위에 남아 거의 안
-        #    보였다(리뷰 U14 ②).
+        self._title.setStyleSheet(theme.text_qss("text", 800))
+        self._new_lbl.setStyleSheet(theme.text_qss("current_text", 700))
+        # 🔴 이미 쌓인 알림도 새 색으로(리뷰 U14 ②)
         for lbl, token, weight, extra in self._painted:
-            lbl.setStyleSheet(theme.text_qss(token, weight) + extra)
+            if lbl in self._new_tags or lbl.text() == "NEW":
+                lbl.setStyleSheet(f"background: {theme.C('current')}; color: #111111; border: none;"
+                                  f" border-radius: 4px; padding: 1px 6px;")
+            else:
+                lbl.setStyleSheet(theme.text_qss(token, weight) + extra)
+        for icon, token in self._icons:
+            self._paint_icon(icon, token)
 
-    def relayout(self, parent_rect):
-        p = _NOTIFY_POS
-        h = 1.0 - p["top"] - p["bottom"]
-        place(self, parent_rect, left=p["left"], top=p["top"],
-              width=p["width"], height=h)
+    def relayout(self, vr):
+        """🔔(y 1204) 위 12px 에서 끝나고, 위로는 내용만큼 — 많으면 y 100 까지 자라고 그 안에서 스크롤."""
+        w = vpx(vr, 620)
+        bottom = vr.top() + vpx(vr, 1204 - 12)
+        top_min = vr.top() + vpx(vr, 100)
+        self.setFixedWidth(w)
+        m = self.layout().contentsMargins()
+        self._body.setFixedWidth(max(1, w - m.left() - m.right() - 4))
+        self._body.layout().activate()
+        need = (m.top() + m.bottom() + self._title.sizeHint().height() + self.layout().spacing()
+                + self._body.sizeHint().height() + 6)
+        h = max(vpx(vr, 120), min(need, bottom - top_min))
+        self.setGeometry(QRect(vr.left() + vpx(vr, 32), bottom - h, w, h))
 
 
 def _seg_button(text):

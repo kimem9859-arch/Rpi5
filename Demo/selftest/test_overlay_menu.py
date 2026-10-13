@@ -86,17 +86,34 @@ def test_notify_kinds():
     check(tokens <= set(theme.THEMES["dark"]), f"색 토큰이 테마에 존재: {sorted(tokens)}")
 
 
-def test_notify_newest_at_bottom():
-    """🔴 메신저 방식 — 최신이 맨 아래로 쌓인다."""
+def test_notify_newest_at_top():
+    """4.3 알림 — 최신이 맨 위(설계 2026-10-13 §4.3 · 종전 메신저 방식 맨 아래)."""
     print("\n[5] 알림 순서")
     host = QWidget()
     n = NotifyPanel(host)
     for i in range(5):
         n.push("work", f"항목 {i}")
     check(n.count == 5, f"{n.count}건 적재")
-    lay = n._list
-    last_widget = lay.itemAt(lay.count() - 1).widget()
-    check(last_widget is n._rows[-1], "마지막에 넣은 것이 레이아웃 맨 아래")
+    check(n._list.itemAt(0).widget() is n._rows[-1], "마지막에 넣은 것이 맨 위")
+    check(n.first_title() == "항목 4", n.first_title())
+
+
+def test_notify_new_and_height():
+    """Review Focus 5 — NEW 표시가 붙고 다 읽으면 지워진다 · 100건이 넘어도 🔔(y 1204) 위에서 끝나고 화면 위로 넘치지 않는다."""
+    print("\n[5-b] NEW · 높이")
+    host = QWidget(); host.resize(1920, 1280); n = NotifyPanel(host)
+    vr = QRect(107, 0, 1707, 1280)
+    n.push("warn", "순서가 다릅니다"); n.push("work", "작업 초기화")
+    n.relayout(vr)
+    short = n.height()
+    check(n.new_count == 2, f"NEW {n.new_count}")
+    n.mark_all_read(); check(n.new_count == 0, "다 읽음")
+    for i in range(120):
+        n.push("work", f"알림 {i}")
+    n.relayout(vr)
+    check(n.geometry().bottom() <= 1204 - 12, f"🔔 위에서 끝남 {n.geometry()}")
+    check(n.geometry().top() >= 100, f"위로 넘치지 않음 {n.geometry()}")
+    check(short < n.height(), f"내용에 맞는 높이 {short} < {n.height()}")
 
 
 def test_notify_all_kinds():
@@ -375,18 +392,13 @@ def test_item_sheets_have_close_button():
             check(got == [1], f"{cls.__name__} ✕ → closed 신호")
 
 
-def test_notify_icons_are_emoji():
-    """알림 종류마다 눈에 띄는 아이콘 (2026-08-04).
-
-    종전 기호(✓ ▶ ⚠)는 흑백 글리프라 글자처럼 보였다.
-    """
+def test_notify_icons_are_marks():
+    """4.3 알림 아이콘 = 종류별 색 원 + 기호(설계 2026-10-13 §4.3) — 🔴 이모지는 굵은 글꼴에서 안 그려지던 함정이 있었다."""
     print("\n[20] 알림 아이콘")
-    want = {"check": "✅", "work": "▶️", "warn": "⚠️", "danger": "⛔"}
+    want = {"check": "✓", "work": "●", "warn": "!", "danger": "✕"}
     check(set(NOTIFY_KINDS) == set(want), f"종류 4가지 유지: {sorted(NOTIFY_KINDS)}")
     for k, icon in want.items():
-        got = NOTIFY_KINDS[k][0]
-        check(got == icon, f"{k} → {got}")
-
+        check(NOTIFY_KINDS[k][0] == icon, f"{k} → {NOTIFY_KINDS[k][0]}")
     host = QWidget()
     pnl = NotifyPanel(host)
     pnl.push("danger", "전기 입력 차단됨", "1단계 B1")
@@ -491,7 +503,7 @@ def test_u14_notify_rows_follow_theme():
         n.push("work", "옛 알림", "부가 설명")
         theme.set_theme("light")
         n.apply_theme()
-        title = [lb for lb in n._rows[-1].findChildren(QLabel) if lb.text() == "옛 알림"][0]
+        title = [lb for lb in n._rows[-1].findChildren(QLabel) if lb.text() == "옛 알림"][0]   # _rows = 넣은 순서
         check(theme.C("text") in title.styleSheet(), "제목 글자가 화이트 테마 색")
     finally:
         theme.set_theme("dark")

@@ -468,7 +468,7 @@ class SafetyConsole(QMainWindow):
         self.glow.relayout(vr)
         self.alert.relayout(vr)
         self.menu_panel.relayout(vr)
-        self.notify_panel.relayout(r)
+        self.notify_panel.relayout(vr)
         self.settings_panel.relayout(vr)
         self.check_panel.relayout(r)
         self.record_panel.relayout(r)
@@ -662,6 +662,10 @@ class SafetyConsole(QMainWindow):
         want = self.notify_panel.isHidden() if show is None else show
         if want:
             self._close_sheets(except_=self.notify_panel)
+        if want:
+            self.notify_panel.relayout(self.camera_label.geometry())   # 내용에 맞는 높이
+        elif not self.notify_panel.isHidden():
+            self.notify_panel.mark_all_read()            # 닫을 때 NEW 를 지운다(시연 UI 개선 §4.3)
         self.notify_panel.setVisible(want)
         if want:
             self.notify_panel.raise_()
@@ -988,6 +992,8 @@ class SafetyConsole(QMainWindow):
     def _notify(self, kind, title, sub=""):
         """알림 추가 + 배지 갱신. 배지는 **읽지 않은 수**를 보인다."""
         self.notify_panel.push(kind, title, sub)
+        if not self.notify_panel.isHidden():
+            self.notify_panel.relayout(self.camera_label.geometry())   # 열린 채 새 알림 — 높이가 는다
         self._unread += 1
         self.btn_notify.set_count(self._unread)
 
