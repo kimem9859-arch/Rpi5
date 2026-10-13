@@ -47,7 +47,7 @@ class SafetyFSM:
                  sequence=None, emo_button=None, gap_fill=None,
                  window_n=None, window_m=None,
                  on_state_change=None, on_interlock=None, on_feedback=None,
-                 slow_px_s=None):
+                 slow_px_s=None, warn_auto_release=None):
         # sequence: 레시피 steps 리스트 [{order, button, name}, ...] (recipe.json).
         # 주면 정답 순서·단계 이름을 거기서 읽고, 없으면 B1..B{step_count}로 대체.
         self._sequence = sequence
@@ -99,6 +99,12 @@ class SafetyFSM:
         # 마지막 경고 이유 — "slow"(안 B) / "dwell"(체류) · 경고로 갈 때 세우고 경고 해제 · 작업 초기화 때 None.
         # 콘솔이 경고 전이 콜백 안에서 읽어 기록한다.
         self.last_warn_reason = None
+        # 경고 자동 해제(안 A · 2026-10-13) — 0 이하 = 끔. 경고 시각 · 대상 버튼은 경고로 갈 때 세운다.
+        self.warn_auto_release = (warn_auto_release if warn_auto_release is not None
+                                  else config.WARN_AUTO_RELEASE_SEC)
+        self._warn_since = None
+        self._warn_roi = None
+        self.last_release_how = None     # "auto" | "button" — 콘솔이 경고를 벗어나는 콜백에서 읽는다
 
     # ------------------------------------------------------------------ 헬퍼
     @property
@@ -131,6 +137,7 @@ class SafetyFSM:
         if old == State.WARNING:
             # 경고를 벗어나면(해제 · 정답 누름 P6 · 오답 누름 → 차단 · EMO) 이유를 지운다 — 다음 경고는 새로 세운다(최종 리뷰 M-4)
             self.last_warn_reason = None
+            self._warn_since = self._warn_roi = None
         # 인터록·피드백 부수효과
         if new_state == State.BLOCK:
             self._cb_interlock(True)
@@ -243,6 +250,14 @@ class SafetyFSM:
         if self._just_done is not None and roi != self._just_done:
             self._just_done = None
 
+        # 경고 자동 해제(안 A) — 3초가 지났고 손이 경고 대상 버튼을 떠났으면(갭메우기 뒤 값) 푼다.
+        if (self.state == State.WARNING and self.warn_auto_release > 0
+                and self._warn_since is not None
+                and now - self._warn_since >= self.warn_auto_release
+                and roi != self._warn_roi):
+            self.release_warning(how="auto")
+            return
+
         # --- ③ 상태 게이트 — 전이는 여기서만 막는다 ---
         if self.state in (State.IDLE, State.WARNING, State.BLOCK):
             # 경고/차단 중에는 비전 틱으로 자동 전이하지 않음 (해제 버튼이 주체)
@@ -276,11 +291,13 @@ class SafetyFSM:
             # 안 B — 오답 박스 안에서 이 장에 본 손끝이 느리다 = 누르기 직전 → 체류를 기다리지 않고 즉시 경고.
             # 🔑 `_dwell_roi` 를 세운 채로 경고로 간다 — 콘솔 · 세기가 전이 순간 그 오답을 읽는다(체류 경고와 같은 순서).
             self.last_warn_reason = "slow"
+            self._warn_since, self._warn_roi, self.last_release_how = now, roi, None
             self._goto(State.WARNING)
             self._reset_dwell()
         elif not entered and now - self._dwell_start >= self.dwell_threshold and level == ZONE_INSIDE:
             # 체류 임계 초과 + 박스 안 → 위반 경고. 링이면 아무 일도 없이 누적만 이어진다.
             self.last_warn_reason = "dwell"
+            self._warn_since, self._warn_roi, self.last_release_how = now, roi, None
             self._goto(State.WARNING)
             self._reset_dwell()
 
@@ -375,10 +392,11 @@ class SafetyFSM:
         self._win.clear()
         self._tips.clear()              # 끊기기 전 손끝과 이어 재면 거짓 속도가 된다
 
-    def release_warning(self):
-        """WARNING 해제 버튼 → MONITOR 복귀. (기대단계 유지)"""
+    def release_warning(self, how="button"):
+        """WARNING 해제 → MONITOR 복귀(기대단계 유지). how = "auto"(자동 해제) | "button"(정답 · 해제 버튼)."""
         if self.state == State.WARNING:
             self.last_warn_reason = None
+            self.last_release_how = how
             self._goto(State.MONITOR)
 
     def release_block(self):

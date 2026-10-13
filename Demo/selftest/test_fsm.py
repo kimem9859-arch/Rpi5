@@ -11,6 +11,7 @@ _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO_DIR)
 
 from fsm import SafetyFSM, State, Feedback
+from roi_zones import RING as ZONE_RING
 
 
 def make_fsm(threshold=1.0, step_count=4, gap_fill=0.3):
@@ -824,6 +825,71 @@ def test_b_config_bad_env_does_not_crash():
                        env=dict(os.environ, SOP_SLOW_ENTRY_PX_S_VGA="0"))
     assert r.stdout.strip().splitlines()[-1] == "0.0", "0 = 끔(되돌리기)은 그대로"
 
+
+
+# ----------------------------------------------------------------- 경고 자동 해제(안 A · 시연 UI 개선 설계 2026-10-13 §3.2)
+def _warned(sec=3.0):
+    """B1 차례에 손이 B3 에 머물러 경고가 난 판정기 · 경고 시각 = 1.0"""
+    f = SafetyFSM(step_count=4, dwell_threshold=0.5, gap_fill=0.3, window_n=0,
+                  warn_auto_release=sec, slow_px_s=0)
+    f.load_recipe()
+    f.update_vision("B3", 0.4)
+    f.update_vision("B3", 1.0)
+    assert f.state == State.WARNING, f.state
+    return f
+
+
+def test_auto_release_after_hand_leaves():
+    f = _warned()
+    f.update_vision(None, 2.0); f.update_vision(None, 3.9)
+    assert f.state == State.WARNING, "3초 전에는 유지"
+    f.update_vision(None, 4.05)
+    assert f.state == State.MONITOR and f.last_release_how == "auto", (f.state, f.last_release_how)
+
+
+def test_auto_release_hand_stays():
+    f = _warned()
+    for t in (2.0, 3.0, 4.1, 6.0):
+        f.update_vision("B3", t)
+    assert f.state == State.WARNING, "손이 B3 에 그대로 → 경고 유지"
+
+
+def test_auto_release_ring_is_not_leaving():
+    f = _warned()
+    f.update_vision("B3", 4.5, level=ZONE_RING)
+    assert f.state == State.WARNING, "B3 링 → 유지"
+
+
+def test_auto_release_returns_before_due():
+    f = _warned()
+    f.update_vision(None, 2.0)
+    f.update_vision("B3", 4.1)
+    assert f.state == State.WARNING, "돌아온 장 → 유지"
+
+
+def test_auto_release_gap_fill_holds():
+    f = _warned()
+    f.update_vision("B3", 3.9)
+    f.update_vision(None, 4.1)        # 0.2초 끊김 → 직전 B3 유지
+    assert f.state == State.WARNING, "끊김 0.2초 → 유지"
+
+
+def test_auto_release_correct_button_still_immediate():
+    f = _warned()
+    f.press_button("B1", 1.5)
+    assert f.expected_step == 2, f.expected_step
+
+
+def test_auto_release_off_switch():
+    f = _warned(sec=0)
+    f.update_vision(None, 9.0)
+    assert f.state == State.WARNING, "끄면 손을 떼도 유지"
+
+
+def test_manual_release_how():
+    f = _warned()
+    f.release_warning()
+    assert f.last_release_how == "button", f.last_release_how
 
 if __name__ == "__main__":
     import traceback

@@ -200,6 +200,10 @@ def _env_float(name, default):
 
 
 FSM_SLOW_ENTRY_PX_S_VGA = _env_float("SOP_SLOW_ENTRY_PX_S_VGA", 437.5)
+
+# 경고 자동 해제(시연 UI 개선 설계 2026-10-13 §3.2 · 안 A) — 경고 뒤 이 초가 지났고 손이 그 틀린 버튼을 떠났으면 저절로 푼다.
+# 🔴 손 「떠남」 = 갭메우기(FSM_GAP_FILL_SEC) 뒤 값이 경고 대상과 다름(링도 같은 버튼). SOP_WARN_AUTO_RELEASE=0 = 끔(정답 버튼으로만 풀림).
+WARN_AUTO_RELEASE_SEC = 3.0 if os.environ.get("SOP_WARN_AUTO_RELEASE", "1") != "0" else 0.0
 # 속도 = 이 장 손끝과, 직전 N 장(update_vision 이 불린 장 · 구역과 상관없음) 가운데 손끝이 있는
 # 가장 가까운 장(BACK 초 안) 사이 거리 ÷ 시간. 그런 장이 없으면 속도 모름 → 체류 규칙.
 # 🔴 모의 annotate_speed 와 같은 정의 — 바꾸면 모의 근거가 그대로 옮겨오지 않는다.

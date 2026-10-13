@@ -1868,6 +1868,10 @@ class SafetyConsole(QMainWindow):
     #   종전의 _STATE_COLOR 표는 config 의 단일 테마 색을 직접 쓰고 있어 제거했다.
 
     def _on_fsm_state(self, old, new):
+        if old == State.WARNING and new == State.MONITOR and self.fsm.last_release_how == "auto":
+            # 자동 해제도 측정 기록에 「해제」로 — 진행 도우미가 읽는다(설계 2026-10-13 §3.2) · 수동 해제처럼 상태 기록보다 먼저
+            self._measure.event("release", what="warning", ok=True, how="auto")
+            self._append_log(f"[FSM] 경고 자동 해제 — 손이 떠남({self.fsm.warn_auto_release:.0f}초 경과)")
         # 경고로 갈 때만 이유("slow" 느린 손끝 · "dwell" 체류)를 더 적는다(판정 기준 안 B 설계 §3) — 다른 상태는 그대로
         why = {"reason": getattr(self.fsm, "last_warn_reason", None)} if new == State.WARNING else {}
         self._measure.event("state", old=old.name, new=new.name, expected=self.fsm.correct_roi,
