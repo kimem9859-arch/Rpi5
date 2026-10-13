@@ -235,6 +235,8 @@ class StatusPanel(_Panel):
             hl.setSpacing(14)
             dot = QLabel("")
             dot.setFixedSize(_MARK_D, _MARK_D)
+            # 🔴 바탕 투명 명시 — 실제 화면(X11)에서 빈 칸에 옅은 네모가 칠해졌다(10/14 실화면 확인)
+            dot.setStyleSheet("background: transparent; border: none;")
             row = QLabel("")
             row.setWordWrap(True)
             hl.addWidget(dot)
