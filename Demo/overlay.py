@@ -314,6 +314,7 @@ class GaugePanel(_Panel):
 
         # 공구 칸 — wait_tool 일 때만 보인다
         self._tool_box = QWidget()
+        self._tool_box.setObjectName("toolBox")      # 🔴 판 색을 이 칸에만 — 자식(아이콘)에 물리면 두 겹으로 칠해졌다(10/14 캡처)
         # 🔴 맨 QWidget 은 이 속성 없이는 스타일시트 배경을 안 그린다(2026-08-04 확인).
         self._tool_box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         tb = QHBoxLayout(self._tool_box)
@@ -323,6 +324,8 @@ class GaugePanel(_Panel):
         tb.setSpacing(8)
         self._tool_icon = QLabel("🔧")
         self._tool_icon.setFont(config.font("banner"))
+        self._tool_icon.setFixedWidth(40)            # 🔴 폭을 정하지 않으면 남는 폭을 차지해 158px 로 늘어났다(10/14 캡처)
+        self._tool_icon.setStyleSheet("background: transparent; border: none;")
         self._tool_text = QLabel("")
         self._tool_text.setFont(config.font("tool", 800))
         self._tool_state = QLabel("")
@@ -340,7 +343,7 @@ class GaugePanel(_Panel):
         col.addWidget(self._tool_text)
         col.addWidget(self._tool_state)
         tb.addWidget(self._tool_icon)
-        tb.addLayout(col)
+        tb.addLayout(col, 1)
         lay.addWidget(self._tool_box)
         self._tool_box.hide()
 
@@ -404,7 +407,7 @@ class GaugePanel(_Panel):
             #    grasped ⟺ tool_ok 라 phase 를 따로 받지 않아도 구분된다.
             # 공구 문구 판 — 밝은 배경(노란 책상) 위에서 글자가 묻히는 것을 막는다.
             self._tool_box.setStyleSheet(
-                f"background-color: {theme.C('tool_plate')}; border-radius: 6px;")
+                f"QWidget#toolBox {{ background-color: {theme.C('tool_plate')}; border-radius: 6px; }}")
             self._tool_box.show()
             self._tool_text.setText(f"{sub.want_tool_name}{_eul(sub.want_tool_name)} 손에 쥐어 주세요")
             if sub.tool_ok:

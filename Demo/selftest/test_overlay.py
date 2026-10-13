@@ -111,6 +111,16 @@ def test_gauge_place_and_text():
     check(g.width() == 461, f"공구 단계 폭 그대로 {g.width()}")
 
 
+def test_tool_icon_compact_and_plate_once():
+    """캡처 대조(10/14) — 🔧 아이콘 칸이 늘어나 판이 두 겹으로 칠해졌다 · 아이콘은 좁게 · 판 색은 공구 칸에만."""
+    print("\n[⑤] 공구 칸 아이콘")
+    host = QWidget(); host.resize(1920, 1280); g = GaugePanel(host)
+    g.update_view(SubTask(TOOL, now=0.0)); g.relayout(QRect(107, 0, 1707, 1280))
+    host.show(); _app.processEvents()
+    check(g._tool_icon.width() <= 44, f"아이콘 칸 {g._tool_icon.width()}px")
+    check(g._tool_box.styleSheet().startswith("QWidget#toolBox"), f"판 QSS 는 공구 칸에만: {g._tool_box.styleSheet()[:30]}")
+
+
 def test_tool_line_wording():
     """⑤ 공구 — 「스패너를 손에 쥐어 주세요」 · 받침 따라 을/를."""
     print("\n[⑤] 공구 문구")
