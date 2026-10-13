@@ -1746,7 +1746,7 @@ class SafetyConsole(QMainWindow):
                                   else "— EMO 를 복귀한 뒤 「차단 해제」를 누르세요")
         else:
             self.alert.show_block(self._block_reason or "잘못된 버튼을 눌러 차단했습니다",
-                                  hint=itl_hint)
+                                  hint=itl_hint or f"왼쪽 아래 「차단 해제」를 누른 뒤 {self.fsm.correct_roi}부터 다시 누르세요")
 
     def _mark_emo_no_signal(self):
         """GPIO 가 켤 때 EMO HIGH 를 알렸다 — 이 차단은 「EMO 신호 없음」 문구로 보인다(해제되면 끝)."""
@@ -2060,8 +2060,10 @@ class SafetyConsole(QMainWindow):
             if self._last_button != emo:
                 self._stats.violation(self.fsm.correct_roi, self._last_button or "?", "block")
                 # 🔴 오답 차단은 첫 오답을 누르는 **즉시**다(fsm.press_button) — 「계속되어」가 아니다.
-                self._block_reason = (f"{self.fsm.correct_roi} 차례에 "
-                                      f"{self._last_button or '?'} 버튼을 눌러 차단했습니다")
+                # 시안(10/14 대조) — 「B3는 지금 순서가 아닙니다 · 지금은 2단계 냉각(B2) 차례」
+                self._block_reason = (f"{self._last_button or '?'}는 지금 순서가 아닙니다 · 지금은 "
+                                      f"{self.fsm.expected_step}단계 {self.fsm.current_step_name}"
+                                      f"({self.fsm.correct_roi}) 차례")
                 self._show_block_banner(emo=False)
                 self._notify("danger", "버튼 입력 차단됨",
                              f"{self.fsm.expected_step}단계 {self.fsm.correct_roi}")

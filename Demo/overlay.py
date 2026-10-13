@@ -668,6 +668,36 @@ class ReleaseButton(QPushButton):
         self.setGeometry(QRect(vr.left() + vpx(vr, x), vr.top() + vpx(vr, y), d, d))
 
 
+def _edge(token):
+    """상자 테두리 · 아이콘 원 색 — 경고 · 차단은 시안 고정색(두 테마 같음) · 안내는 그 색."""
+    return theme.C({"warn": "warn_edge", "danger": "danger_edge"}.get(token, token))
+
+
+_alert_icon_cache = {}
+
+
+def _alert_icon(token, d=72):
+    """경고 · 차단 · 안내 상자의 72px 둥근 아이콘(시안) — 색 원 + 기호 40px."""
+    import ui_icons
+    from PyQt6.QtGui import QPixmap
+    name, ink = {"warn": ("alert", "warn_ink"), "danger": ("minus", "danger_ink"),
+                 "done": ("check_big", "warn_ink")}.get(token, ("info", "warn_ink"))
+    key = (token, _edge(token), theme.C(ink), d)
+    pm = _alert_icon_cache.get(key)
+    if pm is None:
+        pm = QPixmap(d, d)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(_edge(token)))
+        p.drawEllipse(0, 0, d, d)
+        p.drawPixmap((d - 40) // 2, (d - 40) // 2, ui_icons.pixmap(name, theme.C(ink), 40))
+        p.end()
+        _alert_icon_cache[key] = pm
+    return pm
+
+
 class AlertBanner(_Panel):
     """경고·차단 배너 — 영상 가운데 상자(폭 883 · 시연 UI 개선 설계 2026-10-13 §3 ③).
 
@@ -698,37 +728,49 @@ class AlertBanner(_Panel):
         self._needs_entrance = False    # 다음 relayout 에서 미끄러져 들어올 것
         self._pending_rect = None       # 등장 중에 건너뛴 relayout 의 창 크기 — 앉은 뒤 다시 한다
 
-        lay = QHBoxLayout(self)
-        # 🔴 박스 안 여백은 **레이아웃 여백**으로 준다 — QSS padding 은 맨 QWidget 의 배치에
-        #    반영되지 않아 해제 버튼이 테두리에 붙었다(리뷰 M6 · 사용자 요청 2026-09-25).
-        lay.setContentsMargins(18, 14, 18, 14)
-        lay.setSpacing(14)
-
-        self._icon = QLabel("⚠")
-        self._icon.setFont(config.font("cta", 800))
-        lay.addWidget(self._icon)
-
+        # 시안 — 머리(아이콘 72 · 제목 46) / 본문(들여쓰기 94 · 30 · 26) / 오른쪽 아래 작은 안내(16) / 상자 폭 전체 줄 6
+        # 🔴 박스 안 여백은 **레이아웃 여백**으로 준다 — QSS padding 은 배치에 반영되지 않는다(리뷰 M6).
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
         col = QVBoxLayout()
-        col.setSpacing(3)
+        col.setContentsMargins(36, 30, 36, 14)
+        col.setSpacing(14)
+        head = QHBoxLayout()
+        head.setSpacing(22)
+        self._icon = QLabel("")
+        self._icon.setFixedSize(72, 72)
         self._title = QLabel("")
         self._title.setFont(config.font("alert_title", 800))
+        head.addWidget(self._icon)
+        head.addWidget(self._title, 1)
+        col.addLayout(head)
+        body = QVBoxLayout()
+        body.setContentsMargins(94, 0, 0, 0)
+        body.setSpacing(6)
         self._line1 = QLabel("")
-        self._line1.setFont(config.font("alert_body", 600))
+        self._line1.setFont(config.font("alert_body", 700))
         self._line1.setWordWrap(True)
         self._line2 = QLabel("")
-        self._line2.setFont(config.font("alert_hint", 600))
+        self._line2.setFont(config.font("alert_hint", 500))
         self._line2.setWordWrap(True)
-        col.addWidget(self._title)
-        col.addWidget(self._line1)
-        col.addWidget(self._line2)
-        # 줄어드는 줄 — 경고 자동 해제까지 남은 시간(순서 경고에서만)
+        body.addWidget(self._line1)
+        body.addWidget(self._line2)
+        col.addLayout(body)
+        self._hint = QLabel("")
+        f_hint = config.font("sub", 500)
+        f_hint.setPointSize(12)                       # 16px
+        self._hint.setFont(f_hint)
+        self._hint.setAlignment(Qt.AlignmentFlag.AlignRight)
+        col.addWidget(self._hint)
+        outer.addLayout(col)
+        # 줄어드는 줄 — 경고 자동 해제까지 남은 시간(순서 경고에서만) · 시안: 상자 폭 전체 · 아래 끝
         self._count_track = QWidget()
         self._count_track.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._count_track.setFixedHeight(6)
         self._count_fill = QWidget(self._count_track)
         self._count_fill.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        col.addSpacing(6)
-        col.addWidget(self._count_track)
+        outer.addWidget(self._count_track)
         # 🔴 숨겨도 자리는 남긴다 — 순서 경고 · 공구 경고 · 차단 상자는 같은 크기(사용자 결정 2026-09-25)
         sp = self._count_track.sizePolicy(); sp.setRetainSizeWhenHidden(True); self._count_track.setSizePolicy(sp)
         self._count_track.hide()
@@ -737,7 +779,6 @@ class AlertBanner(_Panel):
         self._count_timer.setInterval(50)
         self._count_timer.timeout.connect(self._count_step)
         self._count_t0 = None
-        lay.addLayout(col, 1)
 
         self.release_button = ReleaseButton(parent)
         self.release_button.clicked.connect(self.release_clicked.emit)
@@ -752,8 +793,8 @@ class AlertBanner(_Panel):
                 else f"{expected_button} {expected_name}")
         auto = config.WARN_AUTO_RELEASE_SEC > 0
         self._paint("warn", "⚠", "순서가 다릅니다", f"지금은 {step} 차례입니다",
-                    "손을 떼면 곧 닫힙니다" if auto else f"— 손을 뗀 뒤 {expected_button}를 누르세요",
-                    release_text=None, indent2=not auto)
+                    f"손을 뗀 뒤 {expected_button}를 누르세요",
+                    release_text=None, indent2=False, hint="손을 떼면 곧 닫힙니다" if auto else "")
         self._start_countdown(auto)
 
     def _start_countdown(self, on):
@@ -762,8 +803,8 @@ class AlertBanner(_Panel):
         self._count_track.setVisible(on)
         if not on:
             return
-        self._count_track.setStyleSheet(f"background: {theme.rgba('warn', 0.25)}; border-radius: 3px;")
-        self._count_fill.setStyleSheet(f"background: {theme.C('warn')}; border-radius: 3px;")
+        self._count_track.setStyleSheet(f"background: {theme.rgba('warn_edge', 0.2)}; border: none;")
+        self._count_fill.setStyleSheet(f"background: {theme.C('warn_edge')}; border: none;")
         self._count_t0 = time.monotonic()
         self._count_step()
         if anim.enabled():
@@ -792,8 +833,9 @@ class AlertBanner(_Panel):
         hint = 둘째 줄(들여쓰기) — EMO 차단은 복귀 방법을 적는다.
         """
         self._mode = "block"
-        self._paint("danger", "⛔", "버튼 입력 차단됨", reason, hint or "왼쪽 아래 「차단 해제」를 누르세요",
-                    release_text="차단 해제", indent2=bool(hint))
+        self._paint("danger", "⛔", "버튼 입력 차단", reason,
+                    hint or "왼쪽 아래 「차단 해제」를 누른 뒤 다시 누르세요",
+                    release_text="차단 해제", indent2=False)
 
     def show_notice(self, title, line1, line2, token="info", mark="ⓘ", indent2=True, tag=None):
         """안내(누름 카메라 확인 · 2026-09-30) — 해제 버튼 없음 · 시간이 지나면 콘솔이 닫는다.
@@ -806,25 +848,22 @@ class AlertBanner(_Panel):
         self._notice_tag = tag
         self._paint(token, mark, title, line1, line2, release_text=None, indent2=indent2)
 
-    def _paint(self, token, mark, title, line1, line2, release_text, indent2):
+    def _paint(self, token, mark, title, line1, line2, release_text, indent2, hint=""):
         # 🔴 self._mode 는 show_* 가 여기 오기 **전에** 이미 새 값이다. 그래서 화면에
         #    그려져 있던 모드를 따로 들고 비교한다.
         prev_mode = self._shown_mode
         self._shown_mode = self._mode
-        self._last_paint = (token, mark, title, line1, line2, release_text, indent2)
-        c = theme.C(token)
-        self._icon.setText(mark)
-        self._icon.setStyleSheet(theme.text_qss(token, 800))
+        self._last_paint = (token, mark, title, line1, line2, release_text, indent2, hint)
+        self._icon.setPixmap(_alert_icon(token))
         self._title.setText(title)
-        self._title.setStyleSheet(theme.text_qss(token, 800))
+        self._title.setStyleSheet(theme.text_qss(_TEXT_TOKEN.get(token, token), 800))
         # 🔴 빈 줄도 자리를 둔다(빈칸 한 글자) — 순서 경고·공구 경고·차단 박스의 높이를
         #    통일한다(사용자 결정 2026-09-25). 줄을 숨기면 박스마다 높이가 달라진다.
-        for lbl, text in ((self._line1, line1), (self._line2, line2)):
+        for lbl, text, tok, wt in ((self._line1, line1, "text", 700), (self._line2, line2, "label", 500),
+                                   (self._hint, hint, "label", 500)):
             lbl.setText(text or "\u00a0")
-            lbl.setStyleSheet(theme.text_qss("text", 600))
+            lbl.setStyleSheet(theme.text_qss(tok, wt))
             lbl.setVisible(True)
-        self._line2.setStyleSheet(
-            theme.text_qss("text", 600) + ("padding-left: 14px;" if indent2 else ""))
 
         # 해제 버튼은 상자 밖 동그란 버튼 — 차단(release_text 있음)에서만 보인다
         if self._mode != "order":
@@ -838,11 +877,11 @@ class AlertBanner(_Panel):
 
         # 🔴 선택자로 **박스에만** 건다 — 선택자 없이 걸면 padding 이 안쪽 글자 칸마다 번져
         #    줄 사이가 벌어졌다(제목 칸 25 → 54px). 여백은 레이아웃이 맡는다.
-        self.setStyleSheet(f"{_ALERT_SEL} {{ {theme.panel_qss('alert', padding='0')}"
-                           f"border: none; }}")
+        self.setStyleSheet(f"{_ALERT_SEL} {{ background-color: {theme.C('sheet_bg')};"
+                           f" border: none; border-radius: 20px; }}")
         self._border_token, self._border_alpha = token, 1.0     # 테두리는 paintEvent(Task 5b)
         self.update()
-        for lbl in (self._icon, self._title, self._line1, self._line2):
+        for lbl in (self._title, self._line1, self._line2):
             _glow(lbl)
         self.raise_()
         # mode 가 바뀐 순간에만 등장을 예약한다 — 같은 mode 로 다시 그려질 때는
@@ -894,18 +933,18 @@ class AlertBanner(_Panel):
         return self._border_alpha
 
     def border_color(self):
-        from PyQt6.QtGui import QColor
-        return QColor(theme.C(self._border_token))
+        return QColor(_edge(self._border_token))
 
     def paintEvent(self, event):
         super().paintEvent(event)
         if self._mode is None:
             return
         from PyQt6.QtGui import QPainter, QPen, QColor
-        c = QColor(theme.C(self._border_token)); c.setAlphaF(self._border_alpha)
+        c = QColor(_edge(self._border_token)); c.setAlphaF(self._border_alpha)
         p = QPainter(self)
-        p.setPen(QPen(c, 2))
-        p.drawRect(self.rect().adjusted(1, 1, -1, -1))
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(QPen(c, 3))                                  # 시안 3px · 둥근 20(바탕과 같은 모서리)
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5), 19, 19)
         p.end()
 
     def raise_(self):

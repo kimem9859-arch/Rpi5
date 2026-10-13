@@ -1500,7 +1500,8 @@ def test_g5_emo_banner_text():
     key(win, "3")
     # 2026-09-30 문구 변경 — 「순서 위반이 계속되어」 → 「B1 차례에 B3 버튼을 눌러」(사용자 승인)
     line1 = win.alert._line1.text()
-    check("차례에" in line1 and "비상정지" not in line1, f"위반 차단 = '{line1}'")
+    # 시안(10/14 대조) — 「B3는 지금 순서가 아닙니다 · 지금은 2단계 냉각(B2) 차례」
+    check("순서가 아닙니다" in line1 and "차례" in line1 and "비상정지" not in line1, f"위반 차단 = '{line1}'")
     win.close()
 
 def test_g2_tool_banner_does_not_cover_warning():
@@ -1950,7 +1951,7 @@ def test_review_i4_block_wording_true_without_ch5():
         win = make_console()
         win._on_cta()
         key(win, k)
-        check(win.alert._title.text() == "버튼 입력 차단됨", f"{label} 차단 제목 = {win.alert._title.text()!r}")
+        check(win.alert._title.text() == "버튼 입력 차단", f"{label} 차단 제목(시안) = {win.alert._title.text()!r}")
         words = ([win.alert._line1.text()] + notify_titles(win)
                  + [l for l in win.log_browser.toPlainText().splitlines() if "[인터록]" in l])
         check(not any("전기" in t or "인터락이 작동" in t for t in words),
@@ -2236,8 +2237,11 @@ def test_hw0930_violation_block_names_buttons():
     win = make_console()
     win._on_cta()
     key(win, "3")                                    # 1단계(B1) 차례에 B3
-    check(win.alert._line1.text() == "B1 차례에 B3 버튼을 눌러 차단했습니다",
+    # 시안(10/14 대조) — 0930 문구 「B1 차례에 B3 버튼을 눌러 차단했습니다」를 시안 문구로
+    check(win.alert._line1.text() == "B3는 지금 순서가 아닙니다 · 지금은 1단계 공정 정지(B1) 차례",
           f"둘째 줄 = {win.alert._line1.text()!r}")
+    check(win.alert._line2.text() == "왼쪽 아래 「차단 해제」를 누른 뒤 B1부터 다시 누르세요"
+          or "화면에서만" in win.alert._line2.text(), f"셋째 줄 = {win.alert._line2.text()!r}")
     lines = _feedback_lines(win)
     check(bool(lines) and lines[-1].endswith("[피드백] ⛔ 차단 — 오조작 강행 감지"),
           f"오답 로그는 그대로 = {lines[-1:]}")

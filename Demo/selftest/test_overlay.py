@@ -277,7 +277,11 @@ def test_order_warning_has_no_button_and_countdown():
     check(b.mode == "order", "mode=order")
     check(b.release_button.isHidden(), "해제 버튼 없음")
     check(b._line1.text() == "지금은 2단계 냉각(B2) 차례입니다", b._line1.text())
-    check("손을 떼면 곧 닫힙니다" in b._line2.text(), b._line2.text())
+    check(b._line2.text() == "손을 뗀 뒤 B2를 누르세요", b._line2.text())
+    check(b._hint.text() == "손을 떼면 곧 닫힙니다" and not b._hint.isHidden(), f"오른쪽 아래 안내 {b._hint.text()!r}")
+    check(not b._icon.pixmap().isNull() and b._icon.width() == 72, f"72px 둥근 아이콘 {b._icon.width()}")
+    b.layout().activate()
+    check(b._count_track.width() >= b.width() - 8, f"줄 = 상자 폭 전체 {b._count_track.width()} / {b.width()}")
     check(not b._count_track.isHidden(), "줄어드는 줄 보임")
     check(b.width() == 883 and b.x() == 107 + (1707 - 883) // 2, f"가운데 폭 883 {b.geometry()}")
 
@@ -291,7 +295,7 @@ def test_order_warning_without_auto_release():
         host = QWidget(); b = AlertBanner(host)
         b.show_order_violation("B2", "냉각", order=2)
         check("B2를 누르세요" in b._line2.text(), b._line2.text())
-        check(b._count_track.isHidden(), "줄 없음")
+        check(b._count_track.isHidden() and b._hint.text().strip() == "", "줄 · 「곧 닫힙니다」 없음")
     finally:
         config.WARN_AUTO_RELEASE_SEC = old
 
@@ -301,7 +305,9 @@ def test_block_round_release_button():
     print("\n[③ 차단] 동그란 해제 버튼")
     host = QWidget(); host.resize(1920, 1280); b = AlertBanner(host)
     got = []; b.release_clicked.connect(lambda: got.append(1))
-    b.show_block("B1 차례에 B3 버튼을 눌러 차단했습니다"); b.relayout(QRect(107, 0, 1707, 1280))
+    b.show_block("B3는 지금 순서가 아닙니다 · 지금은 1단계 공정 정지(B1) 차례"); b.relayout(QRect(107, 0, 1707, 1280))
+    check(b._title.text() == "버튼 입력 차단", f"제목 {b._title.text()}")
+    check(b._line2.text() == "왼쪽 아래 「차단 해제」를 누른 뒤 다시 누르세요", b._line2.text())
     rb = b.release_button
     check(not rb.isHidden() and rb.width() == 200, f"보임 · {rb.geometry()}")
     # 🔴 시안 (226, 970) 은 **왼쪽 위 모서리**다(가운데로 읽어 100px 씩 왼쪽 위로 붙었다 · 사용자 10/14 지적)
@@ -671,9 +677,10 @@ def test_alert_box_inner_margin():
         show(b)
         b.relayout(SCREEN)
         host.show(); _app.processEvents()
-        fh = b._title.fontMetrics().height()
-        check(b._title.height() <= fh + 8,
-              f"{mode} — 제목 칸 높이 {b._title.height()}px ≈ 글자 높이 {fh}px (여백이 번지면 +28px)")
+        # 제목 줄은 시안대로 72px 아이콘과 한 줄이다 — 번짐 검사는 본문 줄로(10/14 시안 대조)
+        fh = b._line1.fontMetrics().height()
+        check(b._line1.height() <= fh + 8,
+              f"{mode} — 본문 칸 높이 {b._line1.height()}px ≈ 글자 높이 {fh}px (여백이 번지면 +28px)")
     host.close()
 
 def test_u14_status_rows_follow_theme():
@@ -705,8 +712,8 @@ def test_u14_block_pulse_follows_theme():
         theme.set_theme("light")
         b.apply_theme()
         QTest.qWait(150)                                  # 맥박이 몇 번 칠할 시간
-        check(b.border_color().name() == theme.C("danger").lower(),
-              f"맥박 테두리가 화이트 테마 빨강({b.border_color().name()})")
+        check(b.border_color().name() == theme.C("danger_edge").lower(),
+              f"맥박 테두리 = 시안 빨강(두 테마 같음 · {b.border_color().name()})")
         b.hide_all()
     finally:
         config.UI_ANIMATION = False

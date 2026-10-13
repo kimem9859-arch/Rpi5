@@ -43,6 +43,11 @@ THEMES = {
         "current_text":  "#ffd75c",
         "done_text":     "#7dffa8",
         "warn_text":     "#ff9d45",
+        # 경고 · 차단 상자 테두리 · 아이콘 원과 그 안 기호(시안 — 두 테마 같은 값)
+        "warn_edge":     "#ff8f2e",
+        "danger_edge":   "#ff5252",
+        "warn_ink":      "#1a0d00",
+        "danger_ink":    "#ffffff",
         # 글자 그림자 3겹 — 배경 밝기와 무관하게 글자를 분리
         "text_shadow":   "0 1px 2px #000, 0 0 5px rgba(0,0,0,.95), 0 0 12px rgba(0,0,0,.8)",
         # 게이지
@@ -82,6 +87,11 @@ THEMES = {
         "current_text":  "#8f4a00",                     # 채움 #cc6f00 은 글씨로는 대비가 모자란다
         "done_text":     "#00702f",
         "warn_text":     "#9a3c00",
+        # 경고 · 차단 상자 테두리 · 아이콘 원과 그 안 기호(시안 — 두 테마 같은 값)
+        "warn_edge":     "#ff8f2e",
+        "danger_edge":   "#ff5252",
+        "warn_ink":      "#1a0d00",
+        "danger_ink":    "#ffffff",
         # 🔴 밝은 후광 3겹 — 다크의 검은 후광을 그대로 뒤집은 것.
         #    검정에 가까운 본문은 채도를 올릴 수 없어(검정은 채도가 없다) 후광이 유일한 해법이다.
         "text_shadow":   "0 1px 2px #fff, 0 0 5px rgba(255,255,255,.98), 0 0 12px rgba(255,255,255,.9)",
