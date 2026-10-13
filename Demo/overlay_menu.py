@@ -970,15 +970,53 @@ class SettingsPanel(_Sheet):
         self.setGeometry(QRect(vr.left() + (vr.width() - w) // 2, vr.top() + vpx(vr, 96), w, h))
 
 
-_CHECK_ICON = {"camera": "◉", "stream": "◉", "interlock": "⏚", "interlock_ack": "⏚", "gpio": "▣",
-               "detector": "◆", "hand": "✋", "hand_infer": "✋", "buttons": "▣"}
+_CHECK_ICON = {"camera": "camera", "stream": "camera", "interlock": "plug", "interlock_ack": "plug",
+               "gpio": "grid", "detector": "cube", "buttons": "cube", "hand": "hand", "hand_infer": "hand"}
+
+
+class _ActionButton(QPushButton):
+    """각진 실행 버튼 — 「재연결」(회색) · 「다시 점검」(노랑) · 「취소/초기화」(시안). 직접 그린다."""
+
+    def __init__(self, text, kind="plain", height=48, pt=13, cut=8, parent=None):
+        super().__init__(text, parent)
+        self.kind, self.cut = kind, cut
+        self.setMinimumHeight(height)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        f = config.font("sub", 800 if kind != "plain" else 700)
+        f.setPointSize(pt)
+        self.setFont(f)
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = cut_corner_path(QRect(1, 1, self.width() - 2, self.height() - 2), self.cut)
+        if self.kind == "primary":                       # 노란 채움 · 검은 글
+            p.fillPath(path, _qcolor(theme.C("current")))
+            fg = QColor("#111111")
+        elif self.kind == "danger_outline":               # 주황 테두리 · 주황 글(초기화)
+            p.setPen(QPen(_qcolor(theme.C("warn")), 2))
+            p.drawPath(path)
+            fg = _qcolor(theme.C("warn_text"))
+        else:                                             # 회색(재연결)
+            p.fillPath(path, _qcolor(theme.rgba("text", 0.07)))
+            p.setPen(QPen(_qcolor(theme.rgba("text", 0.22)), 1))
+            p.drawPath(path)
+            fg = _qcolor(theme.C("text"))
+        if self.isDown():
+            p.fillPath(path, QColor(0, 0, 0, 40))
+        p.setPen(fg)
+        p.setFont(self.font())
+        p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
+        p.end()
 
 
 class CheckPanel(_Sheet):
-    """점검(연결) — 장치 줄마다 상태 + 수동 재연결(설계 2026-10-13 §4.4 · 앞 design §4.2).
+    """점검(연결) — 시안(Claude Design 2026-10-13 · 4.4) 그대로.
 
+    머리 SYSTEM CHECK · 「점검 (연결)」 40 · 「N개 중 M개 정상 · 시각 확인」 · 닫기 /
+    줄 = 각진 판 · 선 아이콘 칸 52 · 이름 23 · 설명 17 · 「● 정상/끊김」 · (끊김 + 재연결 가능) 「재연결」 / 노란 「다시 점검」 72.
     🔴 재연결 5회 실패 후 **다시 붙일 수 있는 유일한 수단**이다.
-       자동 재시도를 멈추기로 한 이상 이 화면이 없으면 프로그램을 껐다 켜야 한다.
     """
 
     CUT = 28
@@ -990,102 +1028,109 @@ class CheckPanel(_Sheet):
         self._rows = {}
         self._retry_buttons = {}
         self._states = {}
+        self._row_icons = {}
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(36, 30, 36, 30)
-        lay.setSpacing(10)
+        lay.setContentsMargins(36, 32, 36, 32)
+        lay.setSpacing(12)
 
         head = QHBoxLayout()
         col = QVBoxLayout()
-        col.setSpacing(2)
-        self._tag = QLabel("CHECK")
+        col.setSpacing(4)
+        self._tag = QLabel("SYSTEM CHECK")
         self._tag.setFont(config.font("item_sub", 700))
         self._title = QLabel("점검 (연결)")
-        self._title.setFont(config.font("sheet_title", 800))
-        col.addWidget(self._tag)
-        col.addWidget(self._title)
+        f = config.font("sheet_title", 800)
+        f.setPointSize(30)                              # 40px
+        self._title.setFont(f)
+        self._sub = QLabel("")
+        self._sub.setFont(config.font("sub", 500))
+        for w in (self._tag, self._title, self._sub):
+            col.addWidget(w)
         head.addLayout(col)
         head.addStretch()
-        head.addWidget(self._make_close_button())
+        head.addWidget(self._make_close_button(), 0, Qt.AlignmentFlag.AlignTop)
         lay.addLayout(head)
+        self._head_line = QFrame()
+        self._head_line.setFrameShape(QFrame.Shape.HLine)
+        self._head_line.setFixedHeight(1)
+        lay.addSpacing(6)
+        lay.addWidget(self._head_line)
 
         self._body = QVBoxLayout()
-        self._body.setSpacing(10)
+        self._body.setSpacing(12)
         lay.addLayout(self._body)
 
-        lay.addStretch()
-        self._recheck = QPushButton("다시 점검")
-        self._recheck.setFont(config.font("item", 800))
-        self._recheck.setMinimumHeight(72)
-        self._recheck.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._recheck.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        lay.addSpacing(8)
+        self._recheck = _ActionButton("다시 점검", "primary", height=72, pt=20, cut=14)   # 26px
         self._recheck.clicked.connect(lambda: self.recheck_requested.emit())
         lay.addWidget(self._recheck)
 
     def update_results(self, results):
         """CheckResult 목록을 그린다. 끊긴 · 재연결 가능한 항목엔 버튼을 붙인다."""
+        import ui_icons
+        from datetime import datetime
         for w in list(self._rows.values()):
             w.setParent(None)
         self._rows.clear()
         self._retry_buttons.clear()
         self._states.clear()
+        self._row_icons.clear()
 
         for r in results:
-            row = QWidget()
-            row.setObjectName("checkRow")
-            row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-            row.setMinimumHeight(88)
-            row.setStyleSheet(f"QWidget#checkRow {{ background: transparent;"
-                              f" border: 1px solid {theme.C('sheet_border')}; }}")
+            row = _CutRow()
             rl = QHBoxLayout(row)
-            rl.setContentsMargins(18, 10, 18, 10)
-            rl.setSpacing(16)
+            rl.setContentsMargins(18, 14, 18, 14)
+            rl.setSpacing(18)
 
-            icon = QLabel(_CHECK_ICON.get(r.key, "•"))
-            icon.setFixedSize(56, 56)
+            icon = QLabel("")
+            icon.setFixedSize(52, 52)
             icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            icon.setFont(config.font("item", 600))
-            icon.setStyleSheet(f"background: {theme.C('panel_border')}; border: 1px solid {theme.C('sheet_border')};"
-                               f" color: {theme.C('text')};")
+            icon.setStyleSheet(f"background: {theme.rgba('text', 0.07)}; border: 1px solid {theme.rgba('text', 0.18)};")
+            icon.setPixmap(ui_icons.pixmap(_CHECK_ICON.get(r.key, "grid"), theme.C("text"), 26))
 
             col = QVBoxLayout()
-            col.setSpacing(2)
+            col.setSpacing(3)
             name = QLabel(r.name)
-            name.setFont(config.font("item", 800))
+            fn = config.font("item", 800)
+            fn.setPointSize(17)                         # 23px
+            name.setFont(fn)
             name.setStyleSheet(theme.text_qss("text", 800))
             detail = QLabel(r.detail)
-            detail.setFont(config.font("item_sub"))
+            fd = config.font("sub", 500)
+            fd.setPointSize(13)                         # 17px
+            detail.setFont(fd)
             detail.setStyleSheet(theme.text_qss("label", 500))
             col.addWidget(name)
             col.addWidget(detail)
 
+            tok = "done" if r.ok else "danger"
             dot = QLabel("")
             dot.setFixedSize(12, 12)
-            dot.setStyleSheet(f"border-radius: 6px; border: none;"
-                              f" background: {theme.C('done' if r.ok else 'danger')};")
+            dot.setStyleSheet(f"border-radius: 6px; border: none; background: {theme.C(tok)};")
             state = QLabel("정상" if r.ok else "끊김")
-            state.setFont(config.font("sub", 700))
-            state.setStyleSheet(theme.text_qss("done_text" if r.ok else "danger", 700))
+            fs = config.font("sub", 800)
+            fs.setPointSize(14)                         # 18px
+            state.setFont(fs)
+            state.setStyleSheet(theme.text_qss("done_text" if r.ok else "danger", 800))
 
             rl.addWidget(icon)
             rl.addLayout(col, 1)
+            rl.addWidget(dot)
+            rl.addWidget(state)
             if r.retryable and not r.ok:
-                btn = QPushButton("재연결")
-                btn.setFont(config.font("sub", 700))
-                btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-                btn.setStyleSheet(
-                    f"QPushButton {{ background-color: {theme.C('cta_bg')};"
-                    f" color: {theme.C('cta_text')}; border: none; padding: 8px 16px; }}")
+                btn = _ActionButton("재연결", "plain", height=48, pt=14)
+                btn.setMinimumWidth(110)
                 btn.clicked.connect(lambda _=False, k=r.key: self.retry_requested.emit(k))
                 rl.addWidget(btn)
                 self._retry_buttons[r.key] = btn
-            rl.addWidget(dot)
-            rl.addWidget(state)
 
             self._body.addWidget(row)
             self._rows[r.key] = row
             self._states[r.key] = state.text()
+            self._row_icons[r.key] = icon
+        ok_n = sum(1 for r in results if r.ok)
+        self._sub.setText(f"{len(results)}개 중 {ok_n}개 정상 · {datetime.now().strftime('%H:%M:%S')} 확인")
 
     def row_state(self, key):
         """그 줄의 「정상」/「끊김」(시험용)."""
@@ -1095,16 +1140,16 @@ class CheckPanel(_Sheet):
         super().apply_theme()
         self._tag.setStyleSheet(theme.text_qss("current_text", 700) + "letter-spacing: 6px;")
         self._title.setStyleSheet(theme.text_qss("text", 800))
-        self._recheck.setStyleSheet(
-            f"QPushButton {{ background-color: {theme.C('cta_bg')};"
-            f" color: {theme.C('cta_text')}; border: 1px solid {theme.C('cta_border')}; }}")
+        self._sub.setStyleSheet(theme.text_qss("label", 500))
+        self._head_line.setStyleSheet(f"background-color: {theme.C('sheet_border')}; border: none;")
+        self._recheck.update()
 
     def relayout(self, vr):
-        """영상 가운데 · 폭 760(시안)."""
-        w = vpx(vr, 760)
+        """폭 856 · 위 150 · 가로 가운데(시안)."""
+        w = vpx(vr, 856)
         self.setFixedWidth(w)
         h = self.sizeHint().height()
-        self.setGeometry(QRect(vr.left() + (vr.width() - w) // 2, vr.top() + (vr.height() - h) // 2, w, h))
+        self.setGeometry(QRect(vr.left() + (vr.width() - w) // 2, vr.top() + vpx(vr, 150), w, h))
 
 
 class ConfirmPanel(_Sheet):

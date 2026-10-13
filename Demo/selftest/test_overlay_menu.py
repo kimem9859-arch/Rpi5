@@ -343,7 +343,7 @@ def test_check_rows_state_and_place():
     got = []; c.retry_requested.connect(got.append)
     c._retry_buttons["camera"].click(); check(got == ["camera"], f"{got}")
     c.layout().activate(); c.relayout(QRect(107, 0, 1707, 1280))
-    check(c.width() == 760 and abs(c.geometry().center().x() - 960) <= 1, f"{c.geometry()}")
+    check(c.width() == 856 and abs(c.geometry().center().x() - 960) <= 1, f"{c.geometry()}")     # 시안 856
 
 
 def test_confirm_panel_default_cancel():
@@ -375,6 +375,24 @@ def test_start_button_look_and_place():
     check(c.red() > 200 and c.green() > 180 and c.blue() < 140, f"노란 타일 {c.name()}")
     corner = img.pixelColor(2, 2)
     check(corner.alpha() < 50, f"왼쪽 위 모서리는 잘림(투명) {corner.alpha()}")
+
+
+def test_check_matches_comp():
+    """4.4 시안 대조(10/14) — SYSTEM CHECK · 「N개 중 M개 정상 · 시각 확인」 · 선 아이콘 칸 · 노란 「다시 점검」 · (532, 150) 폭 856."""
+    print("\n[16-c] 점검 시안")
+    from overlay_menu import CheckPanel
+    from precheck import CheckResult
+    host = QWidget(); host.resize(1920, 1280); c = CheckPanel(host)
+    c.update_results([CheckResult("camera", "카메라 연결", False, "응답 없음", retryable=True),
+                      CheckResult("detector", "버튼 인식 모델", True, "적재"),
+                      CheckResult("gpio", "GPIO 입력", True, "B1 ~ B4 · EMO")])
+    c.apply_theme(); c.layout().activate(); c.relayout(QRect(107, 0, 1707, 1280))
+    check((c.x(), c.y(), c.width()) == (532, 150, 856), f"{c.geometry()}")
+    check(c._sub.text().startswith("3개 중 2개 정상 · ") and c._sub.text().endswith(" 확인"), c._sub.text())
+    check(all(not ic.pixmap().isNull() for ic in c._row_icons.values()), "선 아이콘 칸")
+    host.show(); _app.processEvents()
+    px = c._recheck.grab().toImage().pixelColor(30, c._recheck.height() // 2)
+    check(px.red() > 200 and px.green() > 180 and px.blue() < 140, f"다시 점검 = 노랑 {px.name()}")
 
 
 def test_record_panel():
