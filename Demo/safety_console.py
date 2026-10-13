@@ -39,7 +39,7 @@ import theme
 from sub_task import SubTask
 from raw_recorder import RawRecorder
 from tool_state import ToolState, held_tool
-from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, PromptBar, place
+from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, PromptBar, place, vplace
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
                           NotifyButton, CheckPanel, RecordPanel)
 from overlay_result import ResultPanel
@@ -480,8 +480,8 @@ class SafetyConsole(QMainWindow):
             place(self.fps_label, self.camera_label.geometry(),
                   right=0.03, bottom=0.10)
 
-        place(self.btn_menu, r, right=0.14, top=0.05)
-        place(self.btn_notify, r, left=0.14, bottom=0.05)
+        vplace(self.btn_menu, vr, 1618, 32, 56, 52)     # 영상 칸 안쪽 32px(시연 UI 개선 §2.1)
+        vplace(self.btn_notify, vr, 32, 1204, 56, 44)
         place(self.btn_cta, r)            # 정중앙
         self.log_browser.setGeometry(int(pw * 0.14), int(ph * 0.10),
                                      int(pw * 0.50), int(ph * 0.80))
@@ -737,7 +737,6 @@ class SafetyConsole(QMainWindow):
         따로 판단하면 표시바와 점검 화면이 서로 다른 말을 하게 된다.
         """
         ok = {r.key: r.ok for r in precheck.run_stage1(self._check_ctx(with_frame=False))}
-        self.conn_bar.update_state({k: ok.get(k) for k in ("camera", "interlock", "gpio")})
 
         # 실측 FPS — 🔴 재는 것은 프레임 도착 간격이라 **카메라가 없으면 None** 이다.
         #    성능 판정은 카메라가 돌아오는 시나리오 테스트에서 한다(spec §4).
@@ -746,6 +745,8 @@ class SafetyConsole(QMainWindow):
         if fps_stale(self._last_frame_time):
             self._fps_intervals.clear()
         fps = fps_from_intervals(self._fps_intervals)
+        # 상태 막대 — 점검(1차)과 같은 출처 · 카메라 fps 를 함께(시연 UI 개선 §3 ⑥)
+        self.conn_bar.update_state({k: ok.get(k) for k in ("camera", "interlock", "gpio")}, fps=fps)
         if fps is not None and time.time() - self._fps_log_at >= 10:
             self._fps_log_at = time.time()
             self._append_log(

@@ -336,57 +336,33 @@ def test_banner_both_themes():
 
 
 def test_conn_bar():
-    """🔴 우하단 연결 상태바 — 아이콘 3개, 상태는 배경색으로 (design §9).
-
-    컬러 이모지는 color: 로 물들지 않는다. 그래서 알약 배경색으로 구분한다.
-    """
-    print("\n[14] 연결 상태바")
+    """⑥ 상태 막대 — 카메라 · 인터락 · 버튼(GPIO) 3칸 · 상태 = 점 색(설계 2026-10-13 §3 ⑥)."""
+    print("\n[14] 상태 막대 항목 · 색")
     from overlay import ConnBar
     host = QWidget()
     c = ConnBar(host)
     check([k for k, _ in ConnBar.ITEMS] == ["camera", "interlock", "gpio"],
           f"항목 3개: {[k for k, _ in ConnBar.ITEMS]}")
-
     c.update_state({"camera": True, "interlock": False, "gpio": None})
-    ok_qss = c._icons["camera"].styleSheet()
-    ng_qss = c._icons["interlock"].styleSheet()
-    unknown_qss = c._icons["gpio"].styleSheet()
-    check(theme.C("done") in ok_qss, f"연결 → done 색: {ok_qss[:48]}")
-    check(theme.C("danger") in ng_qss, f"끊김 → danger 색: {ng_qss[:48]}")
-    check(theme.C("todo") in unknown_qss, f"확인 중 → todo 색: {unknown_qss[:48]}")
-
-    # 우하단에 앉는가 — 화면 오른쪽 아래 1/4 안
-    c.relayout(SCREEN)
-    r = c.geometry()
-    check(r.right() <= SCREEN.width() and r.bottom() <= SCREEN.height(),
-          f"화면 안: {r}")
-    check(r.center().x() > SCREEN.width() * 0.5 and r.center().y() > SCREEN.height() * 0.5,
-          f"우하단: 중심 {r.center().x()},{r.center().y()}")
+    check(c._color("camera") == theme.C("done"), "연결 → done 색")
+    check(c._color("interlock") == theme.C("danger"), "끊김 → danger 색")
+    check(c._color("gpio") == theme.C("todo"), "확인 중 → todo 색")
 
 
-def test_conn_bar_follows_given_rect():
-    """🔴 상태바는 **넘어온 사각형** 안에 앉는다 — 콘솔이 영상 사각형을 넘긴다.
-
-    종전에는 창 전체 기준이라 오른쪽 검정 레터박스에 앉았다(2026-08-04).
-    """
-    print("\n[15] 상태바 기준 사각형")
+def test_status_bar_text_and_place():
+    """⑥ 상태 막대 — 글 · 자리 x 1401~1781 · y 1204~1248(영상 칸 안쪽 32px)."""
+    print("\n[15] 상태 막대 글 · 자리")
     from overlay import ConnBar
-    host = QWidget()
-    c = ConnBar(host)
-
-    # 1920×1080 창 안의 4:3 영상 = 1440×1080, 좌우 240px 씩 레터박스
-    video = QRect(240, 0, 1440, 1080)
-    c.relayout(video)
-    r = c.geometry()
-    check(video.contains(r), f"영상 {video} 안: 상태바 {r}")
-    # 🔴 여백을 **영상 사각형 기준**으로 잰다 — "영상 안에 있다"만 보면
-    #    창 기준으로 앉아도 우연히 통과한다(레터박스 폭만큼 왼쪽에 앉는다).
-    gap_r = video.right() - r.right()
-    gap_b = video.bottom() - r.bottom()
-    check(abs(gap_r - int(video.width() * 0.03)) <= 2,
-          f"오른쪽 여백 {gap_r}px ≈ 영상 폭의 3%({int(video.width() * 0.03)}px)")
-    check(abs(gap_b - int(video.height() * 0.04)) <= 2,
-          f"아래 여백 {gap_b}px ≈ 영상 높이의 4%({int(video.height() * 0.04)}px)")
+    host = QWidget(); host.resize(1920, 1280); c = ConnBar(host)
+    c.update_state({"camera": True, "interlock": True, "gpio": False}, fps=23.7)
+    c.relayout(QRect(107, 0, 1707, 1280))
+    check(c.geometry() == QRect(1401, 1204, 380, 44), f"{c.geometry()}")
+    check(c.text() == "카메라 ● 23.7 fps │ 인터락 ● │ 버튼 ●", c.text())
+    c.update_state({}, fps=None)
+    check("fps" not in c.text(), "fps 모르면 숫자 없음")
+    host.show(); _app.processEvents()
+    img = c.grab().toImage()
+    check(img.pixelColor(c.width() // 2, 2).alpha() > 0, "판이 그려진다")
 
 
 def test_panel_bg_does_not_move_rows():

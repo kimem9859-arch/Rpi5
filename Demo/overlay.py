@@ -21,7 +21,8 @@
 from PyQt6 import sip
 import time
 
-from PyQt6.QtCore import Qt, QRect, QEasingCurve, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QRect, QRectF, QPointF, QEasingCurve, QTimer, pyqtSignal
+from PyQt6.QtGui import QPainter, QPainterPath, QColor
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
 )
@@ -905,51 +906,92 @@ class PromptBar(_Panel):
         self._line.setStyleSheet(theme.text_qss("text", 700))
 
 
-class ConnBar(_Panel):
-    """우하단 연결 상태 — 📷 카메라 · 🔌 인터락 · 🔘 GPIO (design §9).
+def cut_corner_path(rect, c):
+    """왼쪽 위 · 오른쪽 아래 모서리를 c 만큼 자른 다각형(시안 clip-path) — 효과가 아니라 도형 한 번(설계 2026-10-13 §2.3)."""
+    r = QRectF(rect)
+    p = QPainterPath()
+    p.moveTo(r.left() + c, r.top())
+    p.lineTo(r.right(), r.top())
+    p.lineTo(r.right(), r.bottom() - c)
+    p.lineTo(r.right() - c, r.bottom())
+    p.lineTo(r.left(), r.bottom())
+    p.lineTo(r.left(), r.top() + c)
+    p.closeSubpath()
+    return p
 
-    🔴 상태는 **아이콘 뒤 알약 배경색**으로 나타낸다. 컬러 이모지는 스타일시트의
-       color: 로 물들지 않아 글자색으로는 상태를 구분할 수 없다.
-    🔴 상태 판단은 여기서 하지 않는다 — 콘솔이 점검 기능과 **같은 출처**로 계산해
-       update_state() 로 넣어 준다. 두 곳이 따로 판단하면 표시바와 점검 화면이
-       서로 다른 말을 하게 된다.
+
+def _qcolor(css):
+    """'#rrggbb' · 'rgba(r, g, b, a)' → QColor."""
+    if css.startswith("rgba"):
+        r, g, b, a = [x.strip() for x in css[css.index("(") + 1:-1].split(",")]
+        return QColor(int(r), int(g), int(b), int(float(a) * 255))
+    return QColor(css)
+
+
+class ConnBar(QWidget):
+    """우하단 상태 막대 — 카메라 ● fps │ 인터락 ● │ 버튼(GPIO) ●(설계 2026-10-13 §3 ⑥).
+
+    🔴 상태 판단은 여기서 하지 않는다 — 콘솔이 점검 기능과 **같은 출처**로 계산해 update_state() 로 넣는다.
+    🔴 그리기는 값이 바뀔 때만(update) — 종전 알약은 1초마다 라벨 3개의 스타일을 다시 걸었다.
     """
 
-    ITEMS = (("camera", "📷"), ("interlock", "🔌"), ("gpio", "🔘"))
+    ITEMS = (("camera", "카메라"), ("interlock", "인터락"), ("gpio", "버튼"))
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setFont(config.font("sub", 600))
+        self._states = {k: None for k, _ in self.ITEMS}
+        self._fps = None
 
-        self._icons = {}
-        self._states = {}
-        for key, glyph in self.ITEMS:
-            lbl = QLabel(glyph)
-            lbl.setFont(config.font("body", 600))
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setFixedSize(34, 28)
-            lay.addWidget(lbl)
-            self._icons[key] = lbl
-            self._states[key] = None
-        self.update_state({})
+    def _color(self, key):
+        v = self._states.get(key)
+        return theme.C("done" if v is True else "danger" if v is False else "todo")
 
-    def update_state(self, states):
-        """states = {"camera": True|False|None, ...}. None = 확인 중."""
-        self._states.update(states or {})
-        for key, _ in self.ITEMS:
-            v = self._states.get(key)
-            token = "done" if v is True else ("danger" if v is False else "todo")
-            # 🔴 padding: 0 을 명시한다 — 패널의 padding 이 자식에 상속되면 크기가
-            #    고정된 아이콘은 눌려 글리프가 사라진다(2026-08-04 알림에서 겪음).
-            self._icons[key].setStyleSheet(
-                f"background-color: {theme.C(token)}; border-radius: 6px;"
-                f" border: none; padding: 0;")
+    def update_state(self, states, fps=None):
+        """states = {"camera": True|False|None, ...}(None = 확인 중) · fps = 카메라 처리 fps(모르면 None)."""
+        new = dict(self._states)
+        new.update(states or {})
+        fps = None if fps is None else round(float(fps), 1)
+        if new != self._states or fps != self._fps:
+            self._states, self._fps = new, fps
+            self.update()
+
+    def text(self):
+        parts = []
+        for key, name in self.ITEMS:
+            extra = f" {self._fps:.1f} fps" if key == "camera" and self._fps is not None else ""
+            parts.append(f"{name} ●{extra}")
+        return " │ ".join(parts)
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillPath(cut_corner_path(self.rect().adjusted(0, 0, -1, -1), 10), _qcolor(theme.C("panel_bg")))
+        fm = p.fontMetrics()
+        x = 16
+        y = (self.height() + fm.ascent() - fm.descent()) // 2
+        for i, (key, name) in enumerate(self.ITEMS):
+            if i:
+                p.setPen(_qcolor(theme.C("panel_border")))
+                p.drawText(x, y, "│")
+                x += fm.horizontalAdvance("│") + 12
+            p.setPen(_qcolor(theme.C("text")))
+            p.drawText(x, y, name)
+            x += fm.horizontalAdvance(name) + 8
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(_qcolor(self._color(key)))
+            p.drawEllipse(QPointF(x + 6, self.height() / 2), 6, 6)
+            x += 20
+            if key == "camera" and self._fps is not None:
+                t = f"{self._fps:.1f} fps"
+                p.setPen(_qcolor(theme.C("label")))
+                p.drawText(x, y, t)
+                x += fm.horizontalAdvance(t) + 12
+        p.end()
 
     def apply_theme(self):
-        super().apply_theme()
-        self.update_state({})            # 테마가 바뀌면 색을 다시 칠한다
+        self.update()            # 테마가 바뀌면 색을 다시 칠한다
 
-    def relayout(self, parent_rect):
-        place(self, parent_rect, right=0.03, bottom=0.04)
+    def relayout(self, vr):
+        vplace(self, vr, 1294, 1204, 380, 44)
