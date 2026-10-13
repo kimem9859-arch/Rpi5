@@ -215,8 +215,56 @@ def box_bgr(name, tool=False):
     색표 정본 = config.DETECT_BOX_COLORS · TOOL_BOX_COLORS (설계 §5.1)
     """
     table = config.TOOL_BOX_COLORS if tool else config.DETECT_BOX_COLORS
-    h = table.get(name, config.DETECT_BOX_FALLBACK).lstrip("#")
+    return _hex_bgr(table.get(name, config.DETECT_BOX_FALLBACK))
+
+
+def _hex_bgr(h):
+    """🔴 16진수 → BGR 는 여기 하나뿐이다(cv2 는 BGR)."""
+    h = h.lstrip("#")
     return (int(h[4:6], 16), int(h[2:4], 16), int(h[0:2], 16))
+
+
+def role_bgr(role):
+    """인식 상자 역할(단계 뜻) → BGR(설계 2026-10-13 §3 ②)."""
+    return _hex_bgr(config.BOX_ROLE_COLORS[role])
+
+
+_INK = (20, 20, 20)            # 이름표 글씨 · 기호 — 밝은 이름표 위 짙은 색
+
+
+def _glyph(frame, role, x, y, s):
+    """이름표 앞 기호 — Hershey 글꼴에 ✓ ✕ 자물쇠가 없어 선으로(설계 §3.1). 그린 폭(+간격)을 돌려준다."""
+    if role == "done":
+        cv2.line(frame, (x, y + s // 2), (x + s // 3, y + s), _INK, 2)
+        cv2.line(frame, (x + s // 3, y + s), (x + s, y), _INK, 2)
+    elif role == "warn":
+        cv2.line(frame, (x, y), (x + s, y + s), _INK, 2)
+        cv2.line(frame, (x + s, y), (x, y + s), _INK, 2)
+    elif role == "block":
+        cv2.rectangle(frame, (x, y + s // 2), (x + s, y + s), _INK, -1)
+        cv2.ellipse(frame, (x + s // 2, y + s // 2), (max(1, s // 3), max(1, s // 3)), 0, 180, 360, _INK, 2)
+    else:
+        return 0
+    return s + 6
+
+
+def draw_box_label(frame, box, name, role, score=None):
+    """모서리 꺾쇠 8줄 + 작은 이름표(설계 §3 ②). 위쪽 끝 상자는 이름표를 상자 안으로 내린다."""
+    x1, y1, x2, y2 = (int(v) for v in box)
+    c = role_bgr(role)
+    L = max(8, min(x2 - x1, y2 - y1) // 4)
+    for px, py, dx, dy in ((x1, y1, 1, 1), (x2, y1, -1, 1), (x1, y2, 1, -1), (x2, y2, -1, -1)):
+        cv2.line(frame, (px, py), (px + dx * L, py), c, 3)
+        cv2.line(frame, (px, py), (px, py + dy * L), c, 3)
+    text = name if score is None else f"{name} {score:.2f}"
+    (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+    gs = th if role in ("done", "warn", "block") else 0
+    w = tw + 12 + (gs + 6 if gs else 0)
+    h = th + base + 8
+    top = y1 - h - 2 if y1 - h - 2 >= 0 else y1 + 2
+    cv2.rectangle(frame, (x1, top), (x1 + w, top + h), c, -1)
+    gx = _glyph(frame, role, x1 + 6, top + 4, gs) if gs else 0
+    cv2.putText(frame, text, (x1 + 6 + gx, top + h - base - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.6, _INK, 2)
 
 
 # =============================================================================
@@ -246,6 +294,9 @@ class CameraThread(QThread):
         self._host               = CAMERA_TCP_HOST
         self._is_active          = True
         self._draw_boxes         = config.SHOW_DETECT_BOXES
+        self._draw_scores        = config.SHOW_DETECT_SCORES   # 인식 점수 숫자(설정 · 기본 끔)
+        self._draw_hand          = config.HAND_DRAW            # 손 인식 오버레이(설정 · 상자와 따로)
+        self._box_roles          = {}                          # 버튼 이름 → 단계 뜻(콘솔이 상태가 바뀔 때 넣는다)
         self._frame_sink         = None      # 시연영상 촬영이 붙는 자리 (demo_recorder)
         self._raw_sink           = None      # 1인칭 원본 녹화가 붙는 자리 (raw_recorder · 측정 녹화 설계 R1)
         self._raw_seq            = 0         # 측정 기록이 꺼졌을 때 원본 녹화가 쓰는 처리 순번
@@ -332,9 +383,30 @@ class CameraThread(QThread):
                 self._tracks = []
 
     def set_draw_boxes(self, on):
-        """탐지 박스·손 랜드마크를 그릴지. 🔴 **표시만** 바뀐다 — 검출·판정은 그대로."""
+        """인식 상자를 그릴지. 🔴 **표시만** 바뀐다 — 검출·판정은 그대로. 손 표시는 set_draw_hand(따로 · 10/13)."""
         with self._lock:
             self._draw_boxes = bool(on)
+
+    def set_draw_scores(self, on):
+        """인식 상자 이름표에 점수 숫자를 붙일지(표시만)."""
+        with self._lock:
+            self._draw_scores = bool(on)
+
+    def set_draw_hand(self, on):
+        """손 인식 오버레이(관절 점 · 검지 끝)를 그릴지(표시만 — 손끝 검출 · 판정은 그대로)."""
+        with self._lock:
+            self._draw_hand = bool(on)
+
+    def set_box_roles(self, roles):
+        """버튼 이름 → 단계 뜻("current"|"done"|"todo"|"emo"|"warn"|"block") — 상자 색(설계 §3 ②)."""
+        with self._lock:
+            self._box_roles = dict(roles)
+
+    def draw_flags(self):
+        """(상자를 그리나, 손을 그리나) — 촬영이 붙어 있으면 설정과 무관하게 둘 다(촬영 영상 = 오버레이 켬)."""
+        with self._lock:
+            rec = self._frame_sink is not None
+            return (self._draw_boxes or rec, self._draw_hand or rec)
 
     def draw_boxes(self):
         with self._lock:
@@ -420,18 +492,15 @@ class CameraThread(QThread):
     # =========================================================================
     # [YOLO 드로잉]
     # =========================================================================
-    def _draw_yolo(self, frame, tracks):
+    def _draw_yolo(self, frame, tracks, roles=None, scores=False):
+        """확정 트랙마다 꺾쇠 + 이름표 — 색 = 단계 뜻(roles · 모르면 「남은 단계」 회색)."""
+        roles = roles or {}
         for t in tracks:
             if not t['confirmed']:
                 continue                 # 미확정 트랙은 그리지 않는다(R2)
-            cls_id = t['cls']
-            x1, y1, x2, y2 = t['box']
-            name = _detector.class_name(cls_id)
-            color = box_bgr(name)
-            label = f"{name} {t['score']:.2f}"
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(frame, label, (x1, y1 - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            name = _detector.class_name(t['cls'])
+            draw_box_label(frame, t['box'], name, roles.get(name, "todo"),
+                           t['score'] if scores else None)
         return frame
 
     def _draw_tools(self, frame):
@@ -752,6 +821,9 @@ class CameraThread(QThread):
         with self._lock:
             is_active = self._is_active
             draw = self._draw_boxes
+            hand_on = self._draw_hand
+            scores = self._draw_scores
+            roles = self._box_roles
             sink = self._frame_sink
             raw_sink = self._raw_sink
 
@@ -791,7 +863,8 @@ class CameraThread(QThread):
             raw_sink(clean_frame if clean_frame is not None else frame.copy(), fid, measure_log.now_ms(t))
         # 🔴 촬영 중에는 화면 표시와 무관하게 그린다 — 오버레이 OFF 회차에서도
         #    「오버레이 있는 1인칭 영상」이 나와야 한다.
-        draw_overlay = draw or sink is not None
+        draw_box = draw or sink is not None
+        draw_hand = hand_on or sink is not None
 
         tracks = []
         if DETECTOR_AVAILABLE:
@@ -819,11 +892,11 @@ class CameraThread(QThread):
         #    화면 표시·촬영 여부가 손 모델 입력을 바꿨다(함수목록 §4.1-1). 그리기는 종전처럼 박스
         #    **다음에** 랜드마크를 얹으므로(화면 모습 유지 · 최종 리뷰 M-7), 박스를 그릴 때만 박스
         #    전 사본으로 검출한다.
-        hand_in = frame.copy() if (draw_overlay and DETECTOR_AVAILABLE) else frame
+        hand_in = frame.copy() if (draw_box and DETECTOR_AVAILABLE) else frame
 
         if DETECTOR_AVAILABLE:
-            if draw_overlay:
-                frame = self._draw_yolo(frame, tracks)
+            if draw_box:
+                frame = self._draw_yolo(frame, tracks, roles, scores)
             self.yolo_detections_signal.emit([
                 (_detector.class_name(t['cls']), t['score'], *t['box'])
                 for t in tracks if t['confirmed']          # 미확정 트랙은 내보내지 않는다(R2)
@@ -832,7 +905,7 @@ class CameraThread(QThread):
         # 손 검출 → 검지 끝. 랜드마크는 hand_tracker 가 추론 뒤 frame 에 직접 그린다.
         # 🔴 draw_on=None 이어도 검출은 그대로 한다 — 반환값(손끝)은 ROI 판정에 쓴다.
         t0 = time.perf_counter()
-        fingertip = self._hand.detect(hand_in, draw_on=frame if draw_overlay else None)
+        fingertip = self._hand.detect(hand_in, draw_on=frame if draw_hand else None)
         self._mark("hand_ms", t0)
         if self._m_row is not None:
             self._m_row["tip"] = fingertip
@@ -865,7 +938,7 @@ class CameraThread(QThread):
                     for name, sc, x1, y1, x2, y2 in got[0]:
                         bx.append([fr, tr, "tool", name, round(float(sc), 4),
                                    int(x1), int(y1), int(x2), int(y2), ""])
-            if draw_overlay:
+            if draw_box:
                 frame = self._draw_tools(frame)
             self._mark("tool_ms", t_tool)
 
@@ -883,7 +956,7 @@ class CameraThread(QThread):
         if sink is not None:
             sink(frame, clean_frame)
             # 화면에는 회차 설정대로 보여준다 — 촬영 때문에 화면이 바뀌면 안 된다.
-            return frame if draw else clean_frame
+            return frame if (draw or hand_on) else clean_frame
         return frame
 
     # =========================================================================

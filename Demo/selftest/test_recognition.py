@@ -202,6 +202,29 @@ def test_r3_landmarks_drawn_over_boxes():
     check(int(th._hand.seen[-1].max()) == 0, "손 모델 입력에는 여전히 박스 선이 없다")
     _FAKE_DET.dets = []
 
+
+def test_draw_switches_independent():
+    """② 표시 스위치(설계 2026-10-13 §4.2) — 상자 끔 · 손 켬 → 손만 · 촬영 중에는 둘 다 · 상자 색 = 단계 뜻."""
+    print("\n[②] 상자 · 손 표시 따로")
+    th = ct.CameraThread()
+    th._hand = _PaintingHand()
+    th.set_draw_boxes(False); th.set_draw_hand(True)
+    _FAKE_DET.dets = [(0, 0.9, 20, 20, 60, 60)]
+    img = np.zeros((120, 160, 3), np.uint8)
+    for _ in range(2):
+        out = th._process_frame(img.copy())
+    check(tuple(int(v) for v in out[20, 40]) == (1, 2, 3), "손 표시는 그려진다")
+    check(not out[20, 25].any(), "상자(꺾쇠)는 안 그려진다")
+    th.set_draw_hand(False); th.set_draw_boxes(True); th.set_box_roles({"B1": "current"})
+    out = th._process_frame(img.copy())
+    check(tuple(int(v) for v in out[20, 25]) == ct.role_bgr("current"), f"꺾쇠 = 지금 차례 노랑 {tuple(out[20, 25])}")
+    check(tuple(int(v) for v in out[20, 40]) != (1, 2, 3), "손 표시 끔")
+    th.set_draw_boxes(False)
+    th.set_frame_sink(lambda a, b: None)
+    check(th.draw_flags() == (True, True), f"촬영 중 둘 다 {th.draw_flags()}")
+    th.set_frame_sink(None)
+    _FAKE_DET.dets = []
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

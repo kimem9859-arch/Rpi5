@@ -2718,6 +2718,22 @@ def test_tool_npu_load_failure_in_start_log():
         config.TOOL_BACKEND, config.TOOL_HEF_PATH, config.TOOL_ENABLED, config.TOOL_SHM_DIR = old
 
 
+
+def test_box_roles_follow_steps():
+    """② 인식 상자 색 = 단계 뜻(시연 UI 개선 §3 ②) — 작업 중 지금 차례 · 끝남 · 차단 대상이 맞게 넘어간다."""
+    print("\n[②] 상자 역할")
+    win = make_console()
+    r = win.camera_thread._box_roles
+    check(r.get("B1") == "todo" and r.get("EMO") == "emo", f"작업 전 {r}")
+    win._on_cta()
+    key(win, "1"); finish_sub(win)
+    r = win.camera_thread._box_roles
+    check(r.get("B1") == "done" and r.get("B2") == "current", f"2단계 {r}")
+    key(win, "3")                                    # 오답 → 차단
+    r = win.camera_thread._box_roles
+    check(r.get("B3") == "block", f"차단 대상 {r}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

@@ -50,6 +50,34 @@ def test_every_recipe_tool_has_color():
             check(key in config.TOOL_BOX_COLORS, f"{key} 색 있음")
 
 
+def test_role_colors():
+    """② 단계 뜻 색(설계 2026-10-13 §3 ②) — 지금 노랑 · 끝남 초록 · 남은 회색 · EMO 빨강 · 경고 주황 · 차단 빨강."""
+    print("\n[역할] 단계 뜻 색")
+    from camera_thread import role_bgr
+    check(role_bgr("current") == (92, 215, 255), f"current {role_bgr('current')}")
+    check(role_bgr("warn") == (69, 157, 255), f"warn {role_bgr('warn')}")
+    for r in ("current", "done", "todo", "emo", "warn", "block"):
+        check(r in config.BOX_ROLE_COLORS, f"{r} 표에 있음")
+
+
+def test_label_draws_inside_frame_and_glyphs():
+    """② 이름표 — 위쪽 끝 상자도 화면 안 · ✓ ✕ 자물쇠 선 그리기가 죽지 않는다."""
+    print("\n[역할] 이름표 그리기")
+    import numpy as np
+    from camera_thread import draw_box_label
+    f = np.zeros((480, 640, 3), np.uint8)
+    for role in ("current", "done", "todo", "emo", "warn", "block"):
+        draw_box_label(f, (10, 2, 120, 90), "B1", role, score=0.94)
+    check(bool(f.any()), "무언가 그려짐")
+    g = np.zeros((480, 640, 3), np.uint8)
+    draw_box_label(g, (10, 2, 120, 90), "B1", "current")
+    check(bool(g[4:30, 12:60].any()), "이름표가 상자 안쪽 위로 내려옴(화면 밖으로 안 나감)")
+    h = np.zeros((480, 640, 3), np.uint8)
+    draw_box_label(h, (100, 100, 200, 180), "B2", "done")
+    check(tuple(int(v) for v in h[100, 105]) == (168, 255, 125), f"꺾쇠 = 끝남 초록 {tuple(h[100, 105])}")
+    check(not h[140, 150].any(), "상자 가운데는 비어 있음(꺾쇠만)")
+
+
 def test_unknown_falls_back():
     """표에 없는 이름은 죽지 않고 폴백색을 쓴다."""
     print("\n[4] 폴백")
@@ -68,6 +96,8 @@ if __name__ == "__main__":
         test_every_button_class_has_color()
         test_every_recipe_tool_has_color()
         test_unknown_falls_back()
+        test_role_colors()
+        test_label_draws_inside_frame_and_glyphs()
         print()
         if _fails:
             print(f"❌ 실패 {len(_fails)}건")

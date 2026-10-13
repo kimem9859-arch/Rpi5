@@ -229,6 +229,7 @@ class SafetyConsole(QMainWindow):
                      if self._measure.enabled else None))
 
         self.camera_thread = CameraThread()
+        self._sync_box_roles()           # 작업 전 상자 색(남은 단계 · EMO) — 카메라 스레드가 생긴 직후
         self.camera_thread.set_measure(self._measure)
         self.camera_thread.change_pixmap_signal.connect(self._update_camera_frame)
         self.camera_thread.log_signal.connect(self._append_log)
@@ -1536,6 +1537,27 @@ class SafetyConsole(QMainWindow):
                 return s.get("button", "")
         return ""
 
+    def _sync_box_roles(self):
+        """인식 상자 색 = 단계 뜻(설계 2026-10-13 §3 ②) — 상태가 바뀔 때만 넘긴다(처리 스레드는 잠금 안에서 읽는다).
+
+        지금 차례 노랑 · 끝남 초록 · 남은 단계 회색 · EMO 빨강 · 경고 대상 주황 · 차단 대상(누른 오답) 빨강.
+        """
+        steps = [s["button"] for s in (self._recipe or {}).get("steps", [])] or [
+            f"B{i + 1}" for i in range(self.fsm.step_count)]
+        st, cur = self.fsm.state, self.fsm.expected_step
+        roles = {}
+        for i, b in enumerate(steps):
+            order = i + 1
+            roles[b] = ("todo" if st == State.IDLE else "done" if order < cur
+                        else "current" if order == cur else "todo")
+        emo = self._emo_button()
+        roles[emo] = "emo"
+        if st == State.WARNING and self.fsm.last_roi:
+            roles[self.fsm.last_roi] = "warn"
+        if st == State.BLOCK and self._last_button and self._last_button != emo:
+            roles[self._last_button] = "block"
+        self.camera_thread.set_box_roles(roles)
+
     def _emo_button(self):
         """비상정지 버튼 이름.
 
@@ -1954,6 +1976,8 @@ class SafetyConsole(QMainWindow):
                 self.glow.set_level(None)
                 self.alert.hide_all()
                 self._refresh_dim()
+
+        self._sync_box_roles()          # 인식 상자 색 = 단계 뜻(시연 UI 개선 §3 ②)
 
         # 차단이 풀리면(해제·초기화 성공) 「EMO 미복귀」 거부 창은 옛 말이 된다 — 닫는다(종합 리뷰 A-M8).
         # 🔴 인터락 폴트 창은 닫지 않는다 — 「차단 미확인」은 지난 사실이고 릴레이·배선·Arduino 점검
