@@ -732,103 +732,141 @@ class SettingsPanel(_Sheet):
         self.setGeometry(QRect(vr.left() + (vr.width() - w) // 2, vr.top() + (vr.height() - h) // 2, w, h))
 
 
+_CHECK_ICON = {"camera": "◉", "stream": "◉", "interlock": "⏚", "interlock_ack": "⏚", "gpio": "▣",
+               "detector": "◆", "hand": "✋", "hand_infer": "✋", "buttons": "▣"}
+
+
 class CheckPanel(_Sheet):
-    """점검(연결) — 항목별 상태 + 수동 재연결 (design §4.2).
+    """점검(연결) — 장치 줄마다 상태 + 수동 재연결(설계 2026-10-13 §4.4 · 앞 design §4.2).
 
     🔴 재연결 5회 실패 후 **다시 붙일 수 있는 유일한 수단**이다.
        자동 재시도를 멈추기로 한 이상 이 화면이 없으면 프로그램을 껐다 켜야 한다.
     """
 
+    CUT = 28
     retry_requested = pyqtSignal(str)     # 항목 key
     recheck_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._rows = {}
+        self._retry_buttons = {}
+        self._states = {}
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        lay.setContentsMargins(36, 30, 36, 30)
+        lay.setSpacing(10)
 
         head = QHBoxLayout()
-        self._title = QLabel("🔧  점검 (연결)")
-        self._title.setFont(config.font("title", 800))
-        head.addWidget(self._title)
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        self._tag = QLabel("CHECK")
+        self._tag.setFont(config.font("item_sub", 700))
+        self._title = QLabel("점검 (연결)")
+        self._title.setFont(config.font("sheet_title", 800))
+        col.addWidget(self._tag)
+        col.addWidget(self._title)
+        head.addLayout(col)
         head.addStretch()
         head.addWidget(self._make_close_button())
         lay.addLayout(head)
 
         self._body = QVBoxLayout()
-        self._body.setSpacing(4)
+        self._body.setSpacing(10)
         lay.addLayout(self._body)
 
         lay.addStretch()
         self._recheck = QPushButton("다시 점검")
-        self._recheck.setFont(config.font("body", 700))
+        self._recheck.setFont(config.font("item", 800))
+        self._recheck.setMinimumHeight(72)
         self._recheck.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._recheck.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._recheck.clicked.connect(lambda: self.recheck_requested.emit())
         lay.addWidget(self._recheck)
 
     def update_results(self, results):
-        """CheckResult 목록을 그린다. 재연결 가능한 항목엔 버튼을 붙인다."""
+        """CheckResult 목록을 그린다. 끊긴 · 재연결 가능한 항목엔 버튼을 붙인다."""
         for w in list(self._rows.values()):
             w.setParent(None)
         self._rows.clear()
+        self._retry_buttons.clear()
+        self._states.clear()
 
         for r in results:
             row = QWidget()
+            row.setObjectName("checkRow")
+            row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            row.setMinimumHeight(88)
+            row.setStyleSheet(f"QWidget#checkRow {{ background: transparent;"
+                              f" border: 1px solid {theme.C('sheet_border')}; }}")
             rl = QHBoxLayout(row)
-            rl.setContentsMargins(0, 0, 0, 0)
-            rl.setSpacing(8)
+            rl.setContentsMargins(18, 10, 18, 10)
+            rl.setSpacing(16)
 
-            mark = QLabel(r.mark)
-            mark.setFont(config.font("body", 800))
-            mark.setStyleSheet(theme.text_qss("done" if r.ok else "danger", 800))
-            mark.setFixedWidth(18)
+            icon = QLabel(_CHECK_ICON.get(r.key, "•"))
+            icon.setFixedSize(56, 56)
+            icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            icon.setFont(config.font("item", 600))
+            icon.setStyleSheet(f"background: {theme.C('panel_border')}; border: 1px solid {theme.C('sheet_border')};"
+                               f" color: {theme.C('text')};")
 
             col = QVBoxLayout()
-            col.setSpacing(1)
+            col.setSpacing(2)
             name = QLabel(r.name)
-            name.setFont(config.font("body", 600))
-            name.setStyleSheet(theme.text_qss("text", 600))
+            name.setFont(config.font("item", 800))
+            name.setStyleSheet(theme.text_qss("text", 800))
             detail = QLabel(r.detail)
-            detail.setFont(config.font("small"))
+            detail.setFont(config.font("item_sub"))
             detail.setStyleSheet(theme.text_qss("label", 500))
             col.addWidget(name)
             col.addWidget(detail)
 
-            rl.addWidget(mark)
-            # 🔴 남는 공간을 **이름 칸과 오른쪽 여백이 3:1 로 나눠 갖는다** —
-            #    이름 칸에 전부 주면(addLayout(col, 1)) 버튼이 패널 오른쪽 끝까지
-            #    밀려 항목 이름과 화면 폭만큼 벌어진다(2026-08-04).
-            #    ⚠️ stretch 를 이름과 버튼 **사이**에 두면 오히려 더 밀려난다.
-            rl.addLayout(col, 3)
+            dot = QLabel("")
+            dot.setFixedSize(12, 12)
+            dot.setStyleSheet(f"border-radius: 6px; border: none;"
+                              f" background: {theme.C('done' if r.ok else 'danger')};")
+            state = QLabel("정상" if r.ok else "끊김")
+            state.setFont(config.font("sub", 700))
+            state.setStyleSheet(theme.text_qss("done_text" if r.ok else "danger", 700))
 
+            rl.addWidget(icon)
+            rl.addLayout(col, 1)
             if r.retryable and not r.ok:
                 btn = QPushButton("재연결")
-                btn.setFont(config.font("small", 700))
+                btn.setFont(config.font("sub", 700))
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
                 btn.setStyleSheet(
                     f"QPushButton {{ background-color: {theme.C('cta_bg')};"
-                    f" color: {theme.C('cta_text')}; border: none;"
-                    f" border-radius: 5px; padding: 5px 12px; }}")
+                    f" color: {theme.C('cta_text')}; border: none; padding: 8px 16px; }}")
                 btn.clicked.connect(lambda _=False, k=r.key: self.retry_requested.emit(k))
                 rl.addWidget(btn)
-            rl.addStretch(1)          # 버튼 **뒤**의 여백 — 버튼을 안쪽으로 당긴다
+                self._retry_buttons[r.key] = btn
+            rl.addWidget(dot)
+            rl.addWidget(state)
 
             self._body.addWidget(row)
             self._rows[r.key] = row
+            self._states[r.key] = state.text()
+
+    def row_state(self, key):
+        """그 줄의 「정상」/「끊김」(시험용)."""
+        return self._states.get(key)
 
     def apply_theme(self):
         super().apply_theme()
+        self._tag.setStyleSheet(theme.text_qss("current_text", 700) + "letter-spacing: 6px;")
         self._title.setStyleSheet(theme.text_qss("text", 800))
         self._recheck.setStyleSheet(
             f"QPushButton {{ background-color: {theme.C('cta_bg')};"
-            f" color: {theme.C('cta_text')}; border: 1px solid {theme.C('cta_border')};"
-            f" border-radius: 8px; padding: 10px 18px; }}")
+            f" color: {theme.C('cta_text')}; border: 1px solid {theme.C('cta_border')}; }}")
 
-    def relayout(self, parent_rect):
-        place(self, parent_rect, width=0.34)
+    def relayout(self, vr):
+        """영상 가운데 · 폭 760(시안)."""
+        w = vpx(vr, 760)
+        self.setFixedWidth(w)
+        h = self.sizeHint().height()
+        self.setGeometry(QRect(vr.left() + (vr.width() - w) // 2, vr.top() + (vr.height() - h) // 2, w, h))
 
 
 class RecordPanel(_Sheet):

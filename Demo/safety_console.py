@@ -470,7 +470,7 @@ class SafetyConsole(QMainWindow):
         self.menu_panel.relayout(vr)
         self.notify_panel.relayout(vr)
         self.settings_panel.relayout(vr)
-        self.check_panel.relayout(r)
+        self.check_panel.relayout(vr)
         self.record_panel.relayout(r)
         self.result_panel.relayout(r)
         # 🔴 상태바만 **영상 사각형** 기준이다 — 창 기준이면 오른쪽 검정

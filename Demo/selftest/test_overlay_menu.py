@@ -305,6 +305,21 @@ def test_check_panel():
     check(not p._rows["hand"].findChildren(QPushButton), "통과 항목엔 버튼 없음")
 
 
+def test_check_rows_state_and_place():
+    """4.4 점검 — 줄마다 「정상/끊김」 · 재연결 · 가운데 폭 760(설계 2026-10-13 §4.4)."""
+    print("\n[16-b] 점검 줄 상태 · 자리")
+    from overlay_menu import CheckPanel
+    from precheck import CheckResult
+    host = QWidget(); host.resize(1920, 1280); c = CheckPanel(host)
+    c.update_results([CheckResult("camera", "안경 카메라", False, "응답 없음", retryable=True),
+                      CheckResult("interlock", "인터락 연결", True, "RUN")])
+    check(c.row_state("camera") == "끊김" and c.row_state("interlock") == "정상", "상태 글")
+    got = []; c.retry_requested.connect(got.append)
+    c._retry_buttons["camera"].click(); check(got == ["camera"], f"{got}")
+    c.layout().activate(); c.relayout(QRect(107, 0, 1707, 1280))
+    check(c.width() == 760 and abs(c.geometry().center().x() - 960) <= 1, f"{c.geometry()}")
+
+
 def test_record_panel():
     """녹화 패널 — 모드 2종, 중지 버튼 전환."""
     print("\n[17] 녹화 패널")
