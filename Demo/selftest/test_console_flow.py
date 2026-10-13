@@ -2740,8 +2740,10 @@ def test_menu_button_toggles_and_system_summary():
     check(win.btn_menu.accessibleName() == "메뉴 닫기", f"열림 → {win.btn_menu.accessibleName()}")
     check(win.menu_panel._sys["interlock"][1].text() != "", "시스템 상태 줄이 채워짐")
     check("1단계" in win.menu_panel._ctx.text(), win.menu_panel._ctx.text())
+    check(all(l.isHidden() for l in win.status_panel._lines), "메뉴가 열리면 단계 카드 접힘(시안)")
     win._toggle_menu(False)
     check(win.btn_menu.accessibleName() == "메뉴", f"닫힘 → {win.btn_menu.accessibleName()}")
+    check(not any(l.isHidden() for l in win.status_panel._lines), "닫으면 다시 펼침")
     win.close()
 
 

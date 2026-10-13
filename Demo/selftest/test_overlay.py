@@ -223,6 +223,16 @@ def test_status_card_matches_comp():
     check(p._state.text() == "차단" and theme.rgba("danger", 0.6) in p.styleSheet(), f"차단 {p._state.text()}")
 
 
+def test_status_card_compact():
+    """4.1 시안 대조 — 메뉴가 열리면 단계 카드는 제목 · 단계 줄만(행 접힘)."""
+    print("\n[①] 카드 접기")
+    host = QWidget(); p = StatusPanel(STEPS, host); p.update_view("PROCESS RUN", 2)
+    p.set_compact(True)
+    check(all(l.isHidden() for l in p._lines) and not p._state.isHidden(), "행 숨김 · 제목 남음")
+    p.set_compact(False)
+    check(not any(l.isHidden() for l in p._lines), "다시 펼침")
+
+
 def test_status_card_place():
     """① 단계 카드 자리 (139, 32) · 폭 461(영상 칸 안쪽 32px)."""
     print("\n[①] 단계 카드 자리")

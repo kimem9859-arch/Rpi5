@@ -270,10 +270,10 @@ class _MenuItem(QPushButton):
         h = QHBoxLayout(self)
         h.setContentsMargins(22, 0, 22, 0)
         h.setSpacing(20)
-        self.icon = QLabel(icon)
+        self.icon_name = icon            # ui_icons 이름(시안 선 그림)
+        self.icon = QLabel("")
         self.icon.setFixedSize(56, 56)
         self.icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.icon.setFont(config.font("item", 600))
         col = QVBoxLayout()
         col.setSpacing(4)
         self.title = QLabel(title)
@@ -297,9 +297,11 @@ class _MenuItem(QPushButton):
             f"QPushButton {{ background: transparent; border: 1px solid {edge}; }}"
             f"QPushButton:hover, QPushButton:pressed {{ background: {theme.rgba('current', 0.14)};"
             f" border: 2px solid {theme.C('current')}; }}")
+        import ui_icons
         self.icon.setStyleSheet(
-            f"background: {theme.rgba(self.tone, 0.10) if accent else theme.C('panel_border')};"
-            f" border: 1px solid {edge}; color: {theme.C(self.tone)};")
+            f"background: {theme.rgba(self.tone, 0.10) if accent else theme.rgba('text', 0.07)};"
+            f" border: 1px solid {theme.rgba(self.tone, 0.45) if accent else theme.rgba('text', 0.18)};")
+        self.icon.setPixmap(ui_icons.pixmap(self.icon_name, theme.C(self.tone), 28))
         self.title.setStyleSheet(theme.text_qss(self.tone + "_text" if self.tone == "warn" else self.tone, 800))
         self.desc.setStyleSheet(theme.text_qss("label", 500))
         self.chev.setStyleSheet(theme.text_qss("todo", 500))
@@ -339,10 +341,10 @@ class MenuPanel(_Sheet):
 
         self._items = []
         for icon, title, desc, tone, sig in (
-                ("◉", "점검 (연결)", "카메라 · 인터락 · 버튼 입력 상태", "text", self.check_clicked),
-                ("☰", "로그", "시스템이 남긴 최근 기록", "text", self.log_clicked),
-                ("⚙", "설정", "공구 · 테마 · 화면 표시", "text", self.settings_clicked),
-                ("↺", "작업 초기화", "「작업 시작」 전으로 되돌립니다", "warn", self.reset_clicked)):
+                ("pulse", "점검 (연결)", "카메라 · 인터락 · AI 가속칩 상태", "text", self.check_clicked),
+                ("list", "로그", "시스템이 남긴 최근 기록", "text", self.log_clicked),
+                ("sliders", "설정", "공구 · 테마 · 화면 표시", "text", self.settings_clicked),
+                ("reset", "작업 초기화", "「작업 시작」 전으로 되돌립니다", "warn", self.reset_clicked)):
             b = _MenuItem(icon, title, desc, tone)
             b.clicked.connect(sig.emit)
             lay.addWidget(b)
@@ -407,6 +409,8 @@ class MenuPanel(_Sheet):
                 text = f"연결 · {fps:.1f} fps"
             elif key == "detector":
                 text = "정상"
+            elif key == "gpio":
+                text = "B1 ~ B4 · EMO"           # 시안 — 버튼 입력이 읽는 것
             else:
                 text = "연결"
             v.setText(text)

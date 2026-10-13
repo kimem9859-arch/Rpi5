@@ -677,6 +677,8 @@ class SafetyConsole(QMainWindow):
             self.menu_panel.raise_()
             self._update_menu_system()
         self._style_menu_button(want)
+        self.status_panel.set_compact(want)     # 시안 4.1 — 메뉴가 열린 동안 단계 카드는 제목만
+        self.status_panel.relayout(self.camera_label.geometry())
         self._refresh_dim()
         self._sync_cta_visibility()
 

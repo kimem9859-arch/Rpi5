@@ -248,6 +248,12 @@ class StatusPanel(_Panel):
         # 🔴 기동 직후도 **실제 FSM 상태(IDLE)** 로 그린다 — 종전 "STANDBY" 하드코딩은 1단계를 강조시켰다.
         self.update_view("IDLE", 1)
 
+    def set_compact(self, on):
+        """메뉴가 열린 동안 — 제목 · 단계 줄만 남기고 행을 접는다(시안 4.1)."""
+        for line in self._lines:
+            line.setVisible(not on)
+        self.layout().activate()         # 높이는 호출부가 relayout 으로 다시 잰다
+
     def marks(self):
         """행 앞 표시(시험용) — ✓ ● ! ✕ · 남은 단계 빈칸."""
         return [_MARK.get(k, "") for k in self._kinds]

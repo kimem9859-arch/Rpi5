@@ -45,6 +45,14 @@ def test_menu_items_four_without_record_shutdown():
     check(got == ["check_clicked", "log_clicked", "settings_clicked", "reset_clicked"], f"{got}")
 
 
+def test_menu_icons_are_line_art():
+    """4.1 시안 대조(10/14) — 항목 아이콘 = 시안 선 그림(점검 · 로그 · 설정 · 초기화)."""
+    print("\n[1-b] 메뉴 선 아이콘")
+    host = QWidget(); m = MenuPanel(host); m.apply_theme()
+    check(all(not it.icon.pixmap().isNull() and it.icon.text() == "" for it in m._items), "4개 모두 그림")
+    check(m._items[0].desc.text() == "카메라 · 인터락 · AI 가속칩 상태", m._items[0].desc.text())
+
+
 def test_menu_system_summary_and_place():
     """4.1 메뉴 — 아래 시스템 상태 4줄 · 자리 x 1201~1781 · y 100~1248(☰ 아래)."""
     print("\n[2] 시스템 상태 요약 · 자리")
@@ -52,6 +60,8 @@ def test_menu_system_summary_and_place():
     m.set_system({"camera": True, "interlock": True, "gpio": False, "detector": True}, fps=23.7)
     check(m._sys["camera"][1].text() == "연결 · 23.7 fps", m._sys["camera"][1].text())
     check(m._sys["gpio"][1].text() == "끊김", m._sys["gpio"][1].text())
+    m.set_system({"camera": True, "interlock": True, "gpio": True, "detector": True}, fps=23.7)
+    check(m._sys["gpio"][1].text() == "B1 ~ B4 · EMO", f"시안 값 {m._sys['gpio'][1].text()}")
     check(m._sys["detector"][1].text() == "정상", m._sys["detector"][1].text())
     m.relayout(QRect(107, 0, 1707, 1280))
     check(m.geometry() == QRect(1201, 100, 580, 1148), f"{m.geometry()}")
