@@ -167,7 +167,19 @@ class Tts:
             return None
 
     def _st_part(self, text, sp):
-        """supertonic2 한 조각 → 22050Hz float(앞뒤 무음 자름 · 센 소리 줄임)."""
+        """supertonic2 한 조각 → 22050Hz float — 글자 수에 비해 너무 짧으면(깨짐) 다시 만들어 가장 긴 것."""
+        syl = len(re.findall(r"[가-힣]", text))
+        best = None
+        for _ in range(1 + (config.TTS_REDO if syl >= config.TTS_MIN_SYL else 0)):
+            x = self._st_once(text, sp)
+            if best is None or x.size > best.size:
+                best = x
+            if syl < config.TTS_MIN_SYL or x.size / config.TTS_OUT_RATE >= syl * config.TTS_MIN_SEC_PER_SYL:
+                break
+        return best
+
+    def _st_once(self, text, sp):
+        """supertonic2 한 번 → 22050Hz float(앞뒤 무음 자름 · 센 소리 줄임)."""
         try:
             wav, _ = self._st.synthesize(text, voice_style=self._style, lang="ko", total_steps=config.TTS_ST_STEPS,
                                          speed=sp)

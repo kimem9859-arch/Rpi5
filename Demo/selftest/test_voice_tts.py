@@ -25,6 +25,8 @@ def check(cond, msg):
 
 
 def main():
+    import re
+    import numpy as np
     t = Tts()
     got = t.synth("앞에 렌치가 보입니다.")
     check(got is not None, "합성이 된다")
@@ -127,6 +129,32 @@ def main():
         return best * 0.01
     g = longest_gap(*t.synth("네, 렌치는 이미 확인됐습니다.")[:2])
     check(g >= C, f"쉼표 자리에 쉼이 실제로 생긴다 ({g:.2f}초 ≥ {C})")
+    # ── 합성 깨짐 막기(2026-10-13 실물 — 「확인할 수 없습니다」가 0.83초 · 「…없습니다」만 들림 · 정상 1.20초) ──
+    real = t._st.synthesize
+    seq = []
+
+    def fake(text, **kw):                                # 첫 번째는 글자당 0.08초(깨짐) · 다음은 정상
+        n = len(re.findall(r"[가-힣]", text))
+        sec = (0.08 if not seq else 0.15) * n
+        seq.append(sec)
+        return np.full((1, int(t._st.sample_rate * sec)), 0.3, np.float32), None
+    t._st.synthesize = fake
+    try:
+        got = t.synth("확인할 수 없습니다.")
+    finally:
+        t._st.synthesize = real
+    check(len(seq) == 2 and got and got[2] >= 0.15 * 8 * 0.9, f"글자당 너무 짧으면 다시 만든다 · {len(seq)}번 · {got and round(got[2], 2)}초")
+    seq.clear()
+
+    def short(text, **kw):
+        seq.append(1)
+        return np.full((1, int(t._st.sample_rate * 0.3)), 0.3, np.float32), None
+    t._st.synthesize = short
+    try:
+        t.synth("네,")
+    finally:
+        t._st.synthesize = real
+    check(len(seq) == 1, f"짧은 조각(6글자 미만)은 다시 만들지 않는다 · {len(seq)}번")
     import re
     import voice_assistant as va
     with open(va.HOTWORDS, encoding="utf-8") as f:
