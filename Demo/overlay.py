@@ -22,7 +22,7 @@ from PyQt6 import sip
 import time
 
 from PyQt6.QtCore import Qt, QRect, QRectF, QPointF, QEasingCurve, QTimer, pyqtSignal
-from PyQt6.QtGui import QPainter, QPainterPath, QColor
+from PyQt6.QtGui import QPainter, QPainterPath, QColor, QFontMetrics
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
 )
@@ -1057,37 +1057,60 @@ class ConnBar(QWidget):
             self._states, self._fps = new, fps
             self.update()
 
+    _ICON = {"camera": "camera", "interlock": "plug", "gpio": "button"}
+
     def text(self):
         parts = []
         for key, name in self.ITEMS:
-            extra = f" {self._fps:.1f} fps" if key == "camera" and self._fps is not None else ""
+            extra = f" {self._fps:.1f}" if key == "camera" and self._fps is not None else ""
             parts.append(f"{name} ●{extra}")
         return " │ ".join(parts)
 
     def paintEvent(self, _event):
+        """시안 — 칸마다 선 아이콘 20 · 이름 16/700 · 상태 점 10 · (카메라) fps 15/600 · 칸 사이 세로선 1×24."""
+        import ui_icons
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillPath(cut_corner_path(self.rect().adjusted(0, 0, -1, -1), 10), _qcolor(theme.C("panel_bg")))
-        fm = p.fontMetrics()
-        x = 16
-        y = (self.height() + fm.ascent() - fm.descent()) // 2
-        for i, (key, name) in enumerate(self.ITEMS):
+        path = cut_corner_path(self.rect().adjusted(0, 0, -1, -1), 10)
+        p.fillPath(path, _qcolor(theme.C("panel_bg")))
+        p.setPen(_qcolor(theme.C("panel_border")))
+        p.drawPath(path)
+        f_name = config.font("sub", 700)
+        f_name.setPointSize(12)                               # 16px
+        f_fps = config.font("sub", 600)
+        f_fps.setPointSize(11)                                # 15px
+        fm_n = QFontMetrics(f_name)
+        fm_f = QFontMetrics(f_fps)
+        # 칸 너비를 재서 막대 안에 고르게(시안 justify-content: space-between)
+        cells = []
+        for key, name in self.ITEMS:
+            w = 20 + 8 + fm_n.horizontalAdvance(name) + 8 + 10
+            fps = f"{self._fps:.1f}" if key == "camera" and self._fps is not None else ""
+            if fps:
+                w += 8 + fm_f.horizontalAdvance(fps)
+            cells.append((key, name, fps, w))
+        gap = max(0, (self.width() - sum(c[3] for c in cells)) / (len(cells) * 2))
+        x = gap
+        cy = self.height() / 2
+        for i, (key, name, fps, w) in enumerate(cells):
             if i:
                 p.setPen(_qcolor(theme.C("panel_border")))
-                p.drawText(x, y, "│")
-                x += fm.horizontalAdvance("│") + 12
+                p.drawLine(QPointF(x - gap, cy - 12), QPointF(x - gap, cy + 12))
+            p.drawPixmap(int(x), int(cy - 10), ui_icons.pixmap(self._ICON[key], theme.C("text"), 20))
+            tx = x + 28
+            p.setFont(f_name)
             p.setPen(_qcolor(theme.C("text")))
-            p.drawText(x, y, name)
-            x += fm.horizontalAdvance(name) + 8
+            p.drawText(QPointF(tx, cy + (fm_n.ascent() - fm_n.descent()) / 2), name)
+            tx += fm_n.horizontalAdvance(name) + 8
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(_qcolor(self._color(key)))
-            p.drawEllipse(QPointF(x + 6, self.height() / 2), 6, 6)
-            x += 20
-            if key == "camera" and self._fps is not None:
-                t = f"{self._fps:.1f} fps"
+            p.drawEllipse(QPointF(tx + 5, cy), 5, 5)
+            tx += 10
+            if fps:
+                p.setFont(f_fps)
                 p.setPen(_qcolor(theme.C("label")))
-                p.drawText(x, y, t)
-                x += fm.horizontalAdvance(t) + 12
+                p.drawText(QPointF(tx + 8, cy + (fm_f.ascent() - fm_f.descent()) / 2), fps)
+            x += w + 2 * gap
         p.end()
 
     def apply_theme(self):

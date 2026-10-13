@@ -14,8 +14,8 @@ from PyQt6.QtWidgets import (
     QLabel, QTextBrowser, QPushButton, QSizePolicy,
     QApplication, QMessageBox, QButtonGroup,
 )
-from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtSlot, pyqtSignal
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtCore import Qt, QTimer, QPoint, QSize, pyqtSlot, pyqtSignal
+from PyQt6.QtGui import QImage, QPixmap, QIcon
 
 import config
 from config import (
@@ -553,11 +553,17 @@ class SafetyConsole(QMainWindow):
                   self.check_panel, self.record_panel, self.result_panel,
                   self.conn_bar, self.confirm_panel):
             w.apply_theme()
-        btn_qss = (f"QPushButton {{ {theme.panel_qss('panel', padding='8px 14px')} }}"
-                   f"QPushButton:hover {{ color: {theme.C('info')}; }}")
+        # 시안 — 바탕 60% · 테두리 22% · 둥근 10(☰) / 8(🔔) · 선 아이콘
+        btn_qss = (f"QPushButton {{ background-color: {theme.C('panel_bg')}; border: 1px solid {theme.C('panel_border')};"
+                   f" border-radius: {{radius}}px; padding: 0; }}"
+                   f"QPushButton:hover {{ border: 1px solid {theme.C('current')}; }}")
         self._btn_qss = btn_qss
         self._style_menu_button(not self.menu_panel.isHidden())
-        self.btn_notify.setStyleSheet(btn_qss)
+        import ui_icons
+        self.btn_notify.setText("")
+        self.btn_notify.setIcon(QIcon(ui_icons.pixmap("bell", theme.C("current"), 24)))
+        self.btn_notify.setIconSize(QSize(24, 24))
+        self.btn_notify.setStyleSheet(btn_qss.replace("{radius}", "8"))
         self.btn_cta.apply_theme()
         self.log_browser.setStyleSheet(
             theme.panel_qss("sheet", padding="76px 16px 12px 16px")     # 위 = 거르기 버튼 줄
@@ -680,14 +686,19 @@ class SafetyConsole(QMainWindow):
         return f"{name} · {len(steps) or self.fsm.step_count}단계" + (f" · 1단계 {first}부터" if first else "")
 
     def _style_menu_button(self, open_):
-        """☰ 는 메뉴가 열린 동안 노란 ✕ 로(시안 4.1) — 같은 버튼으로 닫는다는 것을 보인다."""
-        self.btn_menu.setText("✕" if open_ else "☰")
+        """☰ 는 메뉴가 열린 동안 노란 바탕 ✕ 로(시안 4.1) — 같은 버튼으로 닫는다는 것을 보인다. 아이콘 = 시안 선 그림."""
+        import ui_icons
+        self.btn_menu.setText("")
+        self.btn_menu.setAccessibleName("메뉴 닫기" if open_ else "메뉴")
         if open_:
+            self.btn_menu.setIcon(QIcon(ui_icons.pixmap("x", "#111111", 24)))
+            self.btn_menu.setIconSize(QSize(24, 24))
             self.btn_menu.setStyleSheet(
-                f"QPushButton {{ background-color: {theme.C('current')}; color: #111111;"
-                f" border: none; border-radius: 10px; }}")
+                f"QPushButton {{ background-color: {theme.C('current')}; border: none; border-radius: 10px; }}")
         else:
-            self.btn_menu.setStyleSheet(self._btn_qss)
+            self.btn_menu.setIcon(QIcon(ui_icons.pixmap("menu", theme.C("text"), 28)))
+            self.btn_menu.setIconSize(QSize(28, 28))
+            self.btn_menu.setStyleSheet(self._btn_qss.replace("{radius}", "10"))
 
     def _update_menu_system(self, ok=None, fps=None):
         """메뉴 아래 시스템 상태 — 점검(1차)과 같은 출처 · 메뉴가 열린 동안만."""

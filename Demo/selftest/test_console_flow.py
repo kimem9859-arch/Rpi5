@@ -880,7 +880,8 @@ def test_notify_grows():
     win._on_cta()                                   # 작업 시작 → 알림 1건
     check(win.notify_panel.count > n0, f"{n0} → {win.notify_panel.count}건")
     # 🔴 배지는 버튼 글자가 아니라 별도 위젯이다(폰 앱 방식, 2026-08-04).
-    check(win.btn_notify.text() == "🔔", f"버튼 글자는 아이콘만: '{win.btn_notify.text()}'")
+    check(win.btn_notify.text() == "" and not win.btn_notify.icon().isNull(),
+          f"버튼은 선 아이콘만(시안) · 숫자는 배지: '{win.btn_notify.text()}'")
     check(win.btn_notify._badge.text() == str(win._unread),
           f"배지 숫자 '{win.btn_notify._badge.text()}' = 안 읽은 {win._unread}건")
 
@@ -2729,12 +2730,14 @@ def test_menu_button_toggles_and_system_summary():
     """4.1 — 메뉴가 열린 동안 ☰ 는 ✕ · 시스템 상태 · 지금 상태 줄이 채워진다."""
     print("\n[4.1] ☰ ↔ ✕ · 시스템 상태")
     win = make_console()
+    check(win.btn_menu.text() == "" and not win.btn_menu.icon().isNull(), "☰ = 선 아이콘(시안)")
+    check(not win.btn_notify.icon().isNull() and win.btn_notify.text() == "", "🔔 = 선 아이콘(시안)")
     win._toggle_menu(True)
-    check(win.btn_menu.text() == "✕", f"열림 → {win.btn_menu.text()}")
+    check(win.btn_menu.accessibleName() == "메뉴 닫기", f"열림 → {win.btn_menu.accessibleName()}")
     check(win.menu_panel._sys["interlock"][1].text() != "", "시스템 상태 줄이 채워짐")
     check("1단계" in win.menu_panel._ctx.text(), win.menu_panel._ctx.text())
     win._toggle_menu(False)
-    check(win.btn_menu.text() == "☰", f"닫힘 → {win.btn_menu.text()}")
+    check(win.btn_menu.accessibleName() == "메뉴", f"닫힘 → {win.btn_menu.accessibleName()}")
     win.close()
 
 
