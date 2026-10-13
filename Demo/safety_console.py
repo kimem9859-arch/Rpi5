@@ -970,6 +970,9 @@ class SafetyConsole(QMainWindow):
             #    겹치게 됐다. 위에 두면 차단 중 「작업 초기화」 확인 상자의 버튼이 상자 밑에 깔렸다(최종 검토 I-1).
             #    경고는 가장자리 불빛 · 단계 카드 · 소리로도 보인다. 안내(notice)는 올리지 않는다(리뷰 M-4).
             if self.alert.mode not in (None, "notice"):
+                # 시안 — 경고 · 차단 때 단계 카드 · 대기 시간 · 상태 막대는 스크림 **위**(밝게 · 카드 테두리가 경고색)
+                for w in (self.status_panel, self.gauge_panel, self.conn_bar):
+                    w.raise_()
                 self.glow.raise_()
                 self.alert.raise_()
             for p in self._sheets():

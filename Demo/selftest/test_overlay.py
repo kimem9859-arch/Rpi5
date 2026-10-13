@@ -193,6 +193,20 @@ def test_status_card_marks_and_labels():
     check(p._caption.text() == "공정 단계 · 4단계 중 1단계", p._caption.text())
 
 
+def test_status_card_matches_comp():
+    """① 시안 대조(10/14) — 남은 단계는 동그라미 없음 · 표시는 테두리 원 + 기호 · 경고/차단 때 카드 테두리 색 · 0.82 · 「차단」."""
+    print("\n[①] 단계 카드 시안 대조")
+    host = QWidget(); p = StatusPanel(STEPS, host)
+    p.update_view("PROCESS RUN", 2)
+    check(p._dots[2].pixmap() is None or p._dots[2].pixmap().isNull(), "남은 단계 동그라미 없음")
+    check(not p._dots[0].pixmap().isNull() and not p._dots[1].pixmap().isNull(), "끝남 · 지금 표시는 그림")
+    check("rgba(12, 14, 16, 0.68)" in p.styleSheet() and "18px" in p.styleSheet(), f"평소 판 {p.styleSheet()[:80]}")
+    p.update_view("WARNING", 2)
+    check("rgba(12, 14, 16, 0.82)" in p.styleSheet() and theme.rgba("warn", 0.6) in p.styleSheet(), "경고 = 0.82 + 주황 테두리")
+    p.update_view("BLOCK", 2)
+    check(p._state.text() == "차단" and theme.rgba("danger", 0.6) in p.styleSheet(), f"차단 {p._state.text()}")
+
+
 def test_status_card_place():
     """① 단계 카드 자리 (139, 32) · 폭 461(영상 칸 안쪽 32px)."""
     print("\n[①] 단계 카드 자리")

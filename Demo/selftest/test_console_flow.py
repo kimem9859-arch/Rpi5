@@ -2844,6 +2844,18 @@ def test_start_button_subtitle_from_recipe():
     check("PECVD 정비" in sub and "4단계" in sub and "1단계 공정 정지부터" in sub, sub)
     win.close()
 
+
+def test_comp_card_bright_over_scrim_when_alert():
+    """시안 대조(10/14) — 경고 · 차단 때 단계 카드 · 대기 시간 · 상태 막대는 어둡게 덮이지 않는다(스크림 위)."""
+    print("\n[시안] 경고 때 카드 밝게")
+    win = make_console()
+    win._on_cta()
+    key(win, "1"); finish_sub(win)
+    key(win, "3")
+    for w in (win.status_panel, win.conn_bar):
+        check(_above(win, w, win.scrim), f"{type(w).__name__} 가 스크림 위")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

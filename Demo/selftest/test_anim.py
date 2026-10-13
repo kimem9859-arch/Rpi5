@@ -210,7 +210,7 @@ def test_status_label_is_korean_and_consistent():
           f"초기화 후가 기동 직후와 같다 ({s._state.text()!r} vs {boot_text!r})")
 
     for value, label in (("PROCESS RUN", "작업 진행 중"), ("WARNING", "경고"),
-                         ("BLOCK", "차단됨"), ("MONITOR", "감시 중"), ("READY", "준비")):
+                         ("BLOCK", "차단"), ("MONITOR", "감시 중"), ("READY", "준비")):
         s.update_view(value, 1)
         check(label in s._state.text(), f"{value} → {label} (실제 {s._state.text()!r})")
 

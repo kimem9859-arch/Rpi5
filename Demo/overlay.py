@@ -147,7 +147,7 @@ _STATE_LABEL = {
     "PROCESS RUN": "작업 진행 중",
     "MONITOR":     "감시 중",
     "WARNING":     "경고",
-    "BLOCK":       "차단됨",
+    "BLOCK":       "차단",          # 시안(10/14 대조) — 종전 「차단됨」
 }
 
 
@@ -160,15 +160,47 @@ _ROW_BAR = 3                                    # 현재 단계의 왼쪽 막대
 
 
 _MARK = {"done": "✓", "current": "●", "warn": "!", "danger": "✕"}
-_MARK_D = 30          # 단계 동그라미 지름(시안 px · 글꼴처럼 고정)
+_MARK_D = 30          # 단계 표시 원 지름(시안 px · 글꼴처럼 고정)
 _TEXT_TOKEN = {"done": "done_text", "current": "current_text", "warn": "warn_text"}
+_marker_cache = {}
+
+
+def _marker(kind, d=_MARK_D):
+    """단계 표시 — 테두리 원 2px + 안 기호(끝남 ✓ · 지금 ● · 경고 ! · 차단 ✕ · 시안 그대로). 남은 단계는 None(그리지 않는다)."""
+    if kind not in _MARK:
+        return None
+    import ui_icons
+    from PyQt6.QtGui import QPixmap, QPen
+    c = theme.C(kind)
+    key = (kind, c, d)
+    pm = _marker_cache.get(key)
+    if pm is not None:
+        return pm
+    pm = QPixmap(d, d)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(QPen(QColor(c), 2))
+    p.drawEllipse(1, 1, d - 2, d - 2)
+    if kind == "current":
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(c))
+        p.drawEllipse(QPointF(d / 2, d / 2), 6, 6)
+    else:
+        icon = {"done": "check", "warn": "alert_sm", "danger": "x_sm"}[kind]
+        p.drawPixmap((d - 16) // 2, (d - 16) // 2, ui_icons.pixmap(icon, c, 16))
+    p.end()
+    _marker_cache[key] = pm
+    return pm
 
 
 class StatusPanel(_Panel):
-    """좌상단 단계 카드 — 상태 제목 · 「공정 단계 · 4단계 중 N단계」 · 행 = 동그라미 + 「N단계 이름」(설계 2026-10-13 §3 ①).
+    """좌상단 단계 카드 — 시안(Claude Design 2026-10-13) 그대로.
 
-    🔴 B 표기 · 배지를 쓰지 않는다(사용자 10/13). 동그라미 = 끝남 ✓ / 진행 중 ● / 경고 ! / 차단 ✕ / 남은 단계 빈칸.
-    지금 줄은 강조 띠(바탕 14% + 왼쪽 막대). 종전 「막대 자라기」 보간은 뺐다 — 띠가 대신하고 단계마다 QSS 를 다시 거는 비용이 없다.
+    머리 = 색 점 16 + 상태(30px) · 「공정 단계 · 4단계 중 N단계」(17px) · 행 높이 48 = 표시 원 30 + 「N단계 이름」.
+    표시 = 끝남 ✓ / 지금 ● / 경고 ! / 차단 ✕(테두리 원 · 색) · 🔴 남은 단계는 그리지 않는다(빈칸).
+    지금 줄 = 둥근 띠(바탕 14~16% · 테두리 45~60%) · 경고 · 차단 때 카드 = 0.82 + 색 테두리(스크림 위에서 밝게).
+    🔴 B 표기 · 배지를 쓰지 않는다(사용자 10/13).
     """
 
     def __init__(self, steps, parent=None):
@@ -180,24 +212,31 @@ class StatusPanel(_Panel):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(24, 22, 24, 18)          # 시안 padding 22 24 18
         lay.setSpacing(6)
+        head = QHBoxLayout()
+        head.setSpacing(12)
+        self._head_dot = QLabel("")
+        self._head_dot.setFixedSize(16, 16)
         self._state = QLabel("")
         self._state.setFont(config.font("card_state", 800))
+        head.addWidget(self._head_dot)
+        head.addWidget(self._state, 1)
+        lay.addLayout(head)
         self._caption = QLabel("")
         self._caption.setFont(config.font("sub", 500))
-        lay.addWidget(self._state)
+        self._caption.setContentsMargins(0, 0, 0, 8)
         lay.addWidget(self._caption)
 
-        self._rows, self._dots, self._lines = [], [], []
+        self._rows, self._dots, self._lines, self._kinds = [], [], [], []
         for _ in self._steps:
             line = QWidget()
+            line.setObjectName("stepRow")
             line.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            line.setMinimumHeight(48)
             hl = QHBoxLayout(line)
-            hl.setContentsMargins(_ROW_PAD_H, 8, _ROW_PAD_H, 8)
+            hl.setContentsMargins(12, 0, 12, 0)
             hl.setSpacing(14)
             dot = QLabel("")
             dot.setFixedSize(_MARK_D, _MARK_D)
-            dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            dot.setFont(config.font("sub", 800))
             row = QLabel("")
             row.setWordWrap(True)
             hl.addWidget(dot)
@@ -206,13 +245,14 @@ class StatusPanel(_Panel):
             self._rows.append(row)
             self._dots.append(dot)
             self._lines.append(line)
+            self._kinds.append("todo")
 
         # 🔴 기동 직후도 **실제 FSM 상태(IDLE)** 로 그린다 — 종전 "STANDBY" 하드코딩은 1단계를 강조시켰다.
         self.update_view("IDLE", 1)
 
     def marks(self):
-        """행 앞 동그라미 글자(시험용)."""
-        return [d.text() for d in self._dots]
+        """행 앞 표시(시험용) — ✓ ● ! ✕ · 남은 단계 빈칸."""
+        return [_MARK.get(k, "") for k in self._kinds]
 
     def update_view(self, state_value, expected_step, sub_running=False):
         """state_value = FSM State.value 문자열."""
@@ -220,8 +260,11 @@ class StatusPanel(_Panel):
         started = state_value != "IDLE"
         cur = "warn" if state_value == "WARNING" else "danger" if state_value == "BLOCK" else "current"
         head = "warn" if state_value == "WARNING" else "danger" if state_value == "BLOCK" else "done"
+        alert = cur in ("warn", "danger")
 
-        self._state.setText(f"● {_STATE_LABEL.get(state_value, state_value)}")
+        self._apply_card(alert, cur)
+        self._head_dot.setStyleSheet(f"border-radius: 8px; border: none; background: {theme.C(head)};")
+        self._state.setText(_STATE_LABEL.get(state_value, state_value))
         self._state.setStyleSheet(theme.text_qss(_TEXT_TOKEN.get(head, head), 800))
         self._caption.setText(f"공정 단계 · {len(self._steps)}단계 중 {expected_step}단계")
         self._caption.setStyleSheet(theme.text_qss("label", 500))
@@ -235,20 +278,25 @@ class StatusPanel(_Panel):
                 kind = cur
             else:
                 kind = "todo"
+            self._kinds[i] = kind
             is_cur = kind in ("current", "warn", "danger")
-            row.setFont(config.font("step_cur" if is_cur else "step", 800 if is_cur else 600))
-            row.setStyleSheet(theme.text_qss(_TEXT_TOKEN.get(kind, kind), 800 if is_cur else 600))
-            dot.setText(_MARK.get(kind, ""))
-            if kind == "todo":
-                dot.setStyleSheet(f"border: 2px solid {theme.C('todo')}; border-radius: {_MARK_D // 2}px;"
-                                  f" background: transparent; color: {theme.C('todo')};")
+            row.setFont(config.font("step_cur" if is_cur else "step",
+                                    800 if is_cur else 600 if kind == "done" else 500))
+            row.setStyleSheet(theme.text_qss(_TEXT_TOKEN.get(kind, kind),
+                                             800 if is_cur else 600 if kind == "done" else 500))
+            pm = _marker(kind)
+            if pm is None:
+                dot.clear()
             else:
-                dot.setStyleSheet(f"border: none; border-radius: {_MARK_D // 2}px;"
-                                  f" background: {theme.C(kind)}; color: #111111;")
-            line.setStyleSheet(
-                f"background: {theme.rgba(cur, 0.14)}; border: none;"
-                f" border-left: {_ROW_BAR}px solid {theme.C(cur)};"
-                if is_cur else "background: transparent; border: none;")
+                dot.setPixmap(pm)
+            if is_cur:
+                line.setStyleSheet(
+                    f"QWidget#stepRow {{ background: {theme.rgba(kind, 0.16 if alert else 0.14)};"
+                    f" border: 1px solid {theme.rgba(kind, 0.6 if alert else 0.45)}; border-radius: 10px; }}")
+                line.layout().setContentsMargins(12, 10, 12, 10)
+            else:
+                line.setStyleSheet("QWidget#stepRow { background: transparent; border: none; }")
+                line.layout().setContentsMargins(12, 0, 12, 0)
 
         # 단계가 바뀐 순간에만 — 끝난 줄이 완료색으로 반짝한다.
         if started and self._prev_step is not None and expected_step != self._prev_step:
@@ -256,6 +304,20 @@ class StatusPanel(_Panel):
             if 0 <= old < len(self._rows):
                 anim.flash(self._rows[old], theme.C("done"))
         self._prev_step = expected_step
+
+    def _apply_card(self, alert, token):
+        """판 — 평소 0.68 · 경고/차단 0.82 + 색 테두리 60%(시안). 「단계 패널 배경」을 끄면 글자만."""
+        on = getattr(theme, "PANEL_BACKGROUND", True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, on)
+        if not on:
+            body = "background: transparent; border: none;"
+        elif alert:
+            body = (f"background-color: {theme.C('panel_bg_alert')}; border: 1px solid {theme.rgba(token, 0.6)};"
+                    f" border-radius: 18px;")
+        else:
+            body = (f"background-color: {theme.C('panel_bg')}; border: 1px solid {theme.C('panel_border')};"
+                    f" border-radius: 18px;")
+        self.setStyleSheet(f"QWidget#glassPanel {{ {body} }}")
 
     def apply_theme(self):
         """판과 함께 **마지막으로 그린 상태를 새 색으로** 다시 그린다(리뷰 U14 ①)."""
