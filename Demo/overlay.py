@@ -31,8 +31,6 @@ import theme
 
 # design §1 「오버레이 배치」 표의 사본 — (left, top, width) 비율. None = 계산으로 정함
 _POS = {
-    "gauge":   {"left": 0.41, "top": 0.05, "width": 0.17},   # wait_tool 이면 0.24 로 넓어진다
-    "gauge_w_tool": 0.24,
     "menu_btn":  {"right": 0.14, "top": 0.05},
     "notify_btn": {"left": 0.14, "bottom": 0.05},
 }
@@ -266,6 +264,15 @@ class StatusPanel(_Panel):
         vplace(self, vr, 32, 32, 461)
 
 
+def _eul(word):
+    """목적격 조사 — 마지막 글자 받침이 있으면 「을」."""
+    ch = (word or " ")[-1]
+    return "을" if "가" <= ch <= "힣" and (ord(ch) - 0xAC00) % 28 else "를"
+
+
+_TRACK_H = 12         # 대기 시간 막대 두께(시안 px · 종전 8)
+
+
 class GaugePanel(_Panel):
     """상단 중앙 — 서브 작업 대기 게이지(+ 공구 지시).
 
@@ -284,21 +291,21 @@ class GaugePanel(_Panel):
         self._prev_tool = None          # (tool_ok, wrong_tool, checking)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(5)
+        lay.setContentsMargins(20, 16, 20, 16)          # 카드(시연 UI 개선 · 단계 카드와 같은 판)
+        lay.setSpacing(8)
 
         head = QHBoxLayout()
         self._label = QLabel("")
-        self._label.setFont(config.font("small"))
+        self._label.setFont(config.font("sub", 600))
         self._time = QLabel("")
-        self._time.setFont(config.font("small", 700))
+        self._time.setFont(config.font("gauge_time", 800))
         self._time.setAlignment(Qt.AlignmentFlag.AlignRight)
         head.addWidget(self._label)
         head.addWidget(self._time)
         lay.addLayout(head)
 
         self._track = QWidget()
-        self._track.setFixedHeight(8)
+        self._track.setFixedHeight(_TRACK_H)
         self._fill = QWidget(self._track)
         lay.addWidget(self._track)
 
@@ -314,9 +321,9 @@ class GaugePanel(_Panel):
         self._tool_icon = QLabel("🔧")
         self._tool_icon.setFont(config.font("banner"))
         self._tool_text = QLabel("")
-        self._tool_text.setFont(config.font("body", 800))
+        self._tool_text.setFont(config.font("tool", 800))
         self._tool_state = QLabel("")
-        self._tool_state.setFont(config.font("small"))
+        self._tool_state.setFont(config.font("sub", 600))
         # 공구 문구 맥박 — 🔴 **상태가 바뀔 때만** start/stop 한다.
         #    _sub_timer 가 200ms 마다 update_view 를 부르므로, 비교 없이 걸면
         #    초당 5번 재시작돼 끝나지 않는 애니메이션이 된다.
@@ -347,7 +354,7 @@ class GaugePanel(_Panel):
             #    줄어드는 보간이 번쩍였다.
             self._stop_gauge_anim()
             self._shown_progress = self._target_progress = 0.0
-            self._fill.setGeometry(0, 0, 0, 8)
+            self._fill.setGeometry(0, 0, 0, _TRACK_H)
             self.hide()
             return
 
@@ -358,11 +365,11 @@ class GaugePanel(_Panel):
         if sub.paused:
             # 경고로 멈춘 동안 — 시간이 흐르지 않는다는 것을 글자로 알린다(설계 D5 · G1)
             remain_token = "warn"
-            self._time.setText(f"일시정지 {int(sub.elapsed_sec)}/{int(sub.total_sec)}s")
+            self._time.setText(f"일시정지 {int(sub.elapsed_sec)} / {int(sub.total_sec)}초")
         else:
             remain_token = "done" if sub.time_done else "current"
             self._time.setText("완료" if sub.time_done
-                               else f"{int(sub.elapsed_sec)}/{int(sub.total_sec)}s")
+                               else f"{int(sub.elapsed_sec)} / {int(sub.total_sec)}초")
         self._time.setStyleSheet(theme.text_qss(remain_token, 700))
 
         self._track.setStyleSheet(theme.gauge_qss())
@@ -374,7 +381,7 @@ class GaugePanel(_Panel):
             def _step(t, s=start, e=sub.progress):
                 self._shown_progress = s + (e - s) * float(t)
                 self._fill.setGeometry(
-                    0, 0, int(self._track.width() * self._shown_progress), 8)
+                    0, 0, int(self._track.width() * self._shown_progress), _TRACK_H)
 
             # 🔴 앞 보간을 멈추고 새로 건다 — _sub_timer 200ms = D_GAUGE 200ms 라 겹친다. 두면 숨길 때
             #    마지막 것만 멈춰, 앞 것이 숨긴 뒤에도 돌며 진행률을 되살렸다(종합 리뷰 중요 2 · U15).
@@ -383,10 +390,10 @@ class GaugePanel(_Panel):
                                           curve=QEasingCurve.Type.Linear)
         else:
             self._fill.setGeometry(
-                0, 0, int(self._track.width() * self._shown_progress), 8)
+                0, 0, int(self._track.width() * self._shown_progress), _TRACK_H)
         fill_color = theme.C("done") if sub.time_done else theme.C("gauge_to")
         self._fill.setStyleSheet(
-            f"background-color: {fill_color}; border-radius: 4px;")
+            f"background-color: {fill_color}; border-radius: 6px;")
 
         if sub.needs_tool:
             # 윗줄 = 무엇이 필요한가 / 아랫줄 = 지금 어디까지 왔나.
@@ -396,7 +403,7 @@ class GaugePanel(_Panel):
             self._tool_box.setStyleSheet(
                 f"background-color: {theme.C('tool_plate')}; border-radius: 6px;")
             self._tool_box.show()
-            self._tool_text.setText(f"{sub.want_tool_name}가 필요합니다")
+            self._tool_text.setText(f"{sub.want_tool_name}{_eul(sub.want_tool_name)} 손에 쥐어 주세요")
             if sub.tool_ok:
                 state, token = f"✓ {sub.want_tool_name}를 쥐었습니다", "done"
             elif sub.wrong_tool:
@@ -465,10 +472,9 @@ class GaugePanel(_Panel):
             self._pulse_state.stop()
             self._pulsing = False
 
-    def relayout(self, parent_rect):
-        p = _POS["gauge"]
-        width = _POS["gauge_w_tool"] if self._needs_tool else p["width"]
-        place(self, parent_rect, left=p["left"], top=p["top"], width=width)
+    def relayout(self, vr):
+        """메뉴 왼쪽 16px(x 1141~1602 · 영상 기준) · 공구 칸이 붙어도 폭 그대로(높이만 는다 · 설계 §3 ④)."""
+        vplace(self, vr, 1141, 32, 461)
 
 
 # =============================================================================

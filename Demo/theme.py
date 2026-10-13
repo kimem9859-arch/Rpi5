@@ -161,4 +161,4 @@ def gauge_qss():
     """게이지 트랙 스타일시트."""
     return (f"background-color: {C('gauge_track')};"
             f"border: 1px solid {C('gauge_edge')};"
-            f"border-radius: 4px;")
+            f"border-radius: 6px;")

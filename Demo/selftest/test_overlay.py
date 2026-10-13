@@ -97,24 +97,28 @@ def test_gauge_hidden_without_sub():
     check(not g.isVisible(), "spec=None 인 SubTask → 숨김")
 
 
-def test_gauge_widens_for_tool():
-    """🔴 wait_tool 이면 폭이 17% → 24% 로 넓어진다 (design §4.3)."""
-    print("\n[4] GaugePanel 폭 전환")
-    host = QWidget()
-    host.setGeometry(SCREEN)
-    g = GaugePanel(host)
+def test_gauge_place_and_text():
+    """④ 대기 시간 — 메뉴 옆 x 1248~1709 · 「4 / 30초」 · 막대 12px · 공구 단계도 폭 그대로(설계 2026-10-13 §3 ④)."""
+    print("\n[④] 대기 시간 자리 · 글")
+    host = QWidget(); host.resize(1920, 1280); g = GaugePanel(host)
+    vr = QRect(107, 0, 1707, 1280)
+    sub = SubTask(WAIT, now=0.0); sub.tick(now=4.0)
+    g.update_view(sub); g.relayout(vr)
+    check((g.x(), g.y(), g.width()) == (1248, 32, 461), f"{g.geometry()}")
+    check(g._time.text() == "4 / 30초", g._time.text())
+    check(g._track.height() == 12, f"막대 {g._track.height()}")
+    g.update_view(SubTask(TOOL, now=0.0)); g.relayout(vr)
+    check(g.width() == 461, f"공구 단계 폭 그대로 {g.width()}")
 
-    g.update_view(SubTask(WAIT, now=0.0))
-    g.relayout(SCREEN)
-    w_wait = g.width()
 
+def test_tool_line_wording():
+    """⑤ 공구 — 「스패너를 손에 쥐어 주세요」 · 받침 따라 을/를."""
+    print("\n[⑤] 공구 문구")
+    from overlay import _eul
+    check(_eul("렌치") == "를" and _eul("스패너") == "를" and _eul("펜") == "을", "을/를")
+    host = QWidget(); g = GaugePanel(host)
     g.update_view(SubTask(TOOL, now=0.0))
-    g.relayout(SCREEN)
-    w_tool = g.width()
-
-    check(w_wait == int(1920 * 0.17), f"wait 폭 {w_wait}px (= 1920×17%)")
-    check(w_tool == int(1920 * 0.24), f"wait_tool 폭 {w_tool}px (= 1920×24%)")
-    check(w_tool > w_wait, "공구 단계에서 넓어진다")
+    check(g._tool_text.text() == "스패너를 손에 쥐어 주세요", g._tool_text.text())
 
 
 def test_gauge_tool_states():
