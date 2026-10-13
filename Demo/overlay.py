@@ -19,7 +19,9 @@
 """
 
 from PyQt6 import sip
-from PyQt6.QtCore import Qt, QRect, QEasingCurve, pyqtSignal
+import time
+
+from PyQt6.QtCore import Qt, QRect, QEasingCurve, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
 )
@@ -482,7 +484,7 @@ class GaugePanel(_Panel):
 # =============================================================================
 
 # 경고·공구 경고·차단 박스는 같은 크기·자리 — 화면 정중앙(사용자 결정 2026-09-25).
-_ALERT_POS = {"width": 0.46}
+_ALERT_W = 883                      # 상자 폭(시안 px · 영상 가운데)
 _ALERT_SEL = "QWidget#glassPanel"   # 박스 스타일을 박스 자신에게만(_Panel 의 objectName)
 
 
@@ -535,13 +537,43 @@ class GlowFrame(QWidget):
         self.setGeometry(QRect(vr))
 
 
-class AlertBanner(_Panel):
-    """경고·차단 배너.
+class ReleaseButton(QPushButton):
+    """차단 해제 — 왼쪽 아래 지름 200 동그란 버튼(사용자 10/13 · 설계 2026-10-13 §3 ③-차단).
 
-    두 종류의 경고가 있고 **해제 버튼 유무가 다르다**(design §4.3·§4.5):
-      - 순서 위반: 손을 뗐는지 시스템이 알 수 없어 **사람이 해제**해야 한다 → 버튼 있음
-      - 공구 오선택: 다시 보면 안다 → **버튼 없음.** 올바른 공구로 바꾸면 스스로 풀린다
-        (버튼을 두면 잘못된 공구를 든 채 넘어갈 수 있다)
+    배너가 만들고 함께 보이고 숨는다 — 배너는 가운데 상자라 버튼은 배너의 형제(같은 부모)로 둔다.
+    """
+
+    D = 200                   # 지름(시안 px)
+    CENTER = (119, 970)       # 중심 — 영상 사각형 기준(화면 226 - 영상 왼쪽 107)
+
+    def __init__(self, parent=None):
+        super().__init__("차단\n해제", parent)
+        self.setFont(config.font("alert_body", 800))
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)    # ESC·1~4 키가 창으로 가게
+        self.hide()
+
+    def apply_theme(self):
+        r = (self.width() or self.D) // 2
+        self.setStyleSheet(
+            f"QPushButton {{ background-color: {theme.C('danger')}; color: #ffffff;"
+            f" border: 4px solid {theme.rgba('danger', 0.45)}; border-radius: {r}px; }}"
+            f"QPushButton:pressed {{ background-color: {theme.C('warn')}; }}")
+
+    def relayout(self, vr):
+        d = vpx(vr, self.D)
+        cx, cy = self.CENTER
+        self.setGeometry(QRect(vr.left() + vpx(vr, cx) - d // 2, vr.top() + vpx(vr, cy) - d // 2, d, d))
+        self.apply_theme()            # 반지름이 지름을 따른다
+
+
+class AlertBanner(_Panel):
+    """경고·차단 배너 — 영상 가운데 상자(폭 883 · 시연 UI 개선 설계 2026-10-13 §3 ③).
+
+    해제 방법이 셋 다 다르다:
+      - 순서 위반: **버튼 없음** — 손이 떠나면 3초 뒤 저절로 풀린다(판정기 자동 해제 · 안 A) · 줄어드는 줄로 알린다
+      - 공구 오선택: **버튼 없음** — 올바른 공구로 바꾸면 스스로 풀린다
+      - 차단: 왼쪽 아래 **동그란 해제 버튼**(ReleaseButton) — 신호 `release_clicked` 는 그대로
     """
 
     release_clicked = pyqtSignal()
@@ -574,34 +606,73 @@ class AlertBanner(_Panel):
         col = QVBoxLayout()
         col.setSpacing(3)
         self._title = QLabel("")
-        self._title.setFont(config.font("banner", 800))
+        self._title.setFont(config.font("alert_title", 800))
         self._line1 = QLabel("")
-        self._line1.setFont(config.font("body", 600))
+        self._line1.setFont(config.font("alert_body", 600))
         self._line1.setWordWrap(True)
         self._line2 = QLabel("")
-        self._line2.setFont(config.font("body", 600))
+        self._line2.setFont(config.font("alert_hint", 600))
         self._line2.setWordWrap(True)
         col.addWidget(self._title)
         col.addWidget(self._line1)
         col.addWidget(self._line2)
+        # 줄어드는 줄 — 경고 자동 해제까지 남은 시간(순서 경고에서만)
+        self._count_track = QWidget()
+        self._count_track.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._count_track.setFixedHeight(6)
+        self._count_fill = QWidget(self._count_track)
+        self._count_fill.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        col.addSpacing(6)
+        col.addWidget(self._count_track)
+        # 🔴 숨겨도 자리는 남긴다 — 순서 경고 · 공구 경고 · 차단 상자는 같은 크기(사용자 결정 2026-09-25)
+        sp = self._count_track.sizePolicy(); sp.setRetainSizeWhenHidden(True); self._count_track.setSizePolicy(sp)
+        self._count_track.hide()
+        # 🔴 QTimer 50ms(초당 20번) — 60번 보간은 경고 첫 3초 GUI CPU 를 1.0 → 4.3%(코어 1개)로 올렸다(10/14 측정)
+        self._count_timer = QTimer(self)
+        self._count_timer.setInterval(50)
+        self._count_timer.timeout.connect(self._count_step)
+        self._count_t0 = None
         lay.addLayout(col, 1)
 
-        self._release = QPushButton("해제")
-        self._release.setFont(config.font("body", 700))
-        self._release.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._release.clicked.connect(self.release_clicked.emit)
-        lay.addWidget(self._release)
+        self.release_button = ReleaseButton(parent)
+        self.release_button.clicked.connect(self.release_clicked.emit)
 
         self.hide()
 
     # --------------------------------------------------------------- 표시
-    def show_order_violation(self, expected_button, expected_name):
-        """순서 위반 — 해제 버튼 있음. 안내 2줄(2번째 줄 들여쓰기)."""
+    def show_order_violation(self, expected_button, expected_name, order=None):
+        """순서 위반 — 버튼 없음 · 「지금은 2단계 냉각(B2) 차례입니다」 · 자동 해제가 켜졌으면 줄어드는 줄."""
         self._mode = "order"
-        self._paint("warn", "⚠", "순서가 다릅니다",
-                    f"지금은 {expected_button} {expected_name} 차례입니다",
-                    f"— 손을 뗀 뒤 {expected_button}를 누르세요",
-                    release_text="경고 해제", indent2=True)
+        step = (f"{order}단계 {expected_name}({expected_button})" if order
+                else f"{expected_button} {expected_name}")
+        auto = config.WARN_AUTO_RELEASE_SEC > 0
+        self._paint("warn", "⚠", "순서가 다릅니다", f"지금은 {step} 차례입니다",
+                    "손을 떼면 곧 닫힙니다" if auto else f"— 손을 뗀 뒤 {expected_button}를 누르세요",
+                    release_text=None, indent2=not auto)
+        self._start_countdown(auto)
+
+    def _start_countdown(self, on):
+        """줄어드는 줄 — 자동 해제까지 남은 시간. 🔴 손이 그대로면 판정기가 풀지 않으므로 줄은 0 에서 멈춘다."""
+        self._count_timer.stop()
+        self._count_track.setVisible(on)
+        if not on:
+            return
+        self._count_track.setStyleSheet(f"background: {theme.rgba('warn', 0.25)}; border-radius: 3px;")
+        self._count_fill.setStyleSheet(f"background: {theme.C('warn')}; border-radius: 3px;")
+        self._count_t0 = time.monotonic()
+        self._count_step()
+        if anim.enabled():
+            self._count_timer.start()
+
+    def _count_step(self):
+        sec = config.WARN_AUTO_RELEASE_SEC
+        left = max(0.0, 1.0 - (time.monotonic() - self._count_t0) / sec) if sec > 0 else 0.0
+        self._count_fill.setGeometry(0, 0, int(self._count_track.width() * left), 6)
+        if left <= 0.0:
+            self._count_timer.stop()
+
+    def countdown_running(self):
+        return self._count_timer.isActive()
 
     def show_wrong_tool(self, wrong_name, want_name):
         """공구 오선택 — 🔴 해제 버튼 없음. 문장이 짧아 들여쓰기도 하지 않는다."""
@@ -616,7 +687,7 @@ class AlertBanner(_Panel):
         hint = 둘째 줄(들여쓰기) — EMO 차단은 복귀 방법을 적는다.
         """
         self._mode = "block"
-        self._paint("danger", "⛔", "버튼 입력 차단됨", reason, hint,
+        self._paint("danger", "⛔", "버튼 입력 차단됨", reason, hint or "왼쪽 아래 「차단 해제」를 누르세요",
                     release_text="차단 해제", indent2=bool(hint))
 
     def show_notice(self, title, line1, line2, token="info", mark="ⓘ", indent2=True, tag=None):
@@ -650,18 +721,19 @@ class AlertBanner(_Panel):
         self._line2.setStyleSheet(
             theme.text_qss("text", 600) + ("padding-left: 14px;" if indent2 else ""))
 
+        # 해제 버튼은 상자 밖 동그란 버튼 — 차단(release_text 있음)에서만 보인다
+        if self._mode != "order":
+            self._count_timer.stop()
+            self._count_track.hide()
         if release_text:
-            self._release.setText(release_text)
-            self._release.setStyleSheet(
-                f"QPushButton {{ background-color: {c}; color: {theme.C('cta_text')};"
-                f" border: 1px solid {c}; border-radius: 6px; padding: 10px 18px; }}")
-            self._release.show()
+            self.release_button.apply_theme()
+            self.release_button.show()
         else:
-            self._release.hide()
+            self.release_button.hide()
 
         # 🔴 선택자로 **박스에만** 건다 — 선택자 없이 걸면 padding 이 안쪽 글자 칸마다 번져
         #    줄 사이가 벌어졌다(제목 칸 25 → 54px). 여백은 레이아웃이 맡는다.
-        self.setStyleSheet(f"{_ALERT_SEL} {{ {theme.panel_qss('sheet', padding='0')}"
+        self.setStyleSheet(f"{_ALERT_SEL} {{ {theme.panel_qss('alert', padding='0')}"
                            f"border-color: {c}; }}")
         for lbl in (self._icon, self._title, self._line1, self._line2):
             _glow(lbl)
@@ -703,15 +775,25 @@ class AlertBanner(_Panel):
                 #    시작한다(리뷰 U14 ③ — 테마를 바꿔도 다크 빨강 맥박이 남았다).
                 self._pulse.stop()
                 self._pulse.start()
+        self.release_button.apply_theme()
+
+    def raise_(self):
+        """🔴 동그란 해제 버튼도 함께 올린다 — 콘솔 `_dim_others` 가 배너만 스크림 위로 올린다."""
+        super().raise_()
+        self.release_button.raise_()
 
     def hide_all(self):
         self._mode = None
         self._shown_mode = None
         self._needs_entrance = False
         self._pulse.stop()              # 🔴 살아남으면 QSS 재적용으로 CPU 를 태운다
+        self._count_timer.stop()
+        self.release_button.hide()
         self.hide()
 
     def relayout(self, parent_rect):
+        """parent_rect = 영상 사각형(시연 UI 개선 — 폭 883 · 영상 가운데 · 해제 버튼도 여기 기준)."""
+        self.release_button.relayout(parent_rect)      # 🔴 등장 중 건너뛰기와 무관하게 버튼은 앉힌다
         # 🔴 슬라이드 중에는 geometry 를 건드리지 않는다 — _update_sub_view 가 200ms
         #    마다 relayout 을 부르므로, 그대로 두면 등장 중에 위치가 튄다.
         if anim.busy(self):
@@ -723,7 +805,7 @@ class AlertBanner(_Panel):
         # 🔴 높이는 **실제 폭에서의 높이**로 잰다 — sizeHint 는 폭을 모른 채 긴 문구를 두 줄로
         #    접어, 한 줄에 들어가는데도 차단 박스만 20px 커졌다.
         pw, ph = parent_rect.width(), parent_rect.height()
-        w = int(pw * _ALERT_POS["width"])
+        w = vpx(parent_rect, _ALERT_W)
         h = self.heightForWidth(w) if self.hasHeightForWidth() else self.sizeHint().height()
         self.setGeometry(QRect(parent_rect.left() + (pw - w) // 2,
                                parent_rect.top() + (ph - h) // 2, w, h))

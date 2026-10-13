@@ -465,7 +465,7 @@ class SafetyConsole(QMainWindow):
         self.status_panel.relayout(vr)
         self.gauge_panel.relayout(vr)
         self.glow.relayout(vr)
-        self.alert.relayout(r)
+        self.alert.relayout(vr)
         self.menu_panel.relayout(r)
         self.notify_panel.relayout(r)
         self.settings_panel.relayout(r)
@@ -1941,7 +1941,8 @@ class SafetyConsole(QMainWindow):
             #    _reset_dwell() 보다 먼저라 지금 last_roi 가 그 오답 ROI 다.
             self._stats.violation(self.fsm.correct_roi, self.fsm.last_roi or "?", "warn")
             self.glow.set_level("warn")
-            self.alert.show_order_violation(self.fsm.correct_roi, self.fsm.current_step_name)
+            self.alert.show_order_violation(self.fsm.correct_roi, self.fsm.current_step_name,
+                                            order=self.fsm.expected_step)
             self._refresh_dim()
             self._notify("warn", "순서가 다릅니다",
                          f"지금은 {self.fsm.correct_roi} {self.fsm.current_step_name}")

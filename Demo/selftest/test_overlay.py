@@ -231,17 +231,59 @@ def test_glow_levels():
     check(g.level is None and not g.isVisible(), "None → 숨김")
 
 
-def test_banner_order_violation_has_release():
-    """순서 위반 배너 — 해제 버튼 있음 + 2번째 줄 들여쓰기."""
-    print("\n[10] 순서 위반 배너")
-    host = QWidget()
-    b = AlertBanner(host)
-    b.show_order_violation("B2", "펌프/퍼지")
+def test_order_warning_has_no_button_and_countdown():
+    """③ 경고 — 해제 버튼 없음 · 「손을 떼면 곧 닫힙니다」 · 줄어드는 줄 · 가운데 폭 883(설계 2026-10-13 §3 ③)."""
+    print("\n[③ 경고] 버튼 없음 · 줄어드는 줄")
+    host = QWidget(); host.resize(1920, 1280); b = AlertBanner(host)
+    b.show_order_violation("B2", "냉각", order=2); b.relayout(QRect(107, 0, 1707, 1280))
     check(b.mode == "order", "mode=order")
-    check(b._release.isHidden() is False, "해제 버튼 있음")
-    check("경고 해제" == b._release.text(), f"버튼 라벨 {b._release.text()}")
-    check("B2" in b._line1.text() and "차례" in b._line1.text(), f"1줄: {b._line1.text()}")
-    check("padding-left: 14px" in b._line2.styleSheet(), "2번째 줄 들여쓰기 있음")
+    check(b.release_button.isHidden(), "해제 버튼 없음")
+    check(b._line1.text() == "지금은 2단계 냉각(B2) 차례입니다", b._line1.text())
+    check("손을 떼면 곧 닫힙니다" in b._line2.text(), b._line2.text())
+    check(not b._count_track.isHidden(), "줄어드는 줄 보임")
+    check(b.width() == 883 and b.x() == 107 + (1707 - 883) // 2, f"가운데 폭 883 {b.geometry()}")
+
+
+def test_order_warning_without_auto_release():
+    """끄기 스위치(WARN_AUTO_RELEASE_SEC=0) — 종전 안내 문구 · 줄 없음."""
+    print("\n[③ 경고] 자동 해제 끔")
+    old = config.WARN_AUTO_RELEASE_SEC
+    config.WARN_AUTO_RELEASE_SEC = 0.0
+    try:
+        host = QWidget(); b = AlertBanner(host)
+        b.show_order_violation("B2", "냉각", order=2)
+        check("B2를 누르세요" in b._line2.text(), b._line2.text())
+        check(b._count_track.isHidden(), "줄 없음")
+    finally:
+        config.WARN_AUTO_RELEASE_SEC = old
+
+
+def test_block_round_release_button():
+    """③ 차단 — 왼쪽 아래 지름 200 동그란 버튼(중심 화면 226, 970) → release_clicked · 숨기면 함께 숨는다."""
+    print("\n[③ 차단] 동그란 해제 버튼")
+    host = QWidget(); host.resize(1920, 1280); b = AlertBanner(host)
+    got = []; b.release_clicked.connect(lambda: got.append(1))
+    b.show_block("B1 차례에 B3 버튼을 눌러 차단했습니다"); b.relayout(QRect(107, 0, 1707, 1280))
+    rb = b.release_button
+    check(not rb.isHidden() and rb.width() == 200, f"보임 · {rb.geometry()}")
+    check(abs(rb.geometry().center().x() - 226) <= 1 and abs(rb.geometry().center().y() - 970) <= 1,
+          f"중심 {rb.geometry().center()}")
+    rb.click(); check(got == [1], "누르면 release_clicked")
+    b.hide_all(); check(rb.isHidden(), "숨기면 함께 숨는다")
+
+
+def test_release_button_survives_theme_and_resize():
+    """Review Focus 3 — 차단 중 테마 전환 · 창 크기 변경에도 버튼이 남고 새 자리 · 새 크기로."""
+    print("\n[③ 차단] 테마 · 크기 변경")
+    host = QWidget(); host.resize(1920, 1280); b = AlertBanner(host)
+    b.show_block("x"); b.relayout(QRect(107, 0, 1707, 1280))
+    theme.set_theme("light")
+    try:
+        b.apply_theme(); b.relayout(QRect(80, 0, 1280, 960))
+        check(not b.release_button.isHidden(), "테마 뒤에도 보임")
+        check(b.release_button.width() == 150, f"960 높이 → 지름 150 ({b.release_button.width()})")
+    finally:
+        theme.set_theme("dark")
 
 
 def test_banner_wrong_tool_has_no_release():
@@ -251,7 +293,7 @@ def test_banner_wrong_tool_has_no_release():
     b = AlertBanner(host)
     b.show_wrong_tool("드라이버", "스패너")
     check(b.mode == "tool", "mode=tool")
-    check(b._release.isHidden(), "🔴 해제 버튼 없음 — 올바른 공구로 바꾸면 스스로 풀린다")
+    check(b.release_button.isHidden(), "🔴 해제 버튼 없음 — 올바른 공구로 바꾸면 스스로 풀린다")
     check("드라이버" in b._line1.text() and "스패너" in b._line1.text(),
           f"문장: {b._line1.text()}")
     check("padding-left" not in b._line2.styleSheet(), "짧은 문장이라 들여쓰기 없음")
@@ -265,7 +307,7 @@ def test_banner_block():
     b = AlertBanner(host)
     b.show_block()
     check(b.mode == "block", "mode=block")
-    check("차단 해제" == b._release.text(), f"버튼 라벨 {b._release.text()}")
+    check(b.release_button.text() == "차단\n해제", f"버튼 라벨 {b.release_button.text()!r}")
     b.relayout(SCREEN)
     r = b.geometry()
     check(abs(r.center().y() - SCREEN.height() // 2) < 5, "세로 중앙 — 시야를 가린다")
@@ -596,8 +638,8 @@ def test_alert_boxes_same_place():
           f"모두 화면 정중앙 — {[(m, r.center().x(), r.center().y()) for m, r in rects.items()]}")
 
 def test_alert_box_inner_margin():
-    """박스 안 여백(사용자 요청 2026-09-25) — 해제 버튼이 박스 테두리에 붙지 않고, 박스의 안쪽
-    여백이 글자 칸마다 번져 줄 사이가 벌어지지 않는다(리뷰 M6)."""
+    """박스 안 여백 — 박스의 안쪽 여백이 글자 칸마다 번져 줄 사이가 벌어지지 않는다(리뷰 M6).
+    (해제 버튼 여백 검사는 버튼이 상자 밖 동그란 버튼이 되며 뺐다 · 시연 UI 개선 10/13)"""
     print("\n[배너] 박스 안 여백")
     host = QWidget(); host.setGeometry(SCREEN)
     for mode, show in (("order", lambda b: b.show_order_violation("B1", "클린·가스차단")),
@@ -607,8 +649,6 @@ def test_alert_box_inner_margin():
         show(b)
         b.relayout(SCREEN)
         host.show(); _app.processEvents()
-        gap_r = b.width() - 1 - b._release.geometry().right()
-        check(gap_r >= 12, f"{mode} — 해제 버튼 오른쪽 여백 {gap_r}px (12px 이상)")
         fh = b._title.fontMetrics().height()
         check(b._title.height() <= fh + 8,
               f"{mode} — 제목 칸 높이 {b._title.height()}px ≈ 글자 높이 {fh}px (여백이 번지면 +28px)")
@@ -738,7 +778,7 @@ def test_alert_notice_mode():
     a.show_notice("카메라 미확인", "카메라가 B2 누름을 확인하지 못했습니다", "— 다음 버튼은 보면서 누르세요")
     a.relayout(SCREEN)
     check(a.mode == "notice", f"mode = {a.mode}")
-    check(a._release.isHidden(), "해제 버튼 없음")
+    check(a.release_button.isHidden(), "해제 버튼 없음")
     check(not a._pulse.active(), "맥박 없음")
     size_notice = a.geometry().size()
     a.show_order_violation("B2", "펌프/퍼지")

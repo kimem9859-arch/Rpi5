@@ -1503,7 +1503,7 @@ def test_g5_emo_banner_text():
     win.close()
 
 def test_g2_tool_banner_does_not_cover_warning():
-    """G2 — 「다른 공구」 경고가 순서 경고를 덮지 않는다. 해제 버튼이 남는다(리뷰 U3 재현 C2)."""
+    """G2 — 「다른 공구」 경고가 순서 경고를 덮지 않는다(리뷰 U3 재현 C2) · 해제 경로(_on_alert_release)는 남는다."""
     print("\n[G2] 경고창 우선순위 — 순서 경고")
     win = make_console()
     win._on_cta()
@@ -1514,7 +1514,7 @@ def test_g2_tool_banner_does_not_cover_warning():
     dwell_warning(win, "B3")
     win._tick_sub()                                  # 200ms 뒤
     check(win.alert.mode == "order", f"순서 경고가 남는다({win.alert.mode})")
-    check(not win.alert._release.isHidden(), "「경고 해제」 버튼이 보인다")
+    check(win.alert.release_button.isHidden(), "경고는 해제 버튼 없음(시연 UI 개선 · 자동 해제)")
     win._on_alert_release()
     win._tick_sub()
     check(win.alert.mode == "tool", f"해제 뒤 공구 경고가 다시 뜬다({win.alert.mode})")
@@ -1532,7 +1532,7 @@ def test_g2_block_not_covered_and_stays():
     key(win, "3")                                    # 오답 → BLOCK
     win._tick_sub()
     check(win.alert.mode == "block", f"차단 배너 유지({win.alert.mode})")
-    check(not win.alert._release.isHidden(), "「차단 해제」 버튼이 보인다")
+    check(not win.alert.release_button.isHidden(), "「차단 해제」 동그란 버튼이 보인다")
     win.close()
 
 

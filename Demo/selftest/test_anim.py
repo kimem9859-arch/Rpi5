@@ -222,12 +222,12 @@ def test_status_steps_all_pending_before_start():
     """
     print("\n[시작 전 단계 표시]")
     s = StatusPanel(STEPS, _w)
-    marks = [r.text()[0] for r in s._rows]
-    check(all(m == "○" for m in marks), f"전부 ○ (실제 {marks})")
+    marks = s.marks()                            # 시연 UI 개선 — 남은 단계 동그라미는 빈칸(종전 ○)
+    check(all(m == "" for m in marks), f"전부 빈칸 (실제 {marks})")
 
     s.update_view("IDLE", 1)
-    marks = [r.text()[0] for r in s._rows]
-    check(all(m == "○" for m in marks), f"초기화 후에도 전부 ○ (실제 {marks})")
+    marks = s.marks()
+    check(all(m == "" for m in marks), f"초기화 후에도 전부 빈칸 (실제 {marks})")
 
 
 def test_text_pulse():
