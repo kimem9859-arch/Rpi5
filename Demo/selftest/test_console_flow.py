@@ -2788,6 +2788,53 @@ def test_reset_confirm_in_app_box():
     check(win.fsm.state == State.IDLE and win.confirm_panel.isHidden(), "초기화 → 작업 시작 전")
     win.close()
 
+
+def _above(win, a, b):
+    """같은 부모 안에서 a 가 b 보다 위(나중 형제)인가 — raise_ 는 형제 목록 끝으로 옮긴다."""
+    kids = win._root.children()
+    return kids.index(a) > kids.index(b)
+
+
+def test_final_confirm_box_above_block_banner():
+    """최종 검토 I-1 — 차단 중 「작업 초기화」 확인 상자 · 메뉴가 가운데 차단 상자 밑에 깔리지 않는다."""
+    print("\n[최종 I-1] 차단 중 확인 상자 겹침")
+    win = make_console()
+    win._on_cta()
+    key(win, "1"); finish_sub(win)
+    key(win, "3")                                    # 오답 → 차단
+    win._toggle_menu(True)
+    check(_above(win, win.menu_panel, win.alert), "메뉴가 차단 상자 위")
+    win._on_reset_clicked()
+    check(_above(win, win.confirm_panel, win.alert), "확인 상자가 차단 상자 위")
+    check(_above(win, win.confirm_panel, win.alert.release_button), "확인 상자가 해제 버튼 위")
+    win.close()
+
+
+def test_final_log_controls_stay_on_top():
+    """최종 검토 I-2 — 작업 중 로그를 연 채 상태가 바뀌어도(_relayout) 거르기 버튼 · ✕ 가 로그 창 위에 남는다."""
+    print("\n[최종 I-2] 로그 버튼 겹침")
+    win = make_console()
+    win._on_cta()
+    win._show_log()
+    win._relayout()                                  # 상태 전이마다 불린다
+    win._refresh_dim()
+    for k, b in win._log_filter_buttons.items():
+        check(_above(win, b, win.log_browser), f"거르기 {k} 가 로그 창 위")
+    check(_above(win, win._log_close, win.log_browser), "✕ 가 로그 창 위")
+    win.close()
+
+
+def test_final_notify_new_cleared_when_closed_by_other_sheet():
+    """최종 검토 M-3(→ Important · Review Focus 5) — 알림을 다른 창을 열어 닫아도 NEW 가 지워진다 · 열린 동안 온 알림은 배지에 안 쌓인다."""
+    print("\n[최종 M-3] 알림 NEW 지우기")
+    win = make_console()
+    win._toggle_notify(True)
+    win._notify("work", "열린 동안 온 알림")
+    check(win._unread == 0, f"열린 동안은 배지 0 ({win._unread})")
+    win._toggle_menu(True)                           # 다른 창을 열어 알림이 닫힘
+    check(win.notify_panel.isHidden() and win.notify_panel.new_count == 0, f"NEW {win.notify_panel.new_count}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

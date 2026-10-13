@@ -529,6 +529,7 @@ class SafetyConsole(QMainWindow):
                   self.settings_panel, self.check_panel, self.record_panel,
                   self.result_panel, self.confirm_panel, self.log_browser, self.btn_menu, self.btn_notify):
             w.raise_()
+        self._raise_log_controls()       # 🔴 위에서 로그 창을 올렸다 — ✕ · 거르기 버튼이 그 밑으로 깔리지 않게(최종 검토 I-2)
         if getattr(self, "_prompt_bar", None) is not None:      # 측정 화면 띠 — 결과창보다 위(3판 D20)
             self._prompt_bar.relayout(r)
             self._prompt_bar.raise_()
@@ -699,8 +700,6 @@ class SafetyConsole(QMainWindow):
             self._close_sheets(except_=self.notify_panel)
         if want:
             self.notify_panel.relayout(self.camera_label.geometry())   # 내용에 맞는 높이
-        elif not self.notify_panel.isHidden():
-            self.notify_panel.mark_all_read()            # 닫을 때 NEW 를 지운다(시연 UI 개선 §4.3)
         self.notify_panel.setVisible(want)
         if want:
             self.notify_panel.raise_()
@@ -915,9 +914,15 @@ class SafetyConsole(QMainWindow):
             b.setVisible(on)
         if on:
             self.log_browser.raise_()
-            self._log_close.raise_()
-            for b in self._log_filter_buttons.values():
-                b.raise_()
+            self._raise_log_controls()
+
+    def _raise_log_controls(self):
+        """로그 창 위의 ✕ · 거르기 버튼을 로그 창 **위로** — 로그 창을 올리는 곳마다 뒤에 부른다(최종 검토 I-2)."""
+        if self.log_browser.isHidden():
+            return
+        self._log_close.raise_()
+        for b in self._log_filter_buttons.values():
+            b.raise_()
 
     def _set_log_filter(self, filt):
         """로그 거르기 — 최근 줄을 골라 다시 그린다(이후 줄은 _append_log 가 거른다)."""
@@ -956,6 +961,12 @@ class SafetyConsole(QMainWindow):
         self.scrim.setVisible(dimmed)
         if dimmed:
             self.scrim.raise_()
+            # 경고 · 차단 상자는 스크림 위, **사람이 연 창 아래** — 시연 UI 개선으로 확인 상자 · 메뉴가 가운데 상자와
+            #    겹치게 됐다. 위에 두면 차단 중 「작업 초기화」 확인 상자의 버튼이 상자 밑에 깔렸다(최종 검토 I-1).
+            #    경고는 가장자리 불빛 · 단계 카드 · 소리로도 보인다. 안내(notice)는 올리지 않는다(리뷰 M-4).
+            if self.alert.mode not in (None, "notice"):
+                self.glow.raise_()
+                self.alert.raise_()
             for p in self._sheets():
                 if not p.isHidden():
                     p.raise_()
@@ -963,12 +974,9 @@ class SafetyConsole(QMainWindow):
             #    닫기"가 불가능해진다(2026-08-04 실기동에서 실제로 막혔다).
             self.btn_menu.raise_()
             self.btn_notify.raise_()
-            # 안내(notice)는 가벼운 알림이라 열린 창 위로 올리지 않는다 — 뒤에서 저절로 닫힌다(리뷰 M-4)
-            if self.alert.mode not in (None, "notice"):
-                self.glow.raise_()
-                self.alert.raise_()
             if not self.log_browser.isHidden():
                 self.log_browser.raise_()
+                self._raise_log_controls()
 
     # =========================================================================
     # [글라스 UI — 설정 반영]
@@ -1041,6 +1049,7 @@ class SafetyConsole(QMainWindow):
         self.notify_panel.push(kind, title, sub)
         if not self.notify_panel.isHidden():
             self.notify_panel.relayout(self.camera_label.geometry())   # 열린 채 새 알림 — 높이가 는다
+            return                       # 🔑 보고 있는 동안 온 알림은 배지에 쌓지 않는다(NEW 로 보인다 · 최종 검토 M-3)
         self._unread += 1
         self.btn_notify.set_count(self._unread)
 

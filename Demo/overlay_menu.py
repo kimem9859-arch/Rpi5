@@ -510,6 +510,12 @@ class NotifyPanel(_Sheet):
         super().showEvent(event)
         self._scroll_to_latest()          # 열면 최신(맨 위)이 보이는 위치에서 시작
 
+    def hideEvent(self, event):
+        """🔴 어떤 경로로 닫혀도(🔔 · 다른 창 열기 · ESC) NEW 를 지운다 — 다른 창을 열어 닫히면 남던 것(최종 검토 M-3)."""
+        super().hideEvent(event)
+        if hasattr(self, "_new_tags"):   # _Sheet.__init__ 의 hide() 는 목록을 만들기 전이다
+            self.mark_all_read()
+
     @property
     def count(self):
         return len(self._rows)
