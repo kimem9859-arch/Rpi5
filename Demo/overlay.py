@@ -544,31 +544,49 @@ class GlowFrame(QWidget):
 class ReleaseButton(QPushButton):
     """차단 해제 — 왼쪽 아래 지름 200 동그란 버튼(사용자 10/13 · 설계 2026-10-13 §3 ③-차단).
 
+    🔴 시안 자리 (226, 970)(화면) 은 **왼쪽 위 모서리**다 — 가운데로 읽어 버튼이 100px 씩 왼쪽 위로 붙었다(사용자 10/14).
+    모양 = 바깥 빨간 고리 6 · 흰 테두리 6 · 빨간 채움 · 흰 글 38px(시안) — 차단 중에만 보이는 정지 그림(paintEvent 한 번).
     배너가 만들고 함께 보이고 숨는다 — 배너는 가운데 상자라 버튼은 배너의 형제(같은 부모)로 둔다.
     """
 
     D = 200                   # 지름(시안 px)
-    CENTER = (119, 970)       # 중심 — 영상 사각형 기준(화면 226 - 영상 왼쪽 107)
+    TOP_LEFT = (119, 970)     # 왼쪽 위 — 영상 사각형 기준(화면 226 - 영상 왼쪽 107)
+    RING = 6                  # 바깥 고리 · 흰 테두리 두께(시안 px)
 
     def __init__(self, parent=None):
         super().__init__("차단\n해제", parent)
-        self.setFont(config.font("alert_body", 800))
+        f = config.font("alert_body", 800)
+        f.setPointSize(28)                              # 시안 38px
+        self.setFont(f)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)    # ESC·1~4 키가 창으로 가게
         self.hide()
 
     def apply_theme(self):
-        r = (self.width() or self.D) // 2
-        self.setStyleSheet(
-            f"QPushButton {{ background-color: {theme.C('danger')}; color: #ffffff;"
-            f" border: 4px solid {theme.rgba('danger', 0.45)}; border-radius: {r}px; }}"
-            f"QPushButton:pressed {{ background-color: {theme.C('warn')}; }}")
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        d = min(self.width(), self.height())
+        k = max(2, round(self.RING * d / self.D))
+        danger = QColor(theme.C("danger"))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(danger)                                         # 바깥 빨간 고리
+        p.drawEllipse(0, 0, d, d)
+        p.setBrush(QColor("#ffffff"))                              # 흰 테두리
+        p.drawEllipse(k, k, d - 2 * k, d - 2 * k)
+        p.setBrush(danger.darker(140 if self.isDown() else 115))  # 채움(눌리면 더 어둡게)
+        p.drawEllipse(2 * k, 2 * k, d - 4 * k, d - 4 * k)
+        p.setPen(QColor("#ffffff"))
+        p.setFont(self.font())
+        p.drawText(QRect(0, 0, d, d), Qt.AlignmentFlag.AlignCenter, self.text())
+        p.end()
 
     def relayout(self, vr):
         d = vpx(vr, self.D)
-        cx, cy = self.CENTER
-        self.setGeometry(QRect(vr.left() + vpx(vr, cx) - d // 2, vr.top() + vpx(vr, cy) - d // 2, d, d))
-        self.apply_theme()            # 반지름이 지름을 따른다
+        x, y = self.TOP_LEFT
+        self.setGeometry(QRect(vr.left() + vpx(vr, x), vr.top() + vpx(vr, y), d, d))
 
 
 class AlertBanner(_Panel):

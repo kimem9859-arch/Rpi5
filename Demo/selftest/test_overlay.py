@@ -276,8 +276,16 @@ def test_block_round_release_button():
     b.show_block("B1 차례에 B3 버튼을 눌러 차단했습니다"); b.relayout(QRect(107, 0, 1707, 1280))
     rb = b.release_button
     check(not rb.isHidden() and rb.width() == 200, f"보임 · {rb.geometry()}")
-    check(abs(rb.geometry().center().x() - 226) <= 1 and abs(rb.geometry().center().y() - 970) <= 1,
-          f"중심 {rb.geometry().center()}")
+    # 🔴 시안 (226, 970) 은 **왼쪽 위 모서리**다(가운데로 읽어 100px 씩 왼쪽 위로 붙었다 · 사용자 10/14 지적)
+    check(abs(rb.geometry().left() - 226) <= 1 and abs(rb.geometry().top() - 970) <= 1,
+          f"왼쪽 위 (226, 970) · 실제 {rb.geometry().topLeft()}")
+    check(abs(rb.geometry().center().x() - 326) <= 1 and abs(rb.geometry().center().y() - 1070) <= 1,
+          f"중심 (326, 1070) · 실제 {rb.geometry().center()}")
+    host.show(); _app.processEvents()
+    img = rb.grab().toImage(); h = rb.height()
+    ring = img.pixelColor(2, h // 2); white = img.pixelColor(9, h // 2)
+    check(ring.red() > 200 and ring.green() < 120, f"바깥 빨간 고리 {ring.name()}")
+    check(min(white.red(), white.green(), white.blue()) > 220, f"흰 테두리 {white.name()}")
     rb.click(); check(got == [1], "누르면 release_clicked")
     b.hide_all(); check(rb.isHidden(), "숨기면 함께 숨는다")
 
