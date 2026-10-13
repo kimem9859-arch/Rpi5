@@ -39,6 +39,17 @@ def read_out(text):
     return re.sub(r"\s{2,}", " ", _SPACE.sub(" ", t)).strip()
 
 
+_BREATH = re.compile(r"(?<=[,?!])\s+|(?<=\D\.)\s+")    # 🔑 숫자 바로 뒤 마침표(「1. 렌치」)는 안 나눈다 — 「1.」 홀로는 뭉개진다
+
+
+def breath_parts(text):
+    """숨 고르기 조각 — `[(조각, 뒤에 둘 쉼초), …]` · 쉼표·문장 끝 뒤 띄어쓰기에서만 나눈다(소수점 · 번호 목록은 안 나뉜다)."""
+    parts = [p for p in _BREATH.split(text) if p.strip()]
+    return [(p, 0.0 if i == len(parts) - 1 else
+             (config.TTS_PAUSE_COMMA_SEC if p.endswith(",") else config.TTS_PAUSE_END_SEC))
+            for i, p in enumerate(parts)]
+
+
 def downsample(x, src, dst):
     """정수배로 레이트를 낮춘다 — 창 씌운 sinc 저역 거름(새 나이퀴스트의 90%) 뒤 솎기."""
     import numpy as np
@@ -139,19 +150,14 @@ class Tts:
                 if not pcm:
                     return None
                 return pcm.tobytes(), a.sample_rate, len(pcm) / a.sample_rate
+            import numpy as np
             sp = config.TTS_ST_SPEED if speed is None else speed
-            try:
-                wav, _ = self._st.synthesize(text, voice_style=self._style, lang="ko", total_steps=config.TTS_ST_STEPS,
-                                             speed=sp)
-            except ValueError as e:              # 🔑 그래도 안 받는 글자가 있으면 그 글자만 빼고 한 번 더
-                bad = set(_UNSUPPORTED.findall(str(e)))
-                if not bad:
-                    raise
-                text = re.sub(r"\s{2,}", " ", "".join(" " if c in bad else c for c in text)).strip()
-                wav, _ = self._st.synthesize(text, voice_style=self._style, lang="ko", total_steps=config.TTS_ST_STEPS,
-                                             speed=sp)
-            x = deess(trim(downsample(wav, self._st.sample_rate, config.TTS_OUT_RATE), config.TTS_OUT_RATE),
-                      config.TTS_OUT_RATE)
+            xs = []
+            for part, pause in breath_parts(text):        # 🔑 숨 고르기 — 쉼표·문장 끝에서 나눠 만들고 무음을 넣는다
+                xs.append(self._st_part(part, sp))
+                if pause:
+                    xs.append(np.zeros(int(config.TTS_OUT_RATE * pause), dtype=np.float32))
+            x = np.concatenate(xs)
             if x.size == 0:
                 self.last_error = "빈 소리"
                 return None
@@ -159,6 +165,21 @@ class Tts:
         except Exception as e:                 # noqa: BLE001 — 데몬은 살아야 한다
             self.last_error = f"{type(e).__name__}: {e}"[:200]      # 🔑 부른 쪽이 로그에 남긴다(조용히 None 이던 것)
             return None
+
+    def _st_part(self, text, sp):
+        """supertonic2 한 조각 → 22050Hz float(앞뒤 무음 자름 · 센 소리 줄임)."""
+        try:
+            wav, _ = self._st.synthesize(text, voice_style=self._style, lang="ko", total_steps=config.TTS_ST_STEPS,
+                                         speed=sp)
+        except ValueError as e:                  # 🔑 그래도 안 받는 글자가 있으면 그 글자만 빼고 한 번 더
+            bad = set(_UNSUPPORTED.findall(str(e)))
+            if not bad:
+                raise
+            text = re.sub(r"\s{2,}", " ", "".join(" " if c in bad else c for c in text)).strip()
+            wav, _ = self._st.synthesize(text, voice_style=self._style, lang="ko", total_steps=config.TTS_ST_STEPS,
+                                         speed=sp)
+        return deess(trim(downsample(wav, self._st.sample_rate, config.TTS_OUT_RATE), config.TTS_OUT_RATE),
+                     config.TTS_OUT_RATE)
 
 
 def frame(pcm, rate):

@@ -11,7 +11,7 @@
 
 ## 핵심 — FSM & 레시피 (fsm-interlock 작업으로 추가)
 - **`fsm.py` `SafetyFSM`** — 6상태 `State`(IDLE/READY/PROCESS_RUN/MONITOR/WARNING/BLOCK). 콜백 `on_state_change`·**`on_interlock(bool)`**(→트랙 A 차단)·`on_feedback`. 주요 메서드: `load_recipe()`·`update_vision(roi, now)`·`press_button()`·EMO 처리·`release_warning()`/`release_block()`. 오답 ROI→타이머→WARNING/BLOCK(방금 완료한 버튼·EMO 는 체류 판정 제외) · **안 B — 틀린 버튼 안쪽에서 실제로 본 손끝이 느리면(VGA 437.5 = XGA 700px/s · 직전 3장 · 0.25초 안 손끝 기준) 체류를 기다리지 않고 즉시 WARNING**(`update_vision(…, tip=)` · 이유 `last_warn_reason` slow/dwell · 끄기 `SOP_SLOW_ENTRY_PX_S_VGA=0` = 종전 규칙 · 상위 spec `2026-10-12-판정기준-안B`), **EMO→즉시 BLOCK**(해제 시 「작업 시작」 전 대기 IDLE · 기대단계 1, 위반 BLOCK 해제는 기대 유지). WARNING 중 정답 버튼 = 해제 + 단계 완료(판정기 규칙 · 서브 작업이 있는 단계는 화면이 먼저 받아 서브를 잇거나 시작 — 상위 §7.3-6·§8.2). 단위테스트 `Demo/selftest/test_fsm.py`.
-- **`recipe.py`/`recipe.json`** — 정답 순서 단일 출처. **PM 정비 4단계**: B1 클린·가스차단 → B2 펌프/퍼지 → B3 전극 냉각 → B4 챔버 벤트 (+EMO). `current_step_name`이 여기서 옴. (정본 §5.1과 동기화됨)
+- **`recipe.py`/`recipe.json`** — 정답 순서 단일 출처. **PM 정비 4단계**: B1 공정 정지 → B2 냉각 → B3 가스 퍼지 → B4 챔버 벤트 (+EMO). `current_step_name`이 여기서 옴. (⚠️ 정본 §5.1 은 아직 옛 이름 — 정본 반영 전)
 - 테스트 절차 전체: **`Demo/docs/TESTING_FSM.md`**. 실HW 테스트는 **라즈베리파이에서** 수행.
 
 ## 추론 백엔드 — `detector.py` (★ console_v1.hef 통합 지점)

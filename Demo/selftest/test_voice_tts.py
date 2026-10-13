@@ -105,6 +105,28 @@ def main():
         check(t.synth(q) is not None, f"괄호·가운뎃점이 있어도 합성된다 — {q}")
     check(V.read_out("1단계 「클린·가스차단」") == "1단계 클린 가스차단", f"합성 전 글자 정리 · {V.read_out('1단계 「클린·가스차단」')!r}")
     check(t.synth("지금 온도는 25℃ 입니다") is not None, "정리 뒤에도 남는 글자(℃)는 빼고 다시 합성한다(재시도 경로 · 리뷰 M6)")
+    # ── 숨 고르기(2026-10-13 사용자 귀 확인 — 「네」 뒤에 쉬지 않고 한 호흡에 말함 · 안쪽 쉼 최장 0.13초) ──
+    C, E = config.TTS_PAUSE_COMMA_SEC, config.TTS_PAUSE_END_SEC
+    check(V.breath_parts("네, 렌치는 이미 확인됐습니다.") == [("네,", C), ("렌치는 이미 확인됐습니다.", 0.0)],
+          "쉼표 뒤에서 나누고 쉼표 쉼을 둔다")
+    check(V.breath_parts("버튼은 B3입니다. 위험하면 누르세요?") == [("버튼은 B3입니다.", E), ("위험하면 누르세요?", 0.0)],
+          "문장 끝에서 나누고 문장 쉼을 둔다")
+    check(V.breath_parts("다음 버튼은 B3 가스 퍼지입니다.") == [("다음 버튼은 B3 가스 퍼지입니다.", 0.0)],
+          "쉼표·문장 사이가 없으면 한 덩어리(지금과 같다)")
+    check(V.breath_parts("약 2.5초 남았습니다") == [("약 2.5초 남았습니다", 0.0)], "소수점은 나누지 않는다(뒤에 띄어쓰기가 없다)")
+    check(V.breath_parts("1. 렌치 2. 드라이버") == [("1. 렌치 2. 드라이버", 0.0)], "번호 목록은 나누지 않는다(「1.」 홀로 뭉개짐 · 리뷰)")
+
+    def longest_gap(pcm, rate, rel=0.04):
+        x = np.abs(np.frombuffer(pcm, np.int16).astype(float))
+        hop = int(rate * 0.01)
+        env = np.array([x[i:i + hop].mean() for i in range(0, len(x) - hop, hop)])
+        q, best, run = env < rel * env.max(), 0, 0
+        for v in q[5:-5]:                                    # 앞뒤 끝 무음은 뺀다
+            run = run + 1 if v else 0
+            best = max(best, run)
+        return best * 0.01
+    g = longest_gap(*t.synth("네, 렌치는 이미 확인됐습니다.")[:2])
+    check(g >= C, f"쉼표 자리에 쉼이 실제로 생긴다 ({g:.2f}초 ≥ {C})")
     import re
     import voice_assistant as va
     with open(va.HOTWORDS, encoding="utf-8") as f:
