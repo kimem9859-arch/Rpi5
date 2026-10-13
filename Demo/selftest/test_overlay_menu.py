@@ -30,51 +30,33 @@ def check(cond, msg):
         _fails.append(msg)
 
 
-def test_menu_signals():
-    """메뉴 항목 5개 + 종료가 각각 신호를 낸다.
-
-    구성(2026-09-23): 점검(연결) · 녹화 · 로그 · 설정 · 작업 초기화 + 종료
-    — CCTV 는 USB 웹캠 제거로(D5), 캘리브레이션은 calib_capture.py 로 옮겨(D2) 삭제
-    """
-    print("\n[1] MenuPanel 신호")
+def test_menu_items_four_without_record_shutdown():
+    """4.1 메뉴 — 항목 4개(점검 · 로그 · 설정 · 작업 초기화) · 녹화 · 시스템 종료 없음(사용자 10/13 · 설계 2026-10-13 §4.1)."""
+    print("\n[1] MenuPanel 항목 · 신호")
     host = QWidget()
     m = MenuPanel(host)
+    check(m.item_titles() == ["점검 (연결)", "로그", "설정", "작업 초기화"], f"{m.item_titles()}")
+    check(not hasattr(m, "record_clicked") and not hasattr(m, "shutdown_clicked"), "녹화 · 종료 신호 없음")
     got = []
-    for name in ("check_clicked", "record_clicked", "log_clicked",
-                 "settings_clicked",
-                 "reset_clicked", "shutdown_clicked"):
+    for name in ("check_clicked", "log_clicked", "settings_clicked", "reset_clicked"):
         getattr(m, name).connect(lambda n=name: got.append(n))
     for b in m._items:
         b.click()
-    m._shutdown.click()
-    check(len(got) == 6, f"6개 신호 발생: {got}")
-    check("check_clicked" in got and "record_clicked" in got,
-          "점검(연결)·녹화 항목이 신설됨")
-    check("reset_clicked" in got, "작업 초기화 항목이 신호를 낸다")
+    check(got == ["check_clicked", "log_clicked", "settings_clicked", "reset_clicked"], f"{got}")
 
 
-def test_menu_shutdown_separated():
-    """🔴 시스템 종료는 목록 맨 아래에 분리돼 있는가."""
-    print("\n[2] 종료 분리")
-    host = QWidget()
-    m = MenuPanel(host)
-    lay = m.layout()
-    last_idx = lay.count() - 1
-    check(lay.itemAt(last_idx).widget() is m._shutdown, "종료가 레이아웃 맨 끝")
-    check("종료" in m._shutdown.text(), f"라벨: {m._shutdown.text()}")
-
-
-def test_menu_has_free_slots():
-    """항목 수와 남은 자리 (design §4.7).
-
-    항목 4개 → 6개(2026-08-04) → 7개(2026-08-16 「작업 초기화」)
-    → **5개**(2026-09-23 「CCTV 전환」·「캘리브레이션」 삭제). 여유 자리는 0칸 그대로.
-    """
-    print("\n[3] 추후 항목 자리")
-    host = QWidget()
-    m = MenuPanel(host)
-    check(len(m._free) == 0, f"빈 자리 {len(m._free)}칸")
-    check(len(m._items) == 5, f"메뉴 항목 {len(m._items)}개")
+def test_menu_system_summary_and_place():
+    """4.1 메뉴 — 아래 시스템 상태 4줄 · 자리 x 1201~1781 · y 100~1248(☰ 아래)."""
+    print("\n[2] 시스템 상태 요약 · 자리")
+    host = QWidget(); host.resize(1920, 1280); m = MenuPanel(host)
+    m.set_system({"camera": True, "interlock": True, "gpio": False, "detector": True}, fps=23.7)
+    check(m._sys["camera"][1].text() == "연결 · 23.7 fps", m._sys["camera"][1].text())
+    check(m._sys["gpio"][1].text() == "끊김", m._sys["gpio"][1].text())
+    check(m._sys["detector"][1].text() == "정상", m._sys["detector"][1].text())
+    m.relayout(QRect(107, 0, 1707, 1280))
+    check(m.geometry() == QRect(1201, 100, 580, 1148), f"{m.geometry()}")
+    m.set_context("작업 진행 중 · 2단계 냉각")
+    check(m._ctx.text() == "작업 진행 중 · 2단계 냉각", m._ctx.text())
 
 
 def test_no_calibration_item():
@@ -91,7 +73,7 @@ def test_no_cctv_item():
     check(not any(hasattr(c, "cctv_clicked") for c in vars(overlay_menu).values()
                   if isinstance(c, type)), "CCTV 신호가 남아 있지 않다")
     host = QWidget()
-    check(not any("CCTV" in b.text() for b in MenuPanel(host)._items),
+    check(not any("CCTV" in t for t in MenuPanel(host).item_titles()),
           "메뉴에 「CCTV 전환」 글자가 없다")
 
 
@@ -237,13 +219,12 @@ def test_panels_no_close_button():
 
 
 def test_panels_do_not_cover_their_buttons():
-    """🔴 패널이 자기 버튼을 덮지 않는가 (2026-08-04 피드백).
-
-    메뉴 버튼은 top 5%, 알림 버튼은 bottom 5% 에 있다.
-    """
+    """🔴 패널이 자기 버튼을 덮지 않는가 (2026-08-04 피드백) — ☰(y 32~84) 아래에서 메뉴가 시작한다(y 100)."""
     print("\n[14] 버튼 가림 방지")
-    from overlay_menu import _MENU_POS, _NOTIFY_POS
-    check(_MENU_POS["top"] > 0.05, f"메뉴 패널 top {_MENU_POS['top']:.2f} > 버튼 0.05")
+    host = QWidget(); host.resize(1920, 1280); m = MenuPanel(host)
+    m.relayout(QRect(107, 0, 1707, 1280))
+    check(m.y() > 32 + 52, f"메뉴 위 {m.y()} > ☰ 아래 84")
+    from overlay_menu import _NOTIFY_POS
     check(_NOTIFY_POS["bottom"] > 0.05, f"알림 패널 bottom {_NOTIFY_POS['bottom']:.2f} > 버튼 0.05")
 
 
@@ -327,26 +308,14 @@ def test_badge_inside_button():
     check(b._badge.isHidden(), "0건이면 배지 숨김")
 
 
-def test_menu_width_widened():
-    """메뉴 폭 1.5배 — 항목 글자가 오른쪽 경계에 닿아 답답했다(2026-08-04).
-
-    🔴 글자 크기는 유지한다. 멀리서 보는 화면이라 줄이면 가독성을 잃는다(사용자 결정).
-    """
-    print("\n[17] 메뉴 폭")
-    from overlay_menu import _MENU_POS
-    check(abs(_MENU_POS["width"] - 0.195) < 1e-6,
-          f"폭 비율 {_MENU_POS['width']} (종전 0.13 의 1.5배)")
-
-    host = QWidget()
-    m = MenuPanel(host)
-    m.relayout(SCREEN)
-    check(m.width() == int(SCREEN.width() * 0.195),
-          f"1920 기준 폭 {m.width()}px")
-    # 가장 긴 항목이 폭 안에 들어가는가 (좌우 여백 24px 감안)
-    longest = max(m._items, key=lambda b: b.fontMetrics().horizontalAdvance(b.text()))
-    need = longest.fontMetrics().horizontalAdvance(longest.text())
-    check(need + 24 <= m.width(),
-          f"가장 긴 항목 '{longest.text()}' {need}px + 여백 ≤ {m.width()}px")
+def test_menu_titles_fit():
+    """메뉴 항목 제목이 폭 안에 들어간다(글자 크기는 유지 — 멀리서 보는 화면 · 사용자 결정)."""
+    print("\n[17] 메뉴 항목 글자 폭")
+    host = QWidget(); host.resize(1920, 1280); m = MenuPanel(host)
+    m.relayout(QRect(107, 0, 1707, 1280)); m.layout().activate()
+    for it in m._items:
+        need = it.title.fontMetrics().horizontalAdvance(it.title.text())
+        check(need <= it.title.width() or it.title.width() == 0, f"{it.title.text()} {need}px ≤ {it.title.width()}px")
 
 
 def test_settings_note_hidden_when_empty():

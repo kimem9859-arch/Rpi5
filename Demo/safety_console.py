@@ -39,7 +39,7 @@ import theme
 from sub_task import SubTask
 from raw_recorder import RawRecorder
 from tool_state import ToolState, held_tool
-from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, PromptBar, place, vplace
+from overlay import StatusPanel, GaugePanel, GlowFrame, AlertBanner, ConnBar, PromptBar, place, vplace, _STATE_LABEL
 from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
                           NotifyButton, CheckPanel, RecordPanel)
 from overlay_result import ResultPanel
@@ -369,10 +369,8 @@ class SafetyConsole(QMainWindow):
         self.menu_panel.closed.connect(lambda: self._toggle_menu(False))
         self.menu_panel.log_clicked.connect(self._show_log)
         self.menu_panel.check_clicked.connect(self._open_check)
-        self.menu_panel.record_clicked.connect(self._open_record)
         self.menu_panel.settings_clicked.connect(self._open_settings)
         self.menu_panel.reset_clicked.connect(self._on_reset_clicked)
-        self.menu_panel.shutdown_clicked.connect(lambda: self._on_shutdown_clicked())
 
         self.notify_panel = NotifyPanel(central)
         self.notify_panel.closed.connect(lambda: self._toggle_notify(False))
@@ -467,7 +465,7 @@ class SafetyConsole(QMainWindow):
         self.gauge_panel.relayout(vr)
         self.glow.relayout(vr)
         self.alert.relayout(vr)
-        self.menu_panel.relayout(r)
+        self.menu_panel.relayout(vr)
         self.notify_panel.relayout(r)
         self.settings_panel.relayout(r)
         self.check_panel.relayout(r)
@@ -521,7 +519,8 @@ class SafetyConsole(QMainWindow):
             w.apply_theme()
         btn_qss = (f"QPushButton {{ {theme.panel_qss('panel', padding='8px 14px')} }}"
                    f"QPushButton:hover {{ color: {theme.C('info')}; }}")
-        self.btn_menu.setStyleSheet(btn_qss)
+        self._btn_qss = btn_qss
+        self._style_menu_button(not self.menu_panel.isHidden())
         self.btn_notify.setStyleSheet(btn_qss)
         self.btn_cta.setStyleSheet(
             f"QPushButton {{ background-color: {theme.C('cta_bg')};"
@@ -632,8 +631,30 @@ class SafetyConsole(QMainWindow):
         self.menu_panel.setVisible(want)
         if want:
             self.menu_panel.raise_()
+            self._update_menu_system()
+        self._style_menu_button(want)
         self._refresh_dim()
         self._sync_cta_visibility()
+
+    def _style_menu_button(self, open_):
+        """☰ 는 메뉴가 열린 동안 노란 ✕ 로(시안 4.1) — 같은 버튼으로 닫는다는 것을 보인다."""
+        self.btn_menu.setText("✕" if open_ else "☰")
+        if open_:
+            self.btn_menu.setStyleSheet(
+                f"QPushButton {{ background-color: {theme.C('current')}; color: #111111;"
+                f" border: none; border-radius: 10px; }}")
+        else:
+            self.btn_menu.setStyleSheet(self._btn_qss)
+
+    def _update_menu_system(self, ok=None, fps=None):
+        """메뉴 아래 시스템 상태 — 점검(1차)과 같은 출처 · 메뉴가 열린 동안만."""
+        if ok is None:
+            ok = {r.key: r.ok for r in precheck.run_stage1(self._check_ctx(with_frame=False))}
+            fps = fps_from_intervals(self._fps_intervals)
+        self.menu_panel.set_system(ok, fps)
+        self.menu_panel.set_context(
+            f"{_STATE_LABEL.get(self.fsm.state.value, self.fsm.state.value)} · "
+            f"{self.fsm.expected_step}단계 {self.fsm.current_step_name}")
 
     def _toggle_notify(self, show=None):
         want = self.notify_panel.isHidden() if show is None else show
@@ -660,7 +681,7 @@ class SafetyConsole(QMainWindow):
             #    생기면 필요 높이가 커진다. 다시 재지 않으면 **공구 라디오가 눌려
             #    겹친다**(2026-08-04 확인). 메뉴·알림은 높이를 비율로 지정해 무관.
             self.settings_panel.layout().activate()
-            self.settings_panel.relayout(self._root.rect())
+            self.settings_panel.relayout(self.camera_label.geometry())
             self.settings_panel.raise_()
         self._refresh_dim()
         self._sync_cta_visibility()
@@ -748,6 +769,8 @@ class SafetyConsole(QMainWindow):
         fps = fps_from_intervals(self._fps_intervals)
         # 상태 막대 — 점검(1차)과 같은 출처 · 카메라 fps 를 함께(시연 UI 개선 §3 ⑥)
         self.conn_bar.update_state({k: ok.get(k) for k in ("camera", "interlock", "gpio")}, fps=fps)
+        if not self.menu_panel.isHidden():
+            self._update_menu_system(ok, fps)
         if fps is not None and time.time() - self._fps_log_at >= 10:
             self._fps_log_at = time.time()
             self._append_log(
@@ -833,7 +856,7 @@ class SafetyConsole(QMainWindow):
             #    (2026-08-04: 점검 패널 첫 열기 89px, 정상 496px).
             #    여기 한 곳에 두면 앞으로 생길 패널도 자동으로 덕을 본다.
             panel.layout().activate()
-            panel.relayout(self._root.rect())
+            panel.relayout(self.camera_label.geometry())   # 영상 사각형 기준(시연 UI 개선 §2.1)
             panel.raise_()
         self._refresh_dim()
         self._sync_cta_visibility()

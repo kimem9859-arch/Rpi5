@@ -11,7 +11,8 @@
     둘 다 유지한다.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QRect, pyqtSignal
+from PyQt6.QtGui import QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
     QScrollArea, QRadioButton, QButtonGroup, QFrame, QSizePolicy,
@@ -21,7 +22,7 @@ import os
 
 import config
 import theme
-from overlay import place, _glow
+from overlay import place, _glow, vpx, vplace, cut_corner_path, _qcolor
 
 
 # 알림 종류 — design §4.8. (아이콘, 색 토큰)
@@ -52,13 +53,38 @@ _MENU_PAD_LEFT = 12
 
 
 class _Sheet(QWidget):
-    """열었을 때만 나오는 진한 패널."""
+    """열었을 때만 나오는 진한 패널.
+
+    CUT > 0 이면 게임 메뉴 느낌의 각진 바탕(왼쪽 위 · 오른쪽 아래 모서리 자름 · 시연 UI 개선 설계 2026-10-13 §2.3)을
+    직접 그린다 — 효과가 아니라 도형 한 번. 0 이면 종전처럼 QSS 바탕(결과창 · 녹화창).
+    """
 
     closed = pyqtSignal()          # ✕ 를 누르면 나온다 (항목 패널만 ✕ 를 단다)
+    CUT = 0
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._bg = None            # 각진 바탕 그림 — 크기 · 테마가 바뀔 때만 다시 만든다
         self.hide()
+
+    def paintEvent(self, event):
+        # 🔴 바탕은 그려 둔 그림(QPixmap)을 붙인다 — 매번 경로를 채우면 차단 맥박이 메뉴 아래를 다시 그릴 때마다
+        #    함께 그려져 메뉴 열림 GUI CPU 가 25.7 → 29.1%(코어 1개)로 올랐다(10/14 시제품 측정).
+        if self.CUT:
+            if self._bg is None or self._bg.size() != self.size():
+                self._bg = QPixmap(self.size())
+                self._bg.fill(Qt.GlobalColor.transparent)
+                p = QPainter(self._bg)
+                p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                path = cut_corner_path(QRect(0, 0, self.width() - 1, self.height() - 1), self.CUT)
+                p.fillPath(path, _qcolor(theme.C("sheet_bg")))
+                p.setPen(QPen(_qcolor(theme.C("sheet_border")), 1))
+                p.drawPath(path)
+                p.end()
+            p = QPainter(self)
+            p.drawPixmap(event.rect(), self._bg, event.rect())
+            p.end()
+        super().paintEvent(event)
 
     def _make_close_button(self):
         """우상단 ✕. 🔴 네 패널이 같은 모양·같은 자리여야 하므로 여기서만 만든다.
@@ -84,8 +110,15 @@ class _Sheet(QWidget):
     def apply_theme(self):
         # 🔴 시트는 **항상 배경을 그린다** — 읽고 눌러야 하므로 가독성이 우선이다.
         #    (맨 QWidget 은 이 속성 없이는 스타일시트 배경이 무시된다.)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(theme.panel_qss("sheet", padding="10px 12px"))
+        self._bg = None                  # 테마가 바뀌면 각진 바탕 그림을 다시 만든다
+        if self.CUT:
+            # 각진 바탕은 paintEvent 가 그린다 — QSS 바탕을 끄면 자식에 padding 이 번지던 함정도 없다
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+            self.setStyleSheet("")
+            self.update()
+        else:
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.setStyleSheet(theme.panel_qss("sheet", padding="10px 12px"))
         for lbl in self.findChildren(QLabel):
             _glow(lbl)
 
@@ -149,67 +182,130 @@ class NotifyButton(QPushButton):
             self._place_badge()
 
 
-class MenuPanel(_Sheet):
-    """우상단 세로 메뉴 — design §4.7.
+class _MenuItem(QPushButton):
+    """메뉴 한 줄 — 아이콘 타일 · 제목 · 설명 · ›(시안 96px · 설계 2026-10-13 §4.1).
 
-    🔴 시스템 종료는 맨 아래로 분리 + 구분선. 비가역 동작이라 다른 항목과 섞지 않는다.
-       (확인창은 기존 `_on_shutdown_clicked` 가 그대로 담당한다.)
+    글은 자식 라벨이라 버튼 QSS 는 테두리 · 바탕만 맡는다. 🔴 이모지는 굵기 800 에서 안 그려진다(알림 함정) — 기호 글자를 쓴다.
     """
 
+    def __init__(self, icon, title, desc, tone="text", parent=None):
+        super().__init__(parent)
+        self.tone = tone
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)     # ESC·1~4 키가 창으로 가게
+        self.setFixedHeight(96)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(22, 0, 22, 0)
+        h.setSpacing(20)
+        self.icon = QLabel(icon)
+        self.icon.setFixedSize(56, 56)
+        self.icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon.setFont(config.font("item", 600))
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        self.title = QLabel(title)
+        self.title.setFont(config.font("item", 800))
+        self.desc = QLabel(desc)
+        self.desc.setFont(config.font("item_sub", 500))
+        col.addWidget(self.title)
+        col.addWidget(self.desc)
+        self.chev = QLabel("›")
+        self.chev.setFont(config.font("item", 500))
+        h.addWidget(self.icon)
+        h.addLayout(col, 1)
+        h.addWidget(self.chev)
+        for w in (self.icon, self.title, self.desc, self.chev):
+            w.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+    def apply_theme(self):
+        accent = self.tone != "text"
+        edge = theme.rgba(self.tone, 0.35) if accent else theme.C("sheet_border")
+        self.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: 1px solid {edge}; }}"
+            f"QPushButton:hover, QPushButton:pressed {{ background: {theme.rgba('current', 0.14)};"
+            f" border: 2px solid {theme.C('current')}; }}")
+        self.icon.setStyleSheet(
+            f"background: {theme.rgba(self.tone, 0.10) if accent else theme.C('panel_border')};"
+            f" border: 1px solid {edge}; color: {theme.C(self.tone)};")
+        self.title.setStyleSheet(theme.text_qss(self.tone + "_text" if self.tone == "warn" else self.tone, 800))
+        self.desc.setStyleSheet(theme.text_qss("label", 500))
+        self.chev.setStyleSheet(theme.text_qss("todo", 500))
+
+
+class MenuPanel(_Sheet):
+    """오른쪽 세로 메뉴 — 게임 메뉴 느낌(설계 2026-10-13 §4.1).
+
+    🔴 「녹화」 · 「시스템 종료」 항목은 뺐다(사용자 10/13) — 녹화 코드 · RecordPanel · 종료 확인은 남는다(측정 · 촬영 런처가 쓴다).
+    아래 시스템 상태 요약은 상태 막대와 같은 출처(콘솔 `_update_conn_bar`)가 열린 동안만 채운다.
+    """
+
+    CUT = 28
     log_clicked = pyqtSignal()
     check_clicked = pyqtSignal()      # 점검(연결) — 수동 재연결·재확인
-    record_clicked = pyqtSignal()     # 녹화 — 필요할 때만 켠다
     settings_clicked = pyqtSignal()
     reset_clicked = pyqtSignal()      # 작업 초기화 — 「작업 시작」 직전으로 되돌린다
-    shutdown_clicked = pyqtSignal()
     closed = pyqtSignal()
+    SYS = (("camera", "안경 카메라"), ("interlock", "인터락"),
+           ("gpio", "버튼 입력 (GPIO)"), ("detector", "AI 가속칩"))
 
     def __init__(self, parent=None):
         super().__init__(parent)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-
-        head = QHBoxLayout()
+        lay.setContentsMargins(30, 34, 30, 28)
+        lay.setSpacing(10)
+        self._tag = QLabel("MENU")
+        self._tag.setFont(config.font("item_sub", 700))
         self._title = QLabel("메뉴")
-        self._title.setFont(config.font("small", 700))
-        # 🔴 ✕ 버튼을 두지 않는다 — 같은 버튼(☰/🔔)을 다시 눌러 닫는다.
-        head.addWidget(self._title)
-        head.addStretch()
-        lay.addLayout(head)
-        # 🔴 구분선은 목록으로 들고 있는다 — apply_theme 에서 findChildren(QFrame) 로
-        #    찾으면 **QLabel 까지 잡힌다**(QLabel 은 QFrame 의 하위 클래스). 그래서
-        #    선에 칠하려던 배경색이 제목·「＋」에 덮여 회색 박스로 보였다(2026-08-04).
+        self._title.setFont(config.font("sheet_title", 800))
+        self._ctx = QLabel("")
+        self._ctx.setFont(config.font("item_sub", 500))
+        for w in (self._tag, self._title, self._ctx):
+            lay.addWidget(w)
         self._lines = [self._hline()]
         lay.addWidget(self._lines[0])
 
         self._items = []
-        for text, sig in (("🔧  점검 (연결)", self.check_clicked),
-                          ("⏺  녹화", self.record_clicked),
-                          ("📜  로그", self.log_clicked),
-                          ("⚙  설정", self.settings_clicked),
-                          ("↺  작업 초기화", self.reset_clicked)):
-            b = _row_button(text)
+        for icon, title, desc, tone, sig in (
+                ("◉", "점검 (연결)", "카메라 · 인터락 · 버튼 입력 상태", "text", self.check_clicked),
+                ("☰", "로그", "시스템이 남긴 최근 기록", "text", self.log_clicked),
+                ("⚙", "설정", "공구 · 테마 · 화면 표시", "text", self.settings_clicked),
+                ("↺", "작업 초기화", "「작업 시작」 전으로 되돌립니다", "warn", self.reset_clicked)):
+            b = _MenuItem(icon, title, desc, tone)
             b.clicked.connect(sig.emit)
             lay.addWidget(b)
             self._items.append(b)
-
-        # 추후 항목 자리 — design §4.7. 🔴 남은 칸은 0 이다(2026-08-16 「작업 초기화」가 채움).
-        self._free = []
-        for _ in range(0):
-            f = QLabel("＋")
-            f.setFont(config.font("small"))
-            f.setStyleSheet(f"color: {theme.C('todo')};"
-                            f" padding: 9px 2px 9px {_MENU_PAD_LEFT}px;")
-            lay.addWidget(f)
-            self._free.append(f)
-
         lay.addStretch()
-        self._lines.append(self._hline())
-        lay.addWidget(self._lines[-1])
-        self._shutdown = _row_button("⏻  시스템 종료", "danger")
-        self._shutdown.clicked.connect(self.shutdown_clicked.emit)
-        lay.addWidget(self._shutdown)
+
+        box = QWidget()
+        box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        box.setObjectName("sysBox")
+        self._sys_box = box
+        bl = QVBoxLayout(box)
+        bl.setContentsMargins(22, 20, 22, 20)
+        bl.setSpacing(12)
+        self._sys_cap = QLabel("SYSTEM · 시스템 상태")
+        self._sys_cap.setFont(config.font("item_sub", 700))
+        bl.addWidget(self._sys_cap)
+        self._sys = {}
+        for key, name in self.SYS:
+            row = QHBoxLayout()
+            row.setSpacing(12)
+            dot = QLabel("")
+            dot.setFixedSize(12, 12)
+            n = QLabel(name)
+            n.setFont(config.font("sub", 600))
+            v = QLabel("확인 중")
+            v.setFont(config.font("sub", 500))
+            row.addWidget(dot)
+            row.addWidget(n, 1)
+            row.addWidget(v)
+            bl.addLayout(row)
+            self._sys[key] = (dot, v, n, None)
+        lay.addWidget(box)
+        self._hint = QLabel("오른쪽 위 ✕ 를 누르면 닫힙니다")
+        self._hint.setFont(config.font("item_sub", 500))
+        lay.addWidget(self._hint)
+        self.set_system({})
 
     @staticmethod
     def _hline():
@@ -218,31 +314,55 @@ class MenuPanel(_Sheet):
         line.setFixedHeight(1)
         return line
 
+    def item_titles(self):
+        return [b.title.text() for b in self._items]
+
+    def set_context(self, text):
+        """제목 아래 지금 상태 한 줄(「작업 진행 중 · 2단계 냉각」)."""
+        self._ctx.setText(text)
+
+    def set_system(self, states, fps=None):
+        """states = {"camera"|"interlock"|"gpio"|"detector": True|False|None} — 점검(1차)과 같은 출처."""
+        for key, _ in self.SYS:
+            dot, v, n, _old = self._sys[key]
+            ok = (states or {}).get(key)
+            if ok is None:
+                text = "확인 중"
+            elif not ok:
+                text = "끊김"
+            elif key == "camera" and fps is not None:
+                text = f"연결 · {fps:.1f} fps"
+            elif key == "detector":
+                text = "정상"
+            else:
+                text = "연결"
+            v.setText(text)
+            self._sys[key] = (dot, v, n, ok)
+            tok = "done" if ok else "danger" if ok is False else "todo"
+            dot.setStyleSheet(f"border-radius: 6px; border: none; background: {theme.C(tok)};")
+
     def apply_theme(self):
         super().apply_theme()
-        self._title.setStyleSheet(theme.text_qss("label", 700)
-                                  + f"padding-left: {_MENU_PAD_LEFT}px;")
+        self._tag.setStyleSheet(theme.text_qss("current_text", 700) + "letter-spacing: 6px;")
+        self._title.setStyleSheet(theme.text_qss("text", 800))
+        for w in (self._ctx, self._hint):
+            w.setStyleSheet(theme.text_qss("label", 500))
         for b in self._items:
-            b.setStyleSheet(
-                f"QPushButton {{ color: {theme.C('text')}; background: transparent;"
-                f" border: none; text-align: left;"
-                f" padding: 9px 2px 9px {_MENU_PAD_LEFT}px; }}"
-                f"QPushButton:hover {{ color: {theme.C('info')}; }}")
-        self._shutdown.setStyleSheet(
-            f"QPushButton {{ color: {theme.C('danger')}; background: transparent;"
-            f" border: none; text-align: left;"
-            f" padding: 9px 2px 9px {_MENU_PAD_LEFT}px; font-weight: 700; }}")
-        for f in self._free:
-            f.setStyleSheet(f"color: {theme.C('todo')}; background: transparent;"
-                            f" padding: 9px 2px 9px {_MENU_PAD_LEFT}px;")
+            b.apply_theme()
+        self._sys_box.setStyleSheet(f"QWidget#sysBox {{ background: {theme.rgba('text', 0.04)};"
+                                    f" border: 1px solid {theme.C('sheet_border')}; }}")
+        self._sys_cap.setStyleSheet(theme.text_qss("label", 700) + "letter-spacing: 4px;")
+        for key, (dot, v, n, ok) in self._sys.items():
+            n.setStyleSheet(theme.text_qss("text", 600))
+            v.setStyleSheet(theme.text_qss("label", 500))
+            tok = "done" if ok else "danger" if ok is False else "todo"
+            dot.setStyleSheet(f"border-radius: 6px; border: none; background: {theme.C(tok)};")
         for line in self._lines:
-            line.setStyleSheet(f"background-color: {theme.C('panel_border')}; border: none;")
+            line.setStyleSheet(f"background-color: {theme.C('sheet_border')}; border: none;")
 
-    def relayout(self, parent_rect):
-        p = _MENU_POS
-        h = 1.0 - p["top"] - p["bottom"]
-        place(self, parent_rect, right=p["right"], top=p["top"],
-              width=p["width"], height=h)
+    def relayout(self, vr):
+        """☰ 아래 · 오른쪽 끝을 ☰ 와 맞춘다(x 1094~1674 · y 100~1248 · 영상 기준)."""
+        vplace(self, vr, 1094, 100, 580, 1148)
 
 
 class NotifyPanel(_Sheet):

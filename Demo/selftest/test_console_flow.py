@@ -2734,6 +2734,19 @@ def test_box_roles_follow_steps():
     check(r.get("B3") == "block", f"차단 대상 {r}")
     win.close()
 
+
+def test_menu_button_toggles_and_system_summary():
+    """4.1 — 메뉴가 열린 동안 ☰ 는 ✕ · 시스템 상태 · 지금 상태 줄이 채워진다."""
+    print("\n[4.1] ☰ ↔ ✕ · 시스템 상태")
+    win = make_console()
+    win._toggle_menu(True)
+    check(win.btn_menu.text() == "✕", f"열림 → {win.btn_menu.text()}")
+    check(win.menu_panel._sys["interlock"][1].text() != "", "시스템 상태 줄이 채워짐")
+    check("1단계" in win.menu_panel._ctx.text(), win.menu_panel._ctx.text())
+    win._toggle_menu(False)
+    check(win.btn_menu.text() == "☰", f"닫힘 → {win.btn_menu.text()}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
