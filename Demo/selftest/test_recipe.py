@@ -81,11 +81,11 @@ def test_fsm_driven_by_recipe():
     assert fsm.step_count == 4
     fsm.load_recipe()
     assert fsm.correct_roi == "B1"
-    assert fsm.current_step_name == "클린·가스차단"
+    assert fsm.current_step_name == "공정 정지"
     fsm.update_vision("B1", now=0.0)
     fsm.press_button("B1")
     assert fsm.correct_roi == "B2"
-    assert fsm.current_step_name == "펌프/퍼지"
+    assert fsm.current_step_name == "냉각"
     print("  PASS  레시피 구동 FSM — 단계 진행 + 이름 매핑")
 
 

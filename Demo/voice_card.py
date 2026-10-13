@@ -214,7 +214,7 @@ def next_action(state, dets=(), fresh=False, now=None):
                     f"차단 중이니 차단 해제를 누른 뒤 {btn} 버튼부터 다시 누르세요.")
     p = sub_progress(state, now)
     if s == "WARNING":
-        tail = f" — 멈춘 「{p['라벨']}」가 이어진다" if p and p["상태"] == "멈춤" else ""
+        tail = f" — 멈춘 「{p['라벨']}」{_josa(p['라벨'], '이', '가')} 이어진다" if p and p["상태"] == "멈춤" else ""
         return _act("경고", btn, (btn,), f"손을 뗀 뒤 {btn} 를 누른다{tail}",
                     f"순서가 다르니 손을 떼고 {btn} 버튼을 누르세요.")
     if p and p["상태"] == "진행 중":

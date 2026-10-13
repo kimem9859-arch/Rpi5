@@ -36,8 +36,8 @@ def check(cond, msg):
 
 STATE = {
     "세션": True, "공정명": "PECVD 정비(PM) 시퀀스", "전체단계": 4,
-    "현재단계": 2, "현재단계명": "펌프/퍼지", "현재버튼": "B2",
-    "다음단계": 3, "다음단계명": "전극 냉각", "다음버튼": "B3",
+    "현재단계": 2, "현재단계명": "냉각", "현재버튼": "B2",
+    "다음단계": 3, "다음단계명": "가스 퍼지", "다음버튼": "B3",
     "상태": "PROCESS RUN", "비상정지": False,
     "서브작업": {"label": "N2 퍼지", "sec": 10, "tool": "wrench", "tool_name": "렌치"},
     "서브진행": None, "결과": None, "pid": os.getpid(), "쓴시각": time.time(),
@@ -242,14 +242,14 @@ def test_progress_claim_replaced():
     b = bot(llm=FakeLlm("N2 퍼지가 끝났습니다."), state=RUNNING)
     ok, m = ask(b, "펌프 퍼지 끝났어")
     # 🔑 판 2 이후 — 끝났냐 질문은 코드가 판정한 「질문한 일」 문장으로 바꾼다(질문에 직접 답한다)
-    check(b.tts.said == ["아니요, 2단계 「펌프/퍼지」는 아직 끝나지 않았습니다."], f"말한 것 = {b.tts.said}")
+    check(b.tts.said == ["아니요, 2단계 「냉각」은 아직 끝나지 않았습니다."], f"말한 것 = {b.tts.said}")
 
 
 def test_long_answer_shortened():
     print("\n[다듬기] 첫 문장 · 60자(D2)")
-    b = bot(llm=FakeLlm("현재 2단계 펌프/퍼지 단계이고 지금 눌러야 할 버튼은 B2입니다. 필요한 공구는 렌치입니다."))
+    b = bot(llm=FakeLlm("현재 2단계 냉각 단계이고 지금 눌러야 할 버튼은 B2입니다. 필요한 공구는 렌치입니다."))
     ask(b, "지금 뭐 해야 돼")
-    check(b.tts.said == ["현재 2단계 펌프/퍼지 단계이고 지금 눌러야 할 버튼은 B2입니다."], f"{b.tts.said}")
+    check(b.tts.said == ["현재 2단계 냉각 단계이고 지금 눌러야 할 버튼은 B2입니다."], f"{b.tts.said}")
 
 
 def test_oversize_not_sent():
@@ -487,8 +487,8 @@ def test_asked_progress_in_answer():
     s4 = dict(STATE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None)
     b = bot(llm=FakeLlm("아직 끝나지 않았습니다."), state=s4, tools=([], False))
     ok, m = ask(b, "N2 퍼지 완료야")
-    check(b.llm.asked and "질문한 일: 2단계 「펌프/퍼지」(N2 퍼지) — 이미 끝남" in b.llm.asked[0][0], "LLM 카드에 질문한 일")
-    check(b.tts.said == ["네, 2단계 「펌프/퍼지」는 이미 끝났습니다."] and m["답변출처"] == "대체-안전규칙",
+    check(b.llm.asked and "질문한 일: 2단계 「냉각」(N2 퍼지) — 이미 끝남" in b.llm.asked[0][0], "LLM 카드에 질문한 일")
+    check(b.tts.said == ["네, 2단계 「냉각」은 이미 끝났습니다."] and m["답변출처"] == "대체-안전규칙",
           f"{b.tts.said} · {m.get('답변출처')}")
 
 
@@ -514,7 +514,7 @@ def _quick(on=True):
     return undo, vlog
 
 
-WAIT1 = dict(STATE, 현재단계=1, 현재단계명="클린·가스차단", 현재버튼="B1", 다음단계=2, 다음단계명="펌프/퍼지", 다음버튼="B2",
+WAIT1 = dict(STATE, 현재단계=1, 현재단계명="공정 정지", 현재버튼="B1", 다음단계=2, 다음단계명="냉각", 다음버튼="B2",
              서브작업={"label": "플라즈마 클린 진행", "sec": 10, "tool": None, "tool_name": None},
              서브진행={"상태": "진행 중", "남은초": 6.0, "공구충족": False, "공구오답": None})
 
@@ -527,13 +527,13 @@ def test_quick_answer_skips_llm():
         ok, m = ask(b, "가디언 지금 몇 단계야")
         check(b.llm.asked == [] and b.spk.keys() == [] and len(b.spk.pcms()) == 1,
               f"LLM · 확인 중 없음 · 답 1회 · {b.spk.calls}")
-        want = "지금은 전체 4단계 중 2단계 「펌프/퍼지」입니다."
+        want = "지금은 전체 4단계 중 2단계 「냉각」입니다."
         check(b.tts.said == [want] and m.get("답변출처") == "즉답-단계", f"{b.tts.said} · {m.get('답변출처')}")
         ans = [d for k, d in vlog.ev if k == "answer"]
         check(ans == [{"src": "즉답-단계", "text": want}], f"answer 사건 src = 즉답-단계 · {ans}")
         b = bot(state=WAIT1, tools=([], False))
         ok, m = ask(b, "다음에 뭐 눌러야 돼")
-        check(b.tts.said == ["지금은 기다리고, 대기가 끝나면 다음 버튼은 B2 「펌프/퍼지」입니다."]
+        check(b.tts.said == ["지금은 기다리고, 대기가 끝나면 다음 버튼은 B2 「냉각」입니다."]
               and m.get("답변출처") == "즉답-다음버튼", f"🔴 대기 중 다음 버튼은 조건을 붙인다 — {b.tts.said}")
         b = bot(llm=FakeLlm(ready=False))
         ok, m = ask(b, "지금 상태 어때")
@@ -573,7 +573,7 @@ def test_quick_verify_kept():
     print("\n[즉답] 검산은 그대로 — 합성하는 사이 단계가 바뀌면 버린다")
     undo, vlog = _quick(True)
     try:
-        moved = dict(STATE, 현재단계=3, 현재단계명="전극 냉각", 현재버튼="B3")
+        moved = dict(STATE, 현재단계=3, 현재단계명="가스 퍼지", 현재버튼="B3")
         b = bot(states=[STATE, STATE, moved])
         ok, m = ask(b, "지금 몇 단계야")
         check(b.spk.keys() == ["changed"] and m.get("답변출처") == "고정-검산불일치", f"{b.spk.calls} · {m.get('답변출처')}")

@@ -5,11 +5,11 @@
   "emo_button": "EMO",
   "steps": [
     {
-      "order": 1, "button": "B1", "name": "클린·가스차단",
+      "order": 1, "button": "B1", "name": "공정 정지",
       "sub": {"type": "wait", "sec": 10, "label": "플라즈마 클린 진행"}
     },
     {
-      "order": 2, "button": "B2", "name": "펌프/퍼지",
+      "order": 2, "button": "B2", "name": "냉각",
       "sub": {
         "type": "wait_tool", "sec": 10, "label": "N2 퍼지",
         "tool": "wrench",
@@ -18,7 +18,7 @@
       }
     },
     {
-      "order": 3, "button": "B3", "name": "전극 냉각",
+      "order": 3, "button": "B3", "name": "가스 퍼지",
       "sub": {"type": "wait", "sec": 10, "label": "전극 온도 하강"}
     },
     {
