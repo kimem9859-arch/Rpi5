@@ -38,9 +38,26 @@ _POS = {
     "notify_btn": {"left": 0.14, "bottom": 0.05},
 }
 
-# 영상 영역 = 화면 가운데 75% (1440/1920). 좌우 12.5%씩 검정 레터박스.
-VIDEO_LEFT_RATIO = 0.125
-VIDEO_WIDTH_RATIO = 0.75
+# 시안(시연 UI 개선 설계 2026-10-13 §2.1)은 영상 칸 1707×1280 을 기준으로 그렸다 — 위치 · 크기는 그 px 에
+# (영상 높이 ÷ 1280)을 곱한다. 🔴 영상 칸 = 콘솔의 camera_label(가운데 4:3) — 종전 75% 상수는 실제와 어긋났다.
+REF_H = 1280
+
+
+def vpx(vr, px):
+    """시안 px → 지금 영상 사각형의 px."""
+    return int(round(px * vr.height() / REF_H))
+
+
+def vplace(widget, vr, x, y, w=None, h=None):
+    """영상 사각형 원점 기준 시안 좌표(px)로 앉힌다. w·h 가 None 이면 sizeHint(폭이 정해졌으면 그 폭에서의 높이)."""
+    ww = vpx(vr, w) if w is not None else widget.sizeHint().width()
+    if h is not None:
+        hh = vpx(vr, h)
+    elif widget.hasHeightForWidth():
+        hh = widget.heightForWidth(ww)
+    else:
+        hh = widget.sizeHint().height()
+    widget.setGeometry(QRect(vr.left() + vpx(vr, x), vr.top() + vpx(vr, y), ww, hh))
 
 
 def place(widget, parent_rect, left=None, top=None, width=None,
@@ -468,13 +485,13 @@ _ALERT_SEL = "QWidget#glassPanel"   # 박스 스타일을 박스 자신에게만
 class GlowFrame(QWidget):
     """상태 발광 테두리.
 
-    🔴 **영상 영역(가운데 75%)에만** 걸린다 — 검정 레터박스는 빛나지 않는다(design §4.5).
-       그래서 부모 전체가 아니라 영상 사각형에 맞춰 배치한다.
+    🔴 **실제 영상 사각형(camera_label)에만** 걸린다 — 검정 레터박스는 빛나지 않는다(설계 2026-10-13 §3.3).
+       번짐 없이 선명한 선만 그린다(그리는 양이 적다).
     """
 
     _SPEC = {
-        "warn":  ("warn",   9, 60),    # (색 토큰, 테두리 두께 px, 안쪽 번짐 px)
-        "block": ("danger", 12, 90),
+        "warn":  ("warn",   6, 0.60),  # (색 토큰, 테두리 두께 px(시안), 진하기)
+        "block": ("danger", 12, 1.0),
     }
 
     def __init__(self, parent=None):
@@ -489,19 +506,15 @@ class GlowFrame(QWidget):
     def set_level(self, level):
         """level: None | "warn" | "block".
 
-        🔴 테두리는 theme.GLOW_BORDER 가 켜졌을 때만 그린다 — 기본 끔(사용자 결정 2026-09-25).
+        🔴 테두리는 theme.GLOW_BORDER 가 켜졌을 때만 그린다 — 기본 켬(시연 UI 개선 10/13 · 종전 2026-09-25 끔).
            꺼져 있어도 상태(level)는 기억한다.
         """
         self._level = level
         if level is None or not getattr(theme, "GLOW_BORDER", False):
             self.hide()
             return
-        token, border, spread = self._SPEC[level]
-        c = theme.C(token)
-        self.setStyleSheet(
-            f"background: transparent;"
-            f"border: {border}px solid {c};"
-            f"border-radius: 6px;")
+        token, border, alpha = self._SPEC[level]
+        self.setStyleSheet(f"background: transparent; border: {border}px solid {theme.rgba(token, alpha)};")
         self.raise_()
         self.show()
 
@@ -513,11 +526,9 @@ class GlowFrame(QWidget):
     def level(self):
         return self._level
 
-    def relayout(self, parent_rect):
-        """영상 영역 = 가운데 75%. 좌우 12.5%씩 검정."""
-        pw, ph = parent_rect.width(), parent_rect.height()
-        self.setGeometry(QRect(int(pw * VIDEO_LEFT_RATIO), 0,
-                               int(pw * VIDEO_WIDTH_RATIO), ph))
+    def relayout(self, vr):
+        """🔴 실제 영상 사각형 그대로 — 종전 75% 상수는 133px 안쪽에 그렸다(설계 §3.3)."""
+        self.setGeometry(QRect(vr))
 
 
 class AlertBanner(_Panel):

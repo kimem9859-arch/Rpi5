@@ -154,34 +154,64 @@ def test_place_stays_on_screen():
 
 
 def test_place_scales():
-    """창 크기가 바뀌어도 비율이 유지되는가 (고정 픽셀 금지)."""
+    """창 크기가 바뀌어도 영상 높이 비례로 앉는가(고정 픽셀 금지 · 시안 1280 기준)."""
     print("\n[7] 크기 비례")
     host = QWidget()
     p = StatusPanel(STEPS, host)
-    p.relayout(QRect(0, 0, 1920, 1080))
+    p.relayout(QRect(107, 0, 1707, 1280))
     w_big = p.width()
-    p.relayout(QRect(0, 0, 1280, 720))
+    p.relayout(QRect(80, 0, 1280, 960))
     w_small = p.width()
-    check(w_big == int(1920 * 0.24) and w_small == int(1280 * 0.24),
-          f"1920→{w_big}px / 1280→{w_small}px (둘 다 24%)")
+    check(w_big == 461 and w_small == 346, f"1280→{w_big}px / 960→{w_small}px (461 × 높이 비)")
+
+
+def test_status_card_marks_and_labels():
+    """① 단계 카드 — 「N단계 이름」 · ✓ ● ! ✕ · 남은 단계 빈칸 · B 표기 없음(설계 2026-10-13 §3 ①)."""
+    print("\n[①] 단계 카드 표기")
+    host = QWidget(); p = StatusPanel(STEPS, host)
+    p.update_view("PROCESS RUN", 2)
+    check(p.marks() == ["✓", "●", "", ""], f"진행 중 {p.marks()}")
+    check(p._rows[1].text() == "2단계 펌프/퍼지", f"이름 {p._rows[1].text()}")
+    check(all("B" not in r.text() for r in p._rows), "B 표기 없음")
+    p.update_view("WARNING", 2); check(p.marks()[1] == "!", "경고 !")
+    p.update_view("BLOCK", 2); check(p.marks()[1] == "✕", "차단 ✕")
+    p.update_view("IDLE", 1); check(p.marks() == ["", "", "", ""], "작업 전 전부 빈칸")
+    check(p._caption.text() == "공정 단계 · 4단계 중 1단계", p._caption.text())
+
+
+def test_status_card_place():
+    """① 단계 카드 자리 (139, 32) · 폭 461(영상 칸 안쪽 32px)."""
+    print("\n[①] 단계 카드 자리")
+    host = QWidget(); host.resize(1920, 1280); p = StatusPanel(STEPS, host)
+    p.relayout(QRect(107, 0, 1707, 1280))
+    check((p.x(), p.y(), p.width()) == (139, 32, 461), f"{p.geometry()}")
 
 
 # ===================== 경고·차단 (Task 7) =====================
 
 
-def test_glow_only_on_video_area():
-    """🔴 발광은 영상 영역(가운데 75%)에만 — 레터박스는 빛나지 않는다 (design §4.5)."""
-    print("\n[8] 발광 범위")
-    host = QWidget()
-    host.setGeometry(SCREEN)
-    g = GlowFrame(host)
-    g.set_level("warn")
-    g.relayout(SCREEN)
-    r = g.geometry()
-    check(r.left() == int(1920 * 0.125), f"왼쪽 {r.left()}px = 화면의 12.5%")
-    check(r.width() == int(1920 * 0.75), f"폭 {r.width()}px = 화면의 75%")
-    check(r.right() < SCREEN.width(), f"오른쪽 {r.right()} < 1920 — 레터박스 제외")
-    check(r.height() == 1080, "높이는 화면 전체")
+def test_vpx_scales_from_video_rect():
+    """시안 px → 영상 사각형 px(시연 UI 개선 설계 2026-10-13 §2.1) — 1280 높이 비례 · 영상 사각형 원점."""
+    print("\n[공통] vpx · vplace")
+    from overlay import vpx, vplace
+    vr = QRect(107, 0, 1707, 1280)
+    check(vpx(vr, 32) == 32, "1280 높이에서 32 → 32")
+    check(vpx(QRect(80, 0, 1280, 960), 32) == 24, "960 높이에서 32 → 24")
+    w = QWidget(); vplace(w, vr, 32, 32, 461, 100)
+    check(w.geometry() == QRect(139, 32, 461, 100), f"단계 카드 자리 {w.geometry()}")
+
+
+def test_glow_on_real_video_edge():
+    """🔴 불빛 = 실제 영상 사각형 그대로(종전 75% 상수는 133px 안쪽) · 선명한 테두리만(설계 §3.3)."""
+    print("\n[불빛] 실제 영상 가장자리")
+    host = QWidget(); host.resize(1920, 1280)
+    g = GlowFrame(host); vr = QRect(107, 0, 1707, 1280)
+    g.relayout(vr); g.set_level("warn")
+    check(g.geometry() == vr, f"불빛 = 영상 사각형 {g.geometry()}")
+    check(not g.isHidden(), "기본 켬(theme.GLOW_BORDER)")
+    check("6px" in g.styleSheet(), "경고 6px")
+    g.set_level("block")
+    check("12px" in g.styleSheet(), "차단 12px")
 
 
 def test_glow_levels():
@@ -336,7 +366,7 @@ def test_panel_bg_does_not_move_rows():
         qss = p.styleSheet()
         check(qss.startswith("QWidget#glassPanel"),
               f"배경 {'켬' if on else '끔'} — selector 로 자기 위젯에만: {qss[:28]}")
-    theme.PANEL_BACKGROUND = False
+    theme.PANEL_BACKGROUND = True                    # 기본값(시연 UI 개선 10/13 · 반투명 카드 기본)
 
 
 def test_tool_plate_does_not_clip_text():
@@ -519,27 +549,23 @@ def test_g8_glow_and_banner_paint():
     finally:
         theme.PANEL_BACKGROUND = old_bg
 
-def test_glow_border_off_by_default():
-    """사용자 결정(2026-09-25) — 화면 가장자리 주황·빨강 테두리를 쓰지 않는다. 되살리려면 theme.GLOW_BORDER=True."""
-    print("\n[G8] 가장자리 테두리 — 기본 끔")
+def test_glow_border_on_by_default():
+    """시연 UI 개선(사용자 10/13) — 가장자리 테두리를 다시 쓴다 · 번짐 없는 선명한 선. 끄려면 theme.GLOW_BORDER=False."""
+    print("\n[G8] 가장자리 테두리 — 기본 켬")
     root = QWidget(); root.resize(800, 600); root.setStyleSheet("background:#808080;")
     glow = GlowFrame(root); glow.relayout(root.rect())
     glow.set_level("block")
     root.show(); _app.processEvents()
     x = glow.geometry().left() + 3
-    check(_px(root, x, 300) == "#808080", f"기본값 — 테두리 자리 = {_px(root, x, 300)} (배경 그대로여야 한다)")
-    check(glow.level == "block", "상태(level)는 기억한다")
-    old = getattr(theme, "GLOW_BORDER", None)
-    theme.GLOW_BORDER = True
+    check(_px(root, x, 300) == theme.C("danger").lower(), f"차단 테두리 자리 = {_px(root, x, 300)} (기대 {theme.C('danger')})")
+    old = theme.GLOW_BORDER
+    theme.GLOW_BORDER = False
     try:
         glow.set_level("block"); _app.processEvents()
-        check(_px(root, x, 300) == theme.C("danger").lower(),
-              f"켜면 테두리 자리 = {_px(root, x, 300)} (기대 {theme.C('danger')})")
+        check(_px(root, x, 300) == "#808080", f"끄면 배경 그대로 = {_px(root, x, 300)}")
+        check(glow.level == "block", "꺼도 상태(level)는 기억한다")
     finally:
-        if old is None:
-            del theme.GLOW_BORDER
-        else:
-            theme.GLOW_BORDER = old
+        theme.GLOW_BORDER = old
     root.close()
 
 
@@ -594,8 +620,8 @@ def test_u14_status_rows_follow_theme():
         p.update_view("PROCESS RUN", 2)
         theme.set_theme("light")
         p.apply_theme()
-        check(theme.C("current") in p._rows[1].styleSheet(), "현재 단계 행이 화이트 테마 색")
-        check(theme.C("done") in p._rows[0].styleSheet(), "완료 행이 화이트 테마 색")
+        check(theme.C("current_text") in p._rows[1].styleSheet(), "현재 단계 행이 화이트 테마 글씨색")
+        check(theme.C("done_text") in p._rows[0].styleSheet(), "완료 행이 화이트 테마 글씨색")
     finally:
         theme.set_theme("dark")
 

@@ -104,6 +104,18 @@ def test_panel_qss():
     theme.set_theme("dark")
 
 
+def test_rgba_helper_and_new_tokens():
+    """시연 UI 개선(설계 2026-10-13 §2.2) — rgba() · 새 토큰 · 68% 판."""
+    print("\n[토큰] rgba() · 새 토큰")
+    theme.set_theme("dark")
+    check(theme.rgba("warn", 0.6) == "rgba(255, 157, 69, 0.6)", theme.rgba("warn", 0.6))
+    for t in ("panel_bg_alert", "current_text", "done_text", "warn_text"):
+        check(t in theme.THEMES["dark"] and t in theme.THEMES["light"], f"{t} 두 테마에")
+    check(theme.THEMES["dark"]["panel_bg"] == "rgba(12, 14, 16, 0.68)", "어두운 패널 68%")
+    check(theme.THEMES["light"]["panel_bg"] == "rgba(242, 239, 232, 0.68)", "밝은 패널 아이보리 68%")
+    check(theme.PANEL_BACKGROUND is True and theme.GLOW_BORDER is True, "카드 배경 · 가장자리 불빛 기본 켬")
+
+
 if __name__ == "__main__":
     test_same_token_set()
     test_warning_darker_in_light()
@@ -112,6 +124,7 @@ if __name__ == "__main__":
     test_default_is_dark()
     test_unknown_theme_rejected()
     test_panel_qss()
+    test_rgba_helper_and_new_tokens()
 
     print()
     if _fails:

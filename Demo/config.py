@@ -22,6 +22,11 @@ UI_FONT_SIZES = {
     "small":  10,   # 부가 라벨 (○ 콘솔 앞에 놓으면 확인됩니다)
     "banner": 16,   # 경고·차단 배너 제목
     "cta":    20,   # 작업 시작 (2026-08-19 자동 진행 이후 「작업 시작」 전용)
+    # 시연 UI 개선(설계 2026-10-13 §2.3) — 시안 px(1920×1280) × 0.75 = pt
+    "card_state": 22, "step_cur": 20, "step": 18, "sub": 13,
+    "alert_title": 34, "alert_body": 22, "alert_hint": 20,
+    "sheet_title": 33, "item": 21, "item_sub": 13,
+    "gauge_time": 22, "tool": 17, "log": 13,
 }
 
 # 굵기: 400 본문 / 600 강조 / 700 제목 / 800 현재 단계
