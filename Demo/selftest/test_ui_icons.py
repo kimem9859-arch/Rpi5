@@ -41,6 +41,14 @@ def test_cache_and_color():
     check(px and all(c.green() > 200 and c.red() < 60 for c in px), "선 색 = 준 색")
 
 
+
+def test_transparent_canvas_has_alpha():
+    """🔴 투명 그림은 투명 채널이 있어야 한다 — QPixmap.fill(투명)은 환경에 따라 채널 없이 검게 됐다(10/14 캡처 · 검은 네모)."""
+    print("\n[아이콘] 투명 채널")
+    pm = ui_icons.paint_pixmap(30, 30, lambda p: None)
+    check(pm.hasAlphaChannel() and pm.toImage().pixelColor(5, 5).alpha() == 0, "빈 그림 = 투명")
+    check(ui_icons.pixmap("bell", "#ffffff", 24).toImage().pixelColor(0, 0).alpha() == 0, "아이콘 모서리 = 투명")
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

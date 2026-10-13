@@ -320,7 +320,10 @@ class SafetyConsole(QMainWindow):
         기존 좌7:우3 2단 배치를 대체한다.
         """
         central = QWidget()
-        central.setStyleSheet(f"background-color: #000000;")
+        # 🔴 선택자로 **화면 바탕에만** — 선택자 없이 걸면 바탕을 정하지 않은 모든 자식 칸(아이콘 · 표시 원 · 공구 아이콘)이
+        #    검게 칠해졌다(10/14 시안 대조 캡처 — 단계 카드의 검은 네모 · 공구 칸 두 겹 판).
+        central.setObjectName("consoleRoot")
+        central.setStyleSheet("QWidget#consoleRoot { background-color: #000000; }")
         self.setCentralWidget(central)
         self._root = central
 

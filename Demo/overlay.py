@@ -166,30 +166,28 @@ _marker_cache = {}
 
 
 def _marker(kind, d=_MARK_D):
-    """단계 표시 — 테두리 원 2px + 안 기호(끝남 ✓ · 지금 ● · 경고 ! · 차단 ✕ · 시안 그대로). 남은 단계는 None(그리지 않는다)."""
-    if kind not in _MARK:
-        return None
+    """단계 표시 — 테두리 원 2px + 안 기호(끝남 ✓ · 지금 ● · 경고 ! · 차단 ✕ · 시안 그대로). 남은 단계는 투명한 빈 그림."""
     import ui_icons
     from PyQt6.QtGui import QPixmap, QPen
-    c = theme.C(kind)
+    c = theme.C(kind) if kind in _MARK else ""
     key = (kind, c, d)
     pm = _marker_cache.get(key)
     if pm is not None:
         return pm
-    pm = QPixmap(d, d)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setPen(QPen(QColor(c), 2))
-    p.drawEllipse(1, 1, d - 2, d - 2)
-    if kind == "current":
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(c))
-        p.drawEllipse(QPointF(d / 2, d / 2), 6, 6)
-    else:
-        icon = {"done": "check", "warn": "alert_sm", "danger": "x_sm"}[kind]
-        p.drawPixmap((d - 16) // 2, (d - 16) // 2, ui_icons.pixmap(icon, c, 16))
-    p.end()
+
+    def draw(p):
+        if kind not in _MARK:            # 남은 단계 = 투명한 빈 그림(시안 — 동그라미 없음)
+            return
+        p.setPen(QPen(QColor(c), 2))
+        p.drawEllipse(1, 1, d - 2, d - 2)
+        if kind == "current":
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(c))
+            p.drawEllipse(QPointF(d / 2, d / 2), 6, 6)
+        else:
+            icon = {"done": "check", "warn": "alert_sm", "danger": "x_sm"}[kind]
+            p.drawPixmap((d - 16) // 2, (d - 16) // 2, ui_icons.pixmap(icon, c, 16))
+    pm = ui_icons.paint_pixmap(d, d, draw)
     _marker_cache[key] = pm
     return pm
 
@@ -284,11 +282,7 @@ class StatusPanel(_Panel):
                                     800 if is_cur else 600 if kind == "done" else 500))
             row.setStyleSheet(theme.text_qss(_TEXT_TOKEN.get(kind, kind),
                                              800 if is_cur else 600 if kind == "done" else 500))
-            pm = _marker(kind)
-            if pm is None:
-                dot.clear()
-            else:
-                dot.setPixmap(pm)
+            dot.setPixmap(_marker(kind))
             if is_cur:
                 line.setStyleSheet(
                     f"QWidget#stepRow {{ background: {theme.rgba(kind, 0.16 if alert else 0.14)};"
@@ -685,15 +679,12 @@ def _alert_icon(token, d=72):
     key = (token, _edge(token), theme.C(ink), d)
     pm = _alert_icon_cache.get(key)
     if pm is None:
-        pm = QPixmap(d, d)
-        pm.fill(Qt.GlobalColor.transparent)
-        p = QPainter(pm)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(_edge(token)))
-        p.drawEllipse(0, 0, d, d)
-        p.drawPixmap((d - 40) // 2, (d - 40) // 2, ui_icons.pixmap(name, theme.C(ink), 40))
-        p.end()
+        def draw(p):
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(_edge(token)))
+            p.drawEllipse(0, 0, d, d)
+            p.drawPixmap((d - 40) // 2, (d - 40) // 2, ui_icons.pixmap(name, theme.C(ink), 40))
+        pm = ui_icons.paint_pixmap(d, d, draw)
         _alert_icon_cache[key] = pm
     return pm
 

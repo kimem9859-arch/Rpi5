@@ -212,7 +212,9 @@ def test_status_card_matches_comp():
     print("\n[①] 단계 카드 시안 대조")
     host = QWidget(); p = StatusPanel(STEPS, host)
     p.update_view("PROCESS RUN", 2)
-    check(p._dots[2].pixmap() is None or p._dots[2].pixmap().isNull(), "남은 단계 동그라미 없음")
+    img = p._dots[2].pixmap().toImage()
+    check(all(img.pixelColor(x, y).alpha() == 0 for x in range(0, 30, 3) for y in range(0, 30, 3)),
+          "남은 단계 동그라미 없음(투명)")
     check(not p._dots[0].pixmap().isNull() and not p._dots[1].pixmap().isNull(), "끝남 · 지금 표시는 그림")
     check("rgba(12, 14, 16, 0.68)" in p.styleSheet() and "18px" in p.styleSheet(), f"평소 판 {p.styleSheet()[:80]}")
     p.update_view("WARNING", 2)

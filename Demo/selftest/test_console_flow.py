@@ -2863,6 +2863,19 @@ def test_comp_card_bright_over_scrim_when_alert():
         check(_above(win, w, win.scrim), f"{type(w).__name__} 가 스크림 위")
     win.close()
 
+
+def test_root_black_does_not_leak_into_children():
+    """시안 대조(10/14) — 화면 바탕 검정이 자식 칸에 번지지 않는다(단계 카드 남은 단계 칸이 검은 네모로 보이던 것)."""
+    print("\n[시안] 바탕 검정 번짐")
+    win = make_console(); win.resize(1920, 1280); win.show(); win._relayout()
+    win._on_cta(); _app.processEvents()
+    img = win.grab().toImage()
+    d = win.status_panel._dots[3]
+    tl = d.mapTo(win, d.rect().topLeft())
+    inside, beside = img.pixelColor(tl.x() + 15, tl.y() + 15), img.pixelColor(tl.x() + 30 + 7, tl.y() + 15)
+    check(inside == beside, f"남은 단계 칸 {inside.name()} = 옆 {beside.name()}")
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

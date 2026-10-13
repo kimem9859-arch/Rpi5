@@ -5,7 +5,7 @@
 사용: `ui_icons.pixmap("bell", theme.C("current"), 24)`
 """
 from PyQt6.QtCore import QByteArray, QRectF, Qt
-from PyQt6.QtGui import QPainter, QPixmap
+from PyQt6.QtGui import QImage, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 
 # 이름 → (viewBox, 경로 d, 선 굵기, 채움 여부)
@@ -42,6 +42,21 @@ NAMES = tuple(_ICONS)
 _cache = {}
 
 
+def paint_pixmap(w, h, draw):
+    """투명 바탕 그림 — draw(QPainter) 로 그린다.
+
+    🔴 QPixmap 을 만들어 fill(투명)하면 환경에 따라 투명 채널 없이 **검게** 됐다(10/14 캡처 — 단계 카드의 검은 네모).
+       투명 채널이 보장되는 QImage(ARGB32 premultiplied)에 그린 뒤 바꾼다. 투명 그림은 모두 여기서 만든다.
+    """
+    img = QImage(int(w), int(h), QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(Qt.GlobalColor.transparent)
+    p = QPainter(img)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    draw(p)
+    p.end()
+    return QPixmap.fromImage(img)
+
+
 def pixmap(name, color, size):
     """이름 · 색('#rrggbb') · 한 변 px → QPixmap(투명 바탕). 같은 인자는 캐시에서."""
     key = (name, color, int(size))
@@ -53,14 +68,9 @@ def pixmap(name, color, size):
              f'fill="none" stroke="{color}" stroke-width="{sw}" stroke-linecap="round" stroke-linejoin="round"')
     svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb}"><path d="{d}" {paint}/></svg>'
     r = QSvgRenderer(QByteArray(svg.encode()))
-    pm = QPixmap(int(size), int(size))
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
     vw, vh = (float(v) for v in vb.split()[2:])
     s = size / max(vw, vh)                      # 가로세로 비율 유지 · 가운데
     w, h = vw * s, vh * s
-    r.render(p, QRectF((size - w) / 2, (size - h) / 2, w, h))
-    p.end()
+    pm = paint_pixmap(size, size, lambda p: r.render(p, QRectF((size - w) / 2, (size - h) / 2, w, h)))
     _cache[key] = pm
     return pm

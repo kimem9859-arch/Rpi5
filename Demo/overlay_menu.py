@@ -74,15 +74,14 @@ class _Sheet(QWidget):
         #    함께 그려져 메뉴 열림 GUI CPU 가 25.7 → 29.1%(코어 1개)로 올랐다(10/14 시제품 측정).
         if self.CUT:
             if self._bg is None or self._bg.size() != self.size():
-                self._bg = QPixmap(self.size())
-                self._bg.fill(Qt.GlobalColor.transparent)
-                p = QPainter(self._bg)
-                p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                import ui_icons
                 path = cut_corner_path(QRect(0, 0, self.width() - 1, self.height() - 1), self.CUT)
-                p.fillPath(path, _qcolor(theme.C("sheet_bg")))
-                p.setPen(QPen(_qcolor(theme.C("sheet_border")), 1))
-                p.drawPath(path)
-                p.end()
+
+                def draw(p):
+                    p.fillPath(path, _qcolor(theme.C("sheet_bg")))
+                    p.setPen(QPen(_qcolor(theme.C("sheet_border")), 1))
+                    p.drawPath(path)
+                self._bg = ui_icons.paint_pixmap(self.width(), self.height(), draw)
             p = QPainter(self)
             p.drawPixmap(event.rect(), self._bg, event.rect())
             p.end()
