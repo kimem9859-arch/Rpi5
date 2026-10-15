@@ -136,7 +136,82 @@ def test_free_space_threshold():
     check(c.ok is False and "V8" in c.fix and "사용자" in c.fix, f"{c}")
 
 
+def _tags_server(names):
+    """가짜 ollama — /api/tags 에 모델 이름 목록을 준다 → (서버, 주소)."""
+    import http.server
+    import json
+    import threading
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps({"models": [{"name": n} for n in names]}).encode()
+            self.send_response(200 if self.path == "/api/tags" else 404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, f"http://127.0.0.1:{srv.server_address[1]}/api/generate"
+
+
+def test_llm_check():
+    print("\n[음성] 파이2 LLM 응답 — 음성비서가 실제로 기대는 곳(최종 시연 모드)")
+    srv, url = _tags_server(["gemma4:e2b-it-qat", "other:1b"])
+    try:
+        c = SC.llm_check(url, "gemma4:e2b-it-qat")
+        check(c.ok is True and "gemma4:e2b-it-qat" in c.detail, f"모델 있음 → {c}")
+        c = SC.llm_check(url, "없는모델:1b")
+        check(c.ok is False and "없는모델" in c.detail and c.fix, f"모델 없음 → {c}")
+    finally:
+        srv.shutdown()
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    c = SC.llm_check(f"http://127.0.0.1:{port}/api/generate", "gemma4:e2b-it-qat")
+    check(c.ok is False and "랜선" in c.fix and "파이2" in c.fix, f"닿지 않음 → {c}")
+
+
+def test_files_scripts_optional():
+    print("\n[파일] 최종 시연 모드는 측정 대본을 찾지 않는다")
+    c = SC.files(scripts=("없는대본_시험.csv",))
+    check("없는대본_시험.csv" in c.detail, f"대본을 넘기면 찾는다 · {c.detail}")
+    c = SC.files(scripts=())
+    check("대본" not in c.name and "없는대본" not in c.detail, f"대본 없이 · {c.name} · {c.detail}")
+
+
+def test_run_final():
+    print("\n[최종 시연 모드] 인터넷 · 키 파일 · 출발 태그 · 대본은 빼고 · 파이2 LLM · 코드 판을 본다")
+    keep = SC.recv_probe, SC.glass_ports, SC.interlock_ack, SC._demo_running, SC.llm_check
+    SC.recv_probe = lambda host, port=None, sec=5.0: SC._c("안경", "연결 · 받기", True, "시험 대역")
+    SC.glass_ports = lambda host: SC._c("음성", "안경 마이크 · 명령 포트", True, "시험 대역")
+    SC.interlock_ack = lambda port: SC._c("인터락", "RUN 응답", True, "시험 대역")
+    SC._demo_running = lambda: False
+    SC.llm_check = lambda url=None, model=None: SC._c("음성", "파이2 LLM 응답", True, "시험 대역")
+    try:
+        names = {c.name for c in SC.run(final=True)}
+    finally:
+        SC.recv_probe, SC.glass_ports, SC.interlock_ack, SC._demo_running, SC.llm_check = keep
+    check(not ({"인터넷", "키 파일"} & names), f"인터넷 · 키 파일 없음 · {sorted(names)}")
+    check(not any(n.startswith("출발 태그") for n in names), "출발 태그 없음")
+    check({"파이2 LLM 응답", "코드 판"} <= names, "파이2 LLM 응답 · 코드 판 있음")
+    check(SC.git_head().ok is True and len(SC.git_head().detail) >= 7, f"코드 판 = 커밋 번호 · {SC.git_head().detail}")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        try:
+            SC.main(["--final", "--home"])
+        except SystemExit:
+            pass
+    check("파이2 LLM 응답" in buf.getvalue() and "인터넷" not in buf.getvalue(), "--final 옵션")
+
+
 if __name__ == "__main__":
+    test_llm_check()
+    test_files_scripts_optional()
+    test_run_final()
     test_ip_band()
     test_stray_env()
     test_hailo_holders()

@@ -2,8 +2,10 @@
 """학교 사전 점검 — 시연을 켜기 전에 한 번(약 30초). 항목마다 ✅ / ❌ 와, ❌ 면 대처표 번호 · 칠 명령을 보인다.
 
 설계 = 상위 sop-project docs/superpowers/specs/2026-10-12-학교방문준비-design.md §8.1(대처표 V1~V23) · §8.2
-실행: python3 Demo/test/school_check.py           (학교 · 실물)
+실행: python3 Demo/test/school_check.py           (학교 · 실물 · 10/12 측정용)
       python3 Demo/test/school_check.py --home    (집 · 가짜 장치 127.0.0.1 — 실물에만 맞는 항목은 「집 · 건너뜀」)
+      python3 Demo/test/school_check.py --final   (🆕 최종 시연 — 인터넷 · 키 파일 · 출발 태그 · 측정 대본은 보지 않고
+                                                   파이2 LLM 응답 · 코드 판을 본다 · 순서표 = 상위 docs/최종-시연-점검.md)
 🔴 비밀값(와이파이 · API 키)은 열지 않는다 — 키 파일은 있는지만 본다(.claude/rules/비밀정보.md).
 🔴 문제 프로세스를 자동으로 끄지 않는다 — 번호와 명령만 보인다(다른 작업을 끌 수 있다).
 """
@@ -16,6 +18,8 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 from collections import namedtuple
 
 TEST = os.path.dirname(os.path.abspath(__file__))
@@ -210,12 +214,39 @@ def answer_wavs():
     return _c("음성", "답 · 안내 소리 파일", n > 0, f"{n}개", "" if n else "voice/make_answers.py 로 만든다")
 
 
+def llm_check(url=None, model=None, timeout=3.0):
+    """파이2 ollama 가 닿고 시연 모델이 있는가 — 음성비서가 실제로 기대는 곳(인터넷 · 키는 쓰지 않는다).
+    🔴 ollama 는 파이2 유선 주소 192.168.1.12 에만 열려 있다(파이2 OLLAMA_HOST) — 그런데 파이1 · 파이2 유선은 둘 다
+       공유기가 주는 자동 주소다(2026-10-15 확인). 공유기가 파이2 에 .12 를 주지 않으면 LLM 이 통째로 안 된다."""
+    url, model = url or config.LLM_URL, model or config.LLM_MODEL
+    u = urllib.parse.urlsplit(url)
+    tags = f"{u.scheme}://{u.netloc}/api/tags"
+    fix_net = ("파이2 전원 · 파이1 · 파이2 랜선이 공유기에 꽂혔나 · 파이1 유선 주소가 192.168.1.x 인가(ip -4 addr show eth0) · "
+               "파이2 가 공유기에서 꼭 192.168.1.12 를 받았나(ollama 는 그 주소에서만 받는다 · 공유기 주소 예약)")
+    try:
+        import json
+        with urllib.request.urlopen(tags, timeout=timeout) as r:
+            names = [m.get("name", "") for m in json.load(r).get("models", [])]
+    except Exception as e:                          # noqa: BLE001
+        return _c("음성", "파이2 LLM 응답", False, f"{u.netloc} — {e}", fix_net)
+    ok = model in names
+    return _c("음성", "파이2 LLM 응답", ok, f"{u.netloc} · {model}" + ("" if ok else f" 없음(있는 것 {' · '.join(names) or '없음'})"),
+              "" if ok else "파이2 에서 ollama list 로 모델 확인 — 음성비서는 고정 문장으로만 답한다")
+
+
 # ── 코드 ────────────────────────────────────────────────────────────────────
 def git_clean(repo=RPI5):
     r = subprocess.run(["git", "-C", repo, "status", "--porcelain"], capture_output=True, text=True)
     lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
     return _c("코드", "커밋 안 된 변경", not lines, f"{len(lines)}개" + (f" — {lines[0]}" if lines else ""),
               "" if not lines else "V9 · 무엇인지 Claude 가 보고 정한다(출발 태그로 되돌리기 가능)")
+
+
+def git_head(repo=RPI5):
+    """지금 도는 코드 판 — 어느 판으로 시연했는지 남긴다(판정 없음 · 늘 ✅)."""
+    r = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%h %ad", "--date=format:%m-%d %H:%M"],
+                       capture_output=True, text=True)
+    return _c("코드", "코드 판", True, r.stdout.strip() or "읽지 못함")
 
 
 def at_tag(repo=RPI5, tag=TAG):
@@ -236,8 +267,8 @@ def stray_env(env=None):
 
 
 # ── 파일 ────────────────────────────────────────────────────────────────────
-def files():
-    need = [os.path.join(DEMO, "measure", "시나리오", n) for n in SCRIPTS]
+def files(scripts=SCRIPTS):
+    need = [os.path.join(DEMO, "measure", "시나리오", n) for n in scripts]
     need += [config.HEF_MODEL_PATH, config.TOOL_HEF_PATH,
              os.path.join(config.HAND_MODELS_DIR, "palm_detection_lite.hef"),
              os.path.join(config.HAND_MODELS_DIR, "hand_landmark_lite.hef"),
@@ -249,7 +280,8 @@ def files():
     detail = "다 있음" if not miss else " · ".join(os.path.basename(m) for m in miss)
     if bins:
         detail += f" · 최근 백업 {os.path.basename(bins[-1])}"
-    return _c("파일", "대본 · 모델 · 보정 · 펌웨어 백업", not miss, detail, "" if not miss else "Claude 가 경로를 찾는다")
+    name = ("대본 · " if scripts else "") + "모델 · 보정 · 펌웨어 백업"
+    return _c("파일", name, not miss, detail, "" if not miss else "Claude 가 경로를 찾는다")
 
 
 def _demo_running():
@@ -257,7 +289,7 @@ def _demo_running():
     return bool(r.stdout.strip())
 
 
-def run(home=False):
+def run(home=False, final=False):
     host = "127.0.0.1" if home else config.CAMERA_TCP_HOST
     skip = lambda g, n, why="집 · 건너뜀": _c(g, n, None, why)     # noqa: E731
     # 🔴 시연이 켜져 있으면 안경 · 인터락 · Hailo 를 건드리지 않는다 — 안경은 손님 하나라 새 연결이 시연 연결을 끊고,
@@ -277,10 +309,14 @@ def run(home=False):
         out.append(skip("인터락", "RUN 응답", why_busy))
     else:
         out.append(interlock_ack(config.find_interlock_port()[0]))
+    env = {k: v for k, v in os.environ.items() if not (home and k in ("SOP_CAMERA_HOST", "SOP_INTERLOCK_PORT"))}
+    if final:       # 🆕 최종 시연 — 음성비서는 인터넷 · 키를 쓰지 않는다(인터넷 없는 공유기에서 헛 ❌) · 측정 대본 · 출발 태그 없음
+        out += [answer_wavs(), skip("음성", "파이2 LLM 응답") if home else llm_check(),
+                git_head(), git_clean(), stray_env(env), files(scripts=())]
+        return out
     out += [internet(), key_file(), answer_wavs(),
             git_clean(), skip("코드", f"출발 태그 {TAG}") if home else at_tag(),
-            stray_env({k: v for k, v in os.environ.items() if not (home and k in ("SOP_CAMERA_HOST", "SOP_INTERLOCK_PORT"))}),
-            files()]
+            stray_env(env), files()]
     return out
 
 
@@ -298,10 +334,11 @@ def report(res):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="학교 사전 점검(학교 방문 준비 설계 §8.2)")
+    ap = argparse.ArgumentParser(description="학교 사전 점검(학교 방문 준비 설계 §8.2) · 최종 시연 점검(--final)")
     ap.add_argument("--home", action="store_true", help="집 · 가짜 장치(127.0.0.1)")
+    ap.add_argument("--final", action="store_true", help="최종 시연 — 파이2 LLM · 코드 판 · 인터넷/키/대본/출발 태그 빼고")
     a = ap.parse_args(argv)
-    return report(run(home=a.home))
+    return report(run(home=a.home, final=a.final))
 
 
 if __name__ == "__main__":
