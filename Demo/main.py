@@ -51,6 +51,12 @@ def main():
         _wake.timeout.connect(lambda: None)
     elif os.environ.get("SOP_FULLSCREEN", "1") == "1":
         window.showFullScreen()
+        # 시연 중 마우스 포인터 숨김(2026-10-14 사용자 요청) — 터치·클릭은 그대로 먹는다.
+        #    🔑 앱 전체 덮어쓰기라 부품별 손가락 포인터(setCursor)도 함께 가려진다. 보이게 = SOP_HIDE_CURSOR=0
+        if os.environ.get("SOP_HIDE_CURSOR", "1") == "1":
+            from PyQt6.QtCore import Qt
+            from PyQt6.QtGui import QCursor
+            app.setOverrideCursor(QCursor(Qt.CursorShape.BlankCursor))
     else:
         window.show()
     if os.environ.get("SOP_REHEARSE_WORKER") == "1":      # 집 리허설에서만 — 가상 작업자(학교 방문 준비 설계 §7.1)
