@@ -30,8 +30,14 @@ if [ "${SOP_VOICE:-1}" != "0" ]; then
     echo "음성비서 함께 시작 (로그 = $VLOG)"
 fi
 
-python3 main.py
+# 🔑 오류 출력(트레이스백)을 터미널과 파일에 함께 남긴다(캡스톤 대회 준비 2026-10-15) — 시연 중 꺼지면
+#    창을 닫는 순간 원인이 사라졌다. 오류 출력이 없었으면 빈 파일은 지운다. 시험 = selftest/test_demo_errlog.py
+mkdir -p logs
+ERRLOG="logs/demo_err_$(date +%Y%m%d_%H%M%S).log"
+python3 main.py 2> >(tee -a "$ERRLOG" >&2)
 status=$?
+wait $! 2>/dev/null     # 복사(tee)가 다 쓴 뒤에 파일을 본다
+[ -s "$ERRLOG" ] || rm -f "$ERRLOG"
 stop_voice              # 🔴 오류로 창을 붙잡아 둘 때도 음성비서는 먼저 끈다
 
 echo
