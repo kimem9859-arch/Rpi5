@@ -242,7 +242,8 @@ def test_progress_claim_replaced():
     b = bot(llm=FakeLlm("N2 퍼지가 끝났습니다."), state=RUNNING)
     ok, m = ask(b, "펌프 퍼지 끝났어")
     # 🔑 판 2 이후 — 끝났냐 질문은 코드가 판정한 「질문한 일」 문장으로 바꾼다(질문에 직접 답한다)
-    check(b.tts.said == ["아니요, 2단계 「냉각」은 아직 끝나지 않았습니다."], f"말한 것 = {b.tts.said}")
+    #    2026-10-15 서브 이름 변경(설계 D82) 뒤 N2 퍼지 = 3단계 서브 → 2단계 진행 중이면 「시작 전」
+    check(b.tts.said == ["아니요, 3단계 「가스 퍼지」는 아직 시작 전입니다."], f"말한 것 = {b.tts.said}")
 
 
 def test_long_answer_shortened():
@@ -487,8 +488,8 @@ def test_asked_progress_in_answer():
     s4 = dict(STATE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None)
     b = bot(llm=FakeLlm("아직 끝나지 않았습니다."), state=s4, tools=([], False))
     ok, m = ask(b, "N2 퍼지 완료야")
-    check(b.llm.asked and "질문한 일: 2단계 「냉각」(N2 퍼지) — 이미 끝남" in b.llm.asked[0][0], "LLM 카드에 질문한 일")
-    check(b.tts.said == ["네, 2단계 「냉각」은 이미 끝났습니다."] and m["답변출처"] == "대체-안전규칙",
+    check(b.llm.asked and "질문한 일: 3단계 「가스 퍼지」(N2 퍼지) — 이미 끝남" in b.llm.asked[0][0], "LLM 카드에 질문한 일")
+    check(b.tts.said == ["네, 3단계 「가스 퍼지」는 이미 끝났습니다."] and m["답변출처"] == "대체-안전규칙",
           f"{b.tts.said} · {m.get('답변출처')}")
 
 

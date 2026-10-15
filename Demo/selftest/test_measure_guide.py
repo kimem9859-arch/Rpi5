@@ -180,7 +180,7 @@ def test_no_token_rows():
 
 def test_reset_cue():
     print("\n[초기화 안내] 틀린 공구 — 공구 대기(레시피)가 끝나고 1초 뒤 「작업 초기화」 한 번(설계 D17)")
-    check(G.tool_waits() == {"B2": 10000.0}, f"레시피 공구 대기 = {G.tool_waits()}")
+    check(G.tool_waits() == {"B2": 5000.0}, f"레시피 공구 대기 = {G.tool_waits()}")
     try:
         R = rows((1, "B2 #플라이어 초기화"))
     except ValueError as e:

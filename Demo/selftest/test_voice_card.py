@@ -209,7 +209,7 @@ def test_card_redesign():
     lines = emo.splitlines()
     check(lines[1].startswith("지금 할 일: EMO 를 복귀한 뒤"), f"맨 위(둘째 줄) = 지금 할 일 — {lines[1]}")
     check("지금 눌러야 할 버튼" not in emo, "🔴 비상정지 카드에 「지금 눌러야 할 버튼」이 없다")
-    check("멈춘 자리: 3단계" in emo and "끝난 단계: 1단계 「공정 정지」(플라즈마 클린 진행) · 2단계 「냉각」(N2 퍼지) (해제하면 1단계부터 다시)" in emo,
+    check("멈춘 자리: 3단계" in emo and "끝난 단계: 1단계 「공정 정지」(플라즈마 정지) · 2단계 「냉각」(전극 온도 하강) (해제하면 1단계부터 다시)" in emo,
           "멈춘 자리 · 끝난 단계(이름)")
     last = build_card(dict(LIVE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None),
                       [], False)
@@ -439,8 +439,8 @@ def test_yes_strip_and_done_names():
           "끝났냐는 질문이 아니면 그대로")
     check(finalize("네, 렌치를 손으로 쥐시면 확인됩니다.", seen)[0] == "네, 렌치를 손으로 쥐시면 확인됩니다.", "질문을 모르면 그대로")
     c = build_card(dict(LIVE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None), [], False)
-    check("끝난 단계: 1단계 「공정 정지」(플라즈마 클린 진행) · 2단계 「냉각」(N2 퍼지) · "
-          "3단계 「가스 퍼지」(전극 온도 하강)" in c, f"🔑 끝난 단계에 이름·서브 작업(45번)\n{c}")
+    check("끝난 단계: 1단계 「공정 정지」(플라즈마 정지) · 2단계 「냉각」(전극 온도 하강) · "
+          "3단계 「가스 퍼지」(N2 퍼지)" in c, f"🔑 끝난 단계에 이름·서브 작업(45번)\n{c}")
 
 
 def test_asked_progress():
@@ -450,7 +450,7 @@ def test_asked_progress():
     s4 = dict(LIVE, 현재단계=4, 현재단계명="챔버 벤트", 현재버튼="B4", 다음단계=None, 서브작업=None)
     last = card_facts(s4, [], False)
     a = asked_progress("N2 퍼지 완료야?", last)
-    check(a is not None and a["상태"] == "끝남" and a["말"] == "네, 2단계 「냉각」은 이미 끝났습니다.",
+    check(a is not None and a["상태"] == "끝남" and a["말"] == "네, 3단계 「가스 퍼지」는 이미 끝났습니다.",
           f"🔑 4단계에서 N2 퍼지 = 끝남 — {a}")
     check(asked_progress("벤트까지 다 했지?", last)["상태"] == "진행 중", "4단계 벤트 = 진행 중")
     check(asked_progress("이번 단계 끝났어?", last)["상태"] == "진행 중", "이번 단계 = 지금 단계")
@@ -473,10 +473,10 @@ def test_asked_progress():
     check(asked_progress("다음 단계로 넘어갔어?", last) is None, "대상·끝남 말이 없으면 None(LLM 이 답한다)")
     check(asked_progress("N2 퍼지 완료야?", card_facts(None, [], False)) is None, "작업 전에는 None")
     c = build_card(s4, [], False, question="N2 퍼지 완료야?")
-    check(c.splitlines()[2] == "질문한 일: 2단계 「냉각」(N2 퍼지) — 이미 끝남", f"카드 셋째 줄 = 질문한 일\n{c}")
+    check(c.splitlines()[2] == "질문한 일: 3단계 「가스 퍼지」(N2 퍼지) — 이미 끝남", f"카드 셋째 줄 = 질문한 일\n{c}")
     check("질문한 일" not in build_card(s4, [], False, question="지금 몇 단계야?"), "끝났냐 질문이 아니면 줄이 없다")
     t, src, bad = finalize("아직 끝나지 않았습니다.", last, question="N2 퍼지 완료야?")
-    check((t, src, bad) == ("네, 2단계 「냉각」은 이미 끝났습니다.", "대체-안전규칙", ["끝남반대"]),
+    check((t, src, bad) == ("네, 3단계 「가스 퍼지」는 이미 끝났습니다.", "대체-안전규칙", ["끝남반대"]),
           f"🔑 판정과 반대면 코드 문장 — {t}")
     t, src, bad = finalize("N2 퍼지는 이미 끝났습니다.", last, question="N2 퍼지 완료야?")
     check(src == "LLM", "판정과 맞으면 LLM 문장 그대로")
