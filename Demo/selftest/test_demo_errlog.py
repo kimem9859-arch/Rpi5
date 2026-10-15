@@ -9,8 +9,10 @@
 import glob
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
+import time
 
 _DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _fails = []
@@ -22,15 +24,31 @@ def check(cond, msg):
         _fails.append(msg)
 
 
-def _run(main_src):
-    """진짜 run_demo.sh 를 임시 폴더에 복사하고 가짜 main.py 로 돌린다 — (결과, 오류 기록 파일 목록)."""
+def _copy(main_src):
+    """진짜 run_demo.sh · run_voice.sh 를 임시 폴더에 복사하고 가짜 main.py 를 둔다 → 폴더."""
     d = tempfile.mkdtemp()
-    shutil.copy(os.path.join(_DEMO_DIR, "run_demo.sh"), d)
+    for n in ("run_demo.sh", "run_voice.sh"):
+        shutil.copy(os.path.join(_DEMO_DIR, n), d)
     with open(os.path.join(d, "main.py"), "w", encoding="utf-8") as f:
         f.write(main_src)
+    return d
+
+
+def _errlogs(d):
+    return sorted(glob.glob(os.path.join(d, "logs", "demo_err_*.log")))
+
+
+def _run(main_src, merged=False):
+    """음성비서를 끈 채 돌린다 — (결과, 오류 기록 파일 목록). merged = 표준 출력 · 오류를 한 줄기로(순서 검사)."""
+    d = _copy(main_src)
     r = subprocess.run(["bash", os.path.join(d, "run_demo.sh")], env=dict(os.environ, SOP_VOICE="0"),
-                       input="\n", capture_output=True, text=True, timeout=30)
-    return r, sorted(glob.glob(os.path.join(d, "logs", "demo_err_*.log")))
+                       input="\n", stdout=subprocess.PIPE, text=True, timeout=30,
+                       stderr=subprocess.STDOUT if merged else subprocess.PIPE)
+    return r, _errlogs(d)
+
+
+def _read(logs):
+    return open(logs[0], encoding="utf-8").read() if logs else ""
 
 
 def test_traceback_saved():
@@ -58,6 +76,92 @@ def test_clean_run_leaves_nothing():
     check(r.returncode == 0, f"종료 코드 0 · {r.returncode}")
     check(logs == [], f"오류 기록 파일 없음 · {logs}")
     check("창을 닫으려면 Enter" not in r.stdout, "정상이면 창을 붙잡지 않는다")
+
+
+def test_voice_on_launcher_returns():
+    print("\n[시연 런처] 음성비서를 켠 기본 설정 — 시연이 끝나면 런처도 끝나고 음성비서도 꺼진다(코드 리뷰 Critical 1)")
+    d = _copy('print("정상")\n')
+    fake = os.path.join(d, "fake_voice_py")
+    with open(fake, "w") as f:      # 끝나지 않는 음성 데몬 흉내 — 코드 3(「이미 돈다」)으로 물러나지 않는다
+        f.write("#!/bin/bash\nexec sleep 61.234\n")     # exec = 진짜 데몬처럼 프로세스 하나
+    os.chmod(fake, 0o755)
+    p = subprocess.Popen(["bash", os.path.join(d, "run_demo.sh")], env=dict(os.environ, SOP_VOICE="1", SOP_VOICE_PY=fake),
+                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                         start_new_session=True)
+    try:
+        out, _ = p.communicate(timeout=10)
+        returned = True
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)
+        out, _ = p.communicate()
+        returned = False
+    check(returned and p.returncode == 0, f"10초 안에 끝남 · 코드 {p.returncode}")
+    check("=== 종료 (exit code: 0)" in out, f"종료 줄 · {out[-200:]!r}")
+    time.sleep(0.5)
+    left = subprocess.run(["pgrep", "-f", "[s]leep 61.234"], capture_output=True, text=True).stdout.split()
+    check(left == [], f"음성 데몬이 남지 않음 · {left}")
+    for pid in left:
+        os.kill(int(pid), signal.SIGKILL)
+
+
+def test_traceback_before_end_line():
+    print("\n[시연 런처] 트레이스백이 「=== 종료」 · 「Enter」 안내보다 먼저 나온다(복사가 끝난 뒤에 끝낸다)")
+    r, logs = _run('raise RuntimeError("순서 시험 11223")\n', merged=True)
+    out = r.stdout
+    i, j = out.find("순서 시험 11223"), out.find("=== 종료")
+    check(0 <= i < j, f"트레이스백 {i} < 종료 줄 {j}")
+    check("순서 시험 11223" in _read(logs), "파일에도")
+
+
+def test_native_crash_leaves_record():
+    print("\n[시연 런처] 파이썬 바깥 오류(세그폴트)로 죽어도 기록이 남는다 — 종료 코드 · 파이썬 위치(코드 리뷰 Important 3)")
+    r, logs = _run('import os, signal\nos.kill(os.getpid(), signal.SIGSEGV)\n')
+    check(r.returncode == 139, f"종료 코드 139 · {r.returncode}")
+    body = _read(logs)
+    check("exit code 139" in body, f"파일에 종료 코드 · {body[-200:]!r}")
+    check("Segmentation fault" in body, "파일에 파이썬 위치(faulthandler)")
+
+
+def test_ctrl_c_keeps_traceback():
+    print("\n[시연 런처] Ctrl+C 로 끝나도 트레이스백이 터미널 · 파일에 남는다(코드 리뷰 Important 2)")
+    d = _copy('import sys, time\nprint("준비", flush=True)\ntime.sleep(30)\n')
+    p = subprocess.Popen(["bash", os.path.join(d, "run_demo.sh")], env=dict(os.environ, SOP_VOICE="0"),
+                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                         start_new_session=True)
+    out = p.stdout
+    assert out is not None
+    for _ in range(10):
+        if "준비" in out.readline():
+            break
+    os.killpg(p.pid, signal.SIGINT)     # 터미널의 Ctrl+C 처럼 무리 전체에
+    try:
+        _, err = p.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)
+        _, err = p.communicate()
+    check("KeyboardInterrupt" in err, f"터미널에 트레이스백 · {err[-200:]!r}")
+    check("KeyboardInterrupt" in _read(_errlogs(d)), f"파일에도 · {_errlogs(d)}")
+
+
+def test_signal_end_leaves_no_empty_file():
+    print("\n[시연 런처] 창 닫기 · 종료 신호로 끝나도 빈 오류 기록 파일을 남기지 않는다(코드 리뷰 Minor 4)")
+    d = _copy('import time\nprint("준비", flush=True)\ntime.sleep(30)\n')
+    p = subprocess.Popen(["bash", os.path.join(d, "run_demo.sh")], env=dict(os.environ, SOP_VOICE="0"),
+                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                         start_new_session=True)
+    out = p.stdout
+    assert out is not None
+    for _ in range(10):
+        if "준비" in out.readline():
+            break
+    os.killpg(p.pid, signal.SIGHUP)     # 터미널 창을 닫으면 무리 전체가 받는다
+    try:
+        p.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)
+        p.communicate()
+    time.sleep(0.3)
+    check(_errlogs(d) == [], f"빈 파일 없음 · {_errlogs(d)}")
 
 
 def test_warning_kept_on_clean_exit():

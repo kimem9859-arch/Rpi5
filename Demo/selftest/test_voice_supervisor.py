@@ -4,6 +4,7 @@
 ⚠️ 진짜 음성비서를 띄우지 않는다 — SOP_VOICE_PY 로 가짜 파이썬(셸 스크립트)을 넣는다.
 """
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -69,7 +70,7 @@ def test_run_demo_starts_and_stops_voice():
     src = open(os.path.join(_DEMO_DIR, "run_demo.sh"), encoding="utf-8").read()
     check("run_voice.sh --forever" in src, "음성비서를 감시 모드로 띄운다")
     check('SOP_VOICE:-1' in src, "SOP_VOICE=0 으로 끌 수 있다")
-    check("trap stop_voice EXIT" in src, "끝날 때 끈다")
+    check(re.search(r"^trap 'stop_voice;[^'\n]*' EXIT$", src, re.M) is not None, "끝날 때 끈다(EXIT 트랩 맨 앞)")
     r = subprocess.run(["bash", "-n", os.path.join(_DEMO_DIR, "run_demo.sh")], capture_output=True, text=True)
     check(r.returncode == 0, f"문법 · {r.stderr.strip()}")
 

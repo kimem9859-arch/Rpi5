@@ -21,7 +21,13 @@ stop_voice() {
         VOICE_PID=""
     fi
 }
-trap stop_voice EXIT
+ERRLOG=""
+drop_empty_errlog() {   # 오류 출력이 없었으면 빈 파일을 지운다 — 창 닫기 · 종료 신호로 끝나도(EXIT 트랩)
+    if [ -n "$ERRLOG" ] && [ ! -s "$ERRLOG" ]; then
+        rm -f "$ERRLOG"
+    fi
+}
+trap 'stop_voice; drop_empty_errlog' EXIT
 if [ "${SOP_VOICE:-1}" != "0" ]; then
     mkdir -p logs
     VLOG="logs/voice_$(date +%Y%m%d_%H%M%S).log"
@@ -31,21 +37,28 @@ if [ "${SOP_VOICE:-1}" != "0" ]; then
 fi
 
 # 🔑 오류 출력(트레이스백)을 터미널과 파일에 함께 남긴다(캡스톤 대회 준비 2026-10-15) — 시연 중 꺼지면
-#    창을 닫는 순간 원인이 사라졌다. 오류 출력이 없었으면 빈 파일은 지운다. 시험 = selftest/test_demo_errlog.py
+#    창을 닫는 순간 원인이 사라졌다. 비정상 종료면 종료 코드도 적는다. 오류 출력도 비정상 종료도 없었으면
+#    빈 파일은 지운다. 시험 = selftest/test_demo_errlog.py
+#    - 세그폴트 · abort 같은 파이썬 바깥 오류도 파이썬 위치를 남긴다(PYTHONFAULTHANDLER).
+#    - 🔴 `{ …; }` 로 묶어야 부모 셸이 tee 를 낳아 `$!` 가 tee 를 가리킨다 — 묶지 않으면 `$!` 가 음성비서
+#      감시(VOICE_PID)로 남아 `wait` 가 끝나지 않는다(코드 리뷰 Critical · 2026-10-15).
+#    - `tee -i` = Ctrl+C 를 tee 가 함께 받아 먼저 죽으면 트레이스백이 터미널에서도 사라진다.
 mkdir -p logs
 ERRLOG="logs/demo_err_$(date +%Y%m%d_%H%M%S).log"
-python3 main.py 2> >(tee -a "$ERRLOG" >&2)
+export PYTHONFAULTHANDLER=1
+{ python3 main.py; } 2> >(tee -i -a "$ERRLOG" >&2)
 status=$?
 wait $! 2>/dev/null     # 복사(tee)가 다 쓴 뒤에 파일을 본다
-[ -s "$ERRLOG" ] || rm -f "$ERRLOG"
+if [ "$status" -ne 0 ]; then
+    echo "[$(date '+%F %T')] exit code $status" >> "$ERRLOG" 2>/dev/null
+fi
 stop_voice              # 🔴 오류로 창을 붙잡아 둘 때도 음성비서는 먼저 끈다
 
 echo
 echo "=== 종료 (exit code: $status) ==="
 
 # 🔴 정상 종료면 **창도 함께 닫는다** — 시연 중에 빈 터미널이 남지 않게.
-#    오류로 죽었을 때만 붙잡아 둔다. 그때는 여기가 원인을 볼 유일한 자리다
-#    (GUI 로그는 logs/ 에 남지만 파이썬 트레이스백은 이 창에만 나온다).
+#    오류로 죽었을 때만 붙잡아 둔다 — 원인(트레이스백)은 이 창과 logs/demo_err_<시각>.log 에 있다.
 if [ "$status" -ne 0 ]; then
     echo "창을 닫으려면 Enter 를 누르세요."
     read -r _
