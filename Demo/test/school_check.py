@@ -18,6 +18,7 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections import namedtuple
@@ -221,12 +222,18 @@ def llm_check(url=None, model=None, timeout=3.0):
     url, model = url or config.LLM_URL, model or config.LLM_MODEL
     u = urllib.parse.urlsplit(url)
     tags = f"{u.scheme}://{u.netloc}/api/tags"
-    fix_net = ("파이2 전원 · 파이1 · 파이2 랜선이 공유기에 꽂혔나 · 파이1 유선 주소가 192.168.1.x 인가(ip -4 addr show eth0) · "
+    fix_net = ("파이2 를 켠 지 1분 안이면 기다렸다 다시 · 파이2 전원 · 파이1 · 파이2 랜선이 공유기에 꽂혔나 · "
+               "파이1 유선 주소가 192.168.1.x 인가(ip -4 addr show eth0) · "
                "파이2 가 공유기에서 꼭 192.168.1.12 를 받았나(ollama 는 그 주소에서만 받는다 · 공유기 주소 예약)")
+    fix_srv = "파이2 에는 닿았는데 ollama 가 오류를 냈다 — 파이2 에서 systemctl status ollama · ollama list"
+    import json
     try:
-        import json
         with urllib.request.urlopen(tags, timeout=timeout) as r:
             names = [m.get("name", "") for m in json.load(r).get("models", [])]
+    except urllib.error.HTTPError as e:            # 서버에 닿았다(랜선 · 주소 문제 아님)
+        return _c("음성", "파이2 LLM 응답", False, f"{u.netloc} — HTTP {e.code}", fix_srv)
+    except (ValueError, TypeError, AttributeError) as e:   # 답은 왔는데 모양이 다르다
+        return _c("음성", "파이2 LLM 응답", False, f"{u.netloc} — 답 모양이 다름 {e}", fix_srv)
     except Exception as e:                          # noqa: BLE001
         return _c("음성", "파이2 LLM 응답", False, f"{u.netloc} — {e}", fix_net)
     ok = model in names
@@ -235,18 +242,33 @@ def llm_check(url=None, model=None, timeout=3.0):
 
 
 # ── 코드 ────────────────────────────────────────────────────────────────────
-def git_clean(repo=RPI5):
-    r = subprocess.run(["git", "-C", repo, "status", "--porcelain"], capture_output=True, text=True)
-    lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+def git_clean(repo=RPI5, final=False, lines_for_test=None):
+    if lines_for_test is None:
+        r = subprocess.run(["git", "-C", repo, "status", "--porcelain"], capture_output=True, text=True)
+        lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+    else:
+        lines = lines_for_test
+    # 🔴 최종 모드에는 출발 태그가 없다 — 「학교1012-출발」은 10/12 판이라 되돌리면 그 뒤 개선이 모두 사라진다(리뷰 Important 1)
+    fix = ("무엇인지 Claude 가 보고 정한다 — 함부로 되돌리지 않는다" if final
+           else "V9 · 무엇인지 Claude 가 보고 정한다(출발 태그로 되돌리기 가능)")
     return _c("코드", "커밋 안 된 변경", not lines, f"{len(lines)}개" + (f" — {lines[0]}" if lines else ""),
-              "" if not lines else "V9 · 무엇인지 Claude 가 보고 정한다(출발 태그로 되돌리기 가능)")
+              "" if not lines else fix)
 
 
 def git_head(repo=RPI5):
     """지금 도는 코드 판 — 어느 판으로 시연했는지 남긴다(판정 없음 · 늘 ✅)."""
-    r = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%h %ad", "--date=format:%m-%d %H:%M"],
-                       capture_output=True, text=True)
-    return _c("코드", "코드 판", True, r.stdout.strip() or "읽지 못함")
+    def git(*a):
+        return subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True).stdout.strip()
+    head = git("log", "-1", "--format=%h %ad", "--date=format:%m-%d %H:%M") or "읽지 못함"
+    branch = git("rev-parse", "--abbrev-ref", "HEAD") or "?"
+    # 인터넷 없이 — 마지막으로 받아 온 origin/main 과 비교만(판정 없음)
+    ahead_behind = git("rev-list", "--left-right", "--count", "HEAD...origin/main").split()
+    if len(ahead_behind) == 2:
+        a, b = ahead_behind
+        rel = "origin/main 과 같음" if a == b == "0" else f"origin/main 보다 {a}개 앞 · {b}개 뒤(마지막으로 받아 온 기준)"
+    else:
+        rel = "origin/main 없음"
+    return _c("코드", "코드 판", True, f"{branch} · {head} · {rel}")
 
 
 def at_tag(repo=RPI5, tag=TAG):
@@ -312,8 +334,11 @@ def run(home=False, final=False):
     env = {k: v for k, v in os.environ.items() if not (home and k in ("SOP_CAMERA_HOST", "SOP_INTERLOCK_PORT"))}
     if final:       # 🆕 최종 시연 — 음성비서는 인터넷 · 키를 쓰지 않는다(인터넷 없는 공유기에서 헛 ❌) · 측정 대본 · 출발 태그 없음
         out += [answer_wavs(), skip("음성", "파이2 LLM 응답") if home else llm_check(),
-                git_head(), git_clean(), stray_env(env), files(scripts=())]
-        return out
+                git_head(), git_clean(final=True), stray_env(env), files(scripts=())]
+        order = {}
+        for c in out:                       # 같은 묶음은 한 머리 아래로(처음 나온 순서 · 순서표 4장 표와 같게)
+            order.setdefault(c.group, len(order))
+        return sorted(out, key=lambda c: order[c.group])
     out += [internet(), key_file(), answer_wavs(),
             git_clean(), skip("코드", f"출발 태그 {TAG}") if home else at_tag(),
             stray_env(env), files()]

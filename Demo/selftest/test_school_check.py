@@ -144,6 +144,10 @@ def _tags_server(names):
 
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
+            if names is None:               # 서버에는 닿았는데 ollama 가 오류를 낸 경우
+                self.send_response(500)
+                self.end_headers()
+                return
             body = json.dumps({"models": [{"name": n} for n in names]}).encode()
             self.send_response(200 if self.path == "/api/tags" else 404)
             self.send_header("Content-Type", "application/json")
@@ -167,12 +171,20 @@ def test_llm_check():
         check(c.ok is False and "없는모델" in c.detail and c.fix, f"모델 없음 → {c}")
     finally:
         srv.shutdown()
+        srv.server_close()
+    srv, url = _tags_server(None)
+    try:
+        c = SC.llm_check(url, "gemma4:e2b-it-qat")
+        check(c.ok is False and "ollama" in c.fix and "랜선" not in c.fix, f"닿았는데 오류(500) → ollama 쪽 문구 · {c.fix}")
+    finally:
+        srv.shutdown()
+        srv.server_close()
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
     s.close()
     c = SC.llm_check(f"http://127.0.0.1:{port}/api/generate", "gemma4:e2b-it-qat")
-    check(c.ok is False and "랜선" in c.fix and "파이2" in c.fix, f"닿지 않음 → {c}")
+    check(c.ok is False and "랜선" in c.fix and "파이2" in c.fix and "1분" in c.fix, f"닿지 않음 → 랜선 · 켠 직후면 기다림 · {c}")
 
 
 def test_files_scripts_optional():
@@ -191,20 +203,40 @@ def test_run_final():
     SC.interlock_ack = lambda port: SC._c("인터락", "RUN 응답", True, "시험 대역")
     SC._demo_running = lambda: False
     SC.llm_check = lambda url=None, model=None: SC._c("음성", "파이2 LLM 응답", True, "시험 대역")
+    real_open = builtins.open
+    opened = []
+
+    def guard(path, *a, **k):
+        if str(path).endswith(".env"):
+            opened.append(str(path))
+            raise AssertionError(".env 를 열었다")
+        return real_open(path, *a, **k)
+    builtins.open = guard
+    buf = io.StringIO()
     try:
-        names = {c.name for c in SC.run(final=True)}
+        res = SC.run(final=True)
+        names = {c.name for c in res}
+        # 🔑 main 도 가짜가 살아 있는 동안 — 실제 로컬 포트(8888~8890)에 붙지 않는다(리뷰 Important 2)
+        with contextlib.redirect_stdout(buf):
+            try:
+                SC.main(["--final", "--home"])
+            except SystemExit:
+                pass
     finally:
+        builtins.open = real_open
         SC.recv_probe, SC.glass_ports, SC.interlock_ack, SC._demo_running, SC.llm_check = keep
+    check(not opened, f".env 를 열지 않았다 {opened}")
+    groups = [c.group for c in res]
+    heads = [g for i, g in enumerate(groups) if i == 0 or groups[i - 1] != g]
+    check(len(heads) == len(set(heads)), f"묶음 머리가 한 번씩 · {heads}")
+    dirty = SC.git_clean(final=True, lines_for_test=[" M x.py"])
+    check(dirty.ok is False and "출발 태그" not in dirty.fix and "되돌리지" in dirty.fix, f"최종 모드 대처에 출발 태그 없음 · {dirty.fix}")
+    check("출발 태그" in SC.git_clean(lines_for_test=[" M x.py"]).fix, "측정 모드 대처는 그대로")
     check(not ({"인터넷", "키 파일"} & names), f"인터넷 · 키 파일 없음 · {sorted(names)}")
     check(not any(n.startswith("출발 태그") for n in names), "출발 태그 없음")
     check({"파이2 LLM 응답", "코드 판"} <= names, "파이2 LLM 응답 · 코드 판 있음")
-    check(SC.git_head().ok is True and len(SC.git_head().detail) >= 7, f"코드 판 = 커밋 번호 · {SC.git_head().detail}")
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        try:
-            SC.main(["--final", "--home"])
-        except SystemExit:
-            pass
+    head = SC.git_head()
+    check(head.ok is True and "main" in head.detail and "origin/main" in head.detail, f"코드 판 = 갈래 · 커밋 · origin/main 과 비교 · {head.detail}")
     check("파이2 LLM 응답" in buf.getvalue() and "인터넷" not in buf.getvalue(), "--final 옵션")
 
 
