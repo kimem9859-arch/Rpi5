@@ -332,7 +332,7 @@ def run(home=False, final=False):
     else:
         out.append(interlock_ack(config.find_interlock_port()[0]))
     env = {k: v for k, v in os.environ.items() if not (home and k in ("SOP_CAMERA_HOST", "SOP_INTERLOCK_PORT"))}
-    if final:       # 🆕 최종 시연 — 음성비서는 인터넷 · 키를 쓰지 않는다(인터넷 없는 공유기에서 헛 ❌) · 측정 대본 · 출발 태그 없음
+    if final:       # 🆕 최종 시연 — 음성비서는 인터넷 · 키를 쓰지 않는다(우리 공유기가 인터넷에 물려 있지 않으면 헛 ❌) · 측정 대본 · 출발 태그 없음
         out += [answer_wavs(), skip("음성", "파이2 LLM 응답") if home else llm_check(),
                 git_head(), git_clean(final=True), stray_env(env), files(scripts=())]
         order = {}
