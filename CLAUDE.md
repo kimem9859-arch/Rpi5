@@ -21,7 +21,7 @@
 - ✅ **console_v1.hef 배선 완료** (상세 [`../dev/ai_model/README.md`](../dev/ai_model/README.md)):
   - 입력 **uint8 640×640 RGB**(float 정규화 ❌, stretch 리사이즈), 출력 **HailoRT NMS 결과** 파싱(raw 텐서 ❌), **HailoRT 4.x**.
   - `class_name`/`_names` = **5클래스(0=B1·1=B2·2=B3·3=B4·4=EMO)** 매핑 완료(`detector.py:112`).
-  - .hef(빌드 환경 `D:\Hailo_DFC\console_v1.hef`) → 파이 `Demo/models/console_v1.hef`(`config.HEF_MODEL_PATH`).
+  - .hef(빌드 환경 데스크톱 WSL `~/lab/hailo-dfc/console_v1.hef` · 2026-10-16 `D:\Hailo_DFC` 에서 옮김) → 파이 `Demo/models/console_v1.hef`(`config.HEF_MODEL_PATH`).
 - **`console_v2.hef`** — `Demo/models/console_v2.hef`(4.4MB, 파랑 스티커 B4 재학습 + DFC level 1·캘리브 652. 수치 = 상위 통합문서 **§12.14·§12.15**). 규격은 v1과 동일(uint8 640·NMS 포함(HEF 안 · 실행은 파이 CPU 의 HailoRT — yolov8 은 `engine=cpu` 만 된다 · `조사/HEF변환-20261004/원문대조.md` 57)·5클래스·HailoRT 4.x)이라 **코드 수정 불필요**.
 - **시연 모델 = 학습 체계 기준 설정의 HEF**(상위 통합문서 §6.4 (4) · 변환 관문 = `조사/HEF변환-20261004/기준모델변환-20261007/`) — 버튼 `config.HEF_MODEL_PATH` = `B-full-base-s0_ours-L2.hef` · 공구 `config.TOOL_BACKEND = "hailo"` + `TOOL_HEF_PATH` = `T-full-base-albu-s0_ours-L2.hef`(NPU · 카메라 스레드에서 1초에 한 번 · `tool_gate.HailoToolGate` · 만드는 곳 `create_tool_gate()` 하나). config 를 읽는 모든 경로(`run_demo.sh`·측정 도구 기본값)가 이 모델로 돈다.
   - 🔴 **전환 = 검증이 아니다.** 장소1 채점과 「HEF 가 `.pt` 와 같은 자리를 잡는가」 관문까지다 — 장소2(c001)·장소3 은 미판정(장소1 조건부). `console_v2` 의 **B4 해결 여부도 미판정**(§12.16).
