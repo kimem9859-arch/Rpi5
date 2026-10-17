@@ -758,7 +758,7 @@ def names_table():
         sat, seed, ep, pat = rows[i]
         has = "있음" if (HERE / "결과" / i / "설정.json").exists() else "—"
         out.append(f"| {i} | {이름.new_name(i, sat, seed)} | {has} | {ep} · {pat} · {sat} |")
-    out += ["", "## 변환 모델 — 파일은 옛 이름 그대로(데스크톱 `~/학습실험/` · 파이 사본은 2026-10-16 데스크톱 `~/data/파이자료/학습실험-파이사본/` 으로 옮김)", "",
+    out += ["", "## 변환 모델 — 파일은 옛 이름 그대로(데스크톱 `~/학습실험/` · 파이 사본은 데스크톱 `~/학습실험/파이사본/`)", "",
             "| 옛 파일 | 새 이름 | 기록(결과 폴더) |", "|---|---|---|"]
     for d in sorted((HERE / "결과").iterdir()):
         for r in sorted(d.glob("변환*.json")):
