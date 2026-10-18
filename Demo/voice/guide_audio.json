@@ -125,10 +125,11 @@
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
+  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/",
+  "tempo": 1.0,
+  "note": "천천히 판이 뭉개져 들려 보통 판 사용(사용자 2026-10-18)"
  },
  "cue_g12_1a": {
   "text_sha1": "bd36a2cf23bfea46299713295ac426d9911321ba",
