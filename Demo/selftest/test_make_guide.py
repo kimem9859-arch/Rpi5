@@ -99,6 +99,65 @@ def test_stretch():
     check(abs(f0 - 220.0) <= 5.0, f"음 높이 그대로(약 220Hz · {f0:.1f})")
 
 
+def test_chime_matches_firmware():
+    print("\n[띠링] 펌웨어 chime() 과 같은 음 · 길이 · 페이드(사용자 2026-10-18 「진짜 띠링 소리」)")
+    import re
+    src = open(os.path.join(os.path.dirname(_DEMO), "arduino", "glass_voice", "glass_voice.ino"), encoding="utf-8").read()
+    lo = float(re.search(r"CHIME_LO\s*=\s*([\d.]+)f", src).group(1))
+    hi = float(re.search(r"CHIME_HI\s*=\s*([\d.]+)f", src).group(1))
+    fade = float(re.search(r"FADE_MS\s*=\s*([\d.]+)f", src).group(1))
+    body = src[src.index("static void chime()"):]
+    body = body[:body.index("\n}\n")]
+    segs = [(a, int(m)) for a, m in re.findall(r"toneSeg\((0|CHIME_LO|CHIME_HI), \1, (\d+),", body)]
+    want = [(0.0 if a == "0" else lo if a == "CHIME_LO" else hi, ms) for a, ms in segs]
+    check(MG.CHIME_SEGS == want, f"음 · 길이 차례 = 펌웨어({MG.CHIME_SEGS} · {want})")
+    check(MG.CHIME_FADE_MS == fade, f"페이드 {fade}ms")
+
+
+def test_chime_wave():
+    print("\n[띠링] 파형 — 430ms · 앞 음 1568Hz · 뒤 음 2093Hz · 앞뒤 무음")
+    r = 24000
+    c = MG.chime(r, 0.5)
+    check(abs(len(c) - int(0.43 * r)) <= 2, f"길이 430ms({len(c) / r * 1000:.1f}ms)")
+
+    def peak_f(a, b):
+        seg = c[int(a * r):int(b * r)]
+        return np.argmax(np.abs(np.fft.rfft(seg))) * r / len(seg)
+    check(abs(peak_f(0.04, 0.14) - 1568) <= 15, f"앞 음 {peak_f(0.04, 0.14):.0f}Hz")
+    check(abs(peak_f(0.20, 0.36) - 2093) <= 15, f"뒤 음 {peak_f(0.20, 0.36):.0f}Hz")
+    check(abs(np.abs(c).max() - 0.5) <= 0.01 and np.abs(c[:int(0.02 * r)]).max() == 0, "진폭 · 앞 무음")
+
+
+def test_marker_parts_and_assemble():
+    print("\n[띠링] {띠링} 자리에서 나누고 · 말소리 사이에 띠링을 끼운다")
+    t = '호출어를 부른 뒤 {띠링} 소리가 나면 "지금 몇 단계야?"라고 물어보세요.'
+    check(MG.marker_parts(t) == ["호출어를 부른 뒤", '소리가 나면 "지금 몇 단계야?"라고 물어보세요.'], f"{MG.marker_parts(t)}")
+    check(MG.marker_parts("{띠링} 소리가 나지 않았다면, 다시.") == ["", "소리가 나지 않았다면, 다시."], "앞 자리 = 빈 조각")
+    check(MG.marker_parts("노랑 버튼을 눌러 주세요.") == ["노랑 버튼을 눌러 주세요."], "표시 없으면 한 조각")
+    r = 24000
+    a, b = tone(0.5, r) * 0.8, tone(0.6, r) * 0.8
+    y = MG.assemble([a, b], r)
+    want = 0.5 + MG.CHIME_GAP + 0.43 + MG.CHIME_GAP + 0.6
+    check(abs(len(y) / r - want) <= 0.01, f"길이 = 말 + 쉼 + 띠링 + 쉼 + 말({len(y) / r:.3f} · {want:.3f})")
+    mid = y[int((0.5 + MG.CHIME_GAP + 0.05) * r):int((0.5 + MG.CHIME_GAP + 0.14) * r)]
+    f = np.argmax(np.abs(np.fft.rfft(mid))) * r / len(mid)
+    check(abs(f - 1568) <= 20, f"가운데에 띠링 앞 음({f:.0f}Hz)")
+    pk = max(np.abs(a).max(), np.abs(b).max())
+    cpk = np.abs(y[int((0.5 + MG.CHIME_GAP) * r):int((0.5 + MG.CHIME_GAP + 0.43) * r)]).max()
+    check(abs(cpk - pk) <= 0.01, f"띠링 크기 = 말소리 봉우리({cpk:.3f} · {pk:.3f} — 음량 2 = 펌웨어 진폭 4000 = 말소리 목표)")
+    y2 = MG.assemble([None, b], r)
+    check(abs(len(y2) / r - (0.43 + MG.CHIME_GAP + 0.6)) <= 0.01, "앞 조각이 비면 띠링으로 시작")
+
+
+def test_gemini_expand_marker():
+    print("\n[Gemini] {띠링} 문장은 조각마다 요청 키(키#번호) · 빈 조각은 요청하지 않는다")
+    lines = {"cue_g3_1": "노랑 버튼을 눌러 주세요.", "cue_g15_1b": "부른 뒤 {띠링} 소리가 나면.", "cue_g15_r1": "{띠링} 소리가 없다면."}
+    got = GG.expand(lines, list(lines))
+    check(GG.MARK == MG.MARK, "데스크톱 · 파이 표시가 같다")
+    check(got == [("cue_g3_1", "노랑 버튼을 눌러 주세요."), ("cue_g15_1b#0", "부른 뒤"), ("cue_g15_1b#1", "소리가 나면."),
+                  ("cue_g15_r1#1", "소리가 없다면.")], f"{got}")
+
+
 def test_batches():
     print("\n[묶음] 13개씩 · 차례 · --only · --each")
     keys = MG.guide_keys()
@@ -128,7 +187,8 @@ def test_manifest_roundtrip():
 
 
 if __name__ == "__main__":
-    for fn in (test_keys, test_check_reports, test_split_batch, test_stretch, test_batches, test_quota_detect,
+    for fn in (test_keys, test_check_reports, test_split_batch, test_stretch, test_chime_matches_firmware, test_chime_wave,
+               test_marker_parts_and_assemble, test_gemini_expand_marker, test_batches, test_quota_detect,
                test_manifest_roundtrip):
         try:
             fn()

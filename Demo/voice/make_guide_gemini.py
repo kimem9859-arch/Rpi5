@@ -27,6 +27,7 @@ MODEL = "gemini-3.8-flash-tts"
 STYLE = "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투"   # 사용자 2026-10-18 — 표본 비교에서 고름
 URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 PAUSE = "<long pause>"
+MARK = "{띠링}"           # 실제 띠링 소리 자리 — 그 자리를 빼고 앞뒤 조각을 따로 받는다(파이 make_guide.MARK 와 같다)
 QUOTA_EXIT = 3
 RETRY_WAITS = (0, 20, 40)        # 분당 한도(429)면 쉬었다 다시 — tts_gemini.py 와 같다
 
@@ -52,6 +53,18 @@ def batches(keys, size, each=False):
     if each:
         return [[k] for k in keys]
     return [list(keys[i:i + size]) for i in range(0, len(keys), size)]
+
+
+def expand(lines, keys):
+    """요청할 (키, 문장) — {띠링} 이 든 문장은 조각마다 「키#번호」(빈 조각은 요청하지 않음 · 파이가 띠링을 끼워 잇는다)."""
+    out = []
+    for k in keys:
+        t = lines[k]
+        if MARK in t:
+            out += [(f"{k}#{i}", p.strip()) for i, p in enumerate(t.split(MARK)) if p.strip()]
+        else:
+            out.append((k, t))
+    return out
 
 
 def batch_text(texts):
@@ -130,14 +143,16 @@ def main(argv=None):
         unknown = sorted(set(a.only) - set(lines))
         if unknown:
             sys.exit(f"모르는 키: {unknown}")
-    groups = [keys[:a.dry]] if a.dry else batches(keys, a.batch, a.each)
+    items = dict(expand(lines, keys))
+    subs = list(items)
+    groups = [subs[:a.dry]] if a.dry else batches(subs, a.batch, a.each)
     os.makedirs(a.out, exist_ok=True)
     key, done = api_key(), []
     print(f"모델 {MODEL} · 목소리 {a.voice} · 요청 {len(groups)}번 · 문장 {sum(len(g) for g in groups)}개 → {a.out}")
     for i, g in enumerate(groups, 1):
         name = f"batch_{i:02d}.wav"
         try:
-            wav = synth(key, batch_text([lines[k] for k in g]), a.voice, a.style)
+            wav = synth(key, batch_text([items[k] for k in g]), a.voice, a.style)
         except QuotaExhausted as e:
             left = [k for gg in groups[i - 1:] for k in gg]
             print(f"🛑 무료 한도 소진 — 받은 묶음 {len(done)}개는 남겼다 · 유료로 바꾼 뒤 --only 로 이어서: {' '.join(left)}")
@@ -145,7 +160,7 @@ def main(argv=None):
             return QUOTA_EXIT
         with open(os.path.join(a.out, name), "wb") as f:
             f.write(wav)
-        done.append({"file": name, "keys": g, "texts": [lines[k] for k in g]})
+        done.append({"file": name, "keys": g, "texts": [items[k] for k in g]})
         write_manifest(a.out, MODEL, a.voice, a.style, done)      # 🔑 묶음마다 — 중간에 끊겨도 받은 것은 남는다
         print(f"  {name} · 문장 {len(g)}개 · {len(wav) // 1024} KB")
     print("끝")

@@ -65,9 +65,9 @@ LINES = {
     "cue_g13_1b": "화면의 차단 해제 버튼을 눌러 차단을 풀어 주세요.",
     "cue_g14_1": "분홍 버튼을 눌러 주세요.",
     "cue_g15_1a": "이번에는 음성비서를 불러 보겠습니다.",
-    "cue_g15_1b": "호출어를 부른 뒤 띠링 소리가 나면 \"지금 몇 단계야?\"라고 물어보세요.",
+    "cue_g15_1b": "호출어를 부른 뒤 {띠링} 소리가 나면 \"지금 몇 단계야?\"라고 물어보세요.",   # {띠링} = 실제 띠링 소리(사용자 2026-10-18)
     "cue_g15_1c": "지금 바로 \"가디언\"이라고 불러 주세요.",
-    "cue_g15_r1": "띠링 소리가 나지 않았다면, 조금 더 크게 \"가디언\"이라고 불러 주세요.",
+    "cue_g15_r1": "{띠링} 소리가 나지 않았다면, 조금 더 크게 \"가디언\"이라고 불러 주세요.",
     "cue_g15_r2a": "주변 소음으로 인해 호출어 인식이 불안정합니다.",
     "cue_g15_r2b": "다음 단계로 넘어가겠습니다.",
     "cue_g16_2a": "작업이 완료되었습니다.",
@@ -91,6 +91,9 @@ def test_lines_exact():
     check(set(lines) == set(LINES), f"키 집합이 같다(빠짐 {sorted(set(LINES) - set(lines))} · 더함 {sorted(set(lines) - set(LINES))})")
     bad = [k for k, v in LINES.items() if lines.get(k) != v]
     check(not bad, f"문장이 글자 그대로 같다(다름 {bad})")
+    marked = sorted(k for k, v in lines.items() if "{띠링}" in v)
+    check(marked == ["cue_g15_1b", "cue_g15_r1"], f"실제 띠링 소리 자리 표시는 두 문장뿐({marked})")
+    check(not any("띠링" in v.replace("{띠링}", "") for v in lines.values()), "낱말 「띠링」을 소리 내 읽는 문장이 없다")
 
 
 def test_sentences_cover_4_3():

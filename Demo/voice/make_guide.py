@@ -31,6 +31,12 @@ PREV = os.path.join(VOICE_DIR, "wav_guide_prev")
 LINES_PATH = os.path.join(VOICE_DIR, "guide_lines.json")
 MANIFEST = os.path.join(VOICE_DIR, "guide_audio.json")
 LEAD, TAIL = 0.05, 0.08          # 조각 앞뒤에 남기는 무음(초) — tts_gemini.py 와 같다
+# 🔑 실제 띠링 소리(사용자 2026-10-18) — 대본의 {띠링} 자리에 낱말 대신 안경 펌웨어 chime() 과 같은 소리를 끼운다.
+#    값 = arduino/glass_voice/glass_voice.ino chime() · toneSeg() 그대로(selftest/test_make_guide.py 가 소스와 대조)
+MARK = "{띠링}"
+CHIME_SEGS = [(0.0, 30), (1568.0, 120), (0.0, 40), (2093.0, 180), (0.0, 60)]   # (Hz · 0 = 무음, ms)
+CHIME_FADE_MS = 5.0
+CHIME_GAP = 0.12                 # 말소리와 띠링 사이 쉼(초) — 띠링 앞뒤 무음(30 · 60ms)에 더한다
 PEAK = 0.89                      # 최고점 -1 dBFS — tts_gemini.py 와 같다
 SCORE_WARN = 0.8                 # 받아쓰기 일치가 이보다 낮으면 사용자가 들어 본다
 
@@ -142,6 +148,51 @@ def split_batch(x, rate, n):
     return [trim(x[a:b], rate) for a, b in zip(edges, edges[1:])]
 
 
+def marker_parts(text):
+    """{띠링} 자리에서 나눈 말 조각(앞뒤 공백 없앰 · 빈 조각 = 그 자리에 말 없음)."""
+    return [p.strip() for p in text.split(MARK)]
+
+
+def chime(rate, amp):
+    """안경 펌웨어 chime() 과 같은 「띠링」 — 순음 두 개 · 음마다 앞뒤 5ms 올림코사인 페이드 · 위상을 음 사이에 이어 받는다."""
+    import numpy as np
+    out, ph = [], 0.0
+    fade = int(rate * CHIME_FADE_MS / 1000)
+    for f, ms in CHIME_SEGS:
+        n = int(rate * ms / 1000)
+        if f == 0:
+            out.append(np.zeros(n))
+            continue
+        k = np.arange(n)
+        phs = ph + 2 * np.pi * f / rate * (k + 1)          # 펌웨어 = 위상을 먼저 올리고 sin
+        ph = float(phs[-1] % (2 * np.pi))
+        fin = np.where(k < fade, 0.5 - 0.5 * np.cos(np.pi * k / fade), 1.0)
+        fout = np.where(k + fade >= n, 0.5 - 0.5 * np.cos(np.pi * (n - 1 - k) / fade), 1.0)
+        out.append(np.sin(phs) * amp * np.minimum(fin, fout))
+    return np.concatenate(out)
+
+
+def assemble(parts, rate):
+    """말 조각들(빈 자리 = None) 사이마다 띠링을 끼운다 — 띠링 크기 = 말소리 봉우리.
+    (데모 음량 2단계 = 펌웨어 말소리 목표 진폭 4000 · 띠링 진폭 min(4000, 6000) = 4000 — 같은 크기)"""
+    import numpy as np
+    speech = [p for p in parts if p is not None and len(p)]
+    amp = max(float(np.abs(p).max()) for p in speech) if speech else PEAK
+    c, gap = chime(rate, amp), np.zeros(int(rate * CHIME_GAP))
+    out = []
+    for i, p in enumerate(parts):
+        has = p is not None and len(p) > 0
+        if i > 0:
+            if out:
+                out.append(gap)
+            out.append(c)
+            if has:
+                out.append(gap)
+        if has:
+            out.append(p)
+    return np.concatenate(out)
+
+
 def stretch(x, rate, tempo):
     """속도만 바꾼다 — 음 높이는 그대로(ffmpeg atempo · WSOLA) · tempo < 1 = 느리게 · 1.0 이면 그대로 돌려준다.
     (사용자 2026-10-18 「목소리 속도가 조금 빨라 참여자가 안내를 놓칠 수 있다」)"""
@@ -206,21 +257,40 @@ def import_gemini(src, dry_run=False, orig=None, tempo=1.0):
     """데스크톱 묶음 → 자르기 · (속도) · 최고점 · 한도 · 받아쓰기 → 깔기(또는 --dry-run 이면 <src>/조각/ 에만) · tempo = stretch 참고."""
     from make_answers import stt_judge        # 음성비서와 같은 받아쓰기(다시 쓰지 않는다)
     man, lines = read_manifest(src), load_lines()["lines"]
+    import numpy as np
     judge = stt_judge()
-    got, bad = [], []
+    pieces, order = {}, []                    # 요청 키(키 또는 키#번호) → (소리, 레이트) · 문장 키 차례
     for b in man["batches"]:
         x, rate = _read_float(os.path.join(src, b["file"]))
-        parts = split_batch(x, rate, len(b["keys"]))
-        for k, p in zip(b["keys"], parts):
-            pcm = _to_pcm(stretch(p, rate, tempo))
-            n = len(pcm) // 2
-            score = judge(pcm, rate, lines[k])
-            ok = voice_tts.fits(n, rate)
-            got.append((k, pcm, rate, score))
-            flag = "" if ok and score >= SCORE_WARN else "  ⚠️"
-            if flag:
-                bad.append(k)
-            print(f"  {k:14s} {n / rate:5.2f}초 · 받아쓰기 {score:.2f}{' · 한도 초과' if not ok else ''}{flag}  {lines[k]}")
+        for k, p in zip(b["keys"], split_batch(x, rate, len(b["keys"]))):
+            pieces[k] = (stretch(p, rate, tempo), rate)
+            base = k.split("#")[0]
+            if base not in order:
+                order.append(base)
+    got, bad = [], []
+    for k in order:
+        text = lines[k]
+        if MARK in text:                      # {띠링} 자리마다 실제 띠링 소리(사용자 2026-10-18)
+            ps = marker_parts(text)
+            missing = [f"{k}#{i}" for i, t in enumerate(ps) if t and f"{k}#{i}" not in pieces]
+            if missing:
+                raise ValueError(f"{k}: 조각이 없다 {missing} — make_guide_gemini 로 그 문장을 다시 받을 것")
+            rate = next(pieces[f"{k}#{i}"][1] for i, t in enumerate(ps) if t)
+            parts = [pieces[f"{k}#{i}"][0] if t else None for i, t in enumerate(ps)]
+            speech = np.concatenate([p for p in parts if p is not None])
+            score = judge(_to_pcm(speech), rate, " ".join(t for t in ps if t))   # 받아쓰기는 말소리만으로
+            pcm = _to_pcm(assemble(parts, rate))
+        else:
+            y, rate = pieces[k]
+            pcm = _to_pcm(y)
+            score = judge(pcm, rate, text)
+        n = len(pcm) // 2
+        ok = voice_tts.fits(n, rate)
+        got.append((k, pcm, rate, score))
+        flag = "" if ok and score >= SCORE_WARN else "  ⚠️"
+        if flag:
+            bad.append(k)
+        print(f"  {k:14s} {n / rate:5.2f}초 · 받아쓰기 {score:.2f}{' · 한도 초과' if not ok else ''}{flag}  {text}")
     if dry_run:
         d = os.path.join(src, "조각")
         os.makedirs(d, exist_ok=True)
