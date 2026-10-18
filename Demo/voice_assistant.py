@@ -611,9 +611,10 @@ class AlertWatcher:
     `speaking` = 알림 재생 중 — 메인 루프가 그동안 들어온 소리를 버린다(G11 원칙 · alert_hold).
     """
 
-    def __init__(self, spk, read_state=None, alog=None, poll_sec=ALERT_POLL_SEC):
+    def __init__(self, spk, read_state=None, alog=None, poll_sec=ALERT_POLL_SEC, key_for=None):
         self.spk = spk
         self._read = read_state or voice_card.read_state
+        self.key_for = key_for                   # 시연 안내 모드 — 알림 키 → 색 이름판 키(없으면 그대로 · 2026-10-18 §4.1)
         self.alog = alog
         self.poll_sec = poll_sec
         self.gen = 0
@@ -632,19 +633,20 @@ class AlertWatcher:
         if ev is None:
             return None
         if ev[0] == "알림":
-            VLOG.event("alert", key=ev[1],
+            key = self.key_for(ev[1]) if self.key_for else ev[1]
+            VLOG.event("alert", key=key,
                        t_pub_ms=measure_log.now_ms(cur["쓴시각_mono"]) if cur and cur.get("쓴시각_mono") else None,
                        state=(cur or {}).get("상태"))
             self.speaking.set()                  # 🔑 gen 보다 먼저 — 메인 루프가 재생 내내 버리게
             self.gen += 1                        # 🔑 멈춤보다 먼저 — 만들던 답이 보내기 잠금 안에서 이것을 본다(I2)
-            self._live = (ev[1], self.gen)       # 🔑 멈춤보다 먼저 — 앞 알림이 보내기 잠금 안에서 이것을 보고 빠진다
+            self._live = (key, self.gen)         # 🔑 멈춤보다 먼저 — 앞 알림이 보내기 잠금 안에서 이것을 보고 빠진다
             self.spk.stop()                      # 재생 중이면 멈춘다(2단계 펌웨어 전에는 무시된다)
             if self._player_on:
                 with self._cv:
-                    self._want = (ev[1], cur, self.gen)
+                    self._want = (key, cur, self.gen)
                     self._cv.notify()
             else:
-                self._play(ev[1], cur, self.gen)
+                self._play(key, cur, self.gen)
         else:
             with self._cv:
                 self._want = None                # 아직 안 나간 알림도 거둔다
@@ -771,6 +773,80 @@ class CueWatcher:
         th = threading.Thread(target=self.run, args=(stop,), daemon=True)
         th.start()
         return th
+
+
+def alert_key_for(key, on, wav_dir=None):
+    """시연 안내 모드 알림 키(상위 specs/2026-10-18-시연안내모드-design.md §4.1) — 켬이고 색 이름판 `<키>_c.wav` 가
+    있으면 그 키 · 아니면 원래 키(파일이 없어도 알림은 그대로 난다)."""
+    if not on:
+        return key
+    c = f"{key}_c"
+    return c if os.path.exists(os.path.join(wav_dir or WAV_DIR, f"{c}.wav")) else key
+
+
+class GuideFlag:
+    """설정 「시연 안내」 = 상태 파일의 `안내모드` 칸 — ttl 초 묶어 읽는다(알림 · 사건마다 파일을 읽지 않게) · 없거나 유령이면 끔."""
+
+    def __init__(self, read_state=None, ttl=0.3, clock=time.monotonic):
+        self._read = read_state or voice_card.read_state
+        self.ttl, self._clock = ttl, clock
+        self._at, self._val = None, False
+
+    def __call__(self):
+        now = self._clock()
+        if self._at is None or now - self._at >= self.ttl:
+            self._val = bool((self._read() or {}).get("안내모드"))
+            self._at = now
+        return self._val
+
+
+class GuideMirror:
+    """음성 사건 거울(§6.2) — 측정 기록에 이미 있는 사건 가운데 안내 프로그램이 쓰는 것만, 안내 모드일 때만 voice.json 에.
+
+    🔑 새 사건을 만들지 않는다 — VLOG 를 감싼 TeeLog 가 같은 사건을 넘겨준다. 파일 = {"pid", "events": [[t_ms, 종류, 내용], …]}(최근 keep 개).
+    🔴 쓰기 실패는 로그만 — 데몬을 죽이지 않는다(StatePublisher 와 같은 원칙).
+    """
+    KINDS = ("wake", "stt", "answer", "play_start", "play_end", "alert", "alert_played", "alert_clear", "cue")
+
+    def __init__(self, d=None, on=None, keep=40):
+        self.d = d or config.CUE_SHM_DIR
+        self.on = on or (lambda: False)
+        self.keep = keep
+        self._ev = []
+        self._warned = False
+
+    def event(self, kind, t=None, **data):
+        if kind not in self.KINDS or not self.on():
+            return
+        self._ev = (self._ev + [[measure_log.now_ms(t), kind, data]])[-self.keep:]
+        try:
+            os.makedirs(self.d, exist_ok=True)
+            body = json.dumps({"pid": os.getpid(), "events": self._ev}, ensure_ascii=False, default=str)
+            tmp = os.path.join(self.d, config.GUIDE_VOICE_FILE + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(body)
+            os.replace(tmp, os.path.join(self.d, config.GUIDE_VOICE_FILE))
+        except (OSError, TypeError, ValueError) as e:
+            if not self._warned:
+                log(f"⚠️ 음성 사건 거울을 못 썼다(안내 모드) — {e}")
+                self._warned = True
+
+
+class TeeLog:
+    """측정 기록(VLOG)을 감싸 같은 사건을 거울에도 넘긴다 — 그 밖의 속성(enabled · close …)은 원래 기록 그대로."""
+
+    def __init__(self, base, mirror):
+        self._base, self._mirror = base, mirror
+
+    def event(self, kind, t=None, **data):
+        self._base.event(kind, t, **data)
+        try:
+            self._mirror.event(kind, t, **data)
+        except Exception as e:                  # noqa: BLE001 — 거울이 데몬을 죽이면 안 된다
+            log(f"⚠️ 음성 사건 거울 오류 — {type(e).__name__}: {e}")
+
+    def __getattr__(self, name):
+        return getattr(self._base, name)
 
 
 def alert_hold(alerts, seen):
@@ -1107,6 +1183,8 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     """데몬 본체. `stt`·`tts`·`llm`·`read_*`·`stop` 은 시험이 넣는다(없으면 실제 모델·파일)."""
     global VLOG
     VLOG = measure_log.open_from_env(["voice_events"], event_file="voice_events", log=log)
+    guide_on = GuideFlag(read_state=read_state)          # 설정 「시연 안내」(상위 specs/2026-10-18-시연안내모드-design.md)
+    VLOG = TeeLog(VLOG, GuideMirror(on=guide_on))        # 끔이면 거울은 아무 것도 쓰지 않는다
     # 🔑 즉답 켬/끔을 남긴다 — 측정 세션에서 「즉답 0건」과 「즉답 끔」을 가른다(최종 리뷰 M-4)
     log(f"상태 질문 즉답 {'켬' if QUICK_ON else '끔(SOP_VOICE_QUICK=0)'}")
     VLOG.event("voice_config", quick=bool(QUICK_ON))
@@ -1133,7 +1211,8 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     spk.send(b"")
     mic.start()                       # 🔑 데몬을 ESP32 보다 먼저 켜도 된다 — 붙을 때까지 다시 시도한다
     stop_ev = stop if stop is not None else threading.Event()
-    alerts = AlertWatcher(spk, read_state=read_state, alog=alog) if config.VOICE_ALERTS else None
+    alerts = (AlertWatcher(spk, read_state=read_state, alog=alog, key_for=lambda k: alert_key_for(k, guide_on()))
+              if config.VOICE_ALERTS else None)
     if alerts is not None:
         alerts.start(stop_ev)                    # 🔑 메인 루프와 따로(설계 2026-10-04 §4.3)
     cues = CueWatcher(spk, alog=alog) if config.VOICE_CUES else None
