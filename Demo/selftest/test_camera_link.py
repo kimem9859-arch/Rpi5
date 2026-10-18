@@ -173,7 +173,8 @@ def test_c16_console_passes_frame_time():
                                       forget_observation=lambda: None),
             _last_roi=None, _append_log=lambda m: None, _press_pending=None,   # 누름 확인 기억(프레임마다 판정 · 2026-10-07)
             _measure=__import__("measure_log").NullLog(), _last_frame_t=None,   # 측정 기록 자리(꺼짐)
-            _hand_gate_off=lambda t: off, _hand_gate_was=off)                    # 공구를 든 동안 손 판정 끔(공구 구간 설계 D4)
+            _hand_gate_off=lambda t: off, _hand_gate_was=off,                    # 공구를 든 동안 손 판정 끔(공구 구간 설계 D4)
+            _publish_hand=lambda force=False: None)                              # 시연 안내 손 파일(2026-10-18 · 끔이면 아무 일 없음)
 
     fake = fake_console(False)
     nan = float("nan")

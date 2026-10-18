@@ -2058,7 +2058,7 @@ def test_review_am3_voice_state_file():
     now = watch(win)
     key(win, "E")
     check(win.fsm.state == State.BLOCK, f"작업 전 EMO 차단({win.fsm.state.value})")
-    check(now() == {"세션": False, "비상정지": True, "EMO신호없음": False},
+    check(now() == {"세션": False, "비상정지": True, "EMO신호없음": False, "안내모드": False},   # 안내모드 = 시연 안내(2026-10-18)
           f"작업 전 EMO — 세션 없음 + 비상정지만 공개(음성 알림이 보게 · 음성 답은 그대로 「작업 시작 전」) {now()}")
     win.close()
 
