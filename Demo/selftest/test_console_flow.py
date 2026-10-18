@@ -2939,6 +2939,26 @@ def test_guide_on_publishes():
     win.close()
 
 
+def test_guide_hand_last_inside():
+    print("\n[안내] 켬 — 버튼 안쪽에 들어간 마지막 시각을 hand.json 에 남긴다(빠른 스침 · 리뷰 I4)")
+    import measure_log
+    if os.path.exists(_hand_path()):
+        os.remove(_hand_path())
+    win = make_console()
+    win.settings_panel.switch("guide").click()
+    win._on_cta()
+    t = time.monotonic()
+    win._on_roi("B3", 2, t)
+    win._on_roi(None, 0, t + 0.05)
+    h = _read(_hand_path())
+    got = (h.get("마지막안쪽") or {}).get("B3")
+    check(got is not None and 0 <= got - measure_log.now_ms(t) < 1000, f"마지막안쪽.B3 = 들어간 때의 시각({got})")
+    check(h.get("roi") is None, "손이 떠난 뒤에도 그 시각은 남는다")
+    win._on_roi("B4", 1, t + 0.1)
+    check("B4" not in (_read(_hand_path()).get("마지막안쪽") or {}), "링(접근)만으로는 남기지 않는다")
+    win.close()
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

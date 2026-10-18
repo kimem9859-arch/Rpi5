@@ -170,6 +170,7 @@ class SafetyConsole(QMainWindow):
         self._hand_pub = StatePublisher(log=print, name=config.HAND_STATE_FILE)
         self._hand_last = None           # 마지막으로 쓴 (roi, level, 공구단계, 손판정끔)
         self._hand_seq = 0
+        self._last_inside = {}           # 버튼 → 손끝이 안쪽에 들어간 마지막 장 시각(ms) — 빠른 스침도 안내가 본다(리뷰 I4)
 
         # 판정부(FSM) — 통합문서 §9. 콜백으로 상태표시·인터록·피드백을 받는다.
         self.fsm = SafetyFSM(
@@ -1075,6 +1076,8 @@ class SafetyConsole(QMainWindow):
         if not self._guide_on:
             return
         roi, level = self._last_roi
+        if roi and level == ZONE_INSIDE:
+            self._last_inside[roi] = measure_log.now_ms()      # 안쪽에 들어간 마지막 시각(안내 프로그램과 같은 단조 시계)
         phase = self._tool_state.phase if self._tool_state is not None else None
         cur = (roi or None, level, phase, bool(self._hand_gate_was))
         if not force and cur == self._hand_last:
@@ -1082,6 +1085,7 @@ class SafetyConsole(QMainWindow):
         self._hand_last = cur
         self._hand_seq += 1
         self._hand_pub.publish({"roi": cur[0], "level": cur[1], "공구단계": cur[2], "손판정끔": cur[3],
+                                "마지막안쪽": dict(self._last_inside),
                                 "seq": self._hand_seq, "t_ms": measure_log.now_ms()})
 
     def _tool_display_name(self, key):
