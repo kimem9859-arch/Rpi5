@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 
 MODEL = "gemini-3.8-flash-tts"
-STYLE = "시연 참여자에게 차분하고 친절하게 안내하는 말투"
+STYLE = "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투"   # 사용자 2026-10-18 — 표본 비교에서 고름
 URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 PAUSE = "<long pause>"
 QUOTA_EXIT = 3
