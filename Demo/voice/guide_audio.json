@@ -202,13 +202,13 @@
   "tempo": 1.0
  },
  "cue_g15_1b": {
-  "text_sha1": "c2345e0656fa1bd28accaf29cf58eca1c578bc59",
+  "text_sha1": "e0ef9ddc5bce5d7428b7fdeb508ccb538ae549fc",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/띠링/",
   "tempo": 1.0
  },
  "cue_g15_1c": {
@@ -222,13 +222,13 @@
   "tempo": 1.0
  },
  "cue_g15_r1": {
-  "text_sha1": "12062d5878e8700744c3cdd9ddad84f87f65976f",
+  "text_sha1": "d2a09f52be00b9f7fdbe45671e77db7c092b4735",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/띠링/",
   "tempo": 1.0
  },
  "cue_g15_r2a": {
