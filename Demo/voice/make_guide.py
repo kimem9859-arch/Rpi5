@@ -5,7 +5,7 @@
 실행:
   python3 Demo/voice/make_guide.py --check                       — 안내 49 + 알림 9 가 다 있고 · 한도 안이고 · 모노 16비트이고 · 옛 글자가 아닌지
   ~/env/tts/.venv/bin/python Demo/voice/make_guide.py alerts      — 알림 색 이름판 9개(Supertonic · 시스템 목소리 F1)
-  ~/env/tts/.venv/bin/python Demo/voice/make_guide.py import-gemini <폴더> [--dry-run] [--orig <데스크톱 원본 폴더>]
+  ~/env/tts/.venv/bin/python Demo/voice/make_guide.py import-gemini <폴더> [--dry-run] [--orig <데스크톱 원본 폴더>] [--tempo 0.9]
       — 데스크톱 make_guide_gemini.py 가 만든 묶음을 문장 사이 긴 쉼에서 자르고 · 최고점 맞춤 · 받아쓰기 점수 → voice/wav/ 에 깔기
         (깔기 전 그 키의 지금 소리를 voice/wav_guide_prev/ 로 · --dry-run = 깔지 않고 <폴더>/조각/ 에만)
 운용(계획서 「녹음 파일 운용」): 원본 = 데스크톱 ~/data/음성/시연안내/<날짜>_<목소리>/ · 쓰는 판 = voice/wav/ · 깔린 목록 = voice/guide_audio.json(git)
@@ -142,6 +142,23 @@ def split_batch(x, rate, n):
     return [trim(x[a:b], rate) for a, b in zip(edges, edges[1:])]
 
 
+def stretch(x, rate, tempo):
+    """속도만 바꾼다 — 음 높이는 그대로(ffmpeg atempo · WSOLA) · tempo < 1 = 느리게 · 1.0 이면 그대로 돌려준다.
+    (사용자 2026-10-18 「목소리 속도가 조금 빨라 참여자가 안내를 놓칠 수 있다」)"""
+    if tempo == 1.0:
+        return x
+    import subprocess
+    import tempfile
+    import numpy as np
+    with tempfile.TemporaryDirectory() as d:
+        a, b = os.path.join(d, "a.wav"), os.path.join(d, "b.wav")
+        _write(a, (np.clip(x, -1, 1) * 32767).astype(np.int16).tobytes(), rate)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", a, "-filter:a", f"atempo={tempo}",
+                        "-ac", "1", "-ar", str(rate), "-c:a", "pcm_s16le", b], check=True)
+        y, _ = _read_float(b)
+    return y
+
+
 def read_manifest(d):
     with open(os.path.join(d, "manifest.json"), encoding="utf-8") as f:
         return json.load(f)
@@ -185,8 +202,8 @@ def _save_manifest(entries):
     os.replace(tmp, MANIFEST)
 
 
-def import_gemini(src, dry_run=False, orig=None):
-    """데스크톱 묶음 → 자르기 · 최고점 · 한도 · 받아쓰기 → 깔기(또는 --dry-run 이면 <src>/조각/ 에만)."""
+def import_gemini(src, dry_run=False, orig=None, tempo=1.0):
+    """데스크톱 묶음 → 자르기 · (속도) · 최고점 · 한도 · 받아쓰기 → 깔기(또는 --dry-run 이면 <src>/조각/ 에만) · tempo = stretch 참고."""
     from make_answers import stt_judge        # 음성비서와 같은 받아쓰기(다시 쓰지 않는다)
     man, lines = read_manifest(src), load_lines()["lines"]
     judge = stt_judge()
@@ -195,7 +212,7 @@ def import_gemini(src, dry_run=False, orig=None):
         x, rate = _read_float(os.path.join(src, b["file"]))
         parts = split_batch(x, rate, len(b["keys"]))
         for k, p in zip(b["keys"], parts):
-            pcm = _to_pcm(p)
+            pcm = _to_pcm(stretch(p, rate, tempo))
             n = len(pcm) // 2
             score = judge(pcm, rate, lines[k])
             ok = voice_tts.fits(n, rate)
@@ -220,7 +237,7 @@ def import_gemini(src, dry_run=False, orig=None):
             shutil.copy2(dst, os.path.join(PREV, f"{k}.wav"))
         _write(dst, pcm, rate)
         entries[k] = {"text_sha1": text_sha1(lines[k]), "source": "gemini", "model": man["model"], "voice": man["voice"],
-                      "style": man["style"], "made": made, "orig": orig or src}
+                      "style": man["style"], "made": made, "orig": orig or src, "tempo": tempo}
     _save_manifest(entries)
     print(f"깔았다 {len(got)}개 → {OUT} · 바로 전 판 → {PREV} · 목록 → {MANIFEST}")
     return got, bad
@@ -254,11 +271,12 @@ def main(argv=None):
     g.add_argument("src")
     g.add_argument("--dry-run", action="store_true")
     g.add_argument("--orig", default=None, help="데스크톱 원본 폴더(목록에 적는다)")
+    g.add_argument("--tempo", type=float, default=1.0, help="속도(1 = 그대로 · 0.9 = 10%% 느리게 · 음 높이 그대로)")
     a = ap.parse_args(argv)
     if a.cmd == "alerts":
         make_alerts()
     elif a.cmd == "import-gemini":
-        _, bad = import_gemini(a.src, a.dry_run, a.orig)
+        _, bad = import_gemini(a.src, a.dry_run, a.orig, a.tempo)
         if bad:
             print(f"⚠️ 들어 볼 것 {len(bad)}개: {' '.join(bad)}")
     if a.check or a.cmd is None:

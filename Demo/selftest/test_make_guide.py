@@ -88,6 +88,17 @@ def test_split_batch():
     check(ok, "쉼이 모자라면 ValueError")
 
 
+def test_stretch():
+    print("\n[속도] 음 높이는 그대로 · 길이만 1/tempo 배(사용자 2026-10-18 「조금 빠르다」)")
+    r = 24000
+    x = tone(1.0, r)
+    y = MG.stretch(x, r, 0.8)
+    check(abs(len(y) / r - 1.25) <= 0.06, f"0.8 → 약 1.25초({len(y) / r:.3f})")
+    check(MG.stretch(x, r, 1.0) is x, "1.0 = 그대로(손대지 않음)")
+    f0 = np.argmax(np.abs(np.fft.rfft(y[int(0.2 * r):int(1.0 * r)]))) * r / (int(1.0 * r) - int(0.2 * r))
+    check(abs(f0 - 220.0) <= 5.0, f"음 높이 그대로(약 220Hz · {f0:.1f})")
+
+
 def test_batches():
     print("\n[묶음] 13개씩 · 차례 · --only · --each")
     keys = MG.guide_keys()
@@ -117,7 +128,8 @@ def test_manifest_roundtrip():
 
 
 if __name__ == "__main__":
-    for fn in (test_keys, test_check_reports, test_split_batch, test_batches, test_quota_detect, test_manifest_roundtrip):
+    for fn in (test_keys, test_check_reports, test_split_batch, test_stretch, test_batches, test_quota_detect,
+               test_manifest_roundtrip):
         try:
             fn()
         except Exception as e:                       # noqa: BLE001
