@@ -411,12 +411,12 @@ class GuideCore:
         if _sub_running(st) or step not in PRESS_SCENE:
             return
         target = PRESS_SCENE[step]
-        if target in MAIN:
-            self.seq = list(MAIN) if "12-2b" not in self.seq else self.seq
-            if target in self.seq:
-                self.p = self.seq.index(target)
-                self._move(self.p)
-                self._note(f"차단이 풀림 · 서브 취소 — {target} 부터(이미 한 시연 장면은 건너뜀)")
+        # 🔑 되돌아가는 것은 지점이 그 단계의 버튼 장면을 이미 지났을 때뿐(= 서브가 취소됐다) — 아직 앞이면 그대로 둔다
+        #    (예: 5-1 중 차단 → 6-1 로 건너뛰면 스침 장면이 통째로 빠진다)
+        if target in self.seq and self.seq.index(target) < self.p:
+            self.p = self.seq.index(target)
+            self._move(self.p)
+            self._note(f"차단이 풀림 · 서브 취소 — {target} 부터(이미 한 시연 장면은 건너뜀)")
 
     def _reprompt(self, sid):
         w = WAIT.get(sid)

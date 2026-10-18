@@ -534,6 +534,19 @@ def test_unplanned_block_resume():
     check(tail == ["9-2", "13-1", "6-1", "6-2", "9-1"], f"차례({tail})")
 
 
+def test_unplanned_block_without_sub_keeps_scene():
+    print("\n[차단] 서브가 없을 때(5-1 미리 안내 중) 차단 → 풀린 뒤 6-1 로 건너뛰지 않고 5-1 부터")
+    w = World(clip_ms=2000)
+    a = Actor(w, skip={"13-1"})
+    a.over["4-2"] = lambda: w.later(400, lambda: (w.set(상태="BLOCK"),
+                                                  w.later(w.alert_ms + 2500, lambda: w.set(상태="PROCESS RUN"))))
+    w.start()
+    w.until(lambda: "13-1" in w.sids() and w.sids().count("5-1") >= 2, 60_000)
+    s = w.sids()
+    tail = s[s.index("13-1"):]
+    check(tail[:2] == ["13-1", "5-1"] and "6-1" not in tail[:3], f"차례({tail[:4]})")
+
+
 def test_reprompt_press():
     print("\n[다시] 3-1 뒤 15초 무반응 → 3-1 다시")
     w = World()
