@@ -186,81 +186,90 @@
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "tempo": 1.0
  },
  "cue_g15_1a": {
   "text_sha1": "390a30711f848a94f2c4670f9148c389bc573124",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "tempo": 1.0
  },
  "cue_g15_1b": {
   "text_sha1": "c2345e0656fa1bd28accaf29cf58eca1c578bc59",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "tempo": 1.0
  },
  "cue_g15_1c": {
   "text_sha1": "66225af58f6afb9ae47d431499b9c8b725272432",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "tempo": 1.0
  },
  "cue_g15_r1": {
   "text_sha1": "12062d5878e8700744c3cdd9ddad84f87f65976f",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "tempo": 1.0
  },
  "cue_g15_r2a": {
   "text_sha1": "21be320cf0f74896b702015c624db5c02b5241b6",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "tempo": 1.0
  },
  "cue_g15_r2b": {
   "text_sha1": "d1a50bd8a13d3083ea71784ab64d927471d2b4f7",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "tempo": 1.0
  },
  "cue_g16_2a": {
   "text_sha1": "26935824cb8352e01a9c63810bb47f0701f16e11",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "tempo": 1.0
  },
  "cue_g16_2b": {
   "text_sha1": "47bea0f76acc526c442969a32fe848632fec228d",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "tempo": 1.0
  },
  "cue_g1_1": {
   "text_sha1": "7801dff6388d556c099605f7996cfd955f580b0b",
@@ -557,8 +566,9 @@
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
+  "tempo": 1.0
  }
 }
