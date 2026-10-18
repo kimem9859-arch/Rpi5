@@ -91,14 +91,15 @@
   "tempo": 1.0
  },
  "cue_g10_1b": {
-  "text_sha1": "102bcc2dfcd258c84b6c968e669f86b4847cd760",
+  "text_sha1": "598967ff291b447698cd86cd6581234a12acaee0",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g10_2a": {
   "text_sha1": "9f03e121a8c469d788ec0a2b5aa812f3fdeebc98",
@@ -111,14 +112,15 @@
   "tempo": 1.0
  },
  "cue_g10_2b": {
-  "text_sha1": "51e8f7b699e29838d0a53f8a7e36eefc52ad4ea3",
+  "text_sha1": "1bb3f35f9a5f99d4c0d46e96de6f53b4d3cbc8cb",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g11_1": {
   "text_sha1": "d79da66ad0c2d449d4feb552c16a5b60066d7dc7",
@@ -142,14 +144,15 @@
   "tempo": 1.0
  },
  "cue_g12_1b": {
-  "text_sha1": "878a45793754702e36356f8f17f339c66d896388",
+  "text_sha1": "8b1fe7bd590d8523fc9bfa594c65f04f1d0d1fa1",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g12_2": {
   "text_sha1": "a747c27e899174c19f1a1d6efa5dc3102b3c519a",
@@ -162,24 +165,26 @@
   "tempo": 1.0
  },
  "cue_g13_1a": {
-  "text_sha1": "2b58f0528156cd6afefe44a5e45715f7d0a3d137",
+  "text_sha1": "d11a5c7091b60892555e85c8508837edcfed45d9",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g13_1b": {
-  "text_sha1": "21dd149b2eedf840cca47bad25b7ba2b54e4f2ac",
+  "text_sha1": "7a4ead69c373073abfab36e52f4338197ab8e11d",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g14_1": {
   "text_sha1": "03e19a714f1dae8f1fffa7d0ea6fdf41f4f38abf",
@@ -271,6 +276,36 @@
   "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/이어서/",
   "tempo": 1.0
  },
+ "cue_g1_0a": {
+  "text_sha1": "e53e643c131b8fe3c4ba6c58a355064c5d4c31f7",
+  "source": "gemini",
+  "model": "gemini-3.8-flash-tts",
+  "voice": "Achernar",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
+  "made": "2026-10-18",
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/첫머리/",
+  "tempo": 1.0
+ },
+ "cue_g1_0b": {
+  "text_sha1": "adf679c509ccd104ff5311108240bb18a6135e3d",
+  "source": "gemini",
+  "model": "gemini-3.8-flash-tts",
+  "voice": "Achernar",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
+  "made": "2026-10-18",
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/첫머리/",
+  "tempo": 1.0
+ },
+ "cue_g1_0c": {
+  "text_sha1": "e8520a891585dfedb41661ae7c482dd270fea562",
+  "source": "gemini",
+  "model": "gemini-3.8-flash-tts",
+  "voice": "Achernar",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
+  "made": "2026-10-18",
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/첫머리/",
+  "tempo": 1.0
+ },
  "cue_g1_1": {
   "text_sha1": "7801dff6388d556c099605f7996cfd955f580b0b",
   "source": "gemini",
@@ -302,14 +337,15 @@
   "tempo": 1.0
  },
  "cue_g1_3a": {
-  "text_sha1": "f076a7bae26f3ec0bd254849432f4b0c84373492",
+  "text_sha1": "d79ef0c37dea248e53c5436d752a2a7a5a14629a",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g1_3b": {
   "text_sha1": "9c1c2e78bfddc04909b9a59744e07dd8060a2b7b",
@@ -342,33 +378,34 @@
   "tempo": 1.0
  },
  "cue_g4_1a": {
-  "text_sha1": "81fb92904d3b9680dfe8e9c95631b6a9a56572b6",
+  "text_sha1": "5decf0991d7914ebc47d0fc0a36ecf09155d64e3",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g4_1b": {
-  "text_sha1": "65697560ce3edc5e67f01b9a176d43817aebddbc",
+  "text_sha1": "ae5a74d1fa8977c96a135e2cbbcfaff686c62697",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/대기낱말/",
   "tempo": 1.0
  },
  "cue_g4_2": {
-  "text_sha1": "f7fa3bfc37f48dd6ec88ce1e6997730c2b3899df",
+  "text_sha1": "393271477517fb47ea61bc819587cc00cd24f13b",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/대기낱말/",
   "tempo": 1.0
  },
  "cue_g5_1a": {
@@ -382,14 +419,15 @@
   "tempo": 1.0
  },
  "cue_g5_1b": {
-  "text_sha1": "bd7784802947d0fda236a8da34c91416a6a5b7af",
+  "text_sha1": "89b35e00e64c43bd30ccc01dd8e0733c518c3fcf",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g5_2": {
   "text_sha1": "9822d28d533d6660e1fae144b1682594b9e255c0",
@@ -402,24 +440,26 @@
   "tempo": 1.0
  },
  "cue_g5_3": {
-  "text_sha1": "f8c6de6b1fd4a173da2692416c8069e8a4970cb1",
+  "text_sha1": "3efe925ae0a1e9c219a87b1266a9904a0bfda743",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초) · 「지나가기만 해서」 뒤 문장 안 쉼 1.49→0.5초로 줄임"
  },
  "cue_g5_ra": {
-  "text_sha1": "b760750dbfc3bcc45a57833649e463d896f018e8",
+  "text_sha1": "117d2e9631b63b2c226ad8326b116a037810948e",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g5_rb": {
   "text_sha1": "0bdde6fb28e7050a3b336a3024490e108e346057",
@@ -442,14 +482,15 @@
   "tempo": 1.0
  },
  "cue_g6_2": {
-  "text_sha1": "13b07446da64cb5730ef95605cfbdc0736dfffd7",
+  "text_sha1": "1d574850b6e84d28377ef512194c19107cd6bb09",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g7_1a": {
   "text_sha1": "8ae3199e0a2261abf75eb9e33d70841ff12e5eb9",
@@ -522,14 +563,15 @@
   "tempo": 1.0
  },
  "cue_g9_3a": {
-  "text_sha1": "1af2f8ea18422cfe7213b0bafed47826197ee219",
+  "text_sha1": "fe6abc30e8ee37194bee96a2933301973fad0e0c",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g9_3b": {
   "text_sha1": "421c4a94388db5e4bbe3eb6858fcbef53136d2fa",
@@ -542,14 +584,15 @@
   "tempo": 1.0
  },
  "cue_g9_4": {
-  "text_sha1": "cbb7bda6e69c99ac8320a72ae8d393c5ca271ae2",
+  "text_sha1": "e855902e4386fbb04db517ceef8d31147ca91fba",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
   "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
-  "tempo": 1.0
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/문구고침/나눔/",
+  "tempo": 1.0,
+  "note": "묶음 경계가 어긋나 두 묶음으로 나눠 자름(문장 사이 쉼 1.30초 < 문장 안 쉼 1.49초)"
  },
  "cue_g9_5": {
   "text_sha1": "6d9600bc01de04be67491746f3b3781318c1f346",
