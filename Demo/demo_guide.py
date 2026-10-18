@@ -507,9 +507,12 @@ def _read_json(path):
 
 
 def _measure_guide_running():
+    """측정 진행 도우미가 잠금을 쥐고 있나 — 🔑 잠금 파일이 없으면 돌고 있지 않다(만들지 않는다 · 리뷰 M3)."""
     import fcntl
+    if not os.path.exists(MG.LOCK_FILE):
+        return False
     try:
-        with open(MG.LOCK_FILE, "a") as f:
+        with open(MG.LOCK_FILE, "r") as f:
             fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
             fcntl.flock(f, fcntl.LOCK_UN)
         return False
@@ -521,15 +524,32 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="시연 안내 프로그램(설정 「시연 안내」 켬일 때만 말한다)")
     ap.add_argument("--tick", type=float, default=0.1)
     a = ap.parse_args(argv)
-    os.makedirs(os.path.join(_DEMO, "logs"), exist_ok=True)
+    import socket
+    guard = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        guard.bind("\0sop_demo_guide")          # 🔑 하나만(리뷰 M7) — 추상 주소라 파일이 없고 프로세스가 끝나면 풀린다
+    except OSError:
+        print("시연 안내 프로그램이 이미 돈다 — 끝낸다", flush=True)
+        return 0
     logp = os.path.join(_DEMO, "logs", f"guide_{datetime.datetime.now():%Y%m%d_%H%M%S}.log")
-    out = open(logp, "a", encoding="utf-8")
+    box = {"out": None, "early": []}
 
     def say(m):
+        """화면엔 늘 · 기록 파일은 안내가 처음 켜질 때 연다(끔이면 파일을 만들지 않는다 — 설계 §6.1 · 리뷰 M3)."""
         line = f"[{datetime.datetime.now():%H:%M:%S}] {m}"
         print(line, flush=True)
-        out.write(line + "\n")
-        out.flush()
+        if box["out"] is None:
+            box["early"] = (box["early"] + [line])[-20:]
+            return
+        box["out"].write(line + "\n")
+        box["out"].flush()
+
+    def open_log():
+        if box["out"] is None:
+            os.makedirs(os.path.dirname(logp), exist_ok=True)
+            box["out"] = open(logp, "a", encoding="utf-8")
+            box["out"].write("\n".join(box["early"]) + "\n")
+            box["out"].flush()
 
     stop = []
     signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
@@ -545,30 +565,37 @@ def main(argv=None):
     hand_p = os.path.join(config.STATE_SHM_DIR, config.HAND_STATE_FILE)
     voice_p = os.path.join(config.CUE_SHM_DIR, config.GUIDE_VOICE_FILE)
     ack_p = os.path.join(config.CUE_SHM_DIR, "ack.json")
-    say(f"시연 안내 프로그램 시작 — 기록 {logp} · 설정 「시연 안내」 켬일 때만 말한다")
+    say(f"시연 안내 프로그램 시작 — 설정 「시연 안내」 켬일 때만 말한다 · 기록(켠 뒤) {logp}")
     seen, lock_t, locked = 0, 0.0, False
     while not stop:
-        now = measure_log.now_ms()
-        if now - lock_t > 3000:
-            lock_t, was = now, locked
-            locked = _measure_guide_running()
-            if locked != was:
-                say("측정 진행 도우미가 돌고 있다 — 안내를 쉰다" if locked else "측정 진행 도우미가 끝났다 — 안내를 다시 받는다")
-        st = voice_card.read_state()
-        hand = voice_card.read_state(hand_p)
-        vv = voice_card.read_state(voice_p)
-        r = core.tick(now, None if locked else st, hand, (vv or {}).get("events") or [], _read_json(ack_p))
-        for m in core.log[seen:]:
-            say(m)
-        seen = len(core.log)
-        if r is not None:
-            try:
-                MG.write_req(r.key, float(r.seq))
-            except OSError as e:
-                say(f"🔴 안내 요청을 못 썼다 — {e}")
+        try:
+            now = measure_log.now_ms()
+            if now - lock_t > 3000:
+                lock_t, was = now, locked
+                locked = _measure_guide_running()
+                if locked != was:
+                    say("측정 진행 도우미가 돌고 있다 — 안내를 쉰다" if locked else "측정 진행 도우미가 끝났다 — 안내를 다시 받는다")
+            ack = _read_json(ack_p)              # 🔑 응답을 음성 사건보다 먼저 — 음성비서는 play_end → ack 차례로 쓴다(리뷰 M2)
+            st = voice_card.read_state()
+            hand = voice_card.read_state(hand_p)
+            vv = voice_card.read_state(voice_p)
+            r = core.tick(now, None if locked else st, hand, (vv or {}).get("events") or [], ack)
+            if core.active or core.emo_wait:
+                open_log()
+            for m in core.log[seen:]:
+                say(m)
+            seen = len(core.log)
+            if r is not None:
+                try:
+                    MG.write_req(r.key, float(r.seq))
+                except OSError as e:
+                    say(f"🔴 안내 요청을 못 썼다 — {e}")
+        except Exception as e:                   # noqa: BLE001 — 안내가 죽으면 시연 내내 안내가 없다(리뷰 M4)
+            say(f"🔴 안내 오류 — 계속한다: {type(e).__name__}: {e}")
         time.sleep(a.tick)
     say("시연 안내 프로그램 끝")
-    out.close()
+    if box["out"] is not None:
+        box["out"].close()
     return 0
 
 

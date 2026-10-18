@@ -814,22 +814,24 @@ class GuideMirror:
         self.keep = keep
         self._ev = []
         self._warned = False
+        self._lock = threading.Lock()   # 🔑 알림 감시 · 알림 재생 · 안내 감시 · 메인 루프가 함께 부른다(리뷰 M1)
 
     def event(self, kind, t=None, **data):
         if kind not in self.KINDS or not self.on():
             return
-        self._ev = (self._ev + [[measure_log.now_ms(t), kind, data]])[-self.keep:]
-        try:
-            os.makedirs(self.d, exist_ok=True)
-            body = json.dumps({"pid": os.getpid(), "events": self._ev}, ensure_ascii=False, default=str)
-            tmp = os.path.join(self.d, config.GUIDE_VOICE_FILE + ".tmp")
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(body)
-            os.replace(tmp, os.path.join(self.d, config.GUIDE_VOICE_FILE))
-        except (OSError, TypeError, ValueError) as e:
-            if not self._warned:
-                log(f"⚠️ 음성 사건 거울을 못 썼다(안내 모드) — {e}")
-                self._warned = True
+        with self._lock:
+            self._ev = (self._ev + [[measure_log.now_ms(t), kind, data]])[-self.keep:]
+            try:
+                os.makedirs(self.d, exist_ok=True)
+                body = json.dumps({"pid": os.getpid(), "events": self._ev}, ensure_ascii=False, default=str)
+                tmp = os.path.join(self.d, config.GUIDE_VOICE_FILE + ".tmp")
+                with open(tmp, "w", encoding="utf-8") as f:
+                    f.write(body)
+                os.replace(tmp, os.path.join(self.d, config.GUIDE_VOICE_FILE))
+            except (OSError, TypeError, ValueError) as e:
+                if not self._warned:
+                    log(f"⚠️ 음성 사건 거울을 못 썼다(안내 모드) — {e}")
+                    self._warned = True
 
 
 class TeeLog:

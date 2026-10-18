@@ -135,6 +135,28 @@ def test_mirror_on_keeps_kinds():
         check([e[1] for e in v["events"]] == ["alert", "alert_played", "alert_clear"], "keep 넘으면 오래된 것부터 빠진다")
 
 
+def test_mirror_threads():
+    print("\n[거울] 여러 스레드가 동시에 써도 사건이 사라지지 않고 파일이 깨지지 않는다(리뷰 M1)")
+    import threading
+    with tempfile.TemporaryDirectory() as d:
+        m = va.GuideMirror(d=d, on=lambda: True, keep=10_000)
+        errs = []
+        orig = va.log
+        va.log = lambda msg: errs.append(msg)
+        try:
+            ths = [threading.Thread(target=lambda n=n: [m.event("cue", key=f"t{n}-{i}") for i in range(150)]) for n in range(4)]
+            for t in ths:
+                t.start()
+            for t in ths:
+                t.join()
+        finally:
+            va.log = orig
+        with open(os.path.join(d, "voice.json"), encoding="utf-8") as f:
+            v = json.load(f)
+        check(len(v["events"]) == 600, f"사건 600개 그대로({len(v['events'])})")
+        check(not errs, f"쓰기 오류 없음({errs[:1]})")
+
+
 def test_tee_passthrough():
     print("\n[겹] TeeLog — 둘 다에 · 나머지 속성은 원래 기록으로")
     base = FakeLog()
@@ -164,7 +186,7 @@ def test_tee_passthrough():
 
 if __name__ == "__main__":
     for fn in (test_alert_key_off_unchanged, test_alert_key_on, test_alert_watcher_uses_key_for, test_guide_flag_cache,
-               test_mirror_off_writes_nothing, test_mirror_on_keeps_kinds, test_tee_passthrough):
+               test_mirror_off_writes_nothing, test_mirror_on_keeps_kinds, test_mirror_threads, test_tee_passthrough):
         try:
             fn()
         except Exception as e:                       # noqa: BLE001

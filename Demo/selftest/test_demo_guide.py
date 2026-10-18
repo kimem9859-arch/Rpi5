@@ -720,6 +720,46 @@ def test_r_m6_block_during_12_1_is_planned():
     check(tail.count("13-1") == 1 and tail.count("12-1") == 1 and "12-2" not in tail, f"차례({tail})")
 
 
+def test_r_m3_m7_main_off_quiet_and_single():
+    print("\n[리뷰 M3 · M7] 실행부 — 끔이면 기록 파일을 만들지 않는다 · 안내 프로그램은 하나만 돈다")
+    import glob
+    import subprocess
+    import time as _t
+    import socket
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        probe.bind("\0sop_demo_guide")        # 진짜 안내 프로그램이 떠 있으면 잡혀 있다(실행 줄로 찾으면 이 시험 자신이 걸린다)
+    except OSError:
+        print("  ⏭ 안내 프로그램이 이미 떠 있어 건너뜀")
+        return
+    finally:
+        probe.close()
+    logs = os.path.join(_DEMO, "logs")
+    before = set(glob.glob(os.path.join(logs, "guide_*.log")))
+    lock_before = os.path.exists("/tmp/sop_measure_guide.lock")
+    a = subprocess.Popen([sys.executable, os.path.join(_DEMO, "demo_guide.py")], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True)
+    try:
+        _t.sleep(9)
+        try:
+            b = subprocess.run([sys.executable, os.path.join(_DEMO, "demo_guide.py")], capture_output=True, text=True,
+                               timeout=30)
+            check(b.returncode == 0 and "이미" in (b.stdout + b.stderr),
+                  f"둘째는 바로 끝난다 · {b.returncode} · {(b.stdout + b.stderr)[-120:]!r}")
+        except subprocess.TimeoutExpired:
+            check(False, "둘째는 바로 끝난다 · 30초 안에 안 끝남(둘이 같이 돈다)")
+        check(a.poll() is None, "첫째는 계속 돈다")
+        new = set(glob.glob(os.path.join(logs, "guide_*.log"))) - before
+        check(not new, f"끔(상태 없음)이면 기록 파일을 만들지 않는다 · {sorted(new)}")
+        check(os.path.exists("/tmp/sop_measure_guide.lock") == lock_before, "측정 진행 도우미 잠금 파일을 새로 만들지 않는다")
+    finally:
+        a.terminate()
+        try:
+            a.wait(10)
+        except subprocess.TimeoutExpired:
+            a.kill()
+
+
 def test_reprompt_press():
     print("\n[다시] 3-1 뒤 15초 무반응 → 3-1 다시")
     w = World()

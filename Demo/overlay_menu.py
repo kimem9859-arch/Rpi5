@@ -916,7 +916,7 @@ class SettingsPanel(_Sheet):
         lay.addLayout(note)
 
     def switch(self, name):
-        """켬/끔 스위치 — "bg" | "boxes" | "scores" | "hand"."""
+        """켬/끔 스위치 — "bg" | "boxes" | "scores" | "hand" | "guide"(시연 안내)."""
         return self._switches[name]
 
     def set_tools(self, tools, current_tool, tool_names=None, step_order=None):
