@@ -3,7 +3,7 @@
 
 설계 = 상위 sop-project docs/superpowers/specs/2026-10-18-시연안내모드-design.md §5 · plans/2026-10-18-시연안내모드.md Task 7 · 8
 실행:
-  python3 Demo/voice/make_guide.py --check                       — 안내 49 + 알림 9 가 다 있고 · 한도 안이고 · 모노 16비트이고 · 옛 글자가 아닌지
+  python3 Demo/voice/make_guide.py --check                       — 안내 52 + 알림 9 가 다 있고 · 한도 안이고 · 모노 16비트이고 · 옛 글자가 아닌지
   ~/env/tts/.venv/bin/python Demo/voice/make_guide.py alerts      — 알림 색 이름판 9개(Supertonic · 시스템 목소리 F1)
   ~/env/tts/.venv/bin/python Demo/voice/make_guide.py import-gemini <폴더> [--dry-run] [--orig <데스크톱 원본 폴더>] [--tempo 0.9]
       — 데스크톱 make_guide_gemini.py 가 만든 묶음을 문장 사이 긴 쉼에서 자르고 · 최고점 맞춤 · 받아쓰기 점수 → voice/wav/ 에 깔기
@@ -55,7 +55,7 @@ def alert_keys():
 
 
 def all_texts():
-    """검사 대상 = 안내 49 + 알림 9 → {키: 문장}."""
+    """검사 대상 = 안내 52 + 알림 9 → {키: 문장}."""
     d = dict(load_lines()["lines"])
     d.update(voice_card.color_alert_texts())
     return d

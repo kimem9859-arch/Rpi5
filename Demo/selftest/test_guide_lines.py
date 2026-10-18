@@ -24,6 +24,9 @@ def check(cond, msg):
 
 
 LINES = {
+    "cue_g1_0a": "안녕하세요.",   # 0a~0c = 안내 음성 소개(사용자 2026-10-18 — 시스템 기능이 아님을 먼저 알림)
+    "cue_g1_0b": "저는 오늘 시연을 도와 드릴 안내 음성 \"배리어\"입니다.",
+    "cue_g1_0c": "제 목소리는 시연을 위한 안내이며, 시스템의 기능이 아닙니다.",
     "cue_g1_1": "지금부터 장비 정비 순서를 지키는지 지켜보는 시연을 해 보겠습니다.",
     "cue_g1_2a": "정비는 노랑, 흰색, 분홍, 파랑 버튼 순서로 진행합니다.",
     "cue_g1_2b": "빨간 버튼은 비상정지 버튼입니다.",
@@ -87,7 +90,7 @@ def test_lines_exact():
     print("\n[대본] 49 문장 글자 그대로")
     d = load()
     lines = d.get("lines") or {}
-    check(len(LINES) == 49, f"표 49개({len(LINES)})")
+    check(len(LINES) == 52, f"표 52개({len(LINES)})")
     check(set(lines) == set(LINES), f"키 집합이 같다(빠짐 {sorted(set(LINES) - set(lines))} · 더함 {sorted(set(lines) - set(LINES))})")
     bad = [k for k, v in LINES.items() if lines.get(k) != v]
     check(not bad, f"문장이 글자 그대로 같다(다름 {bad})")
@@ -104,6 +107,7 @@ def test_sentences_cover_4_3():
     miss = [(s, k) for s, ks in sents.items() for k in ks if k not in lines]
     check(not miss, f"모든 소리 키가 lines 에 있다(없음 {miss})")
     check(all(k.startswith("cue_g") for k in lines), "모든 키가 cue_g 로 시작(CueWatcher 는 cue_ 만 낸다)")
+    check(sents.get("1-1") == ["cue_g1_0a", "cue_g1_0b", "cue_g1_0c", "cue_g1_1"], "1-1 = 안내 음성 소개 3문장 + 시연 소개")
     check(sents.get("12-2b") == ["cue_g3_1"], "12-2b = 노랑(분홍을 눌러 버렸을 때 대체)")
     check(sents.get("14-2") == ["cue_g4_1a"] and sents.get("14-3") == ["cue_g4_2"], "14-2 · 14-3 은 4번 소리 재사용")
     check(sents.get("16-1") == ["cue_g12_2"], "16-1 = 파랑(12-2 재사용)")

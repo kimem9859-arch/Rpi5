@@ -43,11 +43,11 @@ def tone(sec, rate=24000, f=220.0):
 
 
 def test_keys():
-    print("\n[키] 안내 49 · 알림 9")
+    print("\n[키] 안내 52 · 알림 9")
     g, a = MG.guide_keys(), MG.alert_keys()
-    check(len(g) == 49 and len(a) == 9, f"49 · 9({len(g)} · {len(a)})")
+    check(len(g) == 52 and len(a) == 9, f"52 · 9({len(g)} · {len(a)})")
     check(not set(g) & set(a), "겹침 없음")
-    check(g[0] == "cue_g1_1" and g[-1] == "cue_gx_emo", "대본 차례 그대로")
+    check(g[0] == "cue_g1_0a" and g[-1] == "cue_gx_emo", "대본 차례 그대로")
     check(all(k.endswith("_c") for k in a), "알림 키 = 원래 키 + _c")
 
 
@@ -162,7 +162,7 @@ def test_batches():
     print("\n[묶음] 13개씩 · 차례 · --only · --each")
     keys = MG.guide_keys()
     b = GG.batches(keys, 13)
-    check(len(b) == 4 and sum(len(x) for x in b) == 49, f"4묶음 · 49({[len(x) for x in b]})")
+    check(len(b) == 4 and sum(len(x) for x in b) == 52, f"4묶음 · 52({[len(x) for x in b]})")
     check([k for x in b for k in x] == keys, "차례 보존")
     check(GG.batches(keys[:3], 13) == [keys[:3]], "적으면 한 묶음")
     check(GG.batches(keys[:3], 13, each=True) == [[k] for k in keys[:3]], "--each = 한 문장씩")

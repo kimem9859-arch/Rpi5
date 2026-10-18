@@ -337,7 +337,8 @@ def test_no_ack_moves_on():
     print("\n[응답] ack 가 안 오면 상한 뒤 다음 · 기록")
     w = World(ack_mode="none")
     w.start()
-    w.until(lambda: "1-2" in w.sids(), 60_000)
+    cap = (len(dg.load_sentences()["1-1"]) * dg.config.GUIDE_ACK_WAIT_SEC + 10) * 1000   # 상한은 소리마다(1-1 = 4개)
+    w.until(lambda: "1-2" in w.sids(), cap)
     check("1-2" in w.sids(), "1-1 응답이 없어도 상한 뒤 1-2")
     check(any("응답 없음" in m for m in w.core.log), "기록에 「응답 없음」")
 
