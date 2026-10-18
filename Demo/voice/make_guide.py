@@ -4,7 +4,7 @@
 설계 = 상위 sop-project docs/superpowers/specs/2026-10-18-시연안내모드-design.md §5 · plans/2026-10-18-시연안내모드.md Task 7 · 8
 실행:
   python3 Demo/voice/make_guide.py --check                       — 안내 52 + 알림 9 가 다 있고 · 한도 안이고 · 모노 16비트이고 · 옛 글자가 아닌지
-  ~/env/tts/.venv/bin/python Demo/voice/make_guide.py alerts      — 알림 색 이름판 9개(Supertonic · 시스템 목소리 F1)
+  ~/env/tts/.venv/bin/python Demo/voice/make_guide.py alerts [--only 키 …] — 알림 색 이름판 9개(Supertonic · 시스템 목소리 F1 · --only = 그 키만 · 덮기 전 판은 wav_guide_prev/)
   ~/env/tts/.venv/bin/python Demo/voice/make_guide.py import-gemini <폴더> [--dry-run] [--orig <데스크톱 원본 폴더>] [--tempo 0.9]
       — 데스크톱 make_guide_gemini.py 가 만든 묶음을 문장 사이 긴 쉼에서 자르고 · 최고점 맞춤 · 받아쓰기 점수 → voice/wav/ 에 깔기
         (깔기 전 그 키의 지금 소리를 voice/wav_guide_prev/ 로 · --dry-run = 깔지 않고 <폴더>/조각/ 에만)
@@ -313,19 +313,30 @@ def import_gemini(src, dry_run=False, orig=None, tempo=1.0):
     return got, bad
 
 
-def make_alerts():
-    """알림 색 이름판 9개 — 시스템 목소리(config.TTS_ST_VOICE) · 문장 빠르기 기본 · 여러 번 만들어 받아쓰기로 고른다."""
+def make_alerts(only=None):
+    """알림 색 이름판 9개 — 시스템 목소리(config.TTS_ST_VOICE) · 문장 빠르기 기본 · 여러 번 만들어 받아쓰기로 고른다.
+    only = 이 키만 다시 만든다(나머지 소리는 그대로) · 덮기 전 지금 소리는 voice/wav_guide_prev/ 로."""
+    texts = voice_card.color_alert_texts()
+    unknown = sorted(set(only or ()) - set(texts))
+    if unknown:
+        raise SystemExit(f"모르는 알림 키: {unknown}")
     import config
     from make_answers import pick, stt_judge
     tts, judge = voice_tts.Tts(), stt_judge()
     made, entries = datetime.date.today().isoformat(), {}
-    for k, text in voice_card.color_alert_texts().items():
+    os.makedirs(PREV, exist_ok=True)
+    for k, text in texts.items():
+        if only and k not in only:
+            continue
         got = pick(tts, text, speed=None, judge=lambda p, r, s=text: judge(p, r, s))
         if got is None:
             print(f"  🔴 {k} 합성 실패 — {text}")
             continue
         pcm, rate, sec, score, n = got
-        _write(os.path.join(OUT, f"{k}.wav"), pcm, rate)
+        dst = os.path.join(OUT, f"{k}.wav")
+        if os.path.exists(dst):
+            shutil.copy2(dst, os.path.join(PREV, f"{k}.wav"))
+        _write(dst, pcm, rate)
         entries[k] = {"text_sha1": text_sha1(text), "source": "supertonic", "model": config.TTS_ENGINE,
                       "voice": config.TTS_ST_VOICE, "style": None, "made": made, "orig": None}
         print(f"  {k:18s} {n}번째 고름 · 받아쓰기 {score:.2f} · {sec:.2f}초 · {rate}Hz  {text}")
@@ -336,7 +347,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="시연 안내 소리 — 검사 · 들이기 · 알림")
     ap.add_argument("--check", action="store_true")
     sub = ap.add_subparsers(dest="cmd")
-    sub.add_parser("alerts")
+    al = sub.add_parser("alerts")
+    al.add_argument("--only", nargs="+", default=None, help="이 알림 키만 다시 만든다(예: alert_block_B1_c)")
     g = sub.add_parser("import-gemini")
     g.add_argument("src")
     g.add_argument("--dry-run", action="store_true")
@@ -344,7 +356,7 @@ def main(argv=None):
     g.add_argument("--tempo", type=float, default=1.0, help="속도(1 = 그대로 · 0.9 = 10%% 느리게 · 음 높이 그대로)")
     a = ap.parse_args(argv)
     if a.cmd == "alerts":
-        make_alerts()
+        make_alerts(a.only)
     elif a.cmd == "import-gemini":
         _, bad = import_gemini(a.src, a.dry_run, a.orig, a.tempo)
         if bad:

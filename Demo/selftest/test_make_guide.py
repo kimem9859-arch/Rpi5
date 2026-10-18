@@ -158,6 +158,15 @@ def test_gemini_expand_marker():
                   ("cue_g15_r1#1", "소리가 없다면.")], f"{got}")
 
 
+def test_alerts_only_unknown():
+    print("\n[알림] alerts --only — 모르는 키면 소리를 만들기 전에 멈춘다")
+    try:
+        MG.make_alerts(only=["alert_없는키_c"])
+        check(False, "SystemExit 이 나야 한다")
+    except SystemExit as e:
+        check("alert_없는키_c" in str(e), f"멈춤 — {e}")
+
+
 def test_batches():
     print("\n[묶음] 13개씩 · 차례 · --only · --each")
     keys = MG.guide_keys()
@@ -189,7 +198,7 @@ def test_manifest_roundtrip():
 if __name__ == "__main__":
     for fn in (test_keys, test_check_reports, test_split_batch, test_stretch, test_chime_matches_firmware, test_chime_wave,
                test_marker_parts_and_assemble, test_gemini_expand_marker, test_batches, test_quota_detect,
-               test_manifest_roundtrip):
+               test_manifest_roundtrip, test_alerts_only_unknown):
         try:
             fn()
         except Exception as e:                       # noqa: BLE001

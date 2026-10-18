@@ -266,13 +266,15 @@ def alert_texts():
 def color_alert_texts():
     """알림 색 이름판 9개(시연 안내 모드 · 상위 specs/2026-10-18-시연안내모드-design.md §4.1) — 키 = 원래 키 + `_c`.
 
-    🔑 문장 틀은 `alert_texts()` 그대로 — 바꾸기 두 개만 건다: 「Bn 버튼」→「{색} 버튼」 · 「EMO를 복귀한」→
-       「비상정지 버튼을 원래대로 되돌린」. 🔴 어느 규칙도 안 걸린 문장이 있으면 ValueError — 원래 문장이 바뀌었을 때
-       조용히 번호판이 나가지 않게.
+    🔑 문장 틀은 `alert_texts()` 그대로 — 바꾸기 세 개만 건다: 「Bn 버튼」→「{색} 버튼」 · 「EMO를 복귀한」→
+       「비상정지 버튼을 원래대로 되돌린」 · 「차단 해제를 누른 뒤」→「차단 해제 버튼을 누른 뒤」(사용자 2026-10-18 — 안내
+       13-1 「화면의 차단 해제 버튼을 눌러 주세요」와 맞춤). 🔴 어느 규칙도 안 걸린 문장이 있으면 ValueError — 원래
+       문장이 바뀌었을 때 조용히 번호판이 나가지 않게.
     """
     import config
     rules = [(f"{b} 버튼", f"{c} 버튼") for b, c in config.BUTTON_COLOR_NAMES.items()]
     rules.append(("EMO를 복귀한", "비상정지 버튼을 원래대로 되돌린"))
+    rules.append(("차단 해제를 누른 뒤", "차단 해제 버튼을 누른 뒤"))
     out = {}
     for k, v in alert_texts().items():
         new = v

@@ -1,6 +1,6 @@
 {
  "alert_block_B1_c": {
-  "text_sha1": "a29b5845ed6a3345ac7390fec65e9e1004a89278",
+  "text_sha1": "062fb15f8275b6bcb1af0eb868414d6eeb7386ed",
   "source": "supertonic",
   "model": "supertonic2",
   "voice": "F1",
@@ -9,7 +9,7 @@
   "orig": null
  },
  "alert_block_B2_c": {
-  "text_sha1": "3bd66df28c0e150538213f57a8f1e1f299485b28",
+  "text_sha1": "00eecaee9ca7e6d91432bf88e350e5d1bb654457",
   "source": "supertonic",
   "model": "supertonic2",
   "voice": "F1",
@@ -18,7 +18,7 @@
   "orig": null
  },
  "alert_block_B3_c": {
-  "text_sha1": "f3e15d27a9b158a4d68ce53377d33a49e5c204a6",
+  "text_sha1": "4559c27b72d4d8991d75a26085b4ece707b4402e",
   "source": "supertonic",
   "model": "supertonic2",
   "voice": "F1",
@@ -27,7 +27,7 @@
   "orig": null
  },
  "alert_block_B4_c": {
-  "text_sha1": "9159c0449494b6213f095c54226171484c79ed93",
+  "text_sha1": "4afb5b222bc05bbab7bb8b338e0f6d171ba5b7c5",
   "source": "supertonic",
   "model": "supertonic2",
   "voice": "F1",

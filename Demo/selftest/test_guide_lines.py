@@ -120,8 +120,10 @@ def test_color_alert_texts():
     t = voice_card.color_alert_texts()
     check(len(t) == 9, f"9개({len(t)})")
     check(t.get("alert_warn_B3_c") == "순서가 다르니 손을 떼고 분홍 버튼을 누르세요.", f"경고 B3 = 분홍({t.get('alert_warn_B3_c')})")
-    check(t.get("alert_block_B1_c") == "차단 중이니 차단 해제를 누른 뒤 노랑 버튼부터 다시 누르세요.",
-          f"차단 B1 = 노랑({t.get('alert_block_B1_c')})")
+    check(t.get("alert_block_B1_c") == "차단 중이니 차단 해제 버튼을 누른 뒤 노랑 버튼부터 다시 누르세요.",
+          f"차단 B1 = 노랑 · 「차단 해제 버튼을」(사용자 2026-10-18 · {t.get('alert_block_B1_c')})")
+    check(all("차단 해제 버튼을 누른 뒤" in t.get(f"alert_block_{b}_c", "") for b in ("B1", "B2", "B3", "B4")),
+          "차단 알림 4개 모두 「차단 해제 버튼을 누른 뒤」")
     check(t.get("alert_emo_c") == "비상정지 중이니 비상정지 버튼을 원래대로 되돌린 뒤 차단 해제를 누르세요.",
           f"비상정지 = 비상정지 버튼({t.get('alert_emo_c')})")
     left = [k for k, v in t.items() if any(w in v for w in ("B1", "B2", "B3", "B4", "EMO"))]
