@@ -85,90 +85,100 @@
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g10_1b": {
   "text_sha1": "102bcc2dfcd258c84b6c968e669f86b4847cd760",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g10_2a": {
   "text_sha1": "9f03e121a8c469d788ec0a2b5aa812f3fdeebc98",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g10_2b": {
   "text_sha1": "51e8f7b699e29838d0a53f8a7e36eefc52ad4ea3",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g11_1": {
   "text_sha1": "d79da66ad0c2d449d4feb552c16a5b60066d7dc7",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g12_1a": {
   "text_sha1": "bd36a2cf23bfea46299713295ac426d9911321ba",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g12_1b": {
   "text_sha1": "878a45793754702e36356f8f17f339c66d896388",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g12_2": {
   "text_sha1": "a747c27e899174c19f1a1d6efa5dc3102b3c519a",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g13_1a": {
   "text_sha1": "2b58f0528156cd6afefe44a5e45715f7d0a3d137",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g13_1b": {
   "text_sha1": "21dd149b2eedf840cca47bad25b7ba2b54e4f2ac",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g14_1": {
   "text_sha1": "03e19a714f1dae8f1fffa7d0ea6fdf41f4f38abf",
@@ -256,261 +266,290 @@
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g1_2a": {
   "text_sha1": "cb5f6bf067f820a3dae160f4a29c7ea5b8649002",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g1_2b": {
   "text_sha1": "aef2d0aa7859cf5dc28398e4a9e452e2bf831f24",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g1_3a": {
   "text_sha1": "f076a7bae26f3ec0bd254849432f4b0c84373492",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g1_3b": {
   "text_sha1": "9c1c2e78bfddc04909b9a59744e07dd8060a2b7b",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g2_1": {
   "text_sha1": "6b75f130f52b7495737546ccf9afb29f6ed32ede",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g3_1": {
   "text_sha1": "701b89789f70834154449d4ff668456e685f4e74",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g4_1a": {
   "text_sha1": "81fb92904d3b9680dfe8e9c95631b6a9a56572b6",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g4_1b": {
   "text_sha1": "65697560ce3edc5e67f01b9a176d43817aebddbc",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g4_2": {
   "text_sha1": "f7fa3bfc37f48dd6ec88ce1e6997730c2b3899df",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g5_1a": {
   "text_sha1": "4745b183e32ad351ac92125694a9aa98a1671460",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g5_1b": {
   "text_sha1": "bd7784802947d0fda236a8da34c91416a6a5b7af",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g5_2": {
   "text_sha1": "9822d28d533d6660e1fae144b1682594b9e255c0",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g5_3": {
   "text_sha1": "f8c6de6b1fd4a173da2692416c8069e8a4970cb1",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g5_ra": {
   "text_sha1": "b760750dbfc3bcc45a57833649e463d896f018e8",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g5_rb": {
   "text_sha1": "0bdde6fb28e7050a3b336a3024490e108e346057",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g6_1": {
   "text_sha1": "3e790105424a8fa729f4c42beb49785f9dcaed31",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g6_2": {
   "text_sha1": "13b07446da64cb5730ef95605cfbdc0736dfffd7",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g7_1a": {
   "text_sha1": "8ae3199e0a2261abf75eb9e33d70841ff12e5eb9",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g7_1b": {
   "text_sha1": "b02fb64a4f450a2ab71028e55adfd6d7cd82a91c",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g7_2": {
   "text_sha1": "13ce1d580ade34b8b839dbf6db015fbc9c98dfef",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g8_1a": {
   "text_sha1": "c521cccdcb8884b90ba996e81509a7c9edc5704e",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g8_1b": {
   "text_sha1": "0c8e42b32d5f12b2e1307981318a5cb192664a15",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g9_1": {
   "text_sha1": "d2a6806c2c3113fb77735e822975a0a269d776a3",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g9_2": {
   "text_sha1": "5cf2f5c623a7952b0dc3deab0e5c0749ad35009d",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g9_3a": {
   "text_sha1": "1af2f8ea18422cfe7213b0bafed47826197ee219",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g9_3b": {
   "text_sha1": "421c4a94388db5e4bbe3eb6858fcbef53136d2fa",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g9_4": {
   "text_sha1": "cbb7bda6e69c99ac8320a72ae8d393c5ca271ae2",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_g9_5": {
   "text_sha1": "6d9600bc01de04be67491746f3b3781318c1f346",
   "source": "gemini",
   "model": "gemini-3.8-flash-tts",
   "voice": "Achernar",
-  "style": "시연 참여자에게 차분하고 친절하게 안내하는 말투",
+  "style": "시연 참여자가 처음 듣고도 놓치지 않도록, 차분하고 친절하게 조금 천천히 또박또박 안내하는 말투",
   "made": "2026-10-18",
-  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar/"
+  "orig": "데스크톱 ~/data/음성/시연안내/2026-10-18_Achernar_천천히/",
+  "tempo": 1.0
  },
  "cue_gx_emo": {
   "text_sha1": "a09d49b02c613966d98ac0b5f78c7378ba0a5c93",
