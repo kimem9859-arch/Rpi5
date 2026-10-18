@@ -27,7 +27,20 @@ drop_empty_errlog() {   # 오류 출력이 없었으면 빈 파일을 지운다 
         rm -f "$ERRLOG"
     fi
 }
-trap 'stop_voice; drop_empty_errlog' EXIT
+GUIDE_PID=""
+stop_guide() {
+    if [ -n "$GUIDE_PID" ]; then
+        kill "$GUIDE_PID" 2>/dev/null
+        GUIDE_PID=""
+    fi
+}
+GERR=""
+drop_empty_guide_err() {
+    if [ -n "$GERR" ] && [ ! -s "$GERR" ]; then
+        rm -f "$GERR"
+    fi
+}
+trap 'stop_voice; stop_guide; drop_empty_errlog; drop_empty_guide_err' EXIT
 if [ "${SOP_VOICE:-1}" != "0" ]; then
     mkdir -p logs
     VLOG="logs/voice_$(date +%Y%m%d_%H%M%S).log"
@@ -35,6 +48,15 @@ if [ "${SOP_VOICE:-1}" != "0" ]; then
     VOICE_PID=$!
     echo "음성비서 함께 시작 (로그 = $VLOG)"
 fi
+
+# 🔑 시연 안내 프로그램(상위 specs/2026-10-18-시연안내모드-design.md §6.1) — 늘 함께 띄운다 · 설정 「시연 안내」 끔이면
+#    말없이 기다린다. 제 기록 = logs/guide_<시각>.log · 여기 파일은 오류 출력(트레이스백)만 — 없으면 지운다.
+#    SOP_GUIDE_PY = 시험용 대체(selftest/test_demo_errlog.py)
+mkdir -p logs
+GERR="logs/guide_err_$(date +%Y%m%d_%H%M%S).log"
+"${SOP_GUIDE_PY:-python3}" demo_guide.py >/dev/null 2>>"$GERR" &
+GUIDE_PID=$!
+echo "시연 안내 프로그램 함께 시작 (설정 「시연 안내」 켬일 때만 말함 · 기록 = logs/guide_<시각>.log)"
 
 # 🔑 오류 출력(트레이스백)을 터미널과 파일에 함께 남긴다(최종 정리 2026-10-15) — 시연 중 꺼지면
 #    창을 닫는 순간 원인이 사라졌다. 비정상 종료면 종료 코드도 적는다. 오류 출력도 비정상 종료도 없었으면
@@ -53,6 +75,7 @@ if [ "$status" -ne 0 ]; then
     echo "[$(date '+%F %T')] exit code $status" >> "$ERRLOG" 2>/dev/null
 fi
 stop_voice              # 🔴 오류로 창을 붙잡아 둘 때도 음성비서는 먼저 끈다
+stop_guide              #    안내 프로그램도 같이
 
 echo
 echo "=== 종료 (exit code: $status) ==="

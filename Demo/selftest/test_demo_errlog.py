@@ -172,6 +172,27 @@ def test_warning_kept_on_clean_exit():
     check("경고 한 줄 24680" in body, "경고가 파일에")
 
 
+def test_guide_started_and_stopped():
+    print("\n[시연 런처] 시연 안내 프로그램을 늘 함께 띄우고(음성비서를 꺼도) · 시연이 끝나면 끈다(시연 안내 2026-10-18 §6.1)")
+    d = _copy('import time\ntime.sleep(1)\nprint("정상")\n')
+    mark = os.path.join(d, "guide_started")
+    fake = os.path.join(d, "fake_guide_py")
+    with open(fake, "w") as f:      # 끝나지 않는 안내 프로그램 흉내 — 받은 인자를 적고 sleep 으로 바뀐다
+        f.write(f'#!/bin/bash\necho "$@" > {mark}\nexec sleep 62.345\n')
+    os.chmod(fake, 0o755)
+    r = subprocess.run(["bash", os.path.join(d, "run_demo.sh")], env=dict(os.environ, SOP_VOICE="0", SOP_GUIDE_PY=fake),
+                       input="\n", stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+    check(r.returncode == 0, f"종료 코드 0 · {r.returncode}")
+    started = open(mark, encoding="utf-8").read() if os.path.exists(mark) else ""
+    check("demo_guide.py" in started, f"안내 프로그램을 띄웠다 · {started!r}")
+    time.sleep(0.5)
+    left = subprocess.run(["pgrep", "-f", "[s]leep 62.345"], capture_output=True, text=True).stdout.split()
+    check(left == [], f"시연이 끝나면 안내 프로그램이 남지 않는다 · {left}")
+    for pid in left:
+        os.kill(int(pid), signal.SIGKILL)
+    check(not glob.glob(os.path.join(d, "logs", "guide_err_*.log")), "오류가 없으면 안내 오류 기록 파일을 남기지 않는다")
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):
