@@ -294,7 +294,7 @@ class GuideCore:
     def _decide(self, st, hand, voice):
         if self.unplanned:
             if self.alarm == "BLOCK" and self.after_block:
-                # 13-1 「…차단을 풀어 주세요」 — 처음 한 번 · 안 풀리면 15초마다(버튼 장면과 같은 상한 · 리뷰 M5)
+                # 13-1 「…차단 해제 버튼을 눌러 주세요」 — 처음 한 번 · 안 풀리면 15초마다(버튼 장면과 같은 상한 · 리뷰 M5)
                 due = self.ub_count == 0 or (self.now - (self.wait_since or self.now) >= self.cfg.GUIDE_REPROMPT_SEC * 1000
                                              and self.ub_count <= self.cfg.GUIDE_REPROMPT_MAX)
                 if due:
