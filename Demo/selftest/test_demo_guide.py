@@ -45,6 +45,7 @@ class World:
         self.voice, self.ack = [], None
         self.clip_ms, self.alert_ms, self.ack_mode = clip_ms, alert_ms, ack_mode
         self.playing = None          # (sid, key, seq, end)
+        self.alert_key = None
         self.alert_end = None
         self.said = []               # (sid, key)
         self.todo = []               # (t, fn)
@@ -59,11 +60,18 @@ class World:
         if new and new != old:
             self._cut()
             self.voice.append([self.now, "alert", {"key": new}])
-            self.alert_end = self.now + self.alert_ms
+            if old and self.alert_end is not None:          # 끊긴 앞 알림 — 그 재생이 돌아오며 alert_played(실제 음성비서와 같다)
+                self.voice.append([self.now + 1, "alert_played", {"key": old}])
+            self.alert_end, self.alert_key = self.now + self.alert_ms, new
         elif old and not new:
             self._cut()
             self.voice.append([self.now, "alert_clear", {}])
             self.alert_end = None
+
+    def touch(self, roi, level):
+        self.hand.update(roi=roi, level=level)
+        if roi and level == 2:
+            self.hand.setdefault("마지막안쪽", {})[roi] = self.now
 
     def sub(self, **kv):
         p = dict(self.st.get("서브진행") or {"상태": "진행 중", "공구충족": False, "공구오답": None})
@@ -91,7 +99,7 @@ class World:
             self.todo.remove((t, fn))
             fn()
         if self.alert_end is not None and self.now >= self.alert_end:
-            self.voice.append([self.now, "alert_played", {}])
+            self.voice.append([self.now, "alert_played", {"key": self.alert_key}])
             self.alert_end = None
         if self.playing and self.alert_end is None and self.now >= self.playing[3]:
             sid, key, seq, _ = self.playing
@@ -157,8 +165,8 @@ class Actor:
 
     def a_5_2(self):
         w = self.w
-        w.hand.update(roi="B3", level=2)
-        w.later(200, lambda: w.hand.update(roi=None, level=0))
+        w.touch("B3", 2)
+        w.later(200, lambda: w.touch(None, 0))
 
     def a_6_1(self):
         self.w.set(현재버튼="B2")
@@ -182,11 +190,11 @@ class Actor:
         self.w.hand.update(손판정끔=False, 공구단계=None)
 
     def a_10_2(self):
-        self.w.hand.update(roi="B2", level=2)
+        self.w.touch("B2", 2)
         self.w.set(상태="WARNING")
 
     def a_11_1(self):
-        self.w.hand.update(roi=None, level=0)
+        self.w.touch(None, 0)
         self.w.set(상태="MONITOR")
 
     def a_12_2(self):
@@ -400,7 +408,7 @@ def test_graze_from_5_2_start():
 def test_graze_ring_only_not_counted():
     print("\n[스침] 링(접근)만 지나간 것은 스침 아님")
     w = World()
-    Actor(w, over={"5-2": lambda: (w.hand.update(roi="B3", level=1), w.later(200, lambda: w.hand.update(roi=None, level=0)))})
+    Actor(w, over={"5-2": lambda: (w.touch("B3", 1), w.later(200, lambda: w.touch(None, 0)))})
     w.start()
     w.until(lambda: "5-2" in w.sids())
     w.run(5000)
@@ -412,9 +420,9 @@ def test_graze_warning_retry_twice():
     w = World()
 
     def slow():
-        w.hand.update(roi="B3", level=2)
+        w.touch("B3", 2)
         w.set(상태="WARNING")
-        w.later(w.alert_ms + 300, lambda: (w.hand.update(roi=None, level=0), w.set(상태="MONITOR")))
+        w.later(w.alert_ms + 300, lambda: (w.touch(None, 0), w.set(상태="MONITOR")))
     Actor(w, over={"5-2": slow})
     w.start()
     w.until(lambda: "6-1" in w.sids())
@@ -428,9 +436,9 @@ def test_graze_count_resets_per_run():
     w = World()
 
     def slow():
-        w.hand.update(roi="B3", level=2)
+        w.touch("B3", 2)
         w.set(상태="WARNING")
-        w.later(w.alert_ms + 300, lambda: (w.hand.update(roi=None, level=0), w.set(상태="MONITOR")))
+        w.later(w.alert_ms + 300, lambda: (w.touch(None, 0), w.set(상태="MONITOR")))
     a = Actor(w, over={"5-2": slow})
     w.start()
     w.until(lambda: w.sids().count("5-R") == 2)            # 앞 참여자 — 경고 두 번
@@ -545,6 +553,171 @@ def test_unplanned_block_without_sub_keeps_scene():
     s = w.sids()
     tail = s[s.index("13-1"):]
     check(tail[:2] == ["13-1", "5-1"] and "6-1" not in tail[:3], f"차례({tail[:4]})")
+
+
+# ------------------------------------------------------------------ 최종 리뷰(2026-10-18) 지적 — 재현 시험
+def test_r_c1_replay_current_scene_not_last_action():
+    print("\n[리뷰 C1] 15번 뒤 음성비서 답을 기다리는 동안 계획에 없던 경고 → 지난 장면 「분홍 버튼을 눌러 주세요」(14-1)를 내지 않는다")
+    w = World()
+    Actor(w, skip={"15-1"})
+    w.start()
+    w.until(lambda: "15-1" in w.sids() and w.playing is None)
+    w.touch("B1", 2)
+    w.set(상태="WARNING")
+    w.later(w.alert_ms + 500, lambda: (w.touch(None, 0), w.set(상태="MONITOR")))
+    w.run(w.alert_ms + 4000)
+    s = w.sids()
+    tail = s[s.index("15-1") + 1:]
+    check("14-1" not in tail, f"지난 장면 버튼 문장 없음({tail})")
+
+
+def test_r_c1_auto_wait_no_replay():
+    print("\n[리뷰 C1] 대기(자동으로 넘어가는 장면) 중 경고 → 다시 안내 없음")
+    w = World()
+    a = Actor(w, over={"3-1": lambda: (w.set(현재버튼="B1"), w.sub())})
+    w.start()
+    w.until(lambda: "4-1" in w.sids() and w.playing is None)
+    w.touch("B4", 2)
+    w.set(상태="WARNING")
+    w.later(w.alert_ms + 500, lambda: (w.touch(None, 0), w.set(상태="MONITOR")))
+    w.run(w.alert_ms + 3000)
+    s = w.sids()
+    check(s[s.index("4-1") + 1:] == [], f"「노랑 버튼을 눌러 주세요」를 다시 내지 않는다({s[s.index('4-1') + 1:]})")
+    del a
+
+
+def test_r_i1_wake_only_is_failure():
+    print("\n[리뷰 I1] 15번 — 호출만 되고 답이 없으면 실패(15-R1)")
+    w = World()
+    a = Actor(w, skip={"15-R1"})
+    a.over["15-1"] = lambda: w.voice.append([w.now, "wake", {}])
+    w.start()
+    w.until(lambda: "15-R1" in w.sids() or "16-1" in w.sids())
+    check("15-R1" in w.sids() and w.sids().index("15-R1") < (w.sids().index("16-1") if "16-1" in w.sids() else 999),
+          f"호출만 → 15-R1({w.sids()[-3:]})")
+
+
+def test_r_i1_answer_cut_is_failure():
+    print("\n[리뷰 I1] 15번 — 답 재생이 「중단」으로 끝나면 성공이 아니다")
+    w = World()
+    a = Actor(w, skip={"15-R1"})
+
+    def cut():
+        w.voice.append([w.now, "wake", {}])
+        w.voice.append([w.now + 900, "stt", {"text": "지금 몇 단계야"}])
+        w.later(1500, lambda: w.voice.append([w.now, "answer", {"key": None}]))
+        w.later(2500, lambda: w.voice.append([w.now, "play_end", {"what": "중단", "key": None}]))
+    a.over["15-1"] = cut
+    w.start()
+    w.until(lambda: "15-R1" in w.sids() or "16-1" in w.sids())
+    check("15-R1" in w.sids(), f"답 중단 → 15-R1({w.sids()[-3:]})")
+
+
+def test_r_i2_driver_kept_forces_9_1():
+    print("\n[리뷰 I2] 드라이버를 안 내려놓으면 8-1 한 번 더 → 그래도 9-1 「렌치를 잡아 주세요」(조건 없이)")
+    w = World()
+    Actor(w, skip={"8-1"})
+    w.start()
+    w.until(lambda: "9-1" in w.sids() or "9-2" in w.sids())
+    s = w.sids()
+    check(s[s.index("8-1"):s.index("8-1") + 3] == ["8-1", "8-1", "9-1"], f"차례({s[s.index('8-1'):]})")
+
+
+def test_r_i3_block_after_warning_waits_block_alert():
+    print("\n[리뷰 I3] 경고 → 차단이 이어지면 13-1 은 차단 알림이 끝난 뒤(끊긴 경고 알림의 끝을 차단 끝으로 보지 않는다)")
+    w = World()
+    Actor(w, skip={"13-1"})
+    w.start()
+    w.until(lambda: any(e[1] == "alert" and e[2].get("key") == "BLOCK" for e in w.voice))
+    t_block = w.now
+    w.until(lambda: "13-1" in w.sids())
+    check(w.now - t_block >= w.alert_ms, f"차단 알림({w.alert_ms}ms) 뒤에 13-1({w.now - t_block:.0f}ms)")
+
+
+def test_r_i4_fast_graze_between_ticks():
+    print("\n[리뷰 I4] 스침이 틱 사이에 끝나도(안쪽이 0.1초 미만) 「마지막안쪽」 시각으로 인정")
+    w = World()
+    a = Actor(w)
+
+    def fast():
+        w.hand.setdefault("마지막안쪽", {})["B3"] = w.now - 30        # 틱 사이에 들어갔다 나옴 — 틱에는 roi 가 안 보인다
+        w.touch(None, 0)
+    a.over["5-2"] = fast
+    w.start()
+    w.until(lambda: "5-3" in w.sids() or "6-1" in w.sids())
+    check("5-3" in w.sids(), f"5-3({w.sids()[-3:]})")
+
+
+def test_r_i5_result_skips_voice_scene():
+    print("\n[리뷰 I5] 15번에서 음성비서 대신 바로 파랑(결과 나옴) → 15-R1 · 15-R2 · 16-1 없이 16-2")
+    w = World()
+    a = Actor(w)
+    a.over["15-1"] = lambda: w.set(현재단계=4, 결과={"위반": 1})
+    w.start()
+    w.until(lambda: "16-2" in w.sids(), 120_000)
+    s = w.sids()
+    check(s[s.index("15-1") + 1:] == ["16-2"], f"차례({s[s.index('15-1') + 1:]})")
+
+
+def test_r_i5_press_sentence_skipped_when_done():
+    print("\n[리뷰 I5] 누름 문장은 이미 눌렸으면 건너뛴다(1-2 중 노랑 → 3-1 없이 4-1 · 13-1 중 분홍 → 14-1 없이 14-2)")
+    w = World(clip_ms=1500)
+    a = Actor(w)
+    a.over["1-1"] = a.a_3_1
+    w.start()
+    w.until(lambda: "4-1" in w.sids())
+    check("3-1" not in w.sids(), f"3-1 없음({w.sids()})")
+    w2 = World(clip_ms=1500)
+    a2 = Actor(w2)
+
+    def pink():
+        w2.set(상태="PROCESS RUN")
+        a2.press_wait("B3", 4, "B4")
+    a2.over["12-2"] = lambda: (a2.a_12_2(), w2.later(w2.alert_ms + 400, pink))
+    w2.start()
+    w2.until(lambda: "14-2" in w2.sids())
+    s = w2.sids()
+    check("14-1" not in s[s.index("13-1"):], f"14-1 없음({s[s.index('12-2'):]})")
+
+
+def test_r_i5_pink_at_12_fallback():
+    print("\n[리뷰 I5] 12-2 뒤 경고 알림대로 분홍을 누름(차단 없음) → 대체: 14-2 14-3 12-1 12-2b 13-1(차단 장면 빠뜨리지 않음)")
+    w = World()
+    a = Actor(w)
+
+    def pink():
+        w.set(상태="MONITOR", 현재버튼="B3")
+        w.sub()
+        w.later(5000, lambda: w.set(현재단계=4, 현재버튼="B4", 서브진행=None))
+    a.over["12-2"] = lambda: (w.touch("B4", 2), w.set(상태="WARNING"), w.later(w.alert_ms + 300, pink))
+    a.over["12-2b"] = a.a_12_2
+    w.start()
+    w.until(lambda: "13-1" in w.sids() and "12-2b" in w.sids(), 120_000)
+    s = w.sids()
+    tail = s[s.index("12-2") + 1:]
+    check(tail[:5] == ["14-2", "14-3", "12-1", "12-2b", "13-1"], f"차례({tail})")
+
+
+def test_r_m5_unplanned_block_reprompt():
+    print("\n[리뷰 M5] 계획에 없던 차단이 15초 넘게 안 풀리면 13-1 을 다시(버튼 장면과 같은 규칙)")
+    w = World()
+    a = Actor(w, skip={"13-1"})
+    a.over["6-1"] = lambda: w.set(상태="BLOCK")
+    w.start()
+    w.until(lambda: w.sids().count("13-1") >= 2, 60_000)
+    check(w.sids().count("13-1") >= 2, f"13-1 다시({w.sids()[-3:]})")
+
+
+def test_r_m6_block_during_12_1_is_planned():
+    print("\n[리뷰 M6] 12-1(순서 위반 미리 안내) 중 먼저 파랑을 눌러 차단 → 계획된 것 · 순서 위반을 두 번 시키지 않는다")
+    w = World(clip_ms=1500)
+    a = Actor(w, skip={"12-1"})
+    a.over["11-1"] = lambda: (a.a_11_1(), w.later(1500, lambda: w.set(상태="BLOCK")))
+    w.start()
+    w.until(lambda: "14-1" in w.sids())
+    s = w.sids()
+    tail = s[s.index("11-1") + 1:s.index("14-1") + 1]
+    check(tail.count("13-1") == 1 and tail.count("12-1") == 1 and "12-2" not in tail, f"차례({tail})")
 
 
 def test_reprompt_press():

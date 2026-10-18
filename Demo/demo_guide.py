@@ -41,6 +41,8 @@ GROUP_OF = {s: g for g, ss in GROUPS.items() for s in ss}
 PRESS_SCENE = {1: "3-1", 2: "6-1", 3: "14-1", 4: "16-1"}    # 차단으로 서브가 취소됐을 때 돌아갈 버튼 장면
 # 알림이 그 장면에서 시작되면 계획된 것(끊겨도 다시 내지 않는다) — 그 밖에서 시작되면 계획에 없던 것
 EXPECT = {"5-2": ("WARNING",), "5-3": ("WARNING",), "10-2": ("WARNING",), "11-1": ("WARNING",),
+          "12-1": ("BLOCK",),    # 미리 안내 중 먼저 파랑을 눌러 난 차단은 순서 위반 장면이다(리뷰 M6 — 두 번 시키지 않는다) ·
+                                 # 경고(손이 먼저 감)는 계획에 없던 것 — 미리 안내를 알림 뒤 다시 낸다
           "12-2": ("WARNING", "BLOCK"), "12-2b": ("WARNING", "BLOCK"), "13-1": ("WARNING", "BLOCK")}
 # 기다리는 장면 → (다시 낼 문장, 종류, 넘어갈 곳) — must = 15초마다 · 최대 GUIDE_REPROMPT_MAX · demo = 한 번 더 뒤 넘어감
 WAIT = {"4-1": ("3-1", "must", None), "6-2": ("6-1", "must", None), "9-3": ("9-2", "must", None),
@@ -100,7 +102,7 @@ class GuideCore:
         self.graze_fails = 0             # 이번 틱까지 새로 본 스침 경고(_decide 가 _gf 로 옮긴다)
         self._gf = 0                     # 이번 회차 스침 경고 누적 — 참여자마다 0 부터
         self.voice_t0, self.voice_fails = None, 0
-        self.last_action = None
+        self.ub_count = 0                # 계획에 없던 차단에 낸 13-1 수(리뷰 M5 — 15초마다 · 상한 GUIDE_REPROMPT_MAX)
 
     def _note(self, msg):
         self.log.append(f"{self.now:.0f} {msg}")
@@ -173,6 +175,8 @@ class GuideCore:
                 if not planned:
                     self.unplanned = True
                     self.after_block = self.after_block or a == "BLOCK"
+                else:
+                    self.unplanned = self.after_block = False   # 계획된 상황이 앞의 계획에 없던 경고를 넘겨받는다
                 if self.cur() in ("5-2", "5-3") and a == "WARNING":
                     self.graze_fails += 1
             self.alarm = a
@@ -192,7 +196,14 @@ class GuideCore:
         _, t0 = self.alarm_hist[-1]
         if self.now - t0 >= self.cfg.GUIDE_ALERT_WAIT_SEC * 1000:
             return False
-        return not any(e[1] in ("alert_played", "alert_clear") and e[0] >= t0 - 300 for e in voice)
+        # 🔑 그 알림(시작 뒤 마지막 alert 사건)의 키로 끝을 찾는다 — 경고가 차단에 끊기면 끊긴 경고의 alert_played 가
+        #    차단 alert 뒤에 기록된다(voice_assistant AlertWatcher._play) · 그것을 차단 알림의 끝으로 보지 않는다(리뷰 I3)
+        al = [e for e in voice if e[1] == "alert" and e[0] >= t0 - 300]
+        if not al:
+            return self.alarm is not None            # 알림이 나기 전에 상황이 풀렸으면 기다릴 것이 없다
+        ta, key = al[-1][0], (al[-1][2] or {}).get("key")
+        return not any((e[1] == "alert_played" and (e[2] or {}).get("key") == key or e[1] == "alert_clear")
+                       and e[0] >= ta for e in voice)
 
     # ------------------------------------------------------------------ 소리
     def _start(self, sid, main=True):
@@ -255,9 +266,6 @@ class GuideCore:
         if not p["main"]:
             return
         self.t_end[sid] = self.now
-        if sid in ("3-1", "5-2", "6-1", "7-2", "8-1", "9-1", "9-2", "9-5", "10-2", "11-1", "12-2", "12-2b", "13-1",
-                   "14-1", "16-1"):
-            self.last_action = sid
         if self.cur() == sid:
             self._move(self.p + 1)
 
@@ -285,19 +293,27 @@ class GuideCore:
     # ------------------------------------------------------------------ 다음에 낼 것
     def _decide(self, st, hand, voice):
         if self.unplanned:
-            if self.alarm == "BLOCK" and self.after_block and "13-1!" not in self.pending:
-                self.pending.append("13-1!")
-                return self._start("13-1", main=False)
+            if self.alarm == "BLOCK" and self.after_block:
+                # 13-1 「…차단을 풀어 주세요」 — 처음 한 번 · 안 풀리면 15초마다(버튼 장면과 같은 상한 · 리뷰 M5)
+                due = self.ub_count == 0 or (self.now - (self.wait_since or self.now) >= self.cfg.GUIDE_REPROMPT_SEC * 1000
+                                             and self.ub_count <= self.cfg.GUIDE_REPROMPT_MAX)
+                if due:
+                    self.ub_count += 1
+                    return self._start("13-1", main=False)
+                return None
             if self.alarm:
                 self.wait_since = self.now
                 return None
-            self.unplanned = False
+            self.unplanned, self.ub_count = False, 0
             if self.after_block:
                 self.after_block = False
                 self._resync_back(st)
-            elif self.last_action and not self.pending and self._cond(self.cur(), st, hand, voice) is False:
-                self.pending.append(self.last_action)
-        self.pending = [s for s in self.pending if s != "13-1!"]
+            else:
+                # 🔑 지금 기다리는 장면의 행동 문장만 다시(리뷰 C1 — 지난 장면 버튼을 시키면 안내가 순서 위반을 부른다) ·
+                #    WAIT 에 없는 장면(대기 · 음성비서 · 자동으로 넘어가는 곳)은 다시 안내하지 않는다
+                w = WAIT.get(self.cur() or "")
+                if w and not self.pending and self._cond(self.cur(), st, hand, voice) is False:
+                    self.pending.append("12-2b" if w[0] == "12-2" and "12-2b" in self.seq else w[0])
         if self.graze_fails and self.cur() in ("5-2", "5-3") and not self.alarm:
             n, self.graze_fails = self.graze_fails, 0
             self._gf += n
@@ -331,12 +347,22 @@ class GuideCore:
         if sid is None:
             return False
         step = _step(st)
+        # 누름 문장 — 이미 눌렸거나 단계가 지났으면 건너뛴다(리뷰 I5 — 이미 한 일을 시키지 않는다)
+        if sid == "3-1":
+            return "skip" if _pressed(st, "B1") or step >= 2 else True
+        if sid == "6-1":
+            return "skip" if _pressed(st, "B2") or step >= 3 else True
         if sid == "4-1":
             return _pressed(st, "B1") or step >= 2
         if sid == "4-2":
             return step >= 2
         if sid == "5-3":
-            return self.g_in and self.g_out and not self._since("WARNING", self.t_start.get("5-2", self.now))
+            # 🔑 손이 B3 안쪽에 들어간 마지막 시각(GUI hand.json 「마지막안쪽」)으로 본다 — 빠른 스침은 0.1초 읽기 사이에
+            #    들어갔다 나와 틱으로는 안 보인다(리뷰 I4) · 틱에서 직접 본 들고남도 함께 받는다
+            t5 = self.t_start.get("5-2", self.now)
+            last = (hand.get("마지막안쪽") or {}).get("B3")
+            went = (self.g_in and self.g_out) or (last is not None and last >= t5 and hand.get("roi") != "B3")
+            return went and not self._since("WARNING", t5)
         if sid == "6-2":
             return _pressed(st, "B2") or step >= 3
         if sid == "8-1":
@@ -361,6 +387,8 @@ class GuideCore:
                 return False
             return True if self.alarm == "BLOCK" else "skip"
         if sid == "14-1":
+            if _pressed(st, "B3") or step >= 4:
+                return "skip"
             return self.alarm != "BLOCK"
         if sid == "14-2":
             return _pressed(st, "B3") or step >= 4
@@ -378,11 +406,20 @@ class GuideCore:
         t0 = self.t_end.get("15-1")
         if t0 is None:
             return False
-        ev = [tuple(e) for e in voice if e[0] >= t0]
-        if not any(k == "wake" for _, k, _ in ev):
-            return False
-        busy, end = MG.assistant_busy(ev, self.now)
-        return not busy and end is not None
+        # 🔑 성공 = 15-1 뒤 호출(wake) 다음의 답(answer)이 끝까지 재생됨(play_end 완료 · 같은 키) — 호출만 · 질문 못 알아들음 ·
+        #    답 중단은 실패다(설계 §4.2 · §6.5 · 리뷰 I1 — assistant_busy 는 시간이 지나도 「끝」을 돌려준다)
+        ev = [e for e in voice if e[0] >= t0]
+        for i, (tw, k, _) in enumerate(ev):
+            if k != "wake":
+                continue
+            ans = next((e for e in ev[i + 1:] if e[1] == "answer"), None)
+            if ans is None:
+                continue
+            key = (ans[2] or {}).get("key")
+            if any(e[1] == "play_end" and e[0] >= ans[0] and (e[2] or {}).get("key") == key
+                   and (e[2] or {}).get("what") == "완료" for e in ev):
+                return True
+        return False
 
     def _voice_scene(self, voice):
         if self._voice_ok(voice) or self.voice_fails >= 2:
@@ -395,16 +432,27 @@ class GuideCore:
 
     def _resync_ahead(self, st, hand):
         sid, step = self.cur(), _step(st)
-        if sid in GROUPS["G5"] and (_pressed(st, "B2") or step >= 3):
+        if sid is None:
+            return
+        if st.get("결과") and sid != "16-2" and "16-2" in self.seq:
+            # 작업이 이미 끝났다(15번에서 바로 파랑 등) — 남은 안내 없이 완료 안내로(리뷰 I5)
+            self._jump("16-2", done=tuple(GROUPS))
+        elif sid in GROUPS["G5"] and (_pressed(st, "B2") or step >= 3):
             self._jump("6-2", done=("G5",))
         elif sid in GROUPS["G78"] and hand.get("공구단계") in ("checking", "grasped") \
                 and not (st.get("서브진행") or {}).get("공구오답"):
             self._jump("9-2", done=("G78",))
-        elif sid in ("10-1", "10-2", "11-1", "12-1", "12-2") and self.seq is not None and "12-2b" not in self.seq \
+        elif sid in ("10-1", "10-2", "11-1", "12-1", "12-2", "13-1") and "12-2b" not in self.seq \
                 and (_pressed(st, "B3") or step >= 4):
+            # 경고 알림 「…분홍 버튼을 누르세요」대로 분홍을 눌렀다 — 차단 장면을 빠뜨리지 않게 파랑 차례에서 노랑으로(§4.2 · 리뷰 I5)
             self.seq = self.seq[:self.p] + FALLBACK
             self._note("경고 중 분홍을 누름 — 순서 위반을 파랑 차례에서 노랑으로(대체)")
             self._move(self.p)
+        elif sid in ("12-1", "12-2", "12-2b") and self.alarm == "BLOCK" and not self.unplanned:
+            # 미리 안내 중 먼저 파랑을 눌러 차단 — 순서 위반 장면은 이미 일어났다 · 13-1 로(리뷰 M6)
+            t_blk = max(t for k, t in self.alarm_hist if k == "BLOCK")
+            self.t_start[sid if sid != "12-1" else "12-2"] = min(self.t_start.get("12-2", t_blk), t_blk)
+            self._jump("13-1")
 
     def _resync_back(self, st):
         step = _step(st)
@@ -425,6 +473,10 @@ class GuideCore:
         if self.now - self.wait_since < self.cfg.GUIDE_REPROMPT_SEC * 1000:
             return None
         line, kind, nxt = w
+        if kind == "demo" and self.reprompts >= 1 and nxt.endswith("!"):
+            # 조건 없이 그 문장을 낸다 — 9-1 「렌치를 잡아 주세요」는 드라이버를 안 내려놓아도 해야 할 안내(리뷰 I2)
+            self._note(f"{sid} 기다림 끝 — 조건 없이 {sid}")
+            return self._start(sid)
         if kind == "demo" and self.reprompts >= 1:
             self._note(f"{sid} 기다림 끝 — 넘어감")
             g = GROUP_OF.get(sid) or GROUP_OF.get(line)
