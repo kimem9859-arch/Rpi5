@@ -242,6 +242,14 @@ def test_settings_guide_switch():
     check(got == [True] and s.switch("guide").text() == "켬", f"켜면 guide_changed(True) 한 번 · 글 「켬」({got})")
     s.switch("guide").click()
     check(got == [True, False], f"끄면 guide_changed(False)({got})")
+    s.resize(856, 1100)
+    s.show()
+    QApplication.processEvents()
+    y_guide = s.switch("guide").mapTo(s, s.switch("guide").rect().topLeft()).y()
+    y_note = s._box_note.mapTo(s, s._box_note.rect().topLeft()).y()
+    y_hand = s.switch("hand").mapTo(s, s.switch("hand").rect().topLeft()).y()
+    check(y_hand < y_note < y_guide, f"「화면 표시만 끕니다」 문장 아래에 있다(사용자 — 그 문장이 이 스위치에 걸려 읽히지 않게 · 손 {y_hand} · 문장 {y_note} · 안내 {y_guide})")
+    s.hide()
 
 
 def test_all_relayout_inside_screen():

@@ -867,15 +867,11 @@ class SettingsPanel(_Sheet):
         self._tags.append(t); self._heads.append(self._show_caption)
         lay.addLayout(row)
         self._switches, self._switch_desc, self._switch_names = {}, {}, []
-        for name, label, desc, on, sig in (
-                ("bg", "공정 단계 패널 배경", "글자 뒤에 반투명 카드를 깝니다",
-                 getattr(theme, "PANEL_BACKGROUND", True), self.panel_bg_changed),
-                ("boxes", "객체 인식 상자", "버튼 · 공구에 모서리 상자와 이름표",
-                 config.SHOW_DETECT_BOXES, self.boxes_changed),
-                ("scores", "인식 점수 숫자", "이름표 옆에 신뢰도(예: 0.96) · 인식 상자가 켜졌을 때만",
-                 config.SHOW_DETECT_SCORES, self.scores_changed),
-                ("hand", "손 인식 오버레이", "손끝 점과 손가락 선", config.HAND_DRAW, self.hand_changed),
-                ("guide", "시연 안내", "참여자용 — 작업 시작부터 안경으로 단계별 안내", False, self.guide_changed)):
+        fd = config.font("item_sub", 500)
+        fd.setPointSize(12)                             # 16px
+
+        def add_switch(name, label, desc, on, sig):
+            """「화면 표시」 줄 하나(시안 모양) — 이름 23 + 설명 16 + 켬·끔 스위치."""
             box = _CutRow()
             bl = QHBoxLayout(box)
             bl.setContentsMargins(18, 14, 18, 14)
@@ -887,8 +883,6 @@ class SettingsPanel(_Sheet):
             fn.setPointSize(17)                         # 23px
             n.setFont(fn)
             d = QLabel(desc)
-            fd = config.font("item_sub", 500)
-            fd.setPointSize(12)                         # 16px
             d.setFont(fd)
             tc.addWidget(n)
             tc.addWidget(d)
@@ -900,6 +894,15 @@ class SettingsPanel(_Sheet):
             self._switches[name] = sw
             self._switch_desc[name] = d
             self._switch_names.append(n)
+
+        for args in (("bg", "공정 단계 패널 배경", "글자 뒤에 반투명 카드를 깝니다",
+                      getattr(theme, "PANEL_BACKGROUND", True), self.panel_bg_changed),
+                     ("boxes", "객체 인식 상자", "버튼 · 공구에 모서리 상자와 이름표",
+                      config.SHOW_DETECT_BOXES, self.boxes_changed),
+                     ("scores", "인식 점수 숫자", "이름표 옆에 신뢰도(예: 0.96) · 인식 상자가 켜졌을 때만",
+                      config.SHOW_DETECT_SCORES, self.scores_changed),
+                     ("hand", "손 인식 오버레이", "손끝 점과 손가락 선", config.HAND_DRAW, self.hand_changed)):
+            add_switch(*args)
         self._switches["boxes"].toggled.connect(self._switches["scores"].setEnabled)
         self._switches["scores"].setEnabled(self._switches["boxes"].isChecked())
 
@@ -914,6 +917,8 @@ class SettingsPanel(_Sheet):
         note.addWidget(self._note_icon)
         note.addWidget(self._box_note, 1)
         lay.addLayout(note)
+        # 🔑 시연 안내는 위 안내 문장 아래 — 「화면 표시만 끕니다」가 이 스위치에도 걸려 읽히지 않게(사용자 2026-10-18)
+        add_switch("guide", "시연 안내", "참여자용 — 작업 시작부터 안경으로 단계별 안내", False, self.guide_changed)
 
     def switch(self, name):
         """켬/끔 스위치 — "bg" | "boxes" | "scores" | "hand" | "guide"(시연 안내)."""
