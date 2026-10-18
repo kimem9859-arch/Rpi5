@@ -230,6 +230,20 @@ def test_settings_switches():
     check("감지 · 차단은 그대로" in s._box_note.text(), s._box_note.text())
 
 
+def test_settings_guide_switch():
+    """시연 안내 스위치(상위 specs/2026-10-18-시연안내모드-design.md §6.1) — 기본 끔 · 켜면 신호 한 번."""
+    print("\n[10-c] 시연 안내 스위치")
+    host = QWidget(); s = SettingsPanel(host)
+    got = []
+    s.guide_changed.connect(lambda v: got.append(v))
+    check(s.switch("guide").isChecked() is False, "「시연 안내」 기본 끔(켤 때마다 끔으로 시작)")
+    check("시연 안내" in [n.text() for n in s._switch_names], "이름 「시연 안내」")
+    s.switch("guide").click()
+    check(got == [True] and s.switch("guide").text() == "켬", f"켜면 guide_changed(True) 한 번 · 글 「켬」({got})")
+    s.switch("guide").click()
+    check(got == [True, False], f"끄면 guide_changed(False)({got})")
+
+
 def test_all_relayout_inside_screen():
     """세 패널 모두 화면 안에 배치되는가."""
     print("\n[11] 배치 경계")

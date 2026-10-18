@@ -164,6 +164,12 @@ class SafetyConsole(QMainWindow):
         # 🔴 로그 콜백을 여기서 _append_log 로 주면 안 된다 — log_browser 는
         #    _init_ui() 안에서야 생긴다. 생성 시점 오류는 stdout 으로 낸다.
         self._state_pub = StatePublisher(log=print)
+        # 🔑 시연 안내 모드(상위 specs/2026-10-18-시연안내모드-design.md §6.1 · §6.2) — 설정 「시연 안내」 켬일 때만
+        #    손이 든 버튼 · 공구 단계 · 손 판정 끔을 hand.json 으로 낸다(바뀔 때만). 끔이면 아무 것도 쓰지 않는다.
+        self._guide_on = False           # 켤 때마다 끔으로 시작 — 다른 설정처럼 저장하지 않는다
+        self._hand_pub = StatePublisher(log=print, name=config.HAND_STATE_FILE)
+        self._hand_last = None           # 마지막으로 쓴 (roi, level, 공구단계, 손판정끔)
+        self._hand_seq = 0
 
         # 판정부(FSM) — 통합문서 §9. 콜백으로 상태표시·인터록·피드백을 받는다.
         self.fsm = SafetyFSM(
@@ -404,6 +410,7 @@ class SafetyConsole(QMainWindow):
         self.settings_panel.boxes_changed.connect(self._on_boxes_changed)
         self.settings_panel.scores_changed.connect(self._on_scores_changed)
         self.settings_panel.hand_changed.connect(self._on_hand_changed)
+        self.settings_panel.guide_changed.connect(self._on_guide_changed)
         self.settings_panel.closed.connect(lambda: self._toggle_settings(False))
         # 공구 선택지는 **레시피가 준다** — 목록을 코드에 박지 않는다(design §4.4).
         self._wire_tool_settings()
@@ -1055,6 +1062,28 @@ class SafetyConsole(QMainWindow):
         self.camera_thread.set_draw_hand(on)
         self._append_log(f"[설정] 손 인식 오버레이 → {'켬' if on else '끔'}")
 
+    def _on_guide_changed(self, on):
+        """시연 안내 켬/끔 — 상태 파일 `안내모드` 칸으로 음성비서 · 안내 프로그램에 알린다(판정은 그대로)."""
+        self._guide_on = bool(on)
+        self._append_log(f"[설정] 시연 안내 → {'켬' if on else '끔'}")
+        self._publish_state()
+        if self._guide_on:
+            self._publish_hand(force=True)
+
+    def _publish_hand(self, force=False):
+        """손 · 공구 파일(안내 모드일 때만 · 값이 바뀔 때만) — 🔴 GUI 흐름을 막지 않는다(쓰기 실패는 StatePublisher 가 삼킨다)."""
+        if not self._guide_on:
+            return
+        roi, level = self._last_roi
+        phase = self._tool_state.phase if self._tool_state is not None else None
+        cur = (roi or None, level, phase, bool(self._hand_gate_was))
+        if not force and cur == self._hand_last:
+            return
+        self._hand_last = cur
+        self._hand_seq += 1
+        self._hand_pub.publish({"roi": cur[0], "level": cur[1], "공구단계": cur[2], "손판정끔": cur[3],
+                                "seq": self._hand_seq, "t_ms": measure_log.now_ms()})
+
     def _tool_display_name(self, key):
         for s in (self._recipe or {}).get("steps", []):
             sub = s.get("sub") or {}
@@ -1156,6 +1185,7 @@ class SafetyConsole(QMainWindow):
             self._measure.event("hand_gate", t=t, off=off)
             self._append_log("[손 판정] 끔 — 공구를 손에 들고 있음(버튼 누름 판정은 그대로)" if off
                              else "[손 판정] 켬")
+            self._publish_hand()
         # 🔑 공구를 든 동안은 「손이 버튼 구역에 없다」로 넣는다(D4) — 공구를 보여주다 검지 끝이 버튼과
         #    겹쳐도 경고가 나지 않는다. 판정기(FSM)는 고치지 않는다 — 넣는 값만 바꾼다.
         #    손끝도 같다 — 끈 동안은 넣지 않는다(속도 판정도 쉰다).
@@ -1180,6 +1210,7 @@ class SafetyConsole(QMainWindow):
                 self._append_log(f"[HOI] 손 {'진입' if level == ZONE_INSIDE else '접근'}: "
                                  f"{roi} ({'박스 안' if level == ZONE_INSIDE else '링'})")
             self._last_roi = (roi, level)
+            self._publish_hand()
 
     @pyqtSlot(list, object)   # 🔴 tool_signal(list, object)과 반드시 일치 — 어긋나면 기동 즉시 TypeError
     def _on_tool(self, dets, fingertip):
@@ -1224,6 +1255,7 @@ class SafetyConsole(QMainWindow):
             if self._tool_state.phase == "grasped":
                 self._stats.tool_grasped(self._tool_state.want_tool, True)
             self._publish_state()      # 공구 충족이 바뀌었다(음성 §4.4)
+            self._publish_hand()       # 공구 단계(확인 중 = 9번 「판정 중」 · 안내 모드만)
         elif self._sub.wrong_tool != wrong_before:
             self._publish_state()      # 쥔 오답 공구가 바뀌었다(음성 설계 2026-10-04 §4.2-나)
         # 🔑 상자 문구에 쓸 값은 진행 **전에** 잡는다 — 조건이 차면 _update_sub_view 가 서브를 끝내 버린다.
@@ -1603,7 +1635,8 @@ class SafetyConsole(QMainWindow):
                 # 🔑 작업 전에도 비상정지는 싣는다 — 음성 알림이 작업 전 EMO 를 보게(음성 설계 2026-10-04 §4.3).
                 #    `세션` 이 거짓이라 음성 답은 그대로 「작업 시작 전」이다(A-M3 유지).
                 self._state_pub.publish({"세션": False, "비상정지": bool(self.fsm.emo_active),
-                                         "EMO신호없음": bool(self._emo_no_signal)})
+                                         "EMO신호없음": bool(self._emo_no_signal),
+                                         "안내모드": self._guide_on})     # 시연 안내(2026-10-18 §6.1)
                 return
             cur = self.fsm.expected_step
             steps = (self._recipe or {}).get("steps", [])
@@ -1644,6 +1677,7 @@ class SafetyConsole(QMainWindow):
                 "서브작업": sub,
                 "서브진행": prog,
                 "결과": result,
+                "안내모드": self._guide_on,       # 시연 안내(2026-10-18 §6.1) — 음성비서 · 안내 프로그램이 이 칸 하나를 본다
             })
         except Exception as e:                      # noqa: BLE001 — GUI 를 절대 안 죽인다
             self._append_log(f"[상태] 공개 실패: {e}")

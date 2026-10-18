@@ -13,6 +13,7 @@
 🔴 HW 가 **꽂혀 있어도** 쓰지 않는다 — GPIO 입력·인터락을 끄고 만든다(`make_console`).
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -2877,6 +2878,66 @@ def test_root_black_does_not_leak_into_children():
     inside, beside = img.pixelColor(tl.x() + 15, tl.y() + 15), img.pixelColor(tl.x() + 30 + 7, tl.y() + 15)
     check(inside == beside, f"남은 단계 칸 {inside.name()} = 옆 {beside.name()}")
     win.close()
+
+# ------------------------------------------------------------------ 시연 안내 모드(2026-10-18)
+# 상위 specs/2026-10-18-시연안내모드-design.md §6.1 · §6.2 — 스위치 끔이면 새 파일 없음 · 켬이면 손 · 공구 단계 파일
+def _hand_path():
+    return os.path.join(config.STATE_SHM_DIR, config.HAND_STATE_FILE)
+
+
+def _read(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _state_now():
+    return _read(os.path.join(config.STATE_SHM_DIR, "state.json"))
+
+
+def test_guide_off_no_hand_file():
+    print("\n[안내] 끔(기본) — hand.json 없음 · state.json 은 안내모드 칸(거짓)만 더")
+    if os.path.exists(_hand_path()):
+        os.remove(_hand_path())
+    win = make_console()
+    check(_state_now().get("안내모드") is False, "작업 전 공개에 안내모드 거짓")
+    box, tip = _tool_step(win)
+    check(_state_now().get("안내모드") is False, "작업 중 공개에도 안내모드 거짓")
+    win.camera_thread.tool_signal.emit([box], tip)
+    win._on_roi("B3", 2, time.monotonic())
+    check(not os.path.exists(_hand_path()), "손 · 공구 신호에도 hand.json 이 생기지 않는다")
+    win.close()
+
+
+def test_guide_on_publishes():
+    print("\n[안내] 켬 — 안내모드 참 · hand.json(손 · 공구 단계 · 손 판정 끔) · 끄면 멈춤")
+    if os.path.exists(_hand_path()):
+        os.remove(_hand_path())
+    win = make_console()
+    win.settings_panel.switch("guide").click()
+    check(_state_now().get("안내모드") is True, "작업 전에도 안내모드 참")
+    check(os.path.exists(_hand_path()), "켠 순간 hand.json 한 번")
+    box, tip = _tool_step(win)
+    check(_state_now().get("안내모드") is True, "작업 중 공개에도 안내모드 참")
+    t = time.monotonic()
+    win._on_roi("B3", 2, t)
+    h1 = _read(_hand_path())
+    check(h1.get("roi") == "B3" and h1.get("level") == 2, f"손이 든 버튼 · 구역({h1.get('roi')} · {h1.get('level')})")
+    win._on_roi("B3", 2, t + 0.05)
+    check(_read(_hand_path()).get("seq") == h1.get("seq"), "같은 값이면 다시 쓰지 않는다")
+    win._on_roi(None, 0, t + 0.1)
+    h2 = _read(_hand_path())
+    check(h2.get("roi") is None and h2.get("seq") == h1.get("seq") + 1, "손이 떠나면 새 줄")
+    win.camera_thread.tool_signal.emit([box], tip)
+    check(_read(_hand_path()).get("공구단계") == "checking", f"공구 확인 중({_read(_hand_path()).get('공구단계')})")
+    win._on_roi("B4", 2, time.monotonic())
+    check(_read(_hand_path()).get("손판정끔") is True, "공구를 든 동안 손 판정 끔")
+    win.settings_panel.switch("guide").click()
+    check(_state_now().get("안내모드") is False, "끄면 안내모드 거짓")
+    before = _read(_hand_path())
+    win._on_roi("B1", 2, time.monotonic())
+    check(_read(_hand_path()) == before, "끈 뒤에는 손 신호에 hand.json 이 안 바뀐다")
+    win.close()
+
 
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):

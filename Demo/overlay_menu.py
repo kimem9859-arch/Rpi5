@@ -797,6 +797,7 @@ class SettingsPanel(_Sheet):
     boxes_changed = pyqtSignal(bool)
     scores_changed = pyqtSignal(bool)
     hand_changed = pyqtSignal(bool)
+    guide_changed = pyqtSignal(bool)     # 시연 안내(상위 specs/2026-10-18-시연안내모드-design.md §6.1) — 기본 끔 · 저장 안 함
     closed = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -873,7 +874,8 @@ class SettingsPanel(_Sheet):
                  config.SHOW_DETECT_BOXES, self.boxes_changed),
                 ("scores", "인식 점수 숫자", "이름표 옆에 신뢰도(예: 0.96) · 인식 상자가 켜졌을 때만",
                  config.SHOW_DETECT_SCORES, self.scores_changed),
-                ("hand", "손 인식 오버레이", "손끝 점과 손가락 선", config.HAND_DRAW, self.hand_changed)):
+                ("hand", "손 인식 오버레이", "손끝 점과 손가락 선", config.HAND_DRAW, self.hand_changed),
+                ("guide", "시연 안내", "참여자용 — 작업 시작부터 안경으로 단계별 안내", False, self.guide_changed)):
             box = _CutRow()
             bl = QHBoxLayout(box)
             bl.setContentsMargins(18, 14, 18, 14)

@@ -22,11 +22,12 @@ STATE_FILE = "state.json"
 class StatePublisher:
     """상태 한 벌을 원자적으로 쓴다. 쓰기 전용이고, 절대 예외를 올리지 않는다."""
 
-    def __init__(self, shm_dir=None, log=None):
+    def __init__(self, shm_dir=None, log=None, name=STATE_FILE):
+        """name = 파일 이름 — 기본 state.json · 시연 안내 모드의 손 · 공구 파일(hand.json)도 같은 방식으로 쓴다."""
         if shm_dir is None:
             import config
             shm_dir = config.STATE_SHM_DIR
-        self._path = os.path.join(shm_dir, STATE_FILE)
+        self._path = os.path.join(shm_dir, name)
         self._log = log or (lambda m: None)
         self._ok = True
         try:

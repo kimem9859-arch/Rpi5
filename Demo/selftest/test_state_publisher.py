@@ -47,6 +47,13 @@ def main():
         p.clear()
         check(True, "없는 파일을 또 지워도 예외가 안 난다")
 
+        print("── 다른 파일 이름(name) — 손 · 공구 파일(시연 안내 2026-10-18)")
+        ph = StatePublisher(shm_dir=tmp, name="hand.json")
+        check(ph.publish({"roi": "B3"}) is True, "name 을 주면 그 파일에 쓴다")
+        hd = json.load(open(os.path.join(tmp, "hand.json"), encoding="utf-8"))
+        check(hd.get("roi") == "B3" and hd.get("pid") == os.getpid(), "hand.json 에 값 · pid")
+        check(not os.path.exists(path), "기본 state.json 은 건드리지 않는다(위에서 지운 그대로)")
+
         print("── 🔴 절대 예외를 올리지 않는다")
         bad = StatePublisher(shm_dir="/proc/못쓰는곳")
         check(bad.publish({"a": 1}) is False, "쓸 수 없는 경로면 False 만 돌려준다")
