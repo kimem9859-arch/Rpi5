@@ -574,6 +574,13 @@ TTS_PAUSE_END_SEC   = 0.35
 TTS_CUE_SPEED   = 1.0      # 측정 안내 소리 빠르기 — 1.25 에서 짧은 낱말이 뭉개졌다(받아쓰기 비포 4/6 · 작업 초기화 0/6 → 1.0 6/6 · 3/6)
 VOICE_CUES  = os.environ.get("SOP_VOICE_CUES", "1") != "0"   # 측정 안내 소리(진행 도우미 설계 2026-10-11 D6) — 요청이 없으면 아무 일도 없다
 CUE_SHM_DIR = "/dev/shm/sop_cue"                             # 진행 도우미 → 음성비서 요청(req.json) · 응답(ack.json)
+# 🔑 관객 소리(TV) — 안경에서 나는 소리를 TV 스피커로도 낸다(상위 specs/2026-10-21-관객소리TV-design.md).
+#    끄기 = SOP_AUDIENCE_SPEAKER=0(통로를 아예 안 만든다) · 시연 화면 설정 「TV 소리」 = 상태 파일 `관객소리` 칸(기본 켬)
+AUDIENCE_SPEAKER      = os.environ.get("SOP_AUDIENCE_SPEAKER", "1") != "0"
+AUDIENCE_PEAK         = 29162   # 소리마다 최고 진폭을 이 값으로(안경 펌웨어처럼) — 안내 파일 최고 진폭 · 10/21 TV 음량 10 에서 사용자 「괜찮다」
+AUDIENCE_RATE         = 48000   # TV 통로(pw-cat) 레이트 — 소리는 이 레이트로 바꿔 흘린다
+AUDIENCE_TAIL_MAX_SEC = 0.5     # 안경 「재생 완료」 뒤 TV 꼬리를 기다리는 상한 — 안경 마이크가 TV 소리를 듣지 않게(설계 4장 12)
+AUDIENCE_TAIL_PAD_SEC = 0.15    # TV 쪽 버퍼 · HDMI · TV 처리 몫(실측 전 추정 — 공동 확인에서 안경 마이크로 잰다)
 # 🔑 시연 안내 모드(상위 specs/2026-10-18-시연안내모드-design.md) — 설정 화면 「시연 안내」 켬일 때만 쓰인다.
 #    색 이름 = 참여자에게 부르는 버튼 이름(§4 · 통합문서 §5.4 · §14.1) — 대본 · 알림 색 이름판이 같이 쓴다(한 곳).
 BUTTON_COLOR_NAMES = {"B1": "노랑", "B2": "흰색", "B3": "분홍", "B4": "파랑"}

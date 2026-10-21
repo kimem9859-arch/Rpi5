@@ -36,6 +36,9 @@ LEAD, TAIL = 0.05, 0.08          # 조각 앞뒤에 남기는 무음(초) — tt
 MARK = "{띠링}"
 CHIME_SEGS = [(0.0, 30), (1568.0, 120), (0.0, 40), (2093.0, 180), (0.0, 60)]   # (Hz · 0 = 무음, ms)
 CHIME_FADE_MS = 5.0
+# 닫힘음 = 띠링의 두 음 높이를 맞바꾼 것(펌웨어 closeChime() — 높은 음 120ms → 낮은 음 180ms) · 관객 소리(TV)가 쓴다
+CLOSE_SEGS = [(CHIME_SEGS[3][0] if f == CHIME_SEGS[1][0] else CHIME_SEGS[1][0] if f == CHIME_SEGS[3][0] else f, ms)
+              for f, ms in CHIME_SEGS]
 CHIME_GAP = 0.12                 # 말소리와 띠링 사이 쉼(초) — 띠링 앞뒤 무음(30 · 60ms)에 더한다
 PEAK = 0.89                      # 최고점 -1 dBFS — tts_gemini.py 와 같다
 SCORE_WARN = 0.8                 # 받아쓰기 일치가 이보다 낮으면 사용자가 들어 본다
@@ -153,12 +156,13 @@ def marker_parts(text):
     return [p.strip() for p in text.split(MARK)]
 
 
-def chime(rate, amp):
-    """안경 펌웨어 chime() 과 같은 「띠링」 — 순음 두 개 · 음마다 앞뒤 5ms 올림코사인 페이드 · 위상을 음 사이에 이어 받는다."""
+def chime(rate, amp, segs=None):
+    """안경 펌웨어 chime() 과 같은 「띠링」 — 순음 두 개 · 음마다 앞뒤 5ms 올림코사인 페이드 · 위상을 음 사이에 이어 받는다.
+    `segs` = 구간(기본 CHIME_SEGS · 닫힘음 = CLOSE_SEGS)."""
     import numpy as np
     out, ph = [], 0.0
     fade = int(rate * CHIME_FADE_MS / 1000)
-    for f, ms in CHIME_SEGS:
+    for f, ms in (segs or CHIME_SEGS):
         n = int(rate * ms / 1000)
         if f == 0:
             out.append(np.zeros(n))
