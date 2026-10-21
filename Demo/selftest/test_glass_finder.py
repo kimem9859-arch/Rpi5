@@ -46,6 +46,47 @@ def test_neigh_parse():
     check(GF.neigh_ip(MAC, "192.168.1.14 dev eth0 lladdr 68:ee:8f:4f:5d:38 DELAY\n") == "192.168.1.14", "DELAY 도 살아 있음")
 
 
+
+def test_old_address_delay_not_chosen():
+    print("\n[찾기] 🔴 검토 C1 — 옛 주소가 DELAY · 먼저 나와도 ping 에 답한 새 주소를 고른다")
+    stale_first = ("192.168.1.13 dev eth0 lladdr 68:ee:8f:4f:5d:38 DELAY\n"
+                   "192.168.1.14 dev eth0 lladdr 68:ee:8f:4f:5d:38 REACHABLE\n")
+    check(GF.neigh_ip(MAC, stale_first, alive={"192.168.1.14"}) == "192.168.1.14", "답한 주소(.14)만")
+    check(GF.neigh_ip(MAC, stale_first, alive={"192.168.1.13", "192.168.1.14"}) == "192.168.1.14",
+          "둘 다 답했으면 REACHABLE 을 먼저")
+    check(GF.neigh_ip(MAC, stale_first, alive=set()) is None, "아무도 답하지 않았으면 None")
+    v6 = "fe80::1 dev eth0 lladdr 68:ee:8f:4f:5d:38 REACHABLE\n" + stale_first
+    check(GF.neigh_ip(MAC, v6, alive={"192.168.1.14"}, prefix="192.168.1.") == "192.168.1.14",
+          "IPv6 줄이 먼저 나와도 대역 안 주소(검토 Minor 6b)")
+
+
+def test_sweep_returns_responders():
+    print("\n[찾기] 훑기는 답한 주소를 돌려준다")
+    got = GF.sweep("192.168.1.", ping=lambda ip: ip in ("192.168.1.1", "192.168.1.14"))
+    check(got == {"192.168.1.1", "192.168.1.14"}, f"{got}")
+
+
+def test_find_fast_path_when_current_ok():
+    print("\n[찾기] 지금 주소가 맞으면 훑지 않는다(검토 Minor 6d — 켤 때 5초 줄임)")
+    pinged = []
+    def ping(ip):
+        pinged.append(ip)
+        return ip == "192.168.1.14"
+    neigh = "192.168.1.14 dev eth0 lladdr 68:ee:8f:4f:5d:38 REACHABLE\n"
+    ip = GF.find(MAC, "192.168.1.", current="192.168.1.14", ping=ping, neigh=lambda: neigh)
+    check(ip == "192.168.1.14" and pinged == ["192.168.1.14"], f"한 번만 부름({len(pinged)}번)")
+    pinged.clear()
+    neigh2 = "192.168.1.15 dev eth0 lladdr 68:ee:8f:4f:5d:38 REACHABLE\n"
+    ip = GF.find(MAC, "192.168.1.", current="192.168.1.14", ping=lambda ip: (pinged.append(ip), ip == "192.168.1.15")[1],
+                 neigh=lambda: neigh2)
+    check(ip == "192.168.1.15" and len(pinged) > 200, f"지금 주소가 아니면 훑어서 .15 ({ip} · {len(pinged)}번)")
+
+
+def test_apply_atomic_write():
+    print("\n[맞춤] 파일은 임시 파일에 쓴 뒤 바꿔 끼운다(검토 Minor 6a)")
+    import inspect
+    check("os.replace(" in inspect.getsource(GF.apply), "os.replace 로 바꿔 끼움")
+
 def test_apply_updates_file():
     print("\n[맞춤] 바뀐 주소면 .camera_ip 를 고치고 옛 값을 .prev 로")
     p = _ipfile("192.168.1.13")
@@ -76,7 +117,7 @@ def test_apply_not_found_keeps():
 def test_sweep_pings_subnet():
     print("\n[찾기] 공유기 대역 1~254 를 한 번씩 부른다(이웃 표 새로 채우기)")
     got = []
-    GF.sweep("192.168.1.", ping=lambda ip: got.append(ip))
+    GF.sweep("192.168.1.", ping=lambda ip: got.append(ip) or False)
     check(sorted(got, key=lambda s: int(s.rsplit(".", 1)[1])) == [f"192.168.1.{i}" for i in range(1, 255)],
           f"{len(got)}개")
 
@@ -92,7 +133,8 @@ def test_run_demo_finds_glass_before_main():
     i = src.find("glass_finder.py --apply")
     check(i >= 0, "런처가 glass_finder.py --apply 를 부른다")
     check(i < src.find("./run_voice.sh") and i < src.find("python3 main.py"), "음성비서 · main.py 보다 앞")
-    check("SOP_CAMERA_HOST" in src[max(0, i - 300):i], "SOP_CAMERA_HOST 가 있으면 건너뛰는 조건")
+    check("SOP_CAMERA_HOST" in src[max(0, i - 400):i], "SOP_CAMERA_HOST 가 있으면 건너뛰는 조건")
+    check("SOP_GLASS_FINDER" in src[max(0, i - 400):i], "SOP_GLASS_FINDER=0 이면 건너뛰는 조건(서브 보드 · 검토 Minor 6c)")
 
 
 def test_prev_file_ignored_by_git():

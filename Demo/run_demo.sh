@@ -42,8 +42,9 @@ drop_empty_guide_err() {
 }
 trap 'stop_voice; stop_guide; drop_empty_errlog; drop_empty_guide_err' EXIT
 # 🔑 안경 주소 — 메인 안경을 고유 번호로 찾아 .camera_ip 를 맞춘다(10/14 주소가 바뀌어 카메라 미복구 · 상위 plans/2026-10-21-관객소리TV.md
-#    Task 7b) · 음성비서 · 시연보다 먼저(둘 다 이 파일을 읽는다) · 가짜 카메라(SOP_CAMERA_HOST)면 건너뜀 · 기록 = logs/glass_<날짜>.log
-if [ -z "${SOP_CAMERA_HOST:-}" ]; then
+#    Task 7b) · 음성비서 · 시연보다 먼저(둘 다 이 파일을 읽는다) · 가짜 카메라(SOP_CAMERA_HOST) · SOP_GLASS_FINDER=0(서브 보드)이면
+#    건너뜀 · 기록 = logs/glass_<날짜>.log
+if [ -z "${SOP_CAMERA_HOST:-}" ] && [ "${SOP_GLASS_FINDER:-1}" != "0" ]; then
     mkdir -p logs
     timeout 20 python3 glass_finder.py --apply 2>&1 | tee -a "logs/glass_$(date +%Y%m%d).log" || true
 fi
