@@ -241,6 +241,18 @@ def llm_check(url=None, model=None, timeout=3.0):
               "" if ok else "파이2 에서 ollama list 로 모델 확인 — 음성비서는 고정 문장으로만 답한다")
 
 
+def audience_check():
+    """관객 소리(TV) — 기본 출력이 TV · 음소거 아님 · 제우스랩 음소거(상위 specs/2026-10-21-관객소리TV-design.md 4장 11).
+    판정은 Demo/audience_audio.py 하나(시연 런처가 켤 때마다 맞추는 것과 같은 함수)."""
+    try:
+        import audience_audio
+        ok, detail = audience_audio.status()
+    except Exception as e:                          # noqa: BLE001
+        ok, detail = False, f"확인 못 함 — {type(e).__name__}: {e}"
+    return _c("음성", "관객 소리(TV)", ok, detail,
+              "" if ok else "python3 Demo/audience_audio.py --apply 또는 시연을 닫고 다시 켠다(켤 때 자동으로 맞춘다)")
+
+
 # ── 코드 ────────────────────────────────────────────────────────────────────
 def git_clean(repo=RPI5, final=False, lines_for_test=None):
     if lines_for_test is None:
@@ -334,6 +346,7 @@ def run(home=False, final=False):
     env = {k: v for k, v in os.environ.items() if not (home and k in ("SOP_CAMERA_HOST", "SOP_INTERLOCK_PORT"))}
     if final:       # 🆕 최종 시연 — 음성비서는 인터넷 · 키를 쓰지 않는다(우리 공유기가 인터넷에 물려 있지 않으면 헛 ❌) · 측정 대본 · 출발 태그 없음
         out += [answer_wavs(), skip("음성", "파이2 LLM 응답") if home else llm_check(),
+                skip("음성", "관객 소리(TV)") if home else audience_check(),
                 git_head(), git_clean(final=True), stray_env(env), files(scripts=())]
         order = {}
         for c in out:                       # 같은 묶음은 한 머리 아래로(처음 나온 순서 · 순서표 4장 표와 같게)

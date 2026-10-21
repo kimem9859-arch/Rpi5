@@ -41,6 +41,12 @@ drop_empty_guide_err() {
     fi
 }
 trap 'stop_voice; stop_guide; drop_empty_errlog; drop_empty_guide_err' EXIT
+# 🔑 관객 소리(TV) — 음성비서보다 먼저 소리 출력을 TV 로 맞춘다(상위 specs/2026-10-21-관객소리TV-design.md 4장 10) ·
+#    TV 를 ELD 이름으로 찾아 기본 출력 · 음소거 해제 · 40% · 제우스랩 음소거 · 실패해도 시연은 켠다(기록 = logs/audience_<날짜>.log)
+if [ "${SOP_AUDIENCE_SPEAKER:-1}" != "0" ]; then
+    mkdir -p logs
+    timeout 15 python3 audience_audio.py --apply >>"logs/audience_$(date +%Y%m%d).log" 2>&1 || true
+fi
 if [ "${SOP_VOICE:-1}" != "0" ]; then
     mkdir -p logs
     VLOG="logs/voice_$(date +%Y%m%d_%H%M%S).log"
