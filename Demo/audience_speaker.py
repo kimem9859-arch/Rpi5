@@ -95,6 +95,7 @@ class AudienceSpeaker:
     """
 
     CHUNK = 1024                 # 한 번에 넣는 샘플 수(48kHz 에서 약 21ms)
+    PRIOR_UNTIL = 4              # 실제 관측이 이만큼 쌓이기 전까지만 처음 값 두 점을 섞어 맞춘다
     PIPE_BYTES = 4096            # 관 크기 요청 — 커널이 페이지 크기(파이5 = 16KB)로 올린다
     AHEAD_MAX_SEC = 0.1          # 관에 이만큼 넘게 쌓아 두지 않는다 = 쌓인 소리 · 멈춤 지연의 상한(GIL 에 밀려도 끊기지 않을 여유)
 
@@ -104,9 +105,10 @@ class AudienceSpeaker:
         self.tv_lag = config.AUDIENCE_TV_LAG_SEC if tv_lag is None else tv_lag
         self.spb = 1 / 500_000 if spb is None else spb      # 안경이 받는 데 드는 초/바이트 — 처음 값 = 초당 500KB 가정 · 학습
         self._obs = collections.deque(maxlen=30)             # (바이트, 보내기 시작 → 「[재생]」 초) — 늘 드는 몫 + 비례 몫 맞추기
-        if spb is None:                                      # 🔑 처음 값 = 10/21 실측 직선(두 점) — 첫 문장부터 맞게 · 실제 관측이 쌓이면 밀려난다
-            for n in (60_000, 240_000):
-                self._obs.append((n, config.AUDIENCE_RECV_FIXED_SEC + config.AUDIENCE_RECV_SEC_PER_BYTE * n))
+        # 🔑 처음 값 = 10/21 실측 직선(두 점) — 첫 문장부터 맞게 · 실제 관측이 PRIOR_UNTIL 개 쌓이면 빼고 실제 관측만으로 맞춘다
+        #    (관측과 섞어 두면 그날 와이파이가 처음 값과 다를 때 직선을 오래 끌어당긴다 · 10/21 16:4x)
+        self._prior = [] if spb is not None else [
+            (n, config.AUDIENCE_RECV_FIXED_SEC + config.AUDIENCE_RECV_SEC_PER_BYTE * n) for n in (60_000, 240_000)]
         self.rate = rate or config.AUDIENCE_RATE
         self.peak = peak or config.AUDIENCE_PEAK
         self.cmd = cmd or ["pw-cat", "--playback", "--raw", "--format", "s16", "--rate", str(self.rate),
@@ -207,6 +209,8 @@ class AudienceSpeaker:
         """안경이 이 크기를 받아 재생을 시작하기까지 걸릴 시간(초) — 크기가 다른 관측이 쌓이면 「늘 드는 몫 + 크기 비례 몫」 직선,
         아니면 초/바이트 비례. 🔑 10/21 실측 — 늘 드는 몫이 약 0.2초라 비례만으로는 짧은 문장은 TV 가 앞서고 긴 문장은 늦었다."""
         obs = list(self._obs)
+        if len(obs) < self.PRIOR_UNTIL:
+            obs = self._prior + obs
         ns = [o[0] for o in obs]
         if len(obs) >= 2 and max(ns) - min(ns) >= 20_000:
             b, a = np.polyfit(np.array(ns, float), np.array([o[1] for o in obs], float), 1)

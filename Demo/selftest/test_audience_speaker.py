@@ -413,7 +413,8 @@ def test_learns_receive_time():
 
 
 def test_learns_fixed_plus_per_byte():
-    print("\n[앞당김] 받는 시간 = 늘 드는 몫 + 크기 비례 몫 — 두 크기를 배우면 세 번째 크기를 맞힌다(실측 10/21: 약 0.2초 + 1.25e-6초/바이트)")
+    print("\n[앞당김] 받는 시간 = 늘 드는 몫 + 크기 비례 몫 — 두 크기를 배우면 세 번째 크기를 맞힌다 · 🔑 처음 값(카메라 켬)과 다른 조건"
+          "(카메라 끔 실측 약 0.2초 + 1.25e-6초/바이트)이어도 관측이 쌓이면 처음 값에 끌려가지 않는다")
     sp = aus.AudienceSpeaker(lambda: True, cmd=["/없는/재생기"], log=lambda m: None)
     a, b = 0.205, 1.25e-6
     for n in (86_000, 120_000, 86_000, 120_000, 60_000, 200_000):
@@ -432,6 +433,14 @@ def test_receive_prior_from_measurement():
     check(abs(sp.receive_est(86_400) - want) < 0.01, f"86KB 처음 예측 {sp.receive_est(86_400):.3f}초 · 실측 직선 {want:.3f}초")
     sp2 = aus.AudienceSpeaker(lambda: True, cmd=["/없는/재생기"], log=lambda m: None, spb=1e-6)
     check(abs(sp2.receive_est(100_000) - 0.1) < 1e-9, "spb 를 주면 처음 값 대신 비례(시험용)")
+
+
+def test_receive_prior_is_camera_on():
+    print("\n[앞당김] 처음 값은 카메라 영상이 흐르는 조건(시연) — 10/21 16:4x 실측 290KB 1.91~1.98초 · 52KB 0.32~0.36초")
+    sp = aus.AudienceSpeaker(lambda: True, cmd=["/없는/재생기"], log=lambda m: None)
+    # 🔑 카메라 끔으로 잰 처음 값(0.205 + 1.25e-6)은 290KB 를 0.57초로 봐 시연을 켠 직후 TV 가 0.9초까지 먼저 났다
+    check(1.7 <= sp.receive_est(290_601) <= 2.1, f"290KB 처음 예측 {sp.receive_est(290_601):.3f}초(실측 1.91~1.98)")
+    check(0.25 <= sp.receive_est(52_674) <= 0.45, f"52KB 처음 예측 {sp.receive_est(52_674):.3f}초(실측 0.32~0.36)")
 
 def test_advance_off_waits_play_line():
     print("\n[앞당김] 끄면(SOP_AUDIENCE_ADVANCE=0) 종전대로 「[재생]」 때")
