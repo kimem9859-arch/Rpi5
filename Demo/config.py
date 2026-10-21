@@ -587,6 +587,10 @@ AUDIENCE_TAIL_MAX_SEC = 0.5     # 안경 「재생 완료」 뒤 TV 꼬리를 �
 AUDIENCE_TAIL_PAD_SEC = 0.3     # TV 쪽 버퍼 · HDMI · TV 처리 몫 — 10/21 안경 마이크 실측 TV 0.22초 늦음 + 여유(종전 추정 0.15)
 AUDIENCE_TV_LAG_SEC   = 0.22    # TV 가 안경보다 늦게 나는 몫(10/21 실측 · 0.19~0.26) — 앞당겨 틀 때 이만큼 일찍(설계 11장)
 AUDIENCE_ADVANCE      = os.environ.get("SOP_AUDIENCE_ADVANCE", "1") != "0"   # TV 앞당겨 틀기 · 끄기 = 「[재생]」 때 틀기
+# 안경이 소리 파일을 받아 재생을 시작하기까지(보내기 시작 → 「[재생]」) = 늘 드는 몫 + 크기 비례 몫 — 10/21 실측 직선(처음 값 ·
+#    시연 중에는 실제 값으로 다시 맞춘다 · AudienceSpeaker.receive_est)
+AUDIENCE_RECV_FIXED_SEC    = 0.205
+AUDIENCE_RECV_SEC_PER_BYTE = 1.25e-6
 # 🔑 시연 안내 모드(상위 specs/2026-10-18-시연안내모드-design.md) — 설정 화면 「시연 안내」 켬일 때만 쓰인다.
 #    색 이름 = 참여자에게 부르는 버튼 이름(§4 · 통합문서 §5.4 · §14.1) — 대본 · 알림 색 이름판이 같이 쓴다(한 곳).
 BUTTON_COLOR_NAMES = {"B1": "노랑", "B2": "흰색", "B3": "분홍", "B4": "파랑"}

@@ -104,6 +104,9 @@ class AudienceSpeaker:
         self.tv_lag = config.AUDIENCE_TV_LAG_SEC if tv_lag is None else tv_lag
         self.spb = 1 / 500_000 if spb is None else spb      # 안경이 받는 데 드는 초/바이트 — 처음 값 = 초당 500KB 가정 · 학습
         self._obs = collections.deque(maxlen=30)             # (바이트, 보내기 시작 → 「[재생]」 초) — 늘 드는 몫 + 비례 몫 맞추기
+        if spb is None:                                      # 🔑 처음 값 = 10/21 실측 직선(두 점) — 첫 문장부터 맞게 · 실제 관측이 쌓이면 밀려난다
+            for n in (60_000, 240_000):
+                self._obs.append((n, config.AUDIENCE_RECV_FIXED_SEC + config.AUDIENCE_RECV_SEC_PER_BYTE * n))
         self.rate = rate or config.AUDIENCE_RATE
         self.peak = peak or config.AUDIENCE_PEAK
         self.cmd = cmd or ["pw-cat", "--playback", "--raw", "--format", "s16", "--rate", str(self.rate),

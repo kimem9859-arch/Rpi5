@@ -424,6 +424,15 @@ def test_learns_fixed_plus_per_byte():
         want = a + b * n
         check(abs(est - want) / want < 0.05, f"{n // 1000}KB 예측 {est:.3f}초 · 실제 {want:.3f}초")
 
+
+def test_receive_prior_from_measurement():
+    print("\n[앞당김] 처음 값 = 10/21 실측(늘 드는 몫 + 비례 몫) — 첫 문장부터 맞게 · spb 를 직접 주면 그 값")
+    sp = aus.AudienceSpeaker(lambda: True, cmd=["/없는/재생기"], log=lambda m: None)
+    want = config.AUDIENCE_RECV_FIXED_SEC + config.AUDIENCE_RECV_SEC_PER_BYTE * 86_400
+    check(abs(sp.receive_est(86_400) - want) < 0.01, f"86KB 처음 예측 {sp.receive_est(86_400):.3f}초 · 실측 직선 {want:.3f}초")
+    sp2 = aus.AudienceSpeaker(lambda: True, cmd=["/없는/재생기"], log=lambda m: None, spb=1e-6)
+    check(abs(sp2.receive_est(100_000) - 0.1) < 1e-9, "spb 를 주면 처음 값 대신 비례(시험용)")
+
 def test_advance_off_waits_play_line():
     print("\n[앞당김] 끄면(SOP_AUDIENCE_ADVANCE=0) 종전대로 「[재생]」 때")
     p = _tmpraw()
