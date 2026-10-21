@@ -31,19 +31,32 @@ def check(cond, msg):
 
 
 def test_menu_items_four_without_record_shutdown():
-    """4.1 메뉴 — 항목 4개(점검 · 로그 · 설정 · 작업 초기화) · 녹화 · 시스템 종료 없음(사용자 10/13 · 설계 2026-10-13 §4.1)."""
+    """4.1 메뉴 — 항목(점검 · 로그 · 설정 · 작업 초기화 · 프로그램 종료) · 녹화 · 시스템 종료(파이 전원) 없음(사용자 10/13 ·
+    설계 2026-10-13 §4.1) · 「프로그램 종료」 = 앱만 닫음(사용자 10/21 — 키보드 없는 현장 · 상위 specs/2026-10-21-관객소리TV-design.md 8장)."""
     print("\n[1] MenuPanel 항목 · 신호")
     host = QWidget()
     m = MenuPanel(host)
-    check(m.item_titles() == ["점검 (연결)", "로그", "설정", "작업 초기화"], f"{m.item_titles()}")
-    check(not hasattr(m, "record_clicked") and not hasattr(m, "shutdown_clicked"), "녹화 · 종료 신호 없음")
+    check(m.item_titles() == ["점검 (연결)", "로그", "설정", "작업 초기화", "프로그램 종료"], f"{m.item_titles()}")
+    check(not hasattr(m, "record_clicked") and not hasattr(m, "shutdown_clicked"), "녹화 · 시스템 종료(파이 전원) 신호 없음")
     got = []
-    for name in ("check_clicked", "log_clicked", "settings_clicked", "reset_clicked"):
+    for name in ("check_clicked", "log_clicked", "settings_clicked", "reset_clicked", "quit_clicked"):
         getattr(m, name).connect(lambda n=name: got.append(n))
     for b in m._items:
         b.click()
-    check(got == ["check_clicked", "log_clicked", "settings_clicked", "reset_clicked"], f"{got}")
+    check(got == ["check_clicked", "log_clicked", "settings_clicked", "reset_clicked", "quit_clicked"], f"{got}")
 
+
+
+def test_menu_quit_item_warn_power():
+    """「프로그램 종료」 — 맨 아래 · 주의 색(작업 초기화와 같은 warn) · 전원 아이콘 · 설명에 음성비서도 함께."""
+    print("\n[1-b] 프로그램 종료 항목")
+    host = QWidget()
+    m = MenuPanel(host)
+    q = m._items[-1]
+    check(q.title.text() == "프로그램 종료", "맨 아래")
+    check(q.tone == m._items[-2].tone == "warn", f"warn 색 · 작업 초기화와 같음({q.tone})")
+    check(q.icon_name == "power", f"전원 아이콘({q.icon_name})")
+    check("음성비서도 함께" in q.desc.text(), f"설명 문구({q.desc.text()})")
 
 def test_menu_icons_are_line_art():
     """4.1 시안 대조(10/14) — 항목 아이콘 = 시안 선 그림(점검 · 로그 · 설정 · 초기화)."""

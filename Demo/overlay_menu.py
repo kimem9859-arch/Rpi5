@@ -300,6 +300,8 @@ class MenuPanel(_Sheet):
     """오른쪽 세로 메뉴 — 게임 메뉴 느낌(설계 2026-10-13 §4.1).
 
     🔴 「녹화」 · 「시스템 종료」 항목은 뺐다(사용자 10/13) — 녹화 코드 · RecordPanel · 종료 확인은 남는다(측정 · 촬영 런처가 쓴다).
+    🔑 「프로그램 종료」(사용자 10/21 · 상위 specs/2026-10-21-관객소리TV-design.md 8장) = 시연 프로그램만 닫는다(파이 전원 아님) —
+       키보드 없는 현장에서 ESC 대신. 확인 상자를 거친다.
     아래 시스템 상태 요약은 상태 막대와 같은 출처(콘솔 `_update_conn_bar`)가 열린 동안만 채운다.
     """
 
@@ -308,6 +310,7 @@ class MenuPanel(_Sheet):
     check_clicked = pyqtSignal()      # 점검(연결) — 수동 재연결·재확인
     settings_clicked = pyqtSignal()
     reset_clicked = pyqtSignal()      # 작업 초기화 — 「작업 시작」 직전으로 되돌린다
+    quit_clicked = pyqtSignal()       # 프로그램 종료 — 확인 상자 뒤 ESC 와 같은 길로 닫는다(2026-10-21)
     closed = pyqtSignal()
     SYS = (("camera", "안경 카메라"), ("interlock", "인터락"),
            ("gpio", "버튼 입력 (GPIO)"), ("detector", "AI 가속칩"))
@@ -333,7 +336,8 @@ class MenuPanel(_Sheet):
                 ("pulse", "점검 (연결)", "카메라 · 인터락 · AI 가속칩 상태", "text", self.check_clicked),
                 ("list", "로그", "시스템이 남긴 최근 기록", "text", self.log_clicked),
                 ("sliders", "설정", "공구 · 테마 · 화면 표시", "text", self.settings_clicked),
-                ("reset", "작업 초기화", "「작업 시작」 전으로 되돌립니다", "warn", self.reset_clicked)):
+                ("reset", "작업 초기화", "「작업 시작」 전으로 되돌립니다", "warn", self.reset_clicked),
+                ("power", "프로그램 종료", "시연 프로그램을 닫습니다 · 음성비서도 함께 꺼집니다", "warn", self.quit_clicked)):
             b = _MenuItem(icon, title, desc, tone)
             b.clicked.connect(sig.emit)
             lay.addWidget(b)

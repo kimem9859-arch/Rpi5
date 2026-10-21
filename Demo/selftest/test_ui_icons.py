@@ -31,6 +31,11 @@ def test_every_icon_draws():
         check(pm.width() == 28 and hit, f"{name}")
 
 
+
+def test_power_icon():
+    print("\n[아이콘] 전원(프로그램 종료 · 2026-10-21)")
+    check("power" in ui_icons.NAMES, "power 가 있다")
+
 def test_cache_and_color():
     print("\n[아이콘] 같은 것은 한 번만 만든다 · 색")
     a = ui_icons.pixmap("bell", "#ffd75c", 24)

@@ -2975,6 +2975,30 @@ def test_audience_switch_published():
     check(pubs[-1].get("관객소리") is True, "켜면 곧바로 켬 공개")
     win.close()
 
+def test_quit_needs_confirm():
+    """메뉴 「프로그램 종료」(상위 specs/2026-10-21-관객소리TV-design.md 8장) — 확인 상자(기본 취소) · 취소 · ESC 는 그대로 ·
+    「종료」만 ESC 와 같은 길(로그 → close)."""
+    print("\n[종료] 메뉴 → 확인 → 닫힘")
+    win = make_console()
+    closed = []
+    win.close = lambda: closed.append(1)
+    win._toggle_menu(True)
+    win._on_quit_clicked()
+    check(win.menu_panel.isHidden() and not win.exit_confirm_panel.isHidden(), "메뉴가 닫히고 확인 상자가 뜬다")
+    check(win.exit_confirm_panel.cancel_button.isDefault(), "기본 = 취소")
+    win.exit_confirm_panel.cancel_button.click()
+    check(win.exit_confirm_panel.isHidden() and not closed, "취소 → 그대로")
+    win._on_quit_clicked()
+    from PyQt6.QtGui import QKeyEvent
+    win.keyPressEvent(QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier))
+    check(win.exit_confirm_panel.isHidden() and not closed, "ESC → 상자만 닫힘")
+    win._on_quit_clicked()
+    win.exit_confirm_panel.ok_button.click()
+    check(closed == [1], "종료 → close() 한 번")
+    check("[시스템] 메뉴 — 프로그램 종료" in win.log_browser.toPlainText(), "로그 한 줄")
+    del win.close
+    win.close()
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

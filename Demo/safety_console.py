@@ -385,6 +385,7 @@ class SafetyConsole(QMainWindow):
         self.menu_panel.check_clicked.connect(self._open_check)
         self.menu_panel.settings_clicked.connect(self._open_settings)
         self.menu_panel.reset_clicked.connect(self._on_reset_clicked)
+        self.menu_panel.quit_clicked.connect(self._on_quit_clicked)
 
         self.notify_panel = NotifyPanel(central)
         self.notify_panel.closed.connect(lambda: self._toggle_notify(False))
@@ -425,6 +426,13 @@ class SafetyConsole(QMainWindow):
             "초기화", "취소", central)
         self.confirm_panel.accepted.connect(self._on_reset_confirmed)
         self.confirm_panel.closed.connect(self._on_reset_cancelled)
+        # 프로그램 종료 확인(상위 specs/2026-10-21-관객소리TV-design.md 8장) — 키보드 없는 현장 · 같은 앱 안 상자 · 기본 취소
+        self.exit_confirm_panel = ConfirmPanel(
+            "프로그램을 종료할까요?",
+            "시연 프로그램 · 음성비서 · 시연 안내가 함께 꺼집니다. 다시 쓰려면 바탕화면의 「SOP 가디언 최종 시연」 아이콘을 누릅니다.",
+            "종료", "취소", central)
+        self.exit_confirm_panel.accepted.connect(self._on_quit_confirmed)
+        self.exit_confirm_panel.closed.connect(lambda: self._toggle_sheet(self.exit_confirm_panel, False))
 
         self.result_panel = ResultPanel(central)
         self.result_panel.closed.connect(self._close_result)
@@ -513,6 +521,7 @@ class SafetyConsole(QMainWindow):
         self.record_panel.relayout(r)
         self.result_panel.relayout(r)
         self.confirm_panel.relayout(vr)
+        self.exit_confirm_panel.relayout(vr)
         # 🔴 상태바만 **영상 사각형** 기준이다 — 창 기준이면 오른쪽 검정
         #    레터박스에 앉는다(2026-08-04).
         self.conn_bar.relayout(self.camera_label.geometry())
@@ -540,7 +549,8 @@ class SafetyConsole(QMainWindow):
 
         for w in (self.glow, self.alert, self.menu_panel, self.notify_panel,
                   self.settings_panel, self.check_panel, self.record_panel,
-                  self.result_panel, self.confirm_panel, self.log_browser, self.btn_menu, self.btn_notify):
+                  self.result_panel, self.confirm_panel, self.exit_confirm_panel, self.log_browser, self.btn_menu,
+                  self.btn_notify):
             w.raise_()
         self._raise_log_controls()       # 🔴 위에서 로그 창을 올렸다 — ✕ · 거르기 버튼이 그 밑으로 깔리지 않게(최종 검토 I-2)
         if getattr(self, "_prompt_bar", None) is not None:      # 측정 화면 띠 — 결과창보다 위(3판 D20)
@@ -564,7 +574,7 @@ class SafetyConsole(QMainWindow):
         for w in (self.status_panel, self.gauge_panel, self.alert, self.glow,
                   self.menu_panel, self.notify_panel, self.settings_panel,
                   self.check_panel, self.record_panel, self.result_panel,
-                  self.conn_bar, self.confirm_panel):
+                  self.conn_bar, self.confirm_panel, self.exit_confirm_panel):
             w.apply_theme()
         # 시안 — 바탕 60% · 테두리 22% · 둥근 10(☰) / 8(🔔) · 선 아이콘
         btn_qss = (f"QPushButton {{ background-color: {theme.C('panel_bg')}; border: 1px solid {theme.C('panel_border')};"
@@ -759,7 +769,8 @@ class SafetyConsole(QMainWindow):
 
     def _sheets(self):
         return (self.menu_panel, self.notify_panel, self.settings_panel,
-                self.check_panel, self.record_panel, self.result_panel, self.confirm_panel)
+                self.check_panel, self.record_panel, self.result_panel, self.confirm_panel,
+                self.exit_confirm_panel)
 
     def _close_sheets(self, except_=None):
         """한 번에 하나만 열리게 한다 — 겹치면 뒤엣것을 못 읽는다."""
@@ -1954,6 +1965,17 @@ class SafetyConsole(QMainWindow):
             return
         self._toggle_menu(False)
         self._toggle_sheet(self.confirm_panel, True)
+
+    def _on_quit_clicked(self):
+        """≡ 메뉴 → 「프로그램 종료」 — 확인 상자를 띄운다(키보드 없는 현장의 ESC 대신 · 2026-10-21)."""
+        self._toggle_menu(False)
+        self._toggle_sheet(self.exit_confirm_panel, True)
+
+    def _on_quit_confirmed(self):
+        """확인 상자 「종료」 — ESC 의 마지막 단계와 같은 길(closeEvent 정리 → 런처가 음성비서 · 안내 · 터미널을 함께 끈다)."""
+        self._toggle_sheet(self.exit_confirm_panel, False)
+        self._append_log("[시스템] 메뉴 — 프로그램 종료")
+        self.close()
 
     def _on_reset_confirmed(self):
         """확인 상자 「초기화」.
