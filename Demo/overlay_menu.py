@@ -798,6 +798,7 @@ class SettingsPanel(_Sheet):
     scores_changed = pyqtSignal(bool)
     hand_changed = pyqtSignal(bool)
     guide_changed = pyqtSignal(bool)     # 시연 안내(상위 specs/2026-10-18-시연안내모드-design.md §6.1) — 기본 끔 · 저장 안 함
+    audience_changed = pyqtSignal(bool)  # TV 소리(관객 소리 · 상위 specs/2026-10-21-관객소리TV-design.md 9장) — 기본 켬 · 저장 안 함
     closed = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -919,9 +920,11 @@ class SettingsPanel(_Sheet):
         lay.addLayout(note)
         # 🔑 시연 안내는 위 안내 문장 아래 — 「화면 표시만 끕니다」가 이 스위치에도 걸려 읽히지 않게(사용자 2026-10-18)
         add_switch("guide", "시연 안내", "참여자용 — 작업 시작부터 안경으로 단계별 안내", False, self.guide_changed)
+        add_switch("audience", "TV 소리", "관객용 — 안경 소리를 TV 스피커로도 냅니다 · 끄면 안경에서만", True,
+                   self.audience_changed)
 
     def switch(self, name):
-        """켬/끔 스위치 — "bg" | "boxes" | "scores" | "hand" | "guide"(시연 안내)."""
+        """켬/끔 스위치 — "bg" | "boxes" | "scores" | "hand" | "guide"(시연 안내) | "audience"(TV 소리)."""
         return self._switches[name]
 
     def set_tools(self, tools, current_tool, tool_names=None, step_order=None):

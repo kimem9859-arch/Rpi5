@@ -167,6 +167,7 @@ class SafetyConsole(QMainWindow):
         # 🔑 시연 안내 모드(상위 specs/2026-10-18-시연안내모드-design.md §6.1 · §6.2) — 설정 「시연 안내」 켬일 때만
         #    손이 든 버튼 · 공구 단계 · 손 판정 끔을 hand.json 으로 낸다(바뀔 때만). 끔이면 아무 것도 쓰지 않는다.
         self._guide_on = False           # 켤 때마다 끔으로 시작 — 다른 설정처럼 저장하지 않는다
+        self._audience_on = True         # TV 소리(관객 소리 · 상위 specs/2026-10-21-관객소리TV-design.md 9장) — 켤 때마다 켬 · 저장 안 함
         self._hand_pub = StatePublisher(log=print, name=config.HAND_STATE_FILE)
         self._hand_last = None           # 마지막으로 쓴 (roi, level, 공구단계, 손판정끔)
         self._hand_seq = 0
@@ -412,6 +413,7 @@ class SafetyConsole(QMainWindow):
         self.settings_panel.scores_changed.connect(self._on_scores_changed)
         self.settings_panel.hand_changed.connect(self._on_hand_changed)
         self.settings_panel.guide_changed.connect(self._on_guide_changed)
+        self.settings_panel.audience_changed.connect(self._on_audience_changed)
         self.settings_panel.closed.connect(lambda: self._toggle_settings(False))
         # 공구 선택지는 **레시피가 준다** — 목록을 코드에 박지 않는다(design §4.4).
         self._wire_tool_settings()
@@ -1071,6 +1073,12 @@ class SafetyConsole(QMainWindow):
         if self._guide_on:
             self._publish_hand(force=True)
 
+    def _on_audience_changed(self, on):
+        """TV 소리 켬/끔 — 상태 파일 `관객소리` 칸으로 음성비서에 알린다(끄면 안경에서만 · 나던 TV 소리도 멈춤)."""
+        self._audience_on = bool(on)
+        self._append_log(f"[설정] TV 소리 → {'켬' if on else '끔(안경에서만)'}")
+        self._publish_state()
+
     def _publish_hand(self, force=False):
         """손 · 공구 파일(안내 모드일 때만 · 값이 바뀔 때만) — 🔴 GUI 흐름을 막지 않는다(쓰기 실패는 StatePublisher 가 삼킨다)."""
         if not self._guide_on:
@@ -1640,7 +1648,8 @@ class SafetyConsole(QMainWindow):
                 #    `세션` 이 거짓이라 음성 답은 그대로 「작업 시작 전」이다(A-M3 유지).
                 self._state_pub.publish({"세션": False, "비상정지": bool(self.fsm.emo_active),
                                          "EMO신호없음": bool(self._emo_no_signal),
-                                         "안내모드": self._guide_on})     # 시연 안내(2026-10-18 §6.1)
+                                         "안내모드": self._guide_on,       # 시연 안내(2026-10-18 §6.1)
+                                         "관객소리": self._audience_on})   # TV 소리(2026-10-21 9장)
                 return
             cur = self.fsm.expected_step
             steps = (self._recipe or {}).get("steps", [])
@@ -1682,6 +1691,7 @@ class SafetyConsole(QMainWindow):
                 "서브진행": prog,
                 "결과": result,
                 "안내모드": self._guide_on,       # 시연 안내(2026-10-18 §6.1) — 음성비서 · 안내 프로그램이 이 칸 하나를 본다
+                "관객소리": self._audience_on,    # TV 소리(2026-10-21 9장) — 음성비서 거울(AudienceFlag)이 본다
             })
         except Exception as e:                      # noqa: BLE001 — GUI 를 절대 안 죽인다
             self._append_log(f"[상태] 공개 실패: {e}")

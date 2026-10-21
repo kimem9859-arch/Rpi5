@@ -2058,7 +2058,8 @@ def test_review_am3_voice_state_file():
     now = watch(win)
     key(win, "E")
     check(win.fsm.state == State.BLOCK, f"작업 전 EMO 차단({win.fsm.state.value})")
-    check(now() == {"세션": False, "비상정지": True, "EMO신호없음": False, "안내모드": False},   # 안내모드 = 시연 안내(2026-10-18)
+    check(now() == {"세션": False, "비상정지": True, "EMO신호없음": False, "안내모드": False,   # 안내모드 = 시연 안내(2026-10-18)
+                    "관객소리": True},                                                         # 관객소리 = TV 소리(2026-10-21 · 기본 켬)
           f"작업 전 EMO — 세션 없음 + 비상정지만 공개(음성 알림이 보게 · 음성 답은 그대로 「작업 시작 전」) {now()}")
     win.close()
 
@@ -2958,6 +2959,21 @@ def test_guide_hand_last_inside():
     check("B4" not in (_read(_hand_path()).get("마지막안쪽") or {}), "링(접근)만으로는 남기지 않는다")
     win.close()
 
+
+def test_audience_switch_published():
+    """설정 「TV 소리」(상위 specs/2026-10-21-관객소리TV-design.md 9장) — 상태 파일 `관객소리` 칸 · 작업 전 · 작업 중 모두 · 기본 켬."""
+    print("\n[관객 소리] TV 소리 공개")
+    win = make_console()
+    check(win._audience_on is True, "기본 켬 — 켤 때마다 켬으로 시작(저장 안 함)")
+    pubs = []
+    win._state_pub.publish = pubs.append
+    win._on_audience_changed(False)
+    check(bool(pubs) and pubs[-1].get("관객소리") is False, f"작업 전 — 끔 공개 {pubs[-1] if pubs else None}")
+    win._on_cta()
+    check(pubs[-1].get("관객소리") is False and pubs[-1].get("세션") is not False, "작업 중에도 끔이 실린다")
+    win._on_audience_changed(True)
+    check(pubs[-1].get("관객소리") is True, "켜면 곧바로 켬 공개")
+    win.close()
 
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):

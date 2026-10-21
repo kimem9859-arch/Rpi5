@@ -252,6 +252,28 @@ def test_settings_guide_switch():
     s.hide()
 
 
+
+def test_settings_audience_switch():
+    """설정 「TV 소리」(상위 specs/2026-10-21-관객소리TV-design.md 9장) — 기본 켬 · 「시연 안내」 바로 아래 · 끄면 신호."""
+    print("\n[10-d] TV 소리 스위치")
+    host = QWidget(); s = SettingsPanel(host)
+    got = []
+    s.audience_changed.connect(lambda v: got.append(v))
+    check(s.switch("audience").isChecked() is True, "「TV 소리」 기본 켬(켤 때마다 켬으로 시작)")
+    check("TV 소리" in [n.text() for n in s._switch_names], "이름 「TV 소리」")
+    check("안경에서만" in s._switch_desc["audience"].text(), f"설명에 「끄면 안경에서만」 ({s._switch_desc['audience'].text()})")
+    s.switch("audience").click()
+    check(got == [False] and s.switch("audience").text() == "끔", f"끄면 audience_changed(False) 한 번 · 글 「끔」({got})")
+    s.switch("audience").click()
+    check(got == [False, True], f"켜면 audience_changed(True)({got})")
+    s.resize(856, 1200)
+    s.show()
+    QApplication.processEvents()
+    y_guide = s.switch("guide").mapTo(s, s.switch("guide").rect().topLeft()).y()
+    y_aud = s.switch("audience").mapTo(s, s.switch("audience").rect().topLeft()).y()
+    check(y_guide < y_aud, f"「시연 안내」 아래 줄(안내 {y_guide} · TV 소리 {y_aud})")
+    s.hide()
+
 def test_all_relayout_inside_screen():
     """세 패널 모두 화면 안에 배치되는가."""
     print("\n[11] 배치 경계")
