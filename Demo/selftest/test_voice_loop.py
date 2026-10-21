@@ -1217,6 +1217,49 @@ def test_m3_repeated_errors_end_daemon():
     check(ended and any("연속" in m for m in logs), f"오류 2번 연속 → 데몬 끝 — {[m for m in logs if '오류' in m][-3:]}")
 
 
+# ── 시연 안내 중 호출어 구간(상위 specs/2026-10-21-관객소리TV-design.md 10장) ───────────
+def test_gate_missing_or_ghost_allows():
+    print("\n[호출 구간] 파일 없음 · 유령 · 칸 없음이면 막지 않는다")
+    check(va.WakeGate(read=lambda: None)() is True, "파일 없음 · 유령(read_state 가 None) → True")
+    check(va.WakeGate(read=lambda: {})() is True, "칸 없음 → True")
+    check(va.WakeGate(read=lambda: {"호출허용": False})() is False, "닫힘 → False")
+    check(va.WakeGate(read=lambda: {"호출허용": True})() is True, "열림 → True")
+
+
+def test_wake_ok_follows_guide_switch():
+    print("\n[호출 구간] 시연 안내 끔이면 구간을 보지 않는다")
+    check(va.make_wake_ok(lambda: False, lambda: False)() is True, "안내 끔 + 닫힘 → 받음")
+    check(va.make_wake_ok(lambda: True, lambda: False)() is False, "안내 켬 + 닫힘 → 안 받음")
+    check(va.make_wake_ok(lambda: True, lambda: True)() is True, "안내 켬 + 열림 → 받음")
+
+
+def _gated_bot(open_):
+    spk = FakeSpk()
+    b = va.Assistant(spk, FakeTts(), FakeLlm(), read_state=lambda: STATE, read_tools=lambda: WRENCH,
+                     wake_ok=lambda: open_)
+    return b, spk
+
+
+def test_gated_wake_ignored():
+    print("\n[호출 구간] 닫힌 구간의 「가디언」 = 띠링 없음 · 창 안 열림 · 기록")
+    b, spk = _gated_bot(False)
+    m = {}
+    r = b.on_text("가디언", m)
+    check(r is False and not any(c[0] == "chime" for c in spk.calls), f"띠링 안 냄({spk.calls})")
+    check(b.awake_until == 0.0 and m.get("호출막음") is True and m.get("호출어") is False, f"창 안 열림 · 기록 {m}")
+    b2, spk2 = _gated_bot(True)
+    b2.on_text("가디언", {})
+    check(any(c[0] == "chime" for c in spk2.calls), "열린 구간이면 띠링")
+
+
+def test_open_window_question_unaffected():
+    print("\n[호출 구간] 이미 열린 대화창의 질문은 그대로 답한다")
+    b, spk = _gated_bot(False)
+    b.awake_until = time.time() + 20
+    m = {}
+    r = b.on_text("지금 몇 단계야?", m)
+    check(r is True, f"질문에 답함({m})")
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

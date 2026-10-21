@@ -850,6 +850,29 @@ def make_mirror(read_state=None):
         return None
 
 
+class WakeGate:
+    """시연 안내 중 호출어 구간(상위 specs/2026-10-21-관객소리TV-design.md 10장) — 안내 프로그램이 쓰는 guide_gate.json 의
+    `호출허용`. 🔑 파일 없음 · 유령(안내 프로그램이 안 돎) · 칸 없음이면 막지 않는다 — 안내도 없는데 호출만 막히지 않게."""
+
+    def __init__(self, read=None, ttl=0.3, clock=time.monotonic):
+        self._read = read or (lambda: voice_card.read_state(os.path.join(config.STATE_SHM_DIR, config.GUIDE_GATE_FILE)))
+        self.ttl, self._clock = ttl, clock
+        self._at, self._val = None, True
+
+    def __call__(self):
+        now = self._clock()
+        if self._at is None or now - self._at >= self.ttl:
+            v = (self._read() or {}).get("호출허용")
+            self._val = True if v is None else bool(v)
+            self._at = now
+        return self._val
+
+
+def make_wake_ok(guide_on, gate):
+    """호출어를 받아도 되나 — 「시연 안내」 끔이면 언제나(지금과 같다) · 켬이면 안내 프로그램이 연 구간에서만."""
+    return lambda: (not guide_on()) or gate()
+
+
 class GuideFlag:
     """설정 「시연 안내」 = 상태 파일의 `안내모드` 칸 — ttl 초 묶어 읽는다(알림 · 사건마다 파일을 읽지 않게) · 없거나 유령이면 끔."""
 
@@ -944,8 +967,9 @@ class Assistant:
     """
 
     def __init__(self, spk, tts=None, llm=None, alog=None, read_state=None, read_tools=None,
-                 clock=time.time, alert_gen=None):
+                 clock=time.time, alert_gen=None, wake_ok=None):
         self.spk = spk
+        self._wake_ok = wake_ok or (lambda: True)   # 시연 안내 중 호출어 구간(2026-10-21 10장) — 없으면 언제나 받음
         self.tts = tts
         self.llm = llm
         self.alog = alog or AudioLog(None)
@@ -1010,6 +1034,13 @@ class Assistant:
         now = self._clock()
         awake = now < self.awake_until
         wake = is_wake(text)
+        if wake and not self._wake_ok():
+            # 🔑 시연 안내 중 구간 밖(15번 장면이 아님) — 계획된 흐름이 안내 문장 · TV · 관객 말소리의 「가디언」에
+            #    흔들리지 않게 창을 열지 않는다(사용자 2026-10-21). 이미 열린 창의 질문은 아래에서 그대로 받는다.
+            VLOG.event("wake_gated", text=text)
+            m["호출막음"] = True
+            log(f"시연 안내 — 호출 구간 밖이라 「가디언」을 받지 않는다: {text}")
+            wake = False
         m["호출어"] = wake
         if wake:
             VLOG.event("wake")
@@ -1247,8 +1278,12 @@ def handle_utterance(bot, stt, alog, seg):
 
 
 def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
-        tts=_AUTO, llm=_AUTO, read_state=None, read_tools=None, stop=None):
-    """데몬 본체. `stt`·`tts`·`llm`·`read_*`·`stop` 은 시험이 넣는다(없으면 실제 모델·파일)."""
+        tts=_AUTO, llm=_AUTO, read_state=None, read_tools=None, stop=None, mirror=None):
+    """데몬 본체. `stt`·`tts`·`llm`·`read_*`·`stop` 은 시험이 넣는다(없으면 실제 모델·파일).
+
+    🔴 `mirror`(관객 소리 TV 거울)는 실행 입구 main() 만 만들어 넘긴다 — 기본 None. 여기서 만들면 가짜 안경으로 이 본체를
+       돌리는 시험이 진짜 TV 로 띠링 · 답을 냈다(2026-10-21 · TV 음소거를 푼 뒤 test_voice_loop).
+    """
     global VLOG
     VLOG = measure_log.open_from_env(["voice_events"], event_file="voice_events", log=log)
     guide_on = GuideFlag(read_state=read_state)          # 설정 「시연 안내」(상위 specs/2026-10-18-시연안내모드-design.md)
@@ -1268,8 +1303,8 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     alog = open_audio_log(AUDIO_DIR)
     if AUDIO_DIR:
         log(f"오디오 기록 → {AUDIO_DIR}")
-    spk = Speaker(get_ip, cmd_port, mirror=make_mirror(read_state))
-    log(f"관객 소리(TV) {'켬 — 설정 「TV 소리」 를 따른다' if spk.mirror else '끔(SOP_AUDIENCE_SPEAKER=0 · 또는 못 켬)'}")
+    spk = Speaker(get_ip, cmd_port, mirror=mirror)
+    log(f"관객 소리(TV) {'켬 — 설정 「TV 소리」 를 따른다' if spk.mirror else '없음(SOP_AUDIENCE_SPEAKER=0 · 못 켬 · 시험)'}")
     mic = MicReceiver(get_ip, mic_port, rate=RATE, stall_sec=STALL_SEC, retry_sec=RETRY_SEC,
                       lag_limit=LAG_LIMIT, max_queue_sec=WINDOW_SEC + LAG_LIMIT,
                       on_chunk=alog.mic, log=log, once=once)
@@ -1288,7 +1323,8 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     if cues is not None:
         cues.start(stop_ev)                      # 🔑 측정 안내 소리 — 요청이 없으면 아무 일도 없다(설계 D6)
     bot = Assistant(spk, tts, llm, alog, read_state=read_state, read_tools=read_tools,
-                    alert_gen=(lambda: alerts.gen) if alerts is not None else None)
+                    alert_gen=(lambda: alerts.gen) if alerts is not None else None,
+                    wake_ok=make_wake_ok(guide_on, WakeGate()))     # 시연 안내 중 호출어 구간(2026-10-21 10장)
     seen_alert = 0
     up_at = 0.0                       # 업링크 바이트 사건(10초마다)을 마지막으로 남긴 때
     errs = 0                          # 이어진 오류 수 — 답을 마친 발화가 있으면 0
@@ -1418,7 +1454,7 @@ def main():
     if os.environ.get("SOP_MEASURE_DIR"):
         exit_on_sigterm()
     try:
-        run(get_ip, once=a.once)
+        run(get_ip, once=a.once, mirror=make_mirror())     # 관객 소리(TV) — 진짜 실행에서만(시험은 run() 을 직접 부른다)
     except KeyboardInterrupt:
         print()
 

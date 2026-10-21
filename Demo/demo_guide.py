@@ -421,6 +421,12 @@ class GuideCore:
                 return True
         return False
 
+    def wake_open(self, voice):
+        """호출어를 받을 구간인가(상위 specs/2026-10-21-관객소리TV-design.md 10장) — 15-1 「지금 바로 "가디언"이라고
+        불러 주세요」가 끝난 뒤 16-1 을 기다리는 동안(음성비서 장면)만 · 답이 끝까지 나왔거나 두 번 실패하면 닫는다."""
+        return bool(self.active and self.cur() == "16-1" and "15-1" in self.t_end
+                    and not (self._voice_ok(voice) or self.voice_fails >= 2))
+
     def _voice_scene(self, voice):
         if self._voice_ok(voice) or self.voice_fails >= 2:
             return None
@@ -498,6 +504,11 @@ class GuideCore:
 
 
 # ---------------------------------------------------------------------- 실행
+def gate_value(core, voice, locked):
+    """음성비서에 내보낼 「호출허용」 — 측정 진행 도우미가 돌아 안내가 쉬면 막지 않는다(측정의 음성 대본을 막지 않게)."""
+    return True if locked else core.wake_open(voice)
+
+
 def _read_json(path):
     try:
         with open(path, encoding="utf-8") as f:
@@ -567,6 +578,9 @@ def main(argv=None):
     ack_p = os.path.join(config.CUE_SHM_DIR, "ack.json")
     say(f"시연 안내 프로그램 시작 — 설정 「시연 안내」 켬일 때만 말한다 · 기록(켠 뒤) {logp}")
     seen, lock_t, locked = 0, 0.0, False
+    # 🔑 호출어 구간(10장) — 값이 바뀔 때와 1초마다 쓴다(pid 를 실어 안내가 죽으면 음성비서가 유령으로 보고 막지 않는다)
+    from state_publisher import StatePublisher
+    gate_pub, gate_last, gate_t = StatePublisher(name=config.GUIDE_GATE_FILE, log=say), None, 0.0
     while not stop:
         try:
             now = measure_log.now_ms()
@@ -579,7 +593,14 @@ def main(argv=None):
             st = voice_card.read_state()
             hand = voice_card.read_state(hand_p)
             vv = voice_card.read_state(voice_p)
-            r = core.tick(now, None if locked else st, hand, (vv or {}).get("events") or [], ack)
+            events = (vv or {}).get("events") or []
+            r = core.tick(now, None if locked else st, hand, events, ack)
+            g = gate_value(core, events, locked)
+            if g != gate_last or now - gate_t >= 1000:
+                gate_pub.publish({"호출허용": g})
+                if g != gate_last and (core.active or gate_last is not None):
+                    say(f"호출어 구간 {'열림 — 「가디언」을 받는다' if g else '닫힘'}")
+                gate_last, gate_t = g, now
             if core.active or core.emo_wait:
                 open_log()
             for m in core.log[seen:]:
@@ -594,6 +615,10 @@ def main(argv=None):
             say(f"🔴 안내 오류 — 계속한다: {type(e).__name__}: {e}")
         time.sleep(a.tick)
     say("시연 안내 프로그램 끝")
+    try:
+        gate_pub.clear()                       # 파일이 없으면 음성비서는 호출을 막지 않는다
+    except Exception:                          # noqa: BLE001
+        pass
     if box["out"] is not None:
         box["out"].close()
     return 0

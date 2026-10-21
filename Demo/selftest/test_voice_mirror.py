@@ -216,6 +216,14 @@ def test_make_mirror_off():
         config.AUDIENCE_SPEAKER = old
 
 
+def test_run_makes_no_real_mirror_by_itself():
+    print("\n[거울] 🔴 시험이 부르는 run() 은 진짜 TV 재생기를 띄우지 않는다 — 실행 입구(main)만 만든다")
+    import inspect
+    sig = inspect.signature(va.run)
+    check("mirror" in sig.parameters and sig.parameters["mirror"].default is None, "run(mirror=None) — 기본 = 거울 없음")
+    check("make_mirror(" not in inspect.getsource(va.run), "run() 안에서 make_mirror 를 부르지 않는다")
+    check("make_mirror(" in inspect.getsource(va.main), "main() 이 거울을 만들어 넘긴다")
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

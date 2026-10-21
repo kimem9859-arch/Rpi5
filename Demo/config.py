@@ -591,6 +591,7 @@ GUIDE_ALERT_WAIT_SEC = 8.0      # 알림이 끝났다는 사건을 기다리는 
 GUIDE_ACK_WAIT_SEC   = 20.0     # 소리 하나의 응답 상한 — 넘으면 끝난 것으로 치고 다음(안내가 영영 멈추지 않게)
 HAND_STATE_FILE  = "hand.json"   # STATE_SHM_DIR 안 — GUI 가 손 · 공구 단계를 안내 모드일 때만 낸다(§6.2)
 GUIDE_VOICE_FILE = "voice.json"  # CUE_SHM_DIR 안 — 음성비서 사건 거울(안내 모드일 때만 · §6.2)
+GUIDE_GATE_FILE  = "guide_gate.json"  # STATE_SHM_DIR 안 — 안내 프로그램 → 음성비서 「호출허용」(시연 안내 중 호출어는 15번 장면에서만 · 상위 specs/2026-10-21-관객소리TV-design.md 10장)
 # 🔑 마이크 증폭(2026-10-08 · 통합문서 §9) — 안경 프레임 안(관자놀이) 착용이면 말소리가 입 앞의 약 절반이라
 #    발화 시작 문턱(400)에 못 미쳤다(호출 0/10). 음성비서가 발화 감지·받아쓰기로 넣는 소리만 키운다 —
 #    원본 녹음(마이크_전체.wav)은 증폭 전 그대로고, 잘라낸 발화(발화_NNN.wav)·계측 RMS 는 증폭 뒤다. 끄기 = SOP_MIC_GAIN=1

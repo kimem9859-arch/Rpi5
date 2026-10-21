@@ -843,6 +843,50 @@ def test_reset_midway():
     check(w.sids().count("1-1") == 2, "다음 시작에서 1-1")
 
 
+# ── 호출어 구간(상위 specs/2026-10-21-관객소리TV-design.md 10장) ─────────────────────
+def _talk(w):
+    """15-1 뒤 참여자가 부르고 묻고 답이 끝까지 나오는 것(Actor.a_15_1 과 같은 사건)."""
+    w.voice.append([w.now, "wake", {}])
+    w.voice.append([w.now + 900, "stt", {"text": "지금 몇 단계야"}])
+    w.later(1500, lambda: w.voice.append([w.now, "answer", {"src": "즉답", "key": None}]))
+    w.later(4000, lambda: w.voice.append([w.now, "play_end", {"what": "완료", "key": None}]))
+
+
+def test_wake_window_opens_after_15_1():
+    print("\n[호출 구간] 15-1 끝 전 닫힘 → 끝나면 열림 → 답이 끝까지 나오면 닫힘")
+    w = World()
+    Actor(w, skip={"15-1"})
+    w.start()
+    seen = []
+    w.until(lambda: seen.append(w.core.wake_open(w.voice)) or "15-1" in w.core.t_end)
+    check(seen[:-1] and not any(seen[:-1]), f"15-1 이 끝나기 전에는 닫힘({len(seen) - 1}번 봄)")
+    check(w.core.wake_open(w.voice) is True, "15-1 이 끝나면 열림")
+    _talk(w)
+    w.until(lambda: any(e[1] == "answer" for e in w.voice))
+    check(w.core.wake_open(w.voice) is True, "답이 나오는 중에는 열림")
+    w.until(lambda: "16-1" in w.sids())
+    check(w.core.wake_open(w.voice) is False, "답이 끝까지 나오면 닫힘(16번)")
+    w.core._reset(False)
+    check(w.core.wake_open(w.voice) is False, "회차를 처음으로 되돌리면 닫힘")
+
+
+def test_wake_window_fail_twice():
+    print("\n[호출 구간] 15-R1 동안 열림 · 두 번 실패(15-R2)면 닫힘")
+    w = World()
+    Actor(w, skip={"15-1", "15-R1"})
+    w.start()
+    w.until(lambda: "15-R1" in w.sids())
+    check(w.core.wake_open(w.voice) is True, "15-R1(다시 불러 주세요) 동안 열림")
+    w.until(lambda: "15-R2" in w.sids())
+    check(w.core.wake_open(w.voice) is False, "두 번 실패하면 닫힘")
+
+
+def test_gate_value():
+    print("\n[호출 구간] 내보낼 값 — 측정 진행 도우미가 돌면(안내가 쉼) 막지 않는다 · 작업 전 닫힘")
+    core = dg.GuideCore(SENT)
+    check(dg.gate_value(core, [], locked=True) is True, "쉬는 중 → 막지 않음(True)")
+    check(dg.gate_value(core, [], locked=False) is False, "작업 전(안내 켬) → 닫힘")
+
 if __name__ == "__main__":
     for name, fn in [(n, f) for n, f in globals().items() if n.startswith("test_")]:
         try:
