@@ -357,6 +357,10 @@ try:
         _cached_ip = _f.read().strip()
 except OSError:  # 파일 없음·권한 등 — 기본 IP로 폴백(앱 기동은 막지 않는다)
     _cached_ip = None
+# 🔑 메인 안경 고유 번호(무선 MAC = USB 시리얼 번호 · 10/21 공유기 이웃 표로 같음 확인) — 번호 정본 = Rpi5/CLAUDE.md 「ESP32 실HW 함정」 ·
+#    arduino/read_esp32_ip.sh MAIN_SN 과 같다. 시연을 켤 때 glass_finder.py 가 이 번호로 안경 주소를 찾아 .camera_ip 를 맞춘다.
+GLASS_MAC    = "68:EE:8F:4F:5D:38"
+GLASS_SUBNET = "192.168.1."     # 우리 공유기 대역 — 핫스팟(10.x)은 찾지 않는다(그쪽에 붙으면 fps 만 떨어지는 조용한 고장)
 # 🔑 집 리허설은 가짜 카메라(127.0.0.1)로 — .camera_ip 를 건드리지 않고 환경변수로 덮는다(학교 방문 준비 설계 §7.1)
 CAMERA_TCP_HOST = os.environ.get("SOP_CAMERA_HOST") or (_cached_ip if _cached_ip else "10.111.10.235")
 CAMERA_TCP_PORT = 8888

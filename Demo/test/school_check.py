@@ -54,7 +54,7 @@ def recv_probe(host, port=None, sec=5.0):
         s = socket.create_connection((host, port), timeout=3)
     except OSError as e:
         return _c("안경", "연결 · 받기", False, f"{host}:{port} 연결 안 됨 — {e}",
-                  "V2 · 안경을 USB 로 꽂고 bash arduino/update_ip.sh(바뀐 IP 를 읽어 .camera_ip 갱신) · 안경 전원")
+                  "V2 · USB 없이 python3 Demo/glass_finder.py --apply(고유 번호로 찾아 .camera_ip 갱신) · 안 되면 안경을 USB 로 꽂고 bash arduino/update_ip.sh · 안경 전원")
     s.settimeout(3)
     n, size, first, t0 = 0, 0, None, time.monotonic()
     try:
