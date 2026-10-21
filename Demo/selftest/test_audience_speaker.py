@@ -411,6 +411,19 @@ def test_learns_receive_time():
     check(abs(sp.spb - want) < abs(before - want), f"실제(0.4초) 쪽으로 다가감({before:.2e} → {sp.spb:.2e} · 실제 {want:.2e})")
 
 
+
+def test_learns_fixed_plus_per_byte():
+    print("\n[앞당김] 받는 시간 = 늘 드는 몫 + 크기 비례 몫 — 두 크기를 배우면 세 번째 크기를 맞힌다(실측 10/21: 약 0.2초 + 1.25e-6초/바이트)")
+    sp = aus.AudienceSpeaker(lambda: True, cmd=["/없는/재생기"], log=lambda m: None)
+    a, b = 0.205, 1.25e-6
+    for n in (86_000, 120_000, 86_000, 120_000, 60_000, 200_000):
+        with sp._lock:
+            sp._learn(100.0, n, 100.0 + a + b * n)
+    for n in (50_000, 400_000):
+        est = sp.receive_est(n)
+        want = a + b * n
+        check(abs(est - want) / want < 0.05, f"{n // 1000}KB 예측 {est:.3f}초 · 실제 {want:.3f}초")
+
 def test_advance_off_waits_play_line():
     print("\n[앞당김] 끄면(SOP_AUDIENCE_ADVANCE=0) 종전대로 「[재생]」 때")
     p = _tmpraw()

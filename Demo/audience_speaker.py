@@ -5,6 +5,7 @@
 🔴 거울은 안경 쪽을 절대 흔들지 않는다 — 여기 실패는 여기서 끝난다(설계 4장 8).
 """
 import array
+import collections
 import fcntl
 import os
 import struct
@@ -102,6 +103,7 @@ class AudienceSpeaker:
         self.advance = config.AUDIENCE_ADVANCE if advance is None else advance
         self.tv_lag = config.AUDIENCE_TV_LAG_SEC if tv_lag is None else tv_lag
         self.spb = 1 / 500_000 if spb is None else spb      # 안경이 받는 데 드는 초/바이트 — 처음 값 = 초당 500KB 가정 · 학습
+        self._obs = collections.deque(maxlen=30)             # (바이트, 보내기 시작 → 「[재생]」 초) — 늘 드는 몫 + 비례 몫 맞추기
         self.rate = rate or config.AUDIENCE_RATE
         self.peak = peak or config.AUDIENCE_PEAK
         self.cmd = cmd or ["pw-cat", "--playback", "--raw", "--format", "s16", "--rate", str(self.rate),
@@ -196,6 +198,18 @@ class AudienceSpeaker:
         obs = t_play - t_send
         if 0 < obs < 5.0:
             self.spb = 0.7 * self.spb + 0.3 * (obs / nbytes)
+            self._obs.append((nbytes, obs))
+
+    def receive_est(self, nbytes):
+        """안경이 이 크기를 받아 재생을 시작하기까지 걸릴 시간(초) — 크기가 다른 관측이 쌓이면 「늘 드는 몫 + 크기 비례 몫」 직선,
+        아니면 초/바이트 비례. 🔑 10/21 실측 — 늘 드는 몫이 약 0.2초라 비례만으로는 짧은 문장은 TV 가 앞서고 긴 문장은 늦었다."""
+        obs = list(self._obs)
+        ns = [o[0] for o in obs]
+        if len(obs) >= 2 and max(ns) - min(ns) >= 20_000:
+            b, a = np.polyfit(np.array(ns, float), np.array([o[1] for o in obs], float), 1)
+            a, b = min(max(a, 0.0), 0.6), min(max(b, 1e-8), 1e-4)
+            return a + b * nbytes
+        return self.spb * nbytes
 
     def _next_chunk(self):
         on = self.enabled()                  # 🔑 잠금 밖에서 — 상태 파일 읽기가 begin · stop 을 붙잡지 않게(검토 Minor 3)
@@ -302,7 +316,7 @@ class AudienceSpeaker:
                 self._learn(t_send, n, self._begin_at)
                 self._begin_at = None
             elif self.advance and t_send is not None:
-                self._pending = (pcm, t_send + self.spb * n - self.tv_lag, t_send, n)
+                self._pending = (pcm, t_send + self.receive_est(n) - self.tv_lag, t_send, n)
             else:
                 self._prepared = (pcm, t_send, n)
 
