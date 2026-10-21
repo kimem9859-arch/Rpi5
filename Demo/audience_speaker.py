@@ -4,11 +4,13 @@
    이 파일 = 소리 재료(프레임 풀기 · 크기 맞춤 · 레이트 바꾸기 · 띠링)와 TV 통로(`AudienceSpeaker`).
 🔴 거울은 안경 쪽을 절대 흔들지 않는다 — 여기 실패는 여기서 끝난다(설계 4장 8).
 """
+import array
 import fcntl
 import os
 import struct
 import subprocess
 import sys
+import termios
 import threading
 import time
 
@@ -79,15 +81,17 @@ class AudienceSpeaker:
     """계속 열어 둔 재생기(`pw-cat` · PipeWire 기본 출력) 하나로 TV 에 소리를 흘린다(설계 4장 6).
 
     🔑 쉴 때도 무음을 흘린다 — 소리마다 재생기를 띄우면 시작이 늦고, HDMI 는 쉬다가 다시 열릴 때 TV 가 앞소리를
-       잘라 먹는다. 1024샘플씩 넣되 실제 시간보다 AHEAD_MAX_SEC 넘게 앞서 넣지 않는다 → 쌓인 소리가 그만큼뿐이라
-       멈춤이 바로 듣는다. ⚠️ 관(파이프) 크기는 줄여 봐야 페이지 크기까지다(파이5 커널 = 16KB ≈ 0.17초) — 상한은 이 규칙이 정한다.
+       잘라 먹는다. 1024샘플씩 넣되 관(파이프)에 쌓인 소리를 직접 재서(FIONREAD) AHEAD_MAX_SEC 분을 넘으면 기다린다 →
+       쌓인 소리가 그만큼뿐이라 멈춤이 바로 듣고 TV 가 덜 늦는다. ⚠️ 관 크기는 줄여 봐야 페이지 크기까지다(파이5 커널 = 16KB ≈
+       0.17초). 🔴 공급 쪽 시계로만 재면 재생기가 늦게 읽기 시작한 뒤 회복하지 못해 관이 가득 찼다(검토 I1 · 0.3초 늦은 시작 →
+       약 0.27초 적체) — 시간 규칙은 FIONREAD 가 안 될 때의 대체로만 남긴다.
     🔑 순서 = `prepare(프레임)`(풀어 두기만) → 안경이 「[재생]」을 알리면 `begin()` · 띠링은 `chime(kind)` · `stop()`.
     🔴 어떤 메서드도 예외를 밖으로 내지 않는다 — 재생기가 없거나 죽으면 TV 만 조용히 빠진다(로그는 종류마다 한 줄).
     """
 
     CHUNK = 1024                 # 한 번에 넣는 샘플 수(48kHz 에서 약 21ms)
     PIPE_BYTES = 4096            # 관 크기 요청 — 커널이 페이지 크기(파이5 = 16KB)로 올린다
-    AHEAD_MAX_SEC = 0.1          # 실제 시간보다 이만큼 넘게 앞서 넣지 않는다 = 쌓인 소리 · 멈춤 지연의 상한(GIL 에 밀려도 끊기지 않을 여유)
+    AHEAD_MAX_SEC = 0.1          # 관에 이만큼 넘게 쌓아 두지 않는다 = 쌓인 소리 · 멈춤 지연의 상한(GIL 에 밀려도 끊기지 않을 여유)
 
     def __init__(self, enabled, cmd=None, rate=None, peak=None, log=print, retry_sec=10.0, flag_ttl=0.3):
         self.rate = rate or config.AUDIENCE_RATE
@@ -108,6 +112,7 @@ class AudienceSpeaker:
         self._flag_at, self._flag = None, False
         self._chimes = {}
         self._t_base, self._written = time.monotonic(), 0
+        self._last_write = 0.0               # 재생기에 마지막으로 써 넣은 때 — 막혔는지 본다(검토 Minor 2)
 
     # ---------------------------------------------------------------- 안쪽
     def _warn(self, key, msg):
@@ -144,6 +149,7 @@ class AudienceSpeaker:
         except (OSError, AttributeError):
             pass
         self._t_base, self._written = time.monotonic(), 0
+        self._last_write = time.monotonic()
         self._proc = p
         return True
 
@@ -167,10 +173,11 @@ class AudienceSpeaker:
             self._warn("died", "⚠️ 관객 소리(TV) 재생기가 멈췄다 — 다시 띄운다")
 
     def _next_chunk(self):
+        on = self.enabled()                  # 🔑 잠금 밖에서 — 상태 파일 읽기가 begin · stop 을 붙잡지 않게(검토 Minor 3)
         with self._lock:
             if self._cur is None:
                 return None
-            if not self.enabled():
+            if not on:
                 self._cur, self._last_end = None, time.monotonic()
                 return None
             c = self._cur[self._pos:self._pos + self.CHUNK]
@@ -180,6 +187,32 @@ class AudienceSpeaker:
         if len(c) < self.CHUNK:
             c = np.concatenate([c, np.zeros(self.CHUNK - len(c), np.int16)])
         return c.tobytes()
+
+    @staticmethod
+    def _queued(p):
+        """관에 쌓여 아직 재생기가 읽지 않은 바이트 — 못 재면 None."""
+        try:
+            buf = array.array("i", [0])
+            fcntl.ioctl(p.stdin.fileno(), termios.FIONREAD, buf)
+            return buf[0]
+        except (OSError, ValueError, AttributeError):
+            return None
+
+    def _wait_room(self, p):
+        """관에 AHEAD_MAX_SEC 분 넘게 쌓였으면 줄 때까지 기다린다(못 재면 공급 쪽 시계 규칙)."""
+        limit = int(self.AHEAD_MAX_SEC * self.rate) * 2
+        while not self._closed.is_set():
+            if p.poll() is not None:
+                return                       # 🔴 재생기가 죽었다 — 관은 영영 안 준다 · 바로 써 보게 해 죽음을 알아챈다(_died)
+            q = self._queued(p)
+            if q is None:
+                ahead = self._written / self.rate - (time.monotonic() - self._t_base)
+                if ahead > self.AHEAD_MAX_SEC:
+                    time.sleep(ahead - self.AHEAD_MAX_SEC)
+                return
+            if q <= limit:
+                return
+            time.sleep(0.005)
 
     def _run(self):
         silence = np.zeros(self.CHUNK, np.int16).tobytes()
@@ -192,13 +225,12 @@ class AudienceSpeaker:
                     time.sleep(0.05)
                     continue
                 p = self._proc
+            self._wait_room(p)                   # 🔑 덩어리를 꺼내기 전에 — 멈춤 · 시작이 곧바로 다음 덩어리에 걸리게
             buf = self._next_chunk() or silence
-            ahead = self._written / self.rate - (time.monotonic() - self._t_base)
-            if ahead > self.AHEAD_MAX_SEC:
-                time.sleep(ahead - self.AHEAD_MAX_SEC)
             try:
                 p.stdin.write(buf)
                 self._written += len(buf) // 2
+                self._last_write = time.monotonic()
             except (OSError, ValueError, AttributeError):
                 if not self._closed.is_set():
                     self._died(p)
@@ -214,7 +246,11 @@ class AudienceSpeaker:
             self._warn("start", f"⚠️ 관객 소리(TV) 시작 실패 — TV 소리 없이 계속한다: {e}")
 
     def prepare(self, payload):
-        """안경으로 보낼 프레임을 풀어 둔다(아직 소리 아님) — 소리 프레임이 아니면 비운다."""
+        """안경으로 보낼 프레임을 풀어 둔다(아직 소리 아님) — 소리 프레임이 아니면 비운다 · 끔 · 재생기 없음이면 풀지 않는다."""
+        if not (self.enabled() and self._proc is not None):
+            with self._lock:
+                self._prepared = None
+            return
         try:
             got = parse_frame(payload)
             pcm = None if got is None else resample(normalize(got[0], self.peak), got[1], self.rate)
@@ -266,6 +302,8 @@ class AudienceSpeaker:
             if not self.busy and t0 - self._last_end >= pad:
                 return
             while self.busy and time.monotonic() < end:
+                if time.monotonic() - self._last_write > 0.3:
+                    return                       # 재생기가 읽지 않고 막혔다 — 기다려도 TV 는 안 난다(검토 Minor 2)
                 time.sleep(0.01)
             rest = min(end, self._last_end + pad) - time.monotonic()
             if rest > 0:

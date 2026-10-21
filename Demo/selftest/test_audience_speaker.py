@@ -262,6 +262,58 @@ def test_wait_tail_bounded():
     check(0.45 <= dt <= 0.6, f"5초 소리에도 0.5초 상한({dt:.2f}초)")
 
 
+
+def test_late_start_backlog_bounded():
+    print("\n[통로] 🔴 검토 I1 — 재생기가 늦게 읽기 시작해도 관에 쌓이는 소리는 상한(약 0.1초) 안")
+    late = _FAKE.replace("f=open(sys.argv[1],'ab')\n", "f=open(sys.argv[1],'ab')\ntime.sleep(0.3)\n")
+    fd, p = tempfile.mkstemp(suffix=".raw")
+    os.close(fd)
+    sp = aus.AudienceSpeaker(lambda: True, cmd=[sys.executable, "-c", late, p], log=lambda m: None, flag_ttl=0.05)
+    sp.start()
+    time.sleep(1.0)
+    sp.prepare(_frame(1.0))
+    t0 = time.monotonic()
+    sp.begin()
+    lag = None
+    while time.monotonic() - t0 < 1.5:
+        a = _read(p)
+        if a.size and int(np.abs(a).max()) > 0:
+            lag = time.monotonic() - t0
+            break
+        time.sleep(0.005)
+    sp.close()
+    os.remove(p)
+    check(lag is not None and lag <= 0.2, f"시작 지연 0.3초 재생기에서도 소리가 {lag if lag is None else round(lag, 3)}초 뒤에 나감(≤ 0.2)")
+
+
+def test_prepare_skipped_when_off():
+    print("\n[통로] 검토 Minor 1 — 「TV 소리」 끔이면 프레임을 풀지 않는다(안경 쪽 시간 0)")
+    sp = aus.AudienceSpeaker(lambda: False, cmd=["/없는/재생기"], log=lambda m: None)
+    sp.prepare(_frame(1.0))
+    check(sp._prepared is None, "끔 → 준비한 것 없음")
+
+
+def test_wait_tail_skips_stuck_player():
+    print("\n[통로] 검토 Minor 2 — 재생기가 읽지 않고 막혀 있으면 꼬리를 기다리지 않는다")
+    stuck = "import time\ntime.sleep(30)\n"
+    sp = aus.AudienceSpeaker(lambda: True, cmd=[sys.executable, "-c", stuck], log=lambda m: None, flag_ttl=0.05)
+    sp.start()
+    time.sleep(1.2)                       # 관이 가득 차 공급 스레드가 쓰기에서 막힘
+    sp.prepare(_frame(2.0))
+    sp.begin()
+    t0 = time.monotonic()
+    sp.wait_tail(0.5)
+    dt = time.monotonic() - t0
+    sp.close()
+    check(dt < 0.1, f"막힌 재생기 → 바로 돌아옴({dt:.2f}초)")
+
+
+def test_next_chunk_reads_flag_outside_lock():
+    print("\n[통로] 검토 Minor 3 — 설정(상태 파일)은 잠금 밖에서 읽는다")
+    import inspect
+    src = inspect.getsource(aus.AudienceSpeaker._next_chunk)
+    check(src.index("self.enabled()") < src.index("with self._lock"), "enabled() 가 with self._lock 보다 앞")
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

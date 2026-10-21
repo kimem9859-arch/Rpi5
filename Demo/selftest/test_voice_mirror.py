@@ -224,6 +224,12 @@ def test_run_makes_no_real_mirror_by_itself():
     check("make_mirror(" not in inspect.getsource(va.run), "run() 안에서 make_mirror 를 부르지 않는다")
     check("make_mirror(" in inspect.getsource(va.main), "main() 이 거울을 만들어 넘긴다")
 
+def test_prepare_after_sendall():
+    print("\n[거울] 검토 Minor 1 — 프레임 풀기는 안경 전송 뒤(안경 쪽 지연 0)")
+    import inspect
+    src = inspect.getsource(va.Speaker._send)
+    check(src.index("sendall(payload)") < src.index('_mirror("prepare"'), "sendall 뒤에 prepare")
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
