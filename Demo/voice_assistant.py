@@ -350,7 +350,11 @@ class Speaker:
        `ip` 는 문자열 또는 주소를 돌려주는 함수다.
     """
 
-    def __init__(self, ip, port=CMD_PORT):
+    def __init__(self, ip, port=CMD_PORT, mirror=None):
+        # 🔑 mirror = 관객 소리(TV) 거울(audience_speaker.AudienceSpeaker · 상위 specs/2026-10-21-관객소리TV-design.md) —
+        #    안경으로 가는 소리를 같은 때 TV 로도 낸다. 🔴 거울 실패는 안경 쪽 바이트 · 반환값을 바꾸지 않는다(_mirror).
+        self.mirror = mirror
+        self._mirror_warned = False
         self._ip = ip if callable(ip) else (lambda: ip)
         self.port = port
         self.ip = None                # 마지막으로 붙은 주소
@@ -447,8 +451,11 @@ class Speaker:
             elif t.startswith("[재생]"):
                 vev_play_line(t, self._cur_key)
                 self.last_play_start = time.time()      # 🔑 소리가 나기 시작한 때(설계 2026-10-04 §4.3 목표 측정)
+                self._mirror("begin")                   # 관객 소리(TV)도 지금 — 안경이 실제로 내기 시작한 때(설계 4장 2)
             elif "재생 완료" in t or "재생 중단" in t:
                 vev_play_line(t, self._cur_key)
+                if "재생 중단" in t:
+                    self._mirror("stop")
                 self.s.settimeout(30)
                 return out
         if why == "FAIL":
@@ -487,11 +494,35 @@ class Speaker:
 
         🔑 그 확인은 보내기 잠금(`_tx`) 안에서 한다 — 알림 감시는 gen 을 올린 **뒤** 멈춤 S 를 보내므로(같은 잠금),
            확인과 전송 사이에 알림이 끼어 낡은 답이 알림 뒤에 이어 나가는 창이 없다(최종 리뷰 I2).
+        🔑 관객 소리(TV) 꼬리 — 안경이 「[재생 완료]」를 알려도 TV 는 조금 늦게 끝난다. 그만큼(상한 AUDIENCE_TAIL_MAX_SEC)
+           기다렸다 돌려줘 호출부의 소리 버림 구간이 TV 꼬리까지 덮게 한다(안경 마이크가 TV 를 듣는다 · 설계 4장 12).
+           🔴 `_io` 밖에서 기다린다 — 안에서 기다리면 바로 뒤 알림이 그만큼 늦는다(알림은 stop() 으로 기다림을 끊는다).
         """
+        r = self._send(payload, expect, still_valid, key)
+        if (expect and self.mirror is not None and r is not DROPPED and isinstance(r, list)
+                and any("재생 완료" in x for x in r)):
+            self._mirror("wait_tail", config.AUDIENCE_TAIL_MAX_SEC)
+        return r
+
+    def _mirror(self, name, *a):
+        """관객 소리(TV) 거울 부르기 — 🔴 무엇이 나도 여기서 끝난다(로그 한 번) · 안경 쪽은 그대로."""
+        m = self.mirror
+        if m is None:
+            return
+        try:
+            getattr(m, name)(*a)
+        except Exception as e:                  # noqa: BLE001
+            if not self._mirror_warned:
+                self._mirror_warned = True
+                log(f"⚠️ 관객 소리(TV) 거울 오류 — 안경 소리는 그대로: {type(e).__name__}: {e}")
+
+    def _send(self, payload, expect, still_valid, key):
         with self._io:
             for attempt in (1, 2):
                 try:
                     self._ensure()
+                    if expect:
+                        self._mirror("prepare", payload)     # 풀어 두기만 — TV 는 「[재생]」 때 시작(_drain)
                     with self._tx:
                         if still_valid is not None and not still_valid():
                             return DROPPED
@@ -515,7 +546,9 @@ class Speaker:
 
         🔴 `_tx` 만 잡는다 — 재생 확인을 기다리는 동안(_drain)은 그 잠금이 비어 있어 바로 나간다.
         🔑 2단계 펌웨어 전에는 재생이 끝난 뒤 한 글자 명령으로 읽혀 무시된다(해가 없다).
+        🔑 관객 소리(TV)도 함께 멈춘다 — 안경이 응답하기 전에 바로(알림이 안내를 끊을 때 TV 만 이어 말하지 않게).
         """
+        self._mirror("stop")
         with self._tx:
             s = self.s
             if s is None:
@@ -528,7 +561,8 @@ class Speaker:
                 return False
 
     def reset(self):
-        """링크가 끊겼을 때 명령 채널도 버린다 — 다음 send 에서 다시 붙는다."""
+        """링크가 끊겼을 때 명령 채널도 버린다 — 다음 send 에서 다시 붙는다(관객 소리 TV 도 멈춘다)."""
+        self._mirror("stop")
         self._rbuf = b""
         if self.s is not None:
             try:
@@ -538,12 +572,18 @@ class Speaker:
             self.s = None
 
     def chime(self):
-        return self.send(b"B\n")
+        r = self.send(b"B\n")
+        if r is True:                           # 관객 소리(TV) — 보낸 게 확인될 때만(응답 줄이 없어 보낸 직후)
+            self._mirror("chime", "open")
+        return r
 
     def close_chime(self, still_valid=None):
         """닫힘음(펌웨어 `C` · 2026-10-09) — 대화창이 닫혔다는 표시. 옛 펌웨어는 C 를 모르면 소리 없이 지나간다.
         `still_valid` 는 보내기 잠금 안에서 본다(send) — 알림이 끼면 보내지 않고 DROPPED."""
-        return self.send(b"C\n", still_valid=still_valid)
+        r = self.send(b"C\n", still_valid=still_valid)
+        if r is True:
+            self._mirror("chime", "close")
+        return r
 
     def play(self, key, alog=None, still_valid=None):
         """고정 wav 를 낸다 → 끝까지 나갔거나 도중에 멈췄으면 True(멈춤은 `last_stopped`) · 못 냈으면 False ·
@@ -782,6 +822,32 @@ def alert_key_for(key, on, wav_dir=None):
         return key
     c = f"{key}_c"
     return c if os.path.exists(os.path.join(wav_dir or WAV_DIR, f"{c}.wav")) else key
+
+
+class AudienceFlag:
+    """설정 「TV 소리」(관객 소리 · 상위 specs/2026-10-21-관객소리TV-design.md 9장) = 상태 파일 `관객소리` 칸.
+    칸이 없으면(시연 화면이 안 떠 있음 · 유령) `config.AUDIENCE_SPEAKER` — 묶어 읽기는 거울(AudienceSpeaker.enabled)이 한다."""
+
+    def __init__(self, read_state=None):
+        self._read = read_state or voice_card.read_state
+
+    def __call__(self):
+        v = (self._read() or {}).get("관객소리")
+        return config.AUDIENCE_SPEAKER if v is None else bool(v)
+
+
+def make_mirror(read_state=None):
+    """관객 소리(TV) 거울을 만들어 띄운다 — `SOP_AUDIENCE_SPEAKER=0`(config 끔)이면 None(지금과 똑같다)."""
+    if not config.AUDIENCE_SPEAKER:
+        return None
+    try:
+        from audience_speaker import AudienceSpeaker
+        m = AudienceSpeaker(AudienceFlag(read_state), log=log)
+        m.start()
+        return m
+    except Exception as e:                      # noqa: BLE001 — TV 가 없어도 음성비서는 돈다
+        log(f"⚠️ 관객 소리(TV)를 못 켰다 — 안경 소리만: {type(e).__name__}: {e}")
+        return None
 
 
 class GuideFlag:
@@ -1202,7 +1268,8 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     alog = open_audio_log(AUDIO_DIR)
     if AUDIO_DIR:
         log(f"오디오 기록 → {AUDIO_DIR}")
-    spk = Speaker(get_ip, cmd_port)
+    spk = Speaker(get_ip, cmd_port, mirror=make_mirror(read_state))
+    log(f"관객 소리(TV) {'켬 — 설정 「TV 소리」 를 따른다' if spk.mirror else '끔(SOP_AUDIENCE_SPEAKER=0 · 또는 못 켬)'}")
     mic = MicReceiver(get_ip, mic_port, rate=RATE, stall_sec=STALL_SEC, retry_sec=RETRY_SEC,
                       lag_limit=LAG_LIMIT, max_queue_sec=WINDOW_SEC + LAG_LIMIT,
                       on_chunk=alog.mic, log=log, once=once)
@@ -1331,6 +1398,8 @@ def run(get_ip, once=False, mic_port=MIC_PORT, cmd_port=CMD_PORT, stt=None,
     finally:
         stop_ev.set()                     # 상태 감시 스레드를 끝낸다
         mic.stop()
+        if spk.mirror is not None:
+            spk.mirror.close()            # 관객 소리(TV) 재생기를 닫는다
         VLOG.close()                      # 🔑 데몬이 다시 떠도 MeasureLog 가 이어 쓴다(머리줄은 한 번)
 
 
