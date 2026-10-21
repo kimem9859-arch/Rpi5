@@ -104,6 +104,164 @@ def test_config_values():
     check(isinstance(config.AUDIENCE_SPEAKER, bool), "켬/끔 = bool")
 
 
+# ── 통로(AudienceSpeaker) — 가짜 재생기: 표준 입력을 실시간 속도로 읽어 파일에 적는다 ─────────────
+import tempfile   # noqa: E402
+import time       # noqa: E402
+
+_FAKE = ("import sys,time\n"
+         "f=open(sys.argv[1],'ab')\n"
+         "while True:\n"
+         "    b=sys.stdin.buffer.read(2048)\n"
+         "    if not b: break\n"
+         "    f.write(b); f.flush(); time.sleep(len(b)/2/48000)\n")
+
+
+def _player(path):
+    return [sys.executable, "-c", _FAKE, path]
+
+
+def _read(path, start=0):
+    with open(path, "rb") as f:
+        f.seek(start)
+        return np.frombuffer(f.read(), dtype="<i2")
+
+
+def _frame(sec, rate=16000, amp=3000):
+    t = np.arange(int(sec * rate))
+    return voice_tts.frame((np.sin(t / 3) * amp).astype("<i2").tobytes(), rate)
+
+
+# 멈춘 뒤에도 이미 넘긴 소리는 나간다 — 상한 = 「실제 시간보다 앞서 넣지 않기」(AHEAD_MAX_SEC) + 가짜 재생기 한 번 읽기 + 한 덩어리
+_SLACK = int(aus.AudienceSpeaker.AHEAD_MAX_SEC * 48000 * 2) + 3 * 2048
+
+
+def _mk(path, on=None, **kw):
+    logs = []
+    sp = aus.AudienceSpeaker(on or (lambda: True), cmd=_player(path), log=logs.append, flag_ttl=0.05, **kw)
+    sp.start()
+    return sp, logs
+
+
+def test_silence_when_idle():
+    print("\n[통로] 쉴 때는 무음을 흘린다")
+    p = tempfile.mktemp(suffix=".raw")
+    sp, _ = _mk(p)
+    time.sleep(0.4)
+    a = _read(p)
+    sp.close()
+    check(a.size > 0 and int(np.abs(a).max()) == 0, f"받은 샘플 {a.size}개 · 전부 0")
+
+
+def test_begin_plays_prepared():
+    print("\n[통로] 준비 → 시작이면 크기 맞춘 소리가 나간다")
+    p = tempfile.mktemp(suffix=".raw")
+    sp, _ = _mk(p)
+    time.sleep(0.1)
+    sp.prepare(_frame(0.3))
+    a0 = _read(p)
+    check(int(np.abs(a0).max()) == 0, "prepare 만으로는 소리가 안 나간다")
+    sp.begin()
+    time.sleep(0.6)
+    a = _read(p)
+    sp.close()
+    check(int(np.abs(a).max()) >= 29000, f"최고 진폭 {int(np.abs(a).max())} ≥ 29000")
+
+
+def test_stop_cuts():
+    print("\n[통로] 멈춤이면 바로 무음")
+    p = tempfile.mktemp(suffix=".raw")
+    sp, _ = _mk(p)
+    sp.prepare(_frame(3.0))
+    sp.begin()
+    time.sleep(0.3)
+    sp.stop()
+    at = os.path.getsize(p)
+    time.sleep(0.4)
+    tail = _read(p, at + _SLACK)        # 이미 넘긴 몫(_SLACK) 넘어서는 무음이어야 한다
+    sp.close()
+    check(tail.size > 0 and int(np.abs(tail).max()) == 0, f"멈춘 뒤 {tail.size}샘플 전부 0")
+    check(not sp.busy, "busy = False")
+
+
+def test_disable_mid_sound_goes_silent():
+    print("\n[통로] 소리 도중 끄면 바로 무음 · 끈 동안 begin 무시")
+    p = tempfile.mktemp(suffix=".raw")
+    on = [True]
+    sp, _ = _mk(p, on=lambda: on[0])
+    sp.prepare(_frame(3.0))
+    sp.begin()
+    time.sleep(0.3)
+    on[0] = False
+    time.sleep(0.15)
+    at = os.path.getsize(p)
+    time.sleep(0.4)
+    tail = _read(p, at + _SLACK)
+    check(tail.size > 0 and int(np.abs(tail).max()) == 0, "끈 뒤 무음")
+    sp.prepare(_frame(0.5))
+    sp.begin()
+    sp.chime("open")
+    time.sleep(0.3)
+    check(not sp.busy, "끈 동안 begin · chime 은 무시")
+    sp.close()
+
+
+def test_player_missing_is_silent():
+    print("\n[통로] 재생기가 없어도 예외 없이 조용히 빠진다")
+    logs = []
+    sp = aus.AudienceSpeaker(lambda: True, cmd=["/없는/재생기"], log=logs.append)
+    try:
+        sp.start()
+        sp.prepare(_frame(0.2))
+        sp.begin()
+        sp.chime("open")
+        sp.stop()
+        sp.wait_tail(0.5)
+        time.sleep(0.5)
+        sp.close()
+        ok = True
+    except Exception as e:              # noqa: BLE001
+        ok = False
+        logs.append(f"예외 {e}")
+    check(ok, "start · prepare · begin · chime · stop · wait_tail · close 모두 예외 없음")
+    check(len(logs) == 1, f"로그 한 줄만({len(logs)}줄: {logs[:3]})")
+
+
+def test_player_dies_restarts_once():
+    print("\n[통로] 재생기가 죽으면 한 번 다시 띄우고 · 연달아 죽으면 쉰다")
+    p = tempfile.mktemp(suffix=".raw")
+    sp, logs = _mk(p, retry_sec=10.0)
+    time.sleep(0.2)
+    first = sp._proc.pid
+    sp._proc.kill()
+    time.sleep(0.4)
+    second = sp._proc.pid if sp._proc is not None else None
+    check(second is not None and second != first, f"새 재생기로 다시 흐름({first} → {second})")
+    sp.prepare(_frame(0.3))
+    sp.begin()
+    time.sleep(0.6)
+    check(int(np.abs(_read(p)).max()) >= 29000, "다시 띄운 뒤 소리가 나간다")
+    sp._proc.kill()
+    time.sleep(0.5)
+    check(sp._proc is None, "연달아 죽으면 쉰다(재생기 없음)")
+    sp.close()
+
+
+def test_wait_tail_bounded():
+    print("\n[통로] 꼬리 기다림 — 상한 · 소리 없으면 즉시")
+    p = tempfile.mktemp(suffix=".raw")
+    sp, _ = _mk(p)
+    t = time.monotonic()
+    sp.wait_tail(0.5)
+    check(time.monotonic() - t < 0.05, "소리 없으면 즉시 돌아온다")
+    sp.prepare(_frame(5.0))
+    sp.begin()
+    t = time.monotonic()
+    sp.wait_tail(0.5)
+    dt = time.monotonic() - t
+    sp.close()
+    check(0.45 <= dt <= 0.6, f"5초 소리에도 0.5초 상한({dt:.2f}초)")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
