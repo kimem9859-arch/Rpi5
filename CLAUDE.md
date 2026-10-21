@@ -50,14 +50,14 @@
 
 ### `config.py` (전역 설정)
 - 추론·TCP·화면·녹화 설정은 **`config.py` 를 직접 본다** — 값을 여기 복제하지 않는다(설계값 정본 = 통합문서 §7.4).
-- ESP32 IP 변경: `Demo/.camera_ip` 텍스트 수정 후 재시작.
+- ESP32 IP 변경: `Demo/.camera_ip` 텍스트 수정 후 재시작. 🆕 시연 런처(`run_demo.sh`)는 켤 때 **메인 안경을 고유 번호로 찾아 이 파일을 고친다**(`Demo/glass_finder.py` · 2026-10-21) — 서브 보드로 시연할 때는 `SOP_GLASS_FINDER=0` 으로 켠다(안 그러면 메인 안경 주소로 되돌린다).
 
 #### 🔴 ESP32 실HW 함정 (둘 다 실제로 물릴 뻔했다)
 - 🔴 **개체는 «시리얼번호»로 식별한다. `ttyACM` 번호를 믿지 말 것** — 꽂는 순서로 뒤바뀐다.
   **더 위험한 것은 sn 자체가 서로 닮았다는 점이다:**
   `68:EE:8F:4F:5D:`**`38`** = **메인**(안경 프레임 안 · 안경은 프레임 하나뿐) / `3C:0F:02:DD:5E:`**`58`** = **서브**(브레드보드·점퍼선 결선) — 둘 다 `glass_voice` · OV3660.
   🗑 폐기 = `68:EE:8F:4F:5D:`**`6C`**(본체 카메라 기능 고장) · `3C:0F:02:DD:5E:`**`40`**(카메라 경로 고장) · `44:1B:F6:80:3A:DC`(BAT+ 패드 손상) — **쓰는 보드와 마지막 바이트만 다른 것이 둘이다**(`5D:38`↔`5D:6C` · `5E:58`↔`5E:40`).
-  ⚠️ 메인·서브 둘 다 **같은 `esp32cam.local`** 을 쓴다 — 둘 다 켜 두면 어느 쪽에 붙을지 모른다. 데모는 `Demo/.camera_ip` 의 IP 로 붙으므로 **보드를 바꿔 쓸 때 그 파일도 바꾼다**(`read_esp32_ip.sh <포트>`).
+  ⚠️ 메인·서브 둘 다 **같은 `esp32cam.local`** 을 쓴다 — 둘 다 켜 두면 어느 쪽에 붙을지 모른다. 데모는 `Demo/.camera_ip` 의 IP 로 붙으므로 **보드를 바꿔 쓸 때 그 파일도 바꾼다**(`read_esp32_ip.sh <포트>` · 서브 보드면 `SOP_GLASS_FINDER=0` — 런처의 자동 찾기는 메인 안경만 찾는다).
   공장 펌웨어 백업 = `~/lab/esp32-link/spare_<sn 끝 4자리>_factory_full_*.bin`.
   굽기 전 `python3 -c "from serial.tools import list_ports; [print(p.device, p.serial_number) for p in list_ports.comports() if p.vid]"` 로 확인한다.
   **잘못 구우면 다른 작업 세션의 펌웨어가 통째로 날아간다.** 남의 보드를 빌려 쓸 때는 **8MB 전체 백업 + `verify-flash`** 부터(`~/lab/esp32-link/RESTORE.md`).

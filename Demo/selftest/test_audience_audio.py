@@ -135,6 +135,16 @@ def test_school_check_has_audience_line():
     check(len(home) == 1 and home[0].ok is None, "집 모드는 건너뜀")
 
 
+
+def test_rehearse_and_measure_keep_tv_quiet():
+    print("\n[알림 없는 TV 소리 막기] 리허설 = TV 끔 · 측정 실행기 = 기본 끔(최종 리뷰 I2)")
+    reh = open(os.path.join(_DEMO, "test", "rehearse.py"), encoding="utf-8").read()
+    check('SOP_AUDIENCE_SPEAKER="0"' in reh, "리허설 환경에 SOP_AUDIENCE_SPEAKER=0")
+    ms = open(os.path.join(_DEMO, "run_measure.sh"), encoding="utf-8").read()
+    i = ms.find('export SOP_AUDIENCE_SPEAKER="${SOP_AUDIENCE_SPEAKER:-0}"')
+    run_at = next((ms.find(ln) for ln in ms.splitlines() if "run_demo.sh" in ln and not ln.lstrip().startswith("#")), -1)
+    check(i >= 0 and 0 <= run_at and i < run_at, f"측정 실행기가 시연 런처를 부르는 줄보다 먼저 기본 끔으로 둔다({i} < {run_at})")
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

@@ -126,7 +126,9 @@ def run_session(out, name, script="", processing="", extra=None, guide=False, ti
     logs = os.path.join(out, "logs")
     os.makedirs(logs, exist_ok=True)
     log = os.path.join(logs, f"{name}.log")
+    # 🔴 SOP_AUDIENCE_SPEAKER=0 — 가짜 안경도 「[재생]」을 돌려줘 진짜 TV 로 알림 없이 소리가 났다(2026-10-21 최종 리뷰 I2)
     env = dict(os.environ, QT_QPA_PLATFORM="offscreen", SOP_FULLSCREEN="0", SOP_REHEARSE_WORKER="1", SOP_REHEARSAL="1",
+               SOP_AUDIENCE_SPEAKER="0",
                SOP_MEASURE_BASE=os.path.join(out, "measure"), **(devices.env() if devices else {}), **(extra or {}))
     for k in ("SOP_ORIENT_ONE_REMAP", "SOP_DISPLAY_PAINT", "SOP_DISPLAY_EVERY", "SOP_INFER_MODEL", "SOP_PIPELINE2"):
         env.pop(k, None)

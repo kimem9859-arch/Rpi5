@@ -105,8 +105,19 @@ def test_config_values():
 
 
 # ── 통로(AudienceSpeaker) — 가짜 재생기: 표준 입력을 실시간 속도로 읽어 파일에 적는다 ─────────────
+import atexit     # noqa: E402
+import shutil     # noqa: E402
 import tempfile   # noqa: E402
 import time       # noqa: E402
+
+_TMPDIR = tempfile.mkdtemp(prefix="sop_audience_test_")
+atexit.register(shutil.rmtree, _TMPDIR, True)     # 끝나면 지운다(최종 리뷰 Minor 5 — /tmp 에 .raw 가 쌓였다)
+
+
+def _tmpraw():
+    fd, p = tempfile.mkstemp(suffix=".raw", dir=_TMPDIR)
+    os.close(fd)
+    return p
 
 _FAKE = ("import sys,time\n"
          "f=open(sys.argv[1],'ab')\n"
@@ -144,7 +155,7 @@ def _mk(path, on=None, **kw):
 
 def test_silence_when_idle():
     print("\n[통로] 쉴 때는 무음을 흘린다")
-    p = tempfile.mktemp(suffix=".raw")
+    p = _tmpraw()
     sp, _ = _mk(p)
     time.sleep(0.4)
     a = _read(p)
@@ -154,7 +165,7 @@ def test_silence_when_idle():
 
 def test_begin_plays_prepared():
     print("\n[통로] 준비 → 시작이면 크기 맞춘 소리가 나간다")
-    p = tempfile.mktemp(suffix=".raw")
+    p = _tmpraw()
     sp, _ = _mk(p)
     time.sleep(0.1)
     sp.prepare(_frame(0.3))
@@ -169,7 +180,7 @@ def test_begin_plays_prepared():
 
 def test_stop_cuts():
     print("\n[통로] 멈춤이면 바로 무음")
-    p = tempfile.mktemp(suffix=".raw")
+    p = _tmpraw()
     sp, _ = _mk(p)
     sp.prepare(_frame(3.0))
     sp.begin()
@@ -185,7 +196,7 @@ def test_stop_cuts():
 
 def test_disable_mid_sound_goes_silent():
     print("\n[통로] 소리 도중 끄면 바로 무음 · 끈 동안 begin 무시")
-    p = tempfile.mktemp(suffix=".raw")
+    p = _tmpraw()
     on = [True]
     sp, _ = _mk(p, on=lambda: on[0])
     sp.prepare(_frame(3.0))
@@ -228,7 +239,7 @@ def test_player_missing_is_silent():
 
 def test_player_dies_restarts_once():
     print("\n[통로] 재생기가 죽으면 한 번 다시 띄우고 · 연달아 죽으면 쉰다")
-    p = tempfile.mktemp(suffix=".raw")
+    p = _tmpraw()
     sp, logs = _mk(p, retry_sec=10.0)
     time.sleep(0.2)
     first = sp._proc.pid
@@ -248,7 +259,7 @@ def test_player_dies_restarts_once():
 
 def test_wait_tail_bounded():
     print("\n[통로] 꼬리 기다림 — 상한 · 소리 없으면 즉시")
-    p = tempfile.mktemp(suffix=".raw")
+    p = _tmpraw()
     sp, _ = _mk(p)
     t = time.monotonic()
     sp.wait_tail(0.5)
@@ -266,8 +277,7 @@ def test_wait_tail_bounded():
 def test_late_start_backlog_bounded():
     print("\n[통로] 🔴 검토 I1 — 재생기가 늦게 읽기 시작해도 관에 쌓이는 소리는 상한(약 0.1초) 안")
     late = _FAKE.replace("f=open(sys.argv[1],'ab')\n", "f=open(sys.argv[1],'ab')\ntime.sleep(0.3)\n")
-    fd, p = tempfile.mkstemp(suffix=".raw")
-    os.close(fd)
+    p = _tmpraw()
     sp = aus.AudienceSpeaker(lambda: True, cmd=[sys.executable, "-c", late, p], log=lambda m: None, flag_ttl=0.05)
     sp.start()
     time.sleep(1.0)
@@ -282,7 +292,6 @@ def test_late_start_backlog_bounded():
             break
         time.sleep(0.005)
     sp.close()
-    os.remove(p)
     check(lag is not None and lag <= 0.2, f"시작 지연 0.3초 재생기에서도 소리가 {lag if lag is None else round(lag, 3)}초 뒤에 나감(≤ 0.2)")
 
 

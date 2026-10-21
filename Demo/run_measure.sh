@@ -12,6 +12,9 @@ if [ "${SOP_REHEARSAL:-}" != "1" ]; then
     exit 1
   fi
 fi
+# 🔑 관객 소리(TV)는 측정에서 기본 끔 — 기존 측정과 비교할 수 있게 · TV 메아리가 음성 측정(호출 · 받아쓰기)에 섞이지 않게
+#    (상위 plans/2026-10-21-관객소리TV.md 최종 리뷰 I2) · 켜려면 SOP_AUDIENCE_SPEAKER=1 로 실행
+export SOP_AUDIENCE_SPEAKER="${SOP_AUDIENCE_SPEAKER:-0}"
 ask() { local v; read -rp "  $1 > " v; echo "$v"; }
 echo "== 측정 세션 =="
 P=$(ask "장소 (1 장소1 · 2 장소2 · 3 장소3)")

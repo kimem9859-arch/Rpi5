@@ -197,12 +197,13 @@ def test_files_scripts_optional():
 
 def test_run_final():
     print("\n[최종 시연 모드] 인터넷 · 키 파일 · 출발 태그 · 대본은 빼고 · 파이2 LLM · 코드 판을 본다")
-    keep = SC.recv_probe, SC.glass_ports, SC.interlock_ack, SC._demo_running, SC.llm_check
+    keep = SC.recv_probe, SC.glass_ports, SC.interlock_ack, SC._demo_running, SC.llm_check, SC.audience_check
     SC.recv_probe = lambda host, port=None, sec=5.0: SC._c("안경", "연결 · 받기", True, "시험 대역")
     SC.glass_ports = lambda host: SC._c("음성", "안경 마이크 · 명령 포트", True, "시험 대역")
     SC.interlock_ack = lambda port: SC._c("인터락", "RUN 응답", True, "시험 대역")
     SC._demo_running = lambda: False
     SC.llm_check = lambda url=None, model=None: SC._c("음성", "파이2 LLM 응답", True, "시험 대역")
+    SC.audience_check = lambda: SC._c("음성", "관객 소리(TV)", True, "시험 대역")   # 진짜 pw-dump · wpctl 을 부르지 않게(최종 리뷰 Minor 4)
     real_open = builtins.open
     opened = []
 
@@ -224,7 +225,7 @@ def test_run_final():
                 pass
     finally:
         builtins.open = real_open
-        SC.recv_probe, SC.glass_ports, SC.interlock_ack, SC._demo_running, SC.llm_check = keep
+        SC.recv_probe, SC.glass_ports, SC.interlock_ack, SC._demo_running, SC.llm_check, SC.audience_check = keep
     check(not opened, f".env 를 열지 않았다 {opened}")
     groups = [c.group for c in res]
     heads = [g for i, g in enumerate(groups) if i == 0 or groups[i - 1] != g]
