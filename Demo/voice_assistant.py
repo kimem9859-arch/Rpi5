@@ -524,10 +524,12 @@ class Speaker:
                     with self._tx:
                         if still_valid is not None and not still_valid():
                             return DROPPED
+                        if expect:
+                            # 관객 소리(TV) — 보내기 시작하는 때를 넘긴다(앞당겨 틀기 · 설계 11장) · 🔑 거울은 따로 도는 스레드에서
+                            #    풀어 곧바로 돌아온다(안경 전송 지연 0 · 검토 Minor 1)
+                            self._mirror("prepare", payload, time.monotonic())
                         self.s.sendall(payload)
                     if expect:
-                        # 관객 소리(TV) — 풀어 두기만 · TV 는 「[재생]」 때 시작(_drain) · 🔑 보낸 뒤에(안경 쪽 지연 0 · 검토 Minor 1)
-                        self._mirror("prepare", payload)
                         # 🔴 키는 잠금(_io) 안에서만 바꾼다 — 밖에서 바꾸면 기다리던 다른 소리의 키가 지금 재생 사건에
                         #    붙었다(최종 리뷰 Important 4 · selftest/test_voice_cue.py test_play_key_race)
                         self._cur_key = key

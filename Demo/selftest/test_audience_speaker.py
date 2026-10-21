@@ -100,7 +100,8 @@ def test_close_chime_matches_firmware():
 def test_config_values():
     print("\n[설정] 관객 소리 값")
     check(config.AUDIENCE_PEAK == 29162 and config.AUDIENCE_RATE == 48000, "기준 진폭 29162 · 48000Hz")
-    check(config.AUDIENCE_TAIL_MAX_SEC == 0.5 and config.AUDIENCE_TAIL_PAD_SEC == 0.15, "꼬리 상한 0.5 · 여유 0.15")
+    check(config.AUDIENCE_TAIL_MAX_SEC == 0.5 and config.AUDIENCE_TAIL_PAD_SEC == 0.3, "꼬리 상한 0.5 · 여유 0.3(실측 TV 0.22초 + 여유)")
+    check(config.AUDIENCE_TV_LAG_SEC == 0.22 and isinstance(config.AUDIENCE_ADVANCE, bool), "TV 지연 0.22 · 앞당기기 켬/끔")
     check(isinstance(config.AUDIENCE_SPEAKER, bool), "켬/끔 = bool")
 
 
@@ -322,6 +323,106 @@ def test_next_chunk_reads_flag_outside_lock():
     import inspect
     src = inspect.getsource(aus.AudienceSpeaker._next_chunk)
     check(src.index("self.enabled()") < src.index("with self._lock"), "enabled() 가 with self._lock 보다 앞")
+
+
+# ── TV 앞당겨 틀기(설계 11장) — 안경이 다 받기 전에 TV 를 미리 튼다 ─────────────────────
+def _onset(p, t_from, limit=2.0):
+    """파일에 소리(0 아닌 샘플)가 처음 나온 때 — t_from 부터 단조 시계로."""
+    while time.monotonic() - t_from < limit:
+        a = _read(p)
+        if a.size and int(np.abs(a).max()) > 0:
+            return time.monotonic() - t_from
+        time.sleep(0.003)
+    return None
+
+
+def _adv(p, spb, lag=0.22, advance=True):
+    sp = aus.AudienceSpeaker(lambda: True, cmd=_player(p), log=lambda m: None, flag_ttl=0.05,
+                             advance=advance, tv_lag=lag, spb=spb)
+    sp.start()
+    time.sleep(0.6)
+    return sp
+
+
+def test_advance_starts_before_play_line():
+    print("\n[앞당김] 예상 받기 시간 − TV 지연 뒤에 「[재생]」 없이 먼저 튼다")
+    p = _tmpraw()
+    f = _frame(1.0)
+    sp = _adv(p, spb=0.5 / len(f))          # 받는 데 0.5초로 가정 → 0.28초 뒤 시작
+    t0 = time.monotonic()
+    sp.prepare(f, t_send=t0)
+    on = _onset(p, t0)
+    sp.close()
+    check(on is not None and 0.2 <= on <= 0.5, f"「[재생]」 없이 약 0.28초(+관 몫) 뒤 나감({on if on is None else round(on, 3)}초)")
+
+
+def test_advance_short_sound_starts_now():
+    print("\n[앞당김] 앞당길 몫이 0 이하(짧은 소리)면 바로 튼다")
+    p = _tmpraw()
+    f = _frame(0.3)
+    sp = _adv(p, spb=0.05 / len(f))         # 받는 데 0.05초 < TV 지연 0.22초
+    t0 = time.monotonic()
+    sp.prepare(f, t_send=t0)
+    on = _onset(p, t0)
+    sp.close()
+    check(on is not None and on <= 0.25, f"바로 나감({on if on is None else round(on, 3)}초)")
+
+
+def test_begin_after_advance_does_not_restart():
+    print("\n[앞당김] 앞당겨 튼 뒤 「[재생]」(begin)이 와도 처음부터 다시 틀지 않는다")
+    p = _tmpraw()
+    f = _frame(1.0)
+    sp = _adv(p, spb=0.01 / len(f))
+    t0 = time.monotonic()
+    sp.prepare(f, t_send=t0)
+    time.sleep(0.4)
+    pos = sp._pos
+    sp.begin()
+    check(sp.busy and sp._pos >= pos, f"이어서 흐름(위치 {pos} → {sp._pos})")
+    sp.close()
+
+
+def test_begin_before_schedule_starts_now():
+    print("\n[앞당김] 「[재생]」이 예정보다 먼저 오면 그때 바로 튼다")
+    p = _tmpraw()
+    f = _frame(1.0)
+    sp = _adv(p, spb=3.0 / len(f))          # 받는 데 3초로 잘못 가정 → 예정 2.78초 뒤
+    t0 = time.monotonic()
+    sp.prepare(f, t_send=t0)
+    time.sleep(0.1)
+    sp.begin()
+    on = _onset(p, t0)
+    sp.close()
+    check(on is not None and on <= 0.35, f"begin 때 바로({on if on is None else round(on, 3)}초)")
+
+
+def test_learns_receive_time():
+    print("\n[앞당김] 「[재생]」이 온 때로 받는 시간(초/바이트)을 고쳐 간다")
+    p = _tmpraw()
+    f = _frame(1.0)
+    sp = _adv(p, spb=3.0 / len(f))
+    before = sp.spb
+    t0 = time.monotonic() - 0.4             # 0.4초 전에 보냈고 지금 「[재생]」
+    sp.prepare(f, t_send=t0)
+    sp.begin()
+    time.sleep(0.15)                        # 풀기는 따로 도는 스레드 — 끝난 뒤에 본다
+    sp.close()
+    want = 0.4 / len(f)
+    check(abs(sp.spb - want) < abs(before - want), f"실제(0.4초) 쪽으로 다가감({before:.2e} → {sp.spb:.2e} · 실제 {want:.2e})")
+
+
+def test_advance_off_waits_play_line():
+    print("\n[앞당김] 끄면(SOP_AUDIENCE_ADVANCE=0) 종전대로 「[재생]」 때")
+    p = _tmpraw()
+    f = _frame(0.5)
+    sp = _adv(p, spb=0.0, advance=False)
+    t0 = time.monotonic()
+    sp.prepare(f, t_send=t0)
+    time.sleep(0.4)
+    check(int(np.abs(_read(p)).max()) == 0, "prepare 만으로는 안 나감")
+    sp.begin()
+    check(_onset(p, time.monotonic()) is not None, "begin 에 나감")
+    sp.close()
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

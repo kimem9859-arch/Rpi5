@@ -584,7 +584,9 @@ AUDIENCE_SPEAKER      = os.environ.get("SOP_AUDIENCE_SPEAKER", "1") != "0"
 AUDIENCE_PEAK         = 29162   # 소리마다 최고 진폭을 이 값으로(안경 펌웨어처럼) — 안내 파일 최고 진폭 · 10/21 TV 음량 10 에서 사용자 「괜찮다」
 AUDIENCE_RATE         = 48000   # TV 통로(pw-cat) 레이트 — 소리는 이 레이트로 바꿔 흘린다
 AUDIENCE_TAIL_MAX_SEC = 0.5     # 안경 「재생 완료」 뒤 TV 꼬리를 기다리는 상한 — 안경 마이크가 TV 소리를 듣지 않게(설계 4장 12)
-AUDIENCE_TAIL_PAD_SEC = 0.15    # TV 쪽 버퍼 · HDMI · TV 처리 몫(실측 전 추정 — 공동 확인에서 안경 마이크로 잰다)
+AUDIENCE_TAIL_PAD_SEC = 0.3     # TV 쪽 버퍼 · HDMI · TV 처리 몫 — 10/21 안경 마이크 실측 TV 0.22초 늦음 + 여유(종전 추정 0.15)
+AUDIENCE_TV_LAG_SEC   = 0.22    # TV 가 안경보다 늦게 나는 몫(10/21 실측 · 0.19~0.26) — 앞당겨 틀 때 이만큼 일찍(설계 11장)
+AUDIENCE_ADVANCE      = os.environ.get("SOP_AUDIENCE_ADVANCE", "1") != "0"   # TV 앞당겨 틀기 · 끄기 = 「[재생]」 때 틀기
 # 🔑 시연 안내 모드(상위 specs/2026-10-18-시연안내모드-design.md) — 설정 화면 「시연 안내」 켬일 때만 쓰인다.
 #    색 이름 = 참여자에게 부르는 버튼 이름(§4 · 통합문서 §5.4 · §14.1) — 대본 · 알림 색 이름판이 같이 쓴다(한 곳).
 BUTTON_COLOR_NAMES = {"B1": "노랑", "B2": "흰색", "B3": "분홍", "B4": "파랑"}

@@ -34,8 +34,9 @@ class FakeMirror:
         self.spk_box = spk_box if spk_box is not None else {}   # 🔴 빈 사전은 거짓 — `or` 로 쓰면 다른 사전이 된다
         self.io_free_at_tail = None
 
-    def prepare(self, payload):
+    def prepare(self, payload, t_send=None):
         self.calls.append("prepare")
+        self.t_send = t_send
 
     def begin(self):
         self.calls.append("begin")
@@ -224,11 +225,30 @@ def test_run_makes_no_real_mirror_by_itself():
     check("make_mirror(" not in inspect.getsource(va.run), "run() 안에서 make_mirror 를 부르지 않는다")
     check("make_mirror(" in inspect.getsource(va.main), "main() 이 거울을 만들어 넘긴다")
 
-def test_prepare_after_sendall():
-    print("\n[거울] 검토 Minor 1 — 프레임 풀기는 안경 전송 뒤(안경 쪽 지연 0)")
+def test_prepare_nonblocking_before_send():
+    print("\n[거울] 검토 Minor 1 · 설계 11장 — 보내기 시작할 때 넘기되 거울은 곧바로 돌아온다(안경 쪽 지연 0)")
     import inspect
     src = inspect.getsource(va.Speaker._send)
-    check(src.index("sendall(payload)") < src.index('_mirror("prepare"'), "sendall 뒤에 prepare")
+    check(src.index('_mirror("prepare"') < src.index("sendall(payload)"), "보내기 시작 전에 prepare(t_send)")
+    import audience_speaker as aus
+    sp = aus.AudienceSpeaker(lambda: True, cmd=[sys.executable, "-c", "import time;time.sleep(5)"], log=lambda m: None)
+    sp.start()
+    big = voice_tts.frame((np.sin(np.arange(8 * 24000) / 3) * 3000).astype("<i2").tobytes(), 24000)
+    t0 = time.monotonic()
+    sp.prepare(big, t_send=t0)
+    dt = time.monotonic() - t0
+    sp.close()
+    check(dt < 0.005, f"8초 소리도 prepare 가 곧바로 돌아온다({dt * 1000:.1f}ms)")
+
+def test_send_passes_t_send():
+    print("\n[거울] 앞당겨 틀기 — 보내기 시작한 때(t_send)를 거울에 넘긴다(설계 11장)")
+    m = FakeMirror()
+    spk, b = _pair(m)
+    _reply(b, ["[적재] ok\n", "[재생] 800\n", "[재생 완료]\n"])
+    t_before = time.monotonic()
+    spk.send(_frame(), expect=True)
+    check(isinstance(m.t_send, float) and t_before <= m.t_send <= time.monotonic(), f"t_send = 단조 시계 · 보내기 전후 사이({m.t_send})")
+    b.close()
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

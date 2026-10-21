@@ -85,7 +85,11 @@ class AudienceSpeaker:
        쌓인 소리가 그만큼뿐이라 멈춤이 바로 듣고 TV 가 덜 늦는다. ⚠️ 관 크기는 줄여 봐야 페이지 크기까지다(파이5 커널 = 16KB ≈
        0.17초). 🔴 공급 쪽 시계로만 재면 재생기가 늦게 읽기 시작한 뒤 회복하지 못해 관이 가득 찼다(검토 I1 · 0.3초 늦은 시작 →
        약 0.27초 적체) — 시간 규칙은 FIONREAD 가 안 될 때의 대체로만 남긴다.
-    🔑 순서 = `prepare(프레임)`(풀어 두기만) → 안경이 「[재생]」을 알리면 `begin()` · 띠링은 `chime(kind)` · `stop()`.
+    🔑 순서 = `prepare(프레임, t_send)`(보내기 시작할 때 · 따로 도는 스레드가 풀어 둠) → 안경이 「[재생]」을 알리면 `begin()` ·
+       띠링은 `chime(kind)` · `stop()`.
+    🔑 앞당겨 틀기(설계 11장) — 안경은 파일을 다 받은 뒤 재생한다. 그래서 `t_send + 받는 시간(spb × 바이트) − TV 지연` 에
+       미리 튼다(`_pending`) · 「[재생]」이 먼저 오면 그때 바로 · 이미 틀었으면 다시 시작하지 않는다 · 「[재생]」이 온 때로
+       받는 시간을 고쳐 간다(spb). 끄기 = advance=False(config.AUDIENCE_ADVANCE).
     🔴 어떤 메서드도 예외를 밖으로 내지 않는다 — 재생기가 없거나 죽으면 TV 만 조용히 빠진다(로그는 종류마다 한 줄).
     """
 
@@ -93,7 +97,11 @@ class AudienceSpeaker:
     PIPE_BYTES = 4096            # 관 크기 요청 — 커널이 페이지 크기(파이5 = 16KB)로 올린다
     AHEAD_MAX_SEC = 0.1          # 관에 이만큼 넘게 쌓아 두지 않는다 = 쌓인 소리 · 멈춤 지연의 상한(GIL 에 밀려도 끊기지 않을 여유)
 
-    def __init__(self, enabled, cmd=None, rate=None, peak=None, log=print, retry_sec=10.0, flag_ttl=0.3):
+    def __init__(self, enabled, cmd=None, rate=None, peak=None, log=print, retry_sec=10.0, flag_ttl=0.3,
+                 advance=None, tv_lag=None, spb=None):
+        self.advance = config.AUDIENCE_ADVANCE if advance is None else advance
+        self.tv_lag = config.AUDIENCE_TV_LAG_SEC if tv_lag is None else tv_lag
+        self.spb = 1 / 500_000 if spb is None else spb      # 안경이 받는 데 드는 초/바이트 — 처음 값 = 초당 500KB 가정 · 학습
         self.rate = rate or config.AUDIENCE_RATE
         self.peak = peak or config.AUDIENCE_PEAK
         self.cmd = cmd or ["pw-cat", "--playback", "--raw", "--format", "s16", "--rate", str(self.rate),
@@ -102,6 +110,10 @@ class AudienceSpeaker:
         self.retry_sec, self.flag_ttl = retry_sec, flag_ttl
         self._lock = threading.Lock()
         self._cur, self._pos, self._prepared = None, 0, None
+        self._pending = None                 # 앞당겨 틀 예약 (pcm, 틀 때, t_send, 바이트)
+        self._started = None                 # 앞당겨 틀어 이미 나가는 소리의 (t_send, 바이트) — 「[재생]」 때 학습만
+        self._begin_at = None                # 아직 풀고 있는데 「[재생]」이 먼저 온 때
+        self._job = 0                        # 풀기 작업 번호 — 낡은 작업 결과를 버린다
         self._last_end = 0.0                 # 지금 소리의 마지막 덩어리를 넘긴 때(단조 시계)
         self._proc = None
         self._closed = threading.Event()
@@ -161,7 +173,7 @@ class AudienceSpeaker:
             pass
         self._proc = None
         with self._lock:
-            self._cur, self._prepared = None, None
+            self._clear()
         now = time.monotonic()
         quick = self._died_at is not None and now - self._died_at < 5.0
         self._died_at = now
@@ -172,9 +184,28 @@ class AudienceSpeaker:
             self._next_try = now
             self._warn("died", "⚠️ 관객 소리(TV) 재생기가 멈췄다 — 다시 띄운다")
 
+    def _clear(self):
+        """(잠금 안에서) 지금 소리 · 준비 · 예약을 모두 버린다."""
+        self._cur = self._prepared = self._pending = self._started = self._begin_at = None
+        self._job += 1
+
+    def _learn(self, t_send, nbytes, t_play):
+        """(잠금 안에서) 보내기 시작 → 「[재생]」 까지 실제로 걸린 시간으로 초/바이트를 고친다."""
+        if t_send is None or nbytes <= 0:
+            return
+        obs = t_play - t_send
+        if 0 < obs < 5.0:
+            self.spb = 0.7 * self.spb + 0.3 * (obs / nbytes)
+
     def _next_chunk(self):
         on = self.enabled()                  # 🔑 잠금 밖에서 — 상태 파일 읽기가 begin · stop 을 붙잡지 않게(검토 Minor 3)
+        now = time.monotonic()
         with self._lock:
+            if self._cur is None and self._pending is not None and now >= self._pending[1]:
+                pcm, _, ts, n = self._pending
+                self._pending = None
+                if on:
+                    self._cur, self._pos, self._started = pcm, 0, (ts, n)    # 앞당겨 틀기 — 「[재생]」 전에
             if self._cur is None:
                 return None
             if not on:
@@ -245,28 +276,61 @@ class AudienceSpeaker:
         except Exception as e:                  # noqa: BLE001
             self._warn("start", f"⚠️ 관객 소리(TV) 시작 실패 — TV 소리 없이 계속한다: {e}")
 
-    def prepare(self, payload):
-        """안경으로 보낼 프레임을 풀어 둔다(아직 소리 아님) — 소리 프레임이 아니면 비운다 · 끔 · 재생기 없음이면 풀지 않는다."""
+    def prepare(self, payload, t_send=None):
+        """안경으로 보낼 프레임 — 따로 도는 스레드가 풀어 둔다(🔑 곧바로 돌아온다 · 안경 전송을 늦추지 않음).
+        `t_send` = 보내기 시작한 때(단조 시계) — 있고 앞당기기 켬이면 예약해 「[재생]」 전에 튼다. 끔 · 재생기 없음이면 풀지 않는다."""
+        with self._lock:
+            self._clear()
+            job = self._job
         if not (self.enabled() and self._proc is not None):
-            with self._lock:
-                self._prepared = None
             return
+        threading.Thread(target=self._prep_job, args=(payload, t_send, job), name="audience-prep", daemon=True).start()
+
+    def _prep_job(self, payload, t_send, job):
         try:
             got = parse_frame(payload)
             pcm = None if got is None else resample(normalize(got[0], self.peak), got[1], self.rate)
         except Exception as e:                  # noqa: BLE001
             pcm = None
             self._warn("prepare", f"⚠️ 관객 소리(TV) 프레임을 못 풀었다: {e}")
+        n = len(payload or b"")
         with self._lock:
-            self._prepared = pcm
+            if job != self._job or pcm is None:
+                return                           # 그사이 멈춤 · 다음 소리 — 낡은 결과
+            if self._begin_at is not None:       # 「[재생]」이 먼저 왔다 — 바로
+                self._cur, self._pos = pcm, 0
+                self._learn(t_send, n, self._begin_at)
+                self._begin_at = None
+            elif self.advance and t_send is not None:
+                self._pending = (pcm, t_send + self.spb * n - self.tv_lag, t_send, n)
+            else:
+                self._prepared = (pcm, t_send, n)
 
     def begin(self):
-        """안경이 「[재생]」을 알렸다 — 준비한 소리를 흘리기 시작한다(끔 · 재생기 없음이면 버린다)."""
+        """안경이 「[재생]」을 알렸다 — 예약 · 준비한 소리를 지금 튼다 · 앞당겨 이미 틀었으면 다시 시작하지 않고 학습만
+        (끔 · 재생기 없음이면 버린다)."""
         on = self.enabled() and self._proc is not None
+        now = time.monotonic()
         with self._lock:
-            if on and self._prepared is not None:
-                self._cur, self._pos = self._prepared, 0
-            self._prepared = None
+            if not on:
+                self._clear()
+                return
+            if self._pending is not None:
+                pcm, _, ts, n = self._pending
+                self._pending = None
+                self._cur, self._pos = pcm, 0
+                self._learn(ts, n, now)
+            elif self._started is not None:
+                ts, n = self._started
+                self._started = None
+                self._learn(ts, n, now)
+            elif self._prepared is not None:
+                pcm, ts, n = self._prepared
+                self._prepared = None
+                self._cur, self._pos = pcm, 0
+                self._learn(ts, n, now)
+            else:
+                self._begin_at = now             # 아직 풀고 있다 — 다 풀면 바로 튼다(_prep_job)
 
     def chime(self, kind):
         """띠링("open") · 닫힘음("close") — 안경에 B · C 를 보낸 직후."""
@@ -287,11 +351,12 @@ class AudienceSpeaker:
         with self._lock:
             if self._cur is not None:
                 self._last_end = time.monotonic()
-            self._cur, self._prepared = None, None
+            self._clear()
 
     @property
     def busy(self):
-        return self._cur is not None
+        """TV 로 낼 소리가 남았나 — 나가는 중 · 예약됨 · 「[재생]」 뒤 아직 풀고 있음을 모두 센다(꼬리 기다림이 짧은 소리를 놓치지 않게)."""
+        return self._cur is not None or self._pending is not None or self._begin_at is not None
 
     def wait_tail(self, max_sec):
         """TV 가 남은 소리를 다 낼 때까지(+ AUDIENCE_TAIL_PAD_SEC) 기다린다 — 상한 max_sec · 소리 없으면 바로."""
