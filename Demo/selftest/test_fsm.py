@@ -812,14 +812,14 @@ def test_b_forget_and_reset_clear_previous_tips():
 
 
 def test_b_config_bad_env_does_not_crash():
-    """안 B — 문턱 환경변수가 비었거나 오타여도 기동이 죽지 않고 기본 437.5 로(최종 리뷰 M-7)."""
+    """안 B — 문턱 환경변수가 비었거나 오타여도 기동이 죽지 않고 기본값으로(최종 리뷰 M-7 · 10/22 기본 375 = XGA 600)."""
     import subprocess
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for bad in ("", "abc"):
         r = subprocess.run([sys.executable, "-c", "import config; print(config.FSM_SLOW_ENTRY_PX_S_VGA)"],
                            cwd=here, capture_output=True, text=True, timeout=60,
                            env=dict(os.environ, SOP_SLOW_ENTRY_PX_S_VGA=bad))
-        assert r.returncode == 0 and r.stdout.strip().splitlines()[-1] == "437.5", f"{bad!r} → {r.returncode} {r.stdout[-80:]} {r.stderr[-200:]}"
+        assert r.returncode == 0 and r.stdout.strip().splitlines()[-1] == "375.0", f"{bad!r} → {r.returncode} {r.stdout[-80:]} {r.stderr[-200:]}"
     r = subprocess.run([sys.executable, "-c", "import config; print(config.FSM_SLOW_ENTRY_PX_S_VGA)"],
                        cwd=here, capture_output=True, text=True, timeout=60,
                        env=dict(os.environ, SOP_SLOW_ENTRY_PX_S_VGA="0"))
