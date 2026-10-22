@@ -45,9 +45,11 @@ EXPECT = {"5-2": ("WARNING",), "5-3": ("WARNING",), "10-2": ("WARNING",), "11-1"
                                  # 경고(손이 먼저 감)는 계획에 없던 것 — 미리 안내를 알림 뒤 다시 낸다
           "12-2": ("WARNING", "BLOCK"), "12-2b": ("WARNING", "BLOCK"), "13-1": ("WARNING", "BLOCK")}
 # 기다리는 장면 → (다시 낼 문장, 종류, 넘어갈 곳) — must = 15초마다 · 최대 GUIDE_REPROMPT_MAX · demo = 한 번 더 뒤 넘어감
-WAIT = {"4-1": ("3-1", "must", None), "6-2": ("6-1", "must", None), "9-3": ("9-2", "must", None),
-        "9-4": ("9-2", "must", None), "10-1": ("9-5", "must", None), "12-1": ("11-1", "must", None),
+# 🔑 10/22(spec §12) — 9-3 은 WAIT 가 아니라 _cond 의 「안 보면 5초」 · 9-4 를 기다리며 15초마다 내는 것도 9-3
+WAIT = {"4-1": ("3-1", "must", None), "6-2": ("6-1", "must", None),
+        "9-4": ("9-3", "must", None), "10-1": ("9-5", "must", None), "12-1": ("11-1", "must", None),
         "14-1": ("13-1", "must", None), "14-2": ("14-1", "must", None), "16-2": ("16-1", "must", None),
+        "15-1": ("13-1", "must", None),    # 대체 흐름(12-2b) — 13-1 다음이 15-1 이라 차단이 안 풀리면 여기서 13-1 다시(리뷰 M-2)
         "5-3": ("5-2", "demo", "6-1"), "8-1": ("7-2", "demo", "9-1"), "9-1": ("8-1", "demo", "9-1!"),
         "11-1": ("10-2", "demo", "12-1"), "13-1": ("12-2", "demo", "14-1")}
 
@@ -102,6 +104,7 @@ class GuideCore:
         self.graze_fails = 0             # 이번 틱까지 새로 본 스침 경고(_decide 가 _gf 로 옮긴다)
         self._gf = 0                     # 이번 회차 스침 경고 누적 — 참여자마다 0 부터
         self.voice_t0, self.voice_fails = None, 0
+        self.look_t = None               # 마지막으로 렌치를 본 때(공구 단계 checking · grasped) — 9-3 「안 보면 5초」
         self.ub_count = 0                # 계획에 없던 차단에 낸 13-1 수(리뷰 M5 — 15초마다 · 상한 GUIDE_REPROMPT_MAX)
 
     def _note(self, msg):
@@ -180,11 +183,17 @@ class GuideCore:
                 if self.cur() in ("5-2", "5-3") and a == "WARNING":
                     self.graze_fails += 1
             self.alarm = a
+        if hand.get("공구단계") in ("checking", "grasped"):
+            self.look_t = self.now
         if self.play and self.play["sid"] == "5-2" or self.cur() == "5-3":
             if hand.get("roi") == "B3" and hand.get("level") == 2:
                 self.g_in = True
             elif self.g_in and hand.get("roi") != "B3":
                 self.g_out = True
+
+    def _waited(self, sec):
+        """마지막 일(소리 끝 · 알림 끝 · 장면 옮김) 뒤 sec 초가 지났나."""
+        return self.now - (self.wait_since or self.now) >= sec * 1000
 
     def _since(self, kind, t0):
         return any(k == kind and t >= t0 for k, t in self.alarm_hist)
@@ -294,9 +303,9 @@ class GuideCore:
     def _decide(self, st, hand, voice):
         if self.unplanned:
             if self.alarm == "BLOCK" and self.after_block:
-                # 13-1 「…차단 해제 버튼을 눌러 주세요」 — 처음 한 번 · 안 풀리면 15초마다(버튼 장면과 같은 상한 · 리뷰 M5)
-                due = self.ub_count == 0 or (self.now - (self.wait_since or self.now) >= self.cfg.GUIDE_REPROMPT_SEC * 1000
-                                             and self.ub_count <= self.cfg.GUIDE_REPROMPT_MAX)
+                # 13-1 「…차단 해제 버튼을 눌러 주세요」 — 알림이 끝나고 15초마다(10/22 · 처음에도 15초 · 계획된 차단과 같게 ·
+                #    버튼 장면과 같은 상한 · 리뷰 M5)
+                due = self._waited(self.cfg.GUIDE_REPROMPT_SEC) and self.ub_count <= self.cfg.GUIDE_REPROMPT_MAX
                 if due:
                     self.ub_count += 1
                     return self._start("13-1", main=False)
@@ -335,6 +344,8 @@ class GuideCore:
             if r is not None:
                 return r
         ok = self._cond(sid, st, hand, voice)
+        if ok == "wait":                 # 말없이 기다림(9-3 · 13-1 — 다시 안내 없음)
+            return None
         if ok == "skip":
             self._note(f"{sid} 건너뜀 — 이미 지나감")
             self._move(self.p + 1)
@@ -370,7 +381,16 @@ class GuideCore:
         if sid == "9-1":
             return not (st.get("서브진행") or {}).get("공구오답")
         if sid == "9-3":
-            return "skip" if step >= 3 else hand.get("공구단계") in ("checking", "grasped")
+            # 10/22(spec §12) — 렌치를 안 볼 때만: 보는 동안은 말없이 기다리고 · 안 보는 채 GUIDE_TOOL_LOOK_SEC 면 말한다
+            #    (보다가 놓치면 그때부터 다시 센다 · 확인이 끝나면 말없이 9-4 로)
+            if step >= 3:
+                return "skip"
+            if self._waited(self.cfg.GUIDE_REPROMPT_SEC):
+                return True              # 보는데도 15초째 확인이 안 끝남(판정이 확인 중에서 멈춤 · 깜빡임) — 그래도 한 번(§4.2 15초 · 리뷰 I-1)
+            if hand.get("공구단계") in ("checking", "grasped"):
+                return "wait"
+            t0 = max(self.wait_since or self.now, self.look_t or 0)
+            return True if self.now - t0 >= self.cfg.GUIDE_TOOL_LOOK_SEC * 1000 else "wait"
         if sid == "9-4":
             return step >= 3
         if sid == "10-1":
@@ -385,7 +405,11 @@ class GuideCore:
             t0 = max(self.t_start.get("12-2", 0), self.t_start.get("12-2b", 0)) or self.now
             if not self._since("BLOCK", t0):
                 return False
-            return True if self.alarm == "BLOCK" else "skip"
+            if self.alarm != "BLOCK":
+                return "skip"
+            # 10/22(spec §12) — 차단 알림 소리가 먼저 「차단 해제 버튼을 누른 뒤 …」라고 한다 · 알림이 끝나고 15초 동안
+            #    안 풀릴 때만(wait_since = 알림이 끝난 때 — 알림 중에는 tick 이 계속 미룬다)
+            return True if self._waited(self.cfg.GUIDE_REPROMPT_SEC) else "wait"
         if sid == "14-1":
             if _pressed(st, "B3") or step >= 4:
                 return "skip"

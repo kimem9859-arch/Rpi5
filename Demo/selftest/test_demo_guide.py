@@ -13,6 +13,7 @@ import sys
 _DEMO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _DEMO)
 
+import config
 import demo_guide as dg
 
 _fails = []
@@ -142,8 +143,9 @@ class World:
 class Actor:
     """참여자 흉내 — 문장이 끝나면 시킨 일을 한다. skip = 하지 않을 문장 · over = 바꿔 할 일."""
 
-    def __init__(self, w, skip=(), over=None):
+    def __init__(self, w, skip=(), over=None, hold_block=False):
         self.w, self.skip, self.over = w, set(skip), over or {}
+        self.hold_block = hold_block    # 참이면 차단을 안 푼다(13-1 이 15초 뒤에 나오는지 볼 때)
         w.on_done = self.done
 
     def done(self, sid):
@@ -198,8 +200,11 @@ class Actor:
         self.w.set(상태="MONITOR")
 
     def a_12_2(self):
-        self.w.set(상태="WARNING")
-        self.w.later(300, lambda: self.w.set(상태="BLOCK"))
+        w = self.w
+        w.set(상태="WARNING")
+        w.later(300, lambda: w.set(상태="BLOCK"))
+        if not self.hold_block:          # 🔑 실물 = 차단 알림 소리(「차단 해제 버튼을 누른 뒤 …」)가 끝나고 약 2초 뒤 해제(10/22 · 5번 모두)
+            w.later(300 + w.alert_ms + 2000, lambda: w.st.get("상태") == "BLOCK" and w.set(상태="PROCESS RUN"))
 
     def a_13_1(self):
         self.w.set(상태="PROCESS RUN")
@@ -218,8 +223,9 @@ class Actor:
         self.w.set(현재단계=4, 결과={"위반": 1})
 
 
+# 🔑 10/22(상위 spec §12) — 9-3 은 렌치를 안 볼 때만 · 13-1 은 차단이 15초 안 풀릴 때만 → 보통 흐름에는 둘 다 없다
 NORMAL = ["1-1", "1-2", "1-3", "2-1", "3-1", "4-1", "4-2", "5-1", "5-2", "5-3", "6-1", "6-2", "7-1", "7-2", "8-1",
-          "9-1", "9-2", "9-3", "9-4", "9-5", "10-1", "10-2", "11-1", "12-1", "12-2", "13-1", "14-1", "14-2", "14-3",
+          "9-1", "9-2", "9-4", "9-5", "10-1", "10-2", "11-1", "12-1", "12-2", "14-1", "14-2", "14-3",
           "15-1", "16-1", "16-2"]
 
 
@@ -510,7 +516,7 @@ def test_10_waits_tool_down():
 
 
 def test_pink_during_warning_fallback():
-    print("\n[대체] 10~11 경고 중 분홍을 누름 → 14-2 14-3 12-1 12-2b 13-1 15-1 16-1 16-2")
+    print("\n[대체] 10~11 경고 중 분홍을 누름 → 14-2 14-3 12-1 12-2b 15-1 16-1 16-2(차단은 알림 뒤 바로 풀림)")
     w = World()
     a = Actor(w)
 
@@ -524,11 +530,11 @@ def test_pink_during_warning_fallback():
     w.until(lambda: "16-2" in w.sids())
     s = w.sids()
     tail = s[s.index("10-2") + 1:]
-    check(tail == ["14-2", "14-3", "12-1", "12-2b", "13-1", "15-1", "16-1", "16-2"], f"차례({tail})")
+    check(tail == ["14-2", "14-3", "12-1", "12-2b", "15-1", "16-1", "16-2"], f"차례({tail} · 13-1 은 15초 안 풀릴 때만)")
 
 
 def test_unplanned_block_resume():
-    print("\n[차단] 9(공구 서브)에서 차단 → 13-1 → 풀림(서브 취소) → 6-1 → 6-2 → 9-1(7 · 8 다시 안 함)")
+    print("\n[차단] 9(공구 서브)에서 차단 → 15초 안에 풀림(13-1 없음 · 서브 취소) → 6-1 → 6-2 → 9-1(7 · 8 다시 안 함)")
     w = World()
     a = Actor(w, skip={"9-2", "13-1"})                  # 차단 중에는 렌치 판정이 진행되지 않는다(서브 취소 — 실제와 같게)
 
@@ -540,7 +546,7 @@ def test_unplanned_block_resume():
     w.until(lambda: w.sids().count("9-1") >= 2)
     s = w.sids()
     tail = s[s.index("9-1") + 1:]
-    check(tail == ["9-2", "13-1", "6-1", "6-2", "9-1"], f"차례({tail})")
+    check(tail == ["9-2", "6-1", "6-2", "9-1"], f"차례({tail})")
 
 
 def test_unplanned_block_without_sub_keeps_scene():
@@ -550,10 +556,129 @@ def test_unplanned_block_without_sub_keeps_scene():
     a.over["4-2"] = lambda: w.later(400, lambda: (w.set(상태="BLOCK"),
                                                   w.later(w.alert_ms + 2500, lambda: w.set(상태="PROCESS RUN"))))
     w.start()
-    w.until(lambda: "13-1" in w.sids() and w.sids().count("5-1") >= 2, 60_000)
+    w.until(lambda: w.sids().count("5-1") >= 2, 60_000)
     s = w.sids()
-    tail = s[s.index("13-1"):]
-    check(tail[:2] == ["13-1", "5-1"] and "6-1" not in tail[:3], f"차례({tail[:4]})")
+    tail = s[s.index("4-2") + 1:]
+    check(tail[:2] == ["5-1", "5-1"] and "6-1" not in tail[:3] and "13-1" not in s, f"차례({tail[:4]})")
+
+
+# ------------------------------------------------------------------ 10/22 시연 점검 뒤(상위 spec §12)
+def _mark_end(a, sid, marks):
+    """그 문장이 끝난 때를 적는다(Actor 는 끝나고 800ms 뒤 부른다 — 그만큼 뺀다) · 원래 할 일은 하지 않는다."""
+    a.over[sid] = lambda: marks.append(a.w.now - 800)
+
+
+def test_9_3_silent_when_looking():
+    print("\n[10/22 9-3] 9-2 뒤 바로 렌치를 보면 9-3 없이 · 확인이 끝나면 곧바로 9-4")
+    w = World()
+    Actor(w)
+    w.start()
+    w.until(lambda: w.st.get("현재단계") == 3, 200_000)
+    t3 = w.now
+    w.until(lambda: "9-4" in w.sids(), 10_000)
+    check("9-3" not in w.sids(), f"9-3 없음({w.sids()[-3:]})")
+    check(w.now - t3 <= 1500, f"확인 끝 → 9-4 {w.now - t3:.0f}ms(1.5초 안)")
+
+
+def test_9_3_when_not_looking():
+    print("\n[10/22 9-3] 9-2 뒤 렌치를 안 보면 5초 뒤 9-3 「렌치를 계속 잡고 바라봐 주세요」 · 계속 안 보면 15초마다 · 보면 9-4")
+    check(config.GUIDE_TOOL_LOOK_SEC == 5.0, f"기준 5초({config.GUIDE_TOOL_LOOK_SEC})")
+    check(SENT["9-3"] == ["cue_g9_3b"], f"9-3 = 「렌치를 계속 잡고 바라봐 주세요」 하나({SENT['9-3']})")
+    w = World()
+    a = Actor(w)
+    marks = []
+    _mark_end(a, "9-2", marks)
+    w.start()
+    w.until(lambda: "9-3" in w.sids(), 200_000)
+    dt = w.now - marks[0] if marks else -1
+    check(4800 <= dt <= 6000, f"9-2 끝 → 9-3 {dt:.0f}ms(5초 뒤)")
+    t1 = w.now
+    w.until(lambda: w.sids().count("9-3") >= 2, 30_000)
+    check(14_000 <= w.now - t1 <= 17_500, f"그 뒤 15초마다 다시({w.now - t1:.0f}ms)")
+    a.a_9_2()
+    w.until(lambda: "9-4" in w.sids(), 10_000)
+    check("9-4" in w.sids() and w.sids().count("9-3") == 2, f"보면 9-4({w.sids()[-4:]})")
+
+
+def test_9_3_timer_restarts_after_look_away():
+    print("\n[10/22 9-3] 보다가 시선을 돌리면(확인 중 → 찾기) 그때부터 다시 5초")
+    w = World()
+    a = Actor(w)
+    away = []
+
+    def glance():
+        w.hand.update(공구단계="checking", 손판정끔=True)
+        w.later(3000, lambda: (w.hand.update(공구단계="search"), away.append(w.now)))
+    a.over["9-2"] = glance
+    w.start()
+    w.until(lambda: "9-3" in w.sids(), 200_000)
+    dt = w.now - away[0] if away else -1
+    check(4800 <= dt <= 6000, f"시선을 돌린 뒤 9-3 {dt:.0f}ms(5초 뒤 · 보는 동안은 세지 않음)")
+
+
+def test_13_1_silent_when_released():
+    print("\n[10/22 13-1] 차단 알림 뒤 곧 해제하면 13-1 없이 14-1")
+    w = _normal()
+    w.until(lambda: "14-1" in w.sids(), 300_000)
+    check("13-1" not in w.sids() and "14-1" in w.sids(), f"13-1 없음({w.sids()[-3:]})")
+
+
+def test_13_1_after_15s_when_held():
+    print("\n[10/22 13-1] 차단 알림이 끝나고 15초 동안 안 풀면 13-1 · 그 뒤 풀면 14-1")
+    w = World()
+    Actor(w, hold_block=True)
+    w.start()
+    w.until(lambda: any(e[1] == "alert" and e[2].get("key") == "BLOCK" for e in w.voice), 300_000)
+    t_block = w.now
+    w.until(lambda: "13-1" in w.sids(), 40_000)
+    dt = w.now - t_block
+    check(w.alert_ms + 14_900 <= dt <= w.alert_ms + 16_500, f"차단 → 13-1 {dt:.0f}ms(알림 {w.alert_ms}ms + 15초)")
+    w.until(lambda: "14-1" in w.sids(), 20_000)
+    check("14-1" in w.sids(), "13-1 을 듣고 풀면 14-1")
+
+
+def test_unplanned_block_13_1_after_15s():
+    print("\n[10/22 13-1] 계획에 없던 차단도 알림 뒤 15초 동안 안 풀릴 때만 13-1")
+    w = World()
+    a = Actor(w, skip={"13-1"})
+    a.over["6-1"] = lambda: w.set(상태="BLOCK")
+    w.start()
+    w.until(lambda: any(e[1] == "alert" and e[2].get("key") == "BLOCK" for e in w.voice), 300_000)
+    t_block = w.now
+    w.until(lambda: "13-1" in w.sids(), 40_000)
+    dt = w.now - t_block
+    check(w.alert_ms + 14_900 <= dt <= w.alert_ms + 16_500, f"차단 → 13-1 {dt:.0f}ms(알림 {w.alert_ms}ms + 15초)")
+
+
+def test_9_3_after_15s_when_check_stuck():
+    print("\n[10/22 9-3 · 리뷰 I-1] 보고 있는데 확인이 안 끝나면(확인 중에서 멈춤) 9-2 끝 뒤 15초에 9-3 · 그 뒤 15초마다 — 끝없이 조용하지 않게")
+    w = World()
+    a = Actor(w)
+    marks = []
+    a.over["9-2"] = lambda: (marks.append(w.now - 800), w.hand.update(공구단계="checking", 손판정끔=True))
+    w.start()
+    w.until(lambda: "9-3" in w.sids(), 200_000)
+    dt = w.now - marks[0] if marks else -1
+    check(14_800 <= dt <= 16_000, f"9-2 끝 → 9-3 {dt:.0f}ms(15초 · 보고 있어도)")
+    w.until(lambda: w.sids().count("9-3") >= 3, 40_000)
+    check(w.sids().count("9-3") >= 3, f"그 뒤에도 15초마다 다시({w.sids().count('9-3')}번)")
+
+
+def test_fallback_13_1_repeats_when_held():
+    print("\n[대체 · 리뷰 M-2] 대체 흐름(12-2b 노랑)에서 차단을 안 풀면 13-1 도 15초마다(정상 흐름의 14-1 기다림과 같게)")
+    w = World()
+    a = Actor(w, hold_block=True)
+
+    def pink():
+        w.set(상태="MONITOR", 현재버튼="B3")
+        w.sub()
+        w.later(5000, lambda: w.set(현재단계=4, 현재버튼="B4", 서브진행=None))
+    a.over["12-2"] = lambda: (w.touch("B4", 2), w.set(상태="WARNING"), w.later(w.alert_ms + 300, pink))
+    a.over["12-2b"] = a.a_12_2
+    a.skip.add("13-1")
+    w.start()
+    w.until(lambda: w.sids().count("13-1") >= 2, 200_000)
+    check(w.sids().count("13-1") >= 2 and "15-1" not in w.sids(), f"13-1 다시 · 풀릴 때까지 15-1 없음({w.sids()[-3:]})")
 
 
 # ------------------------------------------------------------------ 최종 리뷰(2026-10-18) 지적 — 재현 시험
@@ -625,14 +750,14 @@ def test_r_i2_driver_kept_forces_9_1():
 
 
 def test_r_i3_block_after_warning_waits_block_alert():
-    print("\n[리뷰 I3] 경고 → 차단이 이어지면 13-1 은 차단 알림이 끝난 뒤(끊긴 경고 알림의 끝을 차단 끝으로 보지 않는다)")
+    print("\n[리뷰 I3] 경고 → 차단이 이어지면 13-1 은 차단 알림이 끝난 뒤(끊긴 경고 알림의 끝을 차단 끝으로 보지 않는다) · 10/22 그 뒤 15초")
     w = World()
-    Actor(w, skip={"13-1"})
+    Actor(w, skip={"13-1"}, hold_block=True)
     w.start()
     w.until(lambda: any(e[1] == "alert" and e[2].get("key") == "BLOCK" for e in w.voice))
     t_block = w.now
     w.until(lambda: "13-1" in w.sids())
-    check(w.now - t_block >= w.alert_ms, f"차단 알림({w.alert_ms}ms) 뒤에 13-1({w.now - t_block:.0f}ms)")
+    check(w.now - t_block >= w.alert_ms + 14_800, f"차단 알림({w.alert_ms}ms) + 15초 뒤에 13-1({w.now - t_block:.0f}ms · 판정 주기 0.1초)")
 
 
 def test_r_i4_fast_graze_between_ticks():
@@ -661,7 +786,7 @@ def test_r_i5_result_skips_voice_scene():
 
 
 def test_r_i5_press_sentence_skipped_when_done():
-    print("\n[리뷰 I5] 누름 문장은 이미 눌렸으면 건너뛴다(1-2 중 노랑 → 3-1 없이 4-1 · 13-1 중 분홍 → 14-1 없이 14-2)")
+    print("\n[리뷰 I5] 누름 문장은 이미 눌렸으면 건너뛴다(1-2 중 노랑 → 3-1 없이 4-1 · 차단 풀고 바로 분홍 → 14-1 없이 14-2)")
     w = World(clip_ms=1500)
     a = Actor(w)
     a.over["1-1"] = a.a_3_1
@@ -678,11 +803,11 @@ def test_r_i5_press_sentence_skipped_when_done():
     w2.start()
     w2.until(lambda: "14-2" in w2.sids())
     s = w2.sids()
-    check("14-1" not in s[s.index("13-1"):], f"14-1 없음({s[s.index('12-2'):]})")
+    check("14-1" not in s[s.index("12-2"):] and "14-2" in s, f"14-1 없음({s[s.index('12-2'):]})")
 
 
 def test_r_i5_pink_at_12_fallback():
-    print("\n[리뷰 I5] 12-2 뒤 경고 알림대로 분홍을 누름(차단 없음) → 대체: 14-2 14-3 12-1 12-2b 13-1(차단 장면 빠뜨리지 않음)")
+    print("\n[리뷰 I5] 12-2 뒤 경고 알림대로 분홍을 누름(차단 없음) → 대체: 14-2 14-3 12-1 12-2b → 차단(장면 빠뜨리지 않음) → 15-1")
     w = World()
     a = Actor(w)
 
@@ -693,10 +818,11 @@ def test_r_i5_pink_at_12_fallback():
     a.over["12-2"] = lambda: (w.touch("B4", 2), w.set(상태="WARNING"), w.later(w.alert_ms + 300, pink))
     a.over["12-2b"] = a.a_12_2
     w.start()
-    w.until(lambda: "13-1" in w.sids() and "12-2b" in w.sids(), 120_000)
+    w.until(lambda: "15-1" in w.sids(), 120_000)
     s = w.sids()
     tail = s[s.index("12-2") + 1:]
-    check(tail[:5] == ["14-2", "14-3", "12-1", "12-2b", "13-1"], f"차례({tail})")
+    check(tail[:5] == ["14-2", "14-3", "12-1", "12-2b", "15-1"], f"차례({tail} · 13-1 은 차단이 15초 안 풀릴 때만)")
+    check(any(e[1] == "alert" and e[2].get("key") == "BLOCK" for e in w.voice), "대체 흐름에서도 차단 장면이 일어났다")
 
 
 def test_r_m5_unplanned_block_reprompt():

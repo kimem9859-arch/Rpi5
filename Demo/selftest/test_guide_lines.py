@@ -77,6 +77,7 @@ LINES = {
     "cue_g16_2b": "작업 결과창을 확인해 주세요.",
     "cue_gx_emo": "처음부터 다시 하려면 화면의 작업 시작 버튼을 눌러 주세요.",
 }
+RESTING = {"cue_g4_1b", "cue_g9_3a"}     # 10/22 대본에서 뺀 소리(「기다리는 동안 …」 · 「렌치를 잡았는지 확인하고 있습니다.」)
 SENTENCE_IDS = ("1-1 1-2 1-3 2-1 3-1 4-1 4-2 5-1 5-2 5-3 5-R 6-1 6-2 7-1 7-2 8-1 9-1 9-2 9-3 9-4 9-5 "
                 "10-1 10-2 11-1 12-1 12-2 12-2b 13-1 14-1 14-2 14-3 15-1 15-R1 15-R2 16-1 16-2 X-EMO").split()
 
@@ -112,7 +113,26 @@ def test_sentences_cover_4_3():
     check(sents.get("14-2") == ["cue_g4_1a"] and sents.get("14-3") == ["cue_g4_2"], "14-2 · 14-3 은 4번 소리 재사용")
     check(sents.get("16-1") == ["cue_g12_2"], "16-1 = 파랑(12-2 재사용)")
     used = {k for ks in sents.values() for k in ks}
-    check(used == set(lines), f"쓰이지 않는 소리가 없다({sorted(set(lines) - used)})")
+    # 🔑 10/22(상위 spec §12) 대본에서 뺀 두 소리는 녹음 · 목록에 남긴다(되돌리기 = sentences 만 되돌리면 된다)
+    check(set(lines) - used == RESTING, f"쓰이지 않는 소리 = 10/22 뺀 두 개뿐({sorted(set(lines) - used)})")
+
+
+def test_sentences_1022():
+    print("\n[대본] 10/22 시연 점검 뒤 — 4-1 줄임 · 당부를 10-1 끝으로 · 9-3 은 「계속 잡고 바라봐 주세요」 하나")
+    s = load().get("sentences") or {}
+    check(s.get("4-1") == ["cue_g4_1a"], f"4-1 = 「5초 동안 기다려 주세요.」만({s.get('4-1')})")
+    check(s.get("10-1") == ["cue_g10_1a", "cue_g10_1b", "cue_g10_2b"], f"10-1 끝 = 당부({s.get('10-1')})")
+    check(s.get("10-2") == ["cue_g10_2a"], f"10-2 = 「…손만 올려 주세요.」만({s.get('10-2')})")
+    check(s.get("9-3") == ["cue_g9_3b"], f"9-3 = 「렌치를 계속 잡고 바라봐 주세요.」만({s.get('9-3')})")
+
+
+def test_guide_tempo_1022():
+    print("\n[소리] 안내 소리 52개 모두 1.1배(사용자 10/22 「1.1배가 적당」 · 음 높이 그대로)")
+    with open(os.path.join(os.path.dirname(LINES_PATH), "guide_audio.json"), encoding="utf-8") as f:
+        reg = json.load(f)
+    lines = load().get("lines") or {}
+    bad = sorted(k for k in lines if (reg.get(k) or {}).get("tempo") != 1.1)
+    check(not bad, f"목록의 빠르기 = 1.1({bad[:6]}{' …' if len(bad) > 6 else ''})")
 
 
 def test_color_alert_texts():
@@ -147,7 +167,8 @@ def test_color_alert_rule_miss_raises():
 
 
 if __name__ == "__main__":
-    for fn in (test_lines_exact, test_sentences_cover_4_3, test_color_alert_texts, test_color_alert_rule_miss_raises):
+    for fn in (test_lines_exact, test_sentences_cover_4_3, test_sentences_1022, test_guide_tempo_1022,
+               test_color_alert_texts, test_color_alert_rule_miss_raises):
         try:
             fn()
         except Exception as e:                       # noqa: BLE001 — 시험 하나가 터져도 나머지를 본다
