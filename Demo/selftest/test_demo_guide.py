@@ -681,6 +681,18 @@ def test_fallback_13_1_repeats_when_held():
     check(w.sids().count("13-1") >= 2 and "15-1" not in w.sids(), f"13-1 다시 · 풀릴 때까지 15-1 없음({w.sids()[-3:]})")
 
 
+def test_16_1_after_close_chime_gap():
+    print("\n[10/22 16-1] 음성비서 답이 끝나고 1.5초 뒤에 16-1(닫힘 띠링이 먼저 · 답에 붙어 묻히지 않게)")
+    check(config.GUIDE_AFTER_VOICE_SEC == 1.5, f"쉼 1.5초({getattr(config, 'GUIDE_AFTER_VOICE_SEC', None)})")
+    w = _normal()
+    w.until(lambda: any(e[1] == "play_end" and (e[2] or {}).get("key") is None and e[0] > 0 for e in w.voice[-3:])
+            and "15-1" in w.sids(), 300_000)
+    t_end = max(e[0] for e in w.voice if e[1] == "play_end" and (e[2] or {}).get("key") is None)
+    w.until(lambda: "16-1" in w.sids(), 10_000)
+    dt = w.now - t_end
+    check(1_500 <= dt <= 2_200, f"답 끝 → 16-1 {dt:.0f}ms(1.5초 뒤)")
+
+
 # ------------------------------------------------------------------ 최종 리뷰(2026-10-18) 지적 — 재현 시험
 def test_r_c1_replay_current_scene_not_last_action():
     print("\n[리뷰 C1] 15번 뒤 음성비서 답을 기다리는 동안 계획에 없던 경고 → 지난 장면 「분홍 버튼을 눌러 주세요」(14-1)를 내지 않는다")

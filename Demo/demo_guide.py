@@ -421,15 +421,23 @@ class GuideCore:
         if sid == "15-1":
             return self.alarm is None
         if sid == "16-1":
-            return self._voice_ok(voice) or self.voice_fails >= 2
+            # 10/22 — 답이 끝나고 GUIDE_AFTER_VOICE_SEC 뒤에(음성비서의 닫힘 띠링이 먼저 · 답에 바로 붙으면 묻혀 15초를 그냥 보냈다)
+            t = self._voice_done_at(voice)
+            if t is not None:
+                return True if self.now - t >= self.cfg.GUIDE_AFTER_VOICE_SEC * 1000 else "wait"
+            return self.voice_fails >= 2
         if sid == "16-2":
             return bool(st.get("결과"))
         return True
 
     def _voice_ok(self, voice):
+        return self._voice_done_at(voice) is not None
+
+    def _voice_done_at(self, voice):
+        """15번 성공 = 그 답이 끝까지 재생된 때(ms) · 아직이면 None."""
         t0 = self.t_end.get("15-1")
         if t0 is None:
-            return False
+            return None
         # 🔑 성공 = 15-1 뒤 호출(wake) 다음의 답(answer)이 끝까지 재생됨(play_end 완료 · 같은 키) — 호출만 · 질문 못 알아들음 ·
         #    답 중단은 실패다(설계 §4.2 · §6.5 · 리뷰 I1 — assistant_busy 는 시간이 지나도 「끝」을 돌려준다)
         ev = [e for e in voice if e[0] >= t0]
@@ -440,10 +448,11 @@ class GuideCore:
             if ans is None:
                 continue
             key = (ans[2] or {}).get("key")
-            if any(e[1] == "play_end" and e[0] >= ans[0] and (e[2] or {}).get("key") == key
-                   and (e[2] or {}).get("what") == "완료" for e in ev):
-                return True
-        return False
+            ends = [e[0] for e in ev if e[1] == "play_end" and e[0] >= ans[0] and (e[2] or {}).get("key") == key
+                    and (e[2] or {}).get("what") == "완료"]
+            if ends:
+                return ends[0]
+        return None
 
     def wake_open(self, voice):
         """호출어를 받을 구간인가(상위 specs/2026-10-21-관객소리TV-design.md 10장) — 15-1 「지금 바로 "가디언"이라고
