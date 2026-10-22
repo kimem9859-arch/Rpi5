@@ -215,6 +215,10 @@ def _env_float(name, default):
 
 FSM_SLOW_ENTRY_PX_S_VGA = _env_float("SOP_SLOW_ENTRY_PX_S_VGA", 437.5)
 
+# 스침 판정 카드(시연 화면 오른쪽 아래 · 2026-10-22 사용자 시안 B2) — 판정은 하지 않고 판정기 값을 보여 주기만 한다.
+GRAZE_GAUGE_ON        = True    # 설정 「판정 게이지」 처음 값(켤 때마다 이 값 · 저장 안 함)
+GRAZE_RESULT_HOLD_SEC = 2.0     # 손이 그 버튼 구역을 떠난 뒤 결과(스침 인정 · 경고)를 남겨 두는 시간
+
 # 경고 자동 해제(시연 UI 개선 설계 2026-10-13 §3.2 · 안 A) — 경고 뒤 이 초가 지났고 손이 그 틀린 버튼을 떠났으면 저절로 푼다.
 # 🔴 손 「떠남」 = 갭메우기(FSM_GAP_FILL_SEC) 뒤 값이 경고 대상과 다름(링도 같은 버튼). SOP_WARN_AUTO_RELEASE=0 = 끔(정답 버튼으로만 풀림).
 WARN_AUTO_RELEASE_SEC = 3.0 if os.environ.get("SOP_WARN_AUTO_RELEASE", "1") != "0" else 0.0

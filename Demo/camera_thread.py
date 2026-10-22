@@ -232,6 +232,19 @@ def role_bgr(role):
 _INK = (20, 20, 20)            # 이름표 글씨 · 기호 — 밝은 이름표 위 짙은 색
 
 
+def draw_dashed_rect(frame, box, color, dash=12, gap=8, th=2):
+    """점선 사각형(cv2 에 점선이 없어 짧은 선을 잇는다) — 스침 판정 중인 버튼의 링(판정 구역 · 2026-10-22)."""
+    x1, y1, x2, y2 = box
+    for (ax, ay), (bx, by) in (((x1, y1), (x2, y1)), ((x2, y1), (x2, y2)), ((x2, y2), (x1, y2)), ((x1, y2), (x1, y1))):
+        n = max(abs(bx - ax), abs(by - ay))
+        k = 0
+        while k < n:
+            e = min(n, k + dash)
+            cv2.line(frame, (ax + (bx - ax) * k // max(n, 1), ay + (by - ay) * k // max(n, 1)),
+                     (ax + (bx - ax) * e // max(n, 1), ay + (by - ay) * e // max(n, 1)), color, th)
+            k = e + gap
+
+
 def _glyph(frame, role, x, y, s):
     """이름표 앞 기호 — Hershey 글꼴에 ✓ ✕ 자물쇠가 없어 선으로(설계 §3.1). 그린 폭(+간격)을 돌려준다."""
     if role == "done":
@@ -297,6 +310,7 @@ class CameraThread(QThread):
         self._draw_scores        = config.SHOW_DETECT_SCORES   # 인식 점수 숫자(설정 · 기본 끔)
         self._draw_hand          = config.HAND_DRAW            # 손 인식 오버레이(설정 · 상자와 따로)
         self._box_roles          = {}                          # 버튼 이름 → 단계 뜻(콘솔이 상태가 바뀔 때 넣는다)
+        self._judge_ring         = None                        # 스침 판정 카드가 판정 중인 버튼 — 점선 링(2026-10-22 시안 B2)
         self._frame_sink         = None      # 시연영상 촬영이 붙는 자리 (demo_recorder)
         self._raw_sink           = None      # 1인칭 원본 녹화가 붙는 자리 (raw_recorder · 측정 녹화 설계 R1)
         self._raw_seq            = 0         # 측정 기록이 꺼졌을 때 원본 녹화가 쓰는 처리 순번
@@ -397,6 +411,11 @@ class CameraThread(QThread):
         with self._lock:
             self._draw_hand = bool(on)
 
+    def set_judge_ring(self, name):
+        """스침 판정 중인 버튼(없으면 None) — 그 버튼 상자 둘레 링(판정 구역)을 점선으로 그린다(표시만)."""
+        with self._lock:
+            self._judge_ring = name or None
+
     def set_box_roles(self, roles):
         """버튼 이름 → 단계 뜻("current"|"done"|"todo"|"emo"|"warn"|"block") — 상자 색(설계 §3 ②)."""
         with self._lock:
@@ -492,8 +511,8 @@ class CameraThread(QThread):
     # =========================================================================
     # [YOLO 드로잉]
     # =========================================================================
-    def _draw_yolo(self, frame, tracks, roles=None, scores=False):
-        """확정 트랙마다 꺾쇠 + 이름표 — 색 = 단계 뜻(roles · 모르면 「남은 단계」 회색)."""
+    def _draw_yolo(self, frame, tracks, roles=None, scores=False, judge=None):
+        """확정 트랙마다 꺾쇠 + 이름표 — 색 = 단계 뜻(roles · 모르면 「남은 단계」 회색) · judge = 스침 판정 중인 버튼(점선 링)."""
         roles = roles or {}
         for t in tracks:
             if not t['confirmed']:
@@ -501,6 +520,10 @@ class CameraThread(QThread):
             name = _detector.class_name(t['cls'])
             draw_box_label(frame, t['box'], name, roles.get(name, "todo"),
                            t['score'] if scores else None)
+            if judge and name == judge:
+                x1, y1, x2, y2 = (int(v) for v in t['box'])
+                g = int(self._ring_px)
+                draw_dashed_rect(frame, (x1 - g, y1 - g, x2 + g, y2 + g), role_bgr(roles.get(name, "todo")))
         return frame
 
     def _draw_tools(self, frame):
@@ -824,6 +847,7 @@ class CameraThread(QThread):
             hand_on = self._draw_hand
             scores = self._draw_scores
             roles = self._box_roles
+            judge = self._judge_ring
             sink = self._frame_sink
             raw_sink = self._raw_sink
 
@@ -896,7 +920,7 @@ class CameraThread(QThread):
 
         if DETECTOR_AVAILABLE:
             if draw_box:
-                frame = self._draw_yolo(frame, tracks, roles, scores)
+                frame = self._draw_yolo(frame, tracks, roles, scores, judge=judge)
             self.yolo_detections_signal.emit([
                 (_detector.class_name(t['cls']), t['score'], *t['box'])
                 for t in tracks if t['confirmed']          # 미확정 트랙은 내보내지 않는다(R2)

@@ -46,6 +46,8 @@ from overlay_menu import (MenuPanel, NotifyPanel, SettingsPanel,
                           _seg_button, _seg_qss)
 import log_view
 from overlay_result import ResultPanel
+from overlay_graze import GrazeCard
+import graze_gauge
 import precheck
 from fps import FPS_WINDOW, fps_from_intervals, fps_stale
 from demo_recorder import DemoRecorder
@@ -167,6 +169,8 @@ class SafetyConsole(QMainWindow):
         # 🔑 시연 안내 모드(상위 specs/2026-10-18-시연안내모드-design.md §6.1 · §6.2) — 설정 「시연 안내」 켬일 때만
         #    손이 든 버튼 · 공구 단계 · 손 판정 끔을 hand.json 으로 낸다(바뀔 때만). 끔이면 아무 것도 쓰지 않는다.
         self._guide_on = False           # 켤 때마다 끔으로 시작 — 다른 설정처럼 저장하지 않는다
+        self._graze_on = config.GRAZE_GAUGE_ON   # 판정 게이지(스침 판정 카드 · 2026-10-22 시안 B2) — 켤 때마다 처음 값
+        self._graze = graze_gauge.GrazeTracker()
         self._audience_on = True         # TV 소리(관객 소리 · 상위 specs/2026-10-21-관객소리TV-design.md 9장) — 켤 때마다 켬 · 저장 안 함
         self._hand_pub = StatePublisher(log=print, name=config.HAND_STATE_FILE)
         self._hand_last = None           # 마지막으로 쓴 (roi, level, 공구단계, 손판정끔)
@@ -415,6 +419,7 @@ class SafetyConsole(QMainWindow):
         self.settings_panel.hand_changed.connect(self._on_hand_changed)
         self.settings_panel.guide_changed.connect(self._on_guide_changed)
         self.settings_panel.audience_changed.connect(self._on_audience_changed)
+        self.settings_panel.graze_changed.connect(self._on_graze_changed)
         self.settings_panel.closed.connect(lambda: self._toggle_settings(False))
         # 공구 선택지는 **레시피가 준다** — 목록을 코드에 박지 않는다(design §4.4).
         self._wire_tool_settings()
@@ -441,6 +446,8 @@ class SafetyConsole(QMainWindow):
         # 우하단 연결 상태 표시바 — 상시 노출(design §9)
         self.conn_bar = ConnBar(central)
         self.conn_bar.show()
+        self.graze_card = GrazeCard(central)         # 스침 판정 카드 — 상태 막대 바로 위(2026-10-22 시안 B2)
+        self.graze_card.setVisible(self._graze_on)
 
         # 실측 FPS — 기본은 로그에만 남긴다(시연 화면에 숫자를 띄우지 않는다).
         #    SOP_SHOW_FPS=1 로 켤 때만 보인다.
@@ -525,6 +532,7 @@ class SafetyConsole(QMainWindow):
         # 🔴 상태바만 **영상 사각형** 기준이다 — 창 기준이면 오른쪽 검정
         #    레터박스에 앉는다(2026-08-04).
         self.conn_bar.relayout(self.camera_label.geometry())
+        self.graze_card.relayout(self.camera_label.geometry())
         if config.SHOW_FPS:
             self.fps_label.adjustSize()
             place(self.fps_label, self.camera_label.geometry(),
@@ -574,7 +582,7 @@ class SafetyConsole(QMainWindow):
         for w in (self.status_panel, self.gauge_panel, self.alert, self.glow,
                   self.menu_panel, self.notify_panel, self.settings_panel,
                   self.check_panel, self.record_panel, self.result_panel,
-                  self.conn_bar, self.confirm_panel, self.exit_confirm_panel):
+                  self.conn_bar, self.confirm_panel, self.exit_confirm_panel, self.graze_card):
             w.apply_theme()
         # 시안 — 바탕 60% · 테두리 22% · 둥근 10(☰) / 8(🔔) · 선 아이콘
         btn_qss = (f"QPushButton {{ background-color: {theme.C('panel_bg')}; border: 1px solid {theme.C('panel_border')};"
@@ -1008,7 +1016,7 @@ class SafetyConsole(QMainWindow):
             #    경고는 가장자리 불빛 · 단계 카드 · 소리로도 보인다. 안내(notice)는 올리지 않는다(리뷰 M-4).
             if self.alert.mode not in (None, "notice"):
                 # 시안 — 경고 · 차단 때 단계 카드 · 대기 시간 · 상태 막대는 스크림 **위**(밝게 · 카드 테두리가 경고색)
-                for w in (self.status_panel, self.gauge_panel, self.conn_bar):
+                for w in (self.status_panel, self.gauge_panel, self.conn_bar, self.graze_card):
                     w.raise_()
                 self.glow.raise_()
                 self.alert.raise_()
@@ -1083,6 +1091,14 @@ class SafetyConsole(QMainWindow):
         self._publish_state()
         if self._guide_on:
             self._publish_hand(force=True)
+
+    def _on_graze_changed(self, on):
+        """판정 게이지 켬/끔 — 카드와 버튼 점선 링을 함께 보이거나 숨긴다(판정은 그대로)."""
+        self._graze_on = bool(on)
+        self.graze_card.setVisible(self._graze_on)
+        if not self._graze_on:
+            self.camera_thread.set_judge_ring(None)
+        self._append_log(f"[설정] 판정 게이지 → {'켬' if on else '끔'}")
 
     def _on_audience_changed(self, on):
         """TV 소리 켬/끔 — 상태 파일 `관객소리` 칸으로 음성비서에 알린다(끄면 안경에서만 · 나던 TV 소리도 멈춤)."""
@@ -1218,6 +1234,12 @@ class SafetyConsole(QMainWindow):
         #    구간 밖으로 밀렸다(최종 리뷰 I-1).
         self._last_frame_t = t
         self.fsm.update_vision(None if off else (roi or None), t, level or ZONE_INSIDE, tip=tip)
+        self._graze.observe(t, self.fsm)             # 스침 판정 카드 — 판정기 값을 읽기만(판정은 그대로)
+        if self._graze_on:
+            gv = self._graze.view(time.monotonic())
+            self.graze_card.set_view(gv, self.fsm.dwell_threshold, self.fsm.slow_px_s,
+                                     getattr(self.camera_thread, "_px_scale", 1.0))
+            self.camera_thread.set_judge_ring(gv.get("btn") if gv["mode"] == "judging" else None)
         if self._measure.enabled:
             # 판정기 시점 — 갭메우기 뒤 보고 있는 버튼(도구가 갭메우기를 다시 구현하지 않게 · 측정 도구 정합 §4.3)
             self._measure.row("fsm", [measure_log.now_ms(t), measure_log.now_ms(), self.fsm.last_roi or "",

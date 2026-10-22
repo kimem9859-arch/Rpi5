@@ -96,6 +96,8 @@ class SafetyFSM:
         self.slow_px_s       = slow_px_s if slow_px_s is not None else config.FSM_SLOW_ENTRY_PX_S_VGA
         self._speed_back_sec = config.FSM_SPEED_BACK_SEC
         self._tips = collections.deque(maxlen=config.FSM_SPEED_BACK_N)   # 직전 장 (시각, 손끝 또는 None)
+        # 이 장 손끝 속도 · 이 장에 실제로 봤나 — 화면 「스침 판정」 카드가 읽는다(판정에는 쓰지 않음 · 2026-10-22)
+        self.last_speed, self.last_speed_observed = None, False
         # 마지막 경고 이유 — "slow"(안 B) / "dwell"(체류) · 경고로 갈 때 세우고 경고 해제 · 작업 초기화 때 None.
         # 콘솔이 경고 전이 콜백 안에서 읽어 기록한다.
         self.last_warn_reason = None
@@ -211,6 +213,7 @@ class SafetyFSM:
         observed = roi is not None     # 🔴 ②의 갭메우기 · 창 유지로 바뀌기 전 — 「이 장에 본」 장인가
         speed = self._tip_speed(now, tip)
         self._tips.append((now, tip))
+        self.last_speed, self.last_speed_observed = speed, observed     # 보여 주기용(스침 판정 카드)
         if self.window_n > 0:
             self._win.append(roi)          # None 도 기록해야 '끊김'이 세어진다
         if roi is not None:
