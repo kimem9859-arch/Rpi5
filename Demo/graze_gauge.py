@@ -69,5 +69,13 @@ class GrazeTracker:
             return dict(r, mode="result")
         return {"mode": "idle"}
 
+    def pop_new_result(self):
+        """새로 난 결과(한 번만) 또는 None — 콘솔이 시연 기록에 한 줄로 남긴다(끝나고 셀 수 있게 · 10/22)."""
+        r = self._result
+        if r is None or r.get("logged"):
+            return None
+        r["logged"] = True
+        return r
+
     def reset(self):
         self._visit = self._result = None

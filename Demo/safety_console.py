@@ -1235,6 +1235,13 @@ class SafetyConsole(QMainWindow):
         self._last_frame_t = t
         self.fsm.update_vision(None if off else (roi or None), t, level or ZONE_INSIDE, tip=tip)
         self._graze.observe(t, self.fsm)             # 스침 판정 카드 — 판정기 값을 읽기만(판정은 그대로)
+        gr = self._graze.pop_new_result()
+        if gr is not None:                           # 카드 결과를 기록에 한 줄(카드를 끈 동안에도 · 끝나고 셀 수 있게)
+            k = getattr(self.camera_thread, "_px_scale", 1.0)
+            spd = "—" if gr["min"] is None else f"{gr['min'] * k:,.0f}px/s"
+            what = {"pass": "스침 인정", "slow": "경고 · 느린 진입", "dwell": "경고 · 머무름"}[gr["kind"]]
+            self._append_log(f"[스침 판정] {gr['btn']} · {what} · 머문 {gr['elapsed']:.2f}초 · 버튼 안 최저 {spd}"
+                             f"(기준 {self.fsm.slow_px_s * k:,.0f})")
         if self._graze_on:
             gv = self._graze.view(time.monotonic())
             self.graze_card.set_view(gv, self.fsm.dwell_threshold, self.fsm.slow_px_s,
